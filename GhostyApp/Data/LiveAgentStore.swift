@@ -414,7 +414,16 @@ final class LiveAgentStore: AgentStoring {
 
         turnoEnVuelo?.cancel()
         messages.removeAll { $0.kind == .typing }
-        messages.append(Message(id: UUID().uuidString, kind: .user(limpio, adjuntos: adjuntos)))
+        // ⚠️ Envuelto en `withAnimation` cuando hay voz: es lo que deja que la barra de
+        // grabación y la burbuja se emparejen con `matchedGeometryEffect`. Sin transacción
+        // animada, la barra desaparece y la burbuja aparece — dos hechos, no un movimiento.
+        let conVoz = adjuntos.contains(where: \.esVoz)
+        let mensaje = Message(id: UUID().uuidString, kind: .user(limpio, adjuntos: adjuntos))
+        if conVoz {
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.78)) { messages.append(mensaje) }
+        } else {
+            messages.append(mensaje)
+        }
         let idRespuesta = UUID().uuidString
         messages.append(Message(id: "typing", kind: .typing))
 

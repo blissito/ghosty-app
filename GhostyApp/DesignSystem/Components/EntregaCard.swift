@@ -1,3 +1,4 @@
+import PDFKit
 import QuickLook
 import SwiftUI
 
@@ -16,9 +17,28 @@ struct EntregaCard: View {
     @State private var mirando: UIImage?
 
     /// La imagen entregada, si lo que llegó es una.
+    ///
+    /// ⚠️ Incluye la PRIMERA PÁGINA de un PDF, renderizada. Un PDF entregado sin vista
+    /// previa es una fila con un nombre: no dice si el documento salió bien, que es
+    /// justamente lo que uno quiere saber de un entregable. PDFKit lo hace nativo y ya
+    /// tenemos los bytes en la mano.
     private var imagen: UIImage? {
         guard entrega.forma == .archivo, let d = entrega.datos else { return nil }
+        if entrega.tipo == "pdf" { return Self.portada(d) }
         return UIImage(data: d)
+    }
+
+    /// La primera página de un PDF como imagen.
+    ///
+    /// Se dibuja al ANCHO de la tarjeta y no al tamaño de la página: una carta a 72 dpi son
+    /// 612 pt de ancho y se vería borrosa al estirarla.
+    private static func portada(_ datos: Data) -> UIImage? {
+        guard let doc = PDFDocument(data: datos), let pagina = doc.page(at: 0) else { return nil }
+        let caja = pagina.bounds(for: .mediaBox)
+        guard caja.width > 0 else { return nil }
+        let ancho: CGFloat = 600
+        let escala = ancho / caja.width
+        return pagina.thumbnail(of: CGSize(width: ancho, height: caja.height * escala), for: .mediaBox)
     }
 
     var body: some View {
@@ -51,7 +71,10 @@ struct EntregaCard: View {
             Image(uiImage: img)
                 .resizable()
                 .scaledToFill()
-                .frame(maxWidth: .infinity, maxHeight: 180)
+                // Un documento se recorta por ABAJO, no por el centro: lo que identifica una
+                // página es su encabezado. Una foto sí se centra.
+                .frame(maxWidth: .infinity, maxHeight: 180,
+                       alignment: entrega.tipo == "pdf" ? .top : .center)
                 .clipped()
         } else if let texto = Self.asomo(entrega) {
             Text(texto)

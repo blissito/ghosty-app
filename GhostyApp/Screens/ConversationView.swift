@@ -8,6 +8,10 @@ struct ConversationView: View {
     @State private var borrador = ""
     @FocusState private var escribiendo: Bool
     @Namespace private var formaDelCompositor
+    /// Donde vuela la nota de voz: de la barra de grabación a su burbuja.
+    @Namespace private var vuelo
+    /// El id de la nota que va en el aire ahora mismo.
+    @State private var enVuelo: String?
 
     // Adjuntos que esperan a que se mande el turno.
     @State private var adjuntos: [Adjunto] = []
@@ -148,7 +152,7 @@ struct ConversationView: View {
     private func fila(_ mensaje: Message) -> some View {
         switch mensaje.kind {
         case .user(let t, let adj):
-            HStack { Spacer(minLength: 40); UserBubble(text: t, adjuntos: adj) }
+            HStack { Spacer(minLength: 40); UserBubble(text: t, adjuntos: adj, vuelo: vuelo) }
         case .agent(let t, let tools, let trailing):
             HStack { AgentBubble(text: t, tools: tools, trailing: trailing); Spacer(minLength: 30) }
         case .entrega(let e):
@@ -255,9 +259,21 @@ struct ConversationView: View {
                                  haciaCancelar: haciaCancelar,
                                  bloqueado: vozBloqueada,
                                  alCancelar: { cancelarVoz() })
-                    .transition(.opacity)
+                    // El ORIGEN del vuelo. Con el mismo id que la burbuja y en la misma
+                    // transacción animada, SwiftUI interpola una en la otra: lo que sueltas
+                    // SE CONVIERTE en el mensaje, en vez de desaparecer para que aparezca
+                    // otra cosa.
+                    .matchedGeometryEffect(id: enVuelo.map { "voz-\($0)" } ?? "voz-ninguna",
+                                           in: vuelo, isSource: false)
+                    // Entra por la derecha, de donde viene el micrófono. Un fundido no dice
+                    // de dónde salió esto; el deslizamiento sí, y es lo que hace WhatsApp.
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .opacity))
             } else {
-                campoInterior.transition(.opacity)
+                campoInterior.transition(.asymmetric(
+                    insertion: .move(edge: .leading).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)))
             }
             control
         }
@@ -330,7 +346,13 @@ struct ConversationView: View {
                             .scaleEffect(1 + nivel * 0.9)
                     }
             }
-            .scaleEffect(grabador.grabando ? 1 + nivel * 0.18 : 1)
+            // Sigue al DEDO. Es la mitad de la sensación: sin esto el gesto es un umbral
+            // invisible y el botón se queda quieto mientras arrastras.
+            .offset(x: grabador.grabando && !vozBloqueada ? min(0, arrastre.width) : 0,
+                    y: grabador.grabando && !vozBloqueada ? min(0, max(-70, arrastre.height)) : 0)
+            // Y se encoge conforme se acerca al bote, como si lo fuera a soltar dentro.
+            .scaleEffect(grabador.grabando ? (1 + nivel * 0.18) * (1 - haciaCancelar * 0.35) : 1)
+            .opacity(1 - haciaCancelar * 0.4)
             .animation(.easeOut(duration: 0.08), value: nivel)
             .contentShape(Circle())
             .gesture(gestoDeVoz)
@@ -435,7 +457,10 @@ struct ConversationView: View {
     /// dé a un segundo botón convierte un gesto de dos segundos en uno de cuatro, y el
     /// motivo de hablar en vez de escribir era justamente ir rápido.
     private func cancelarVoz() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+        // Se descarta con un resorte, no de golpe: el gesto acaba donde el ojo lo estaba
+        // siguiendo. `.snappy` es más seco que la spring de selección — cancelar tiene que
+        // sentirse resuelto, no elástico.
+        withAnimation(.snappy(duration: 0.22)) {
             grabador.cancelar()
             vozBloqueada = false
             arrastre = .zero
@@ -449,6 +474,9 @@ struct ConversationView: View {
         }
         guard let clip = grabador.terminar() else { grabador.cancelar(); return }
         let nota = Adjunto(voz: clip)
+        // Se marca ANTES de mandar: cuando el store añada el mensaje, el destino ya existe
+        // y las dos vistas comparten id.
+        enVuelo = nota.id
         let texto = borrador
         borrador = ""
         fallo = nil
@@ -456,6 +484,9 @@ struct ConversationView: View {
         Task {
             await store.send(texto, adjuntos: [nota])
             subiendo = false
+            // Ya aterrizó: se suelta el emparejamiento para que la siguiente nota no herede
+            // la geometría de ésta.
+            enVuelo = nil
         }
     }
 

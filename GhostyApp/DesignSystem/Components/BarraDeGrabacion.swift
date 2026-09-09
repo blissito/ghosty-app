@@ -16,44 +16,74 @@ struct BarraDeGrabacion: View {
 
     @State private var late = false
 
+    /// ¿Se pasó del umbral? A partir de aquí, soltar cancela.
+    private var cruzado: Bool { haciaCancelar >= 1 }
+
     var body: some View {
         HStack(spacing: 10) {
-            if bloqueado {
-                Button(action: alCancelar) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color.gDanger)
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Circle()
-                    .fill(Color.gDanger)
-                    .frame(width: 9, height: 9)
-                    .opacity(late ? 0.25 : 1)
-                    .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: late)
-                    .onAppear { late = true }
-            }
+            bote
 
             Text(NotaDeVoz.reloj(segundos))
                 .gMono(size: 13)
                 .monospacedDigit()
-                .foregroundStyle(Color.gInk)
+                .foregroundStyle(cruzado ? Color.gDangerInk : Color.gInk)
 
             onditas
                 .frame(maxWidth: .infinity, minHeight: 22)
+                // La onda se apaga al acercarte a cancelar: deja de ser lo importante.
+                .opacity(1 - haciaCancelar * 0.7)
 
             if !bloqueado {
-                // La pista de cómo salir sin mandarla. Se desvanece conforme arrastras,
-                // que es lo que confirma que el gesto está siendo entendido.
+                // La pista SIGUE AL DEDO, como en WhatsApp: es lo que convierte el gesto en
+                // algo que responde en vez de un umbral invisible.
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold))
                     Text("desliza").font(.system(size: 12))
                 }
-                .foregroundStyle(Color.gInk3.opacity(1 - haciaCancelar))
+                .foregroundStyle(Color.gInk3)
+                .opacity(1 - haciaCancelar)
+                .offset(x: -haciaCancelar * 26)
             }
         }
         .frame(minHeight: 30)
+        .sensoryFeedback(.warning, trigger: cruzado)
+    }
+
+    /// El bote. Aparece al arrastrar, crece contigo y **se sacude al llegar**.
+    ///
+    /// ⚠️ Es lo que faltaba: sin un destino visible, deslizar a la izquierda es un umbral
+    /// invisible — no sabes cuánto falta ni qué va a pasar. Con el bote, el gesto se
+    /// explica solo.
+    @ViewBuilder
+    private var bote: some View {
+        if bloqueado {
+            Button(action: alCancelar) {
+                Image(systemName: "trash")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color.gDanger)
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+        } else if haciaCancelar > 0.02 {
+            Image(systemName: cruzado ? "trash.fill" : "trash")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.gDanger)
+                .frame(width: 30, height: 30)
+                // Crece contigo, y al cruzar el umbral pega un brinco: `.bounce` es el
+                // efecto nativo de SF Symbols, así que el "botecito" se anima solo.
+                .scaleEffect(0.7 + haciaCancelar * 0.5 + (cruzado ? 0.15 : 0))
+                .symbolEffect(.bounce, value: cruzado)
+                .transition(.scale.combined(with: .opacity))
+        } else {
+            Circle()
+                .fill(Color.gDanger)
+                .frame(width: 9, height: 9)
+                .opacity(late ? 0.25 : 1)
+                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: late)
+                .onAppear { late = true }
+                .frame(width: 30, height: 30)
+                .transition(.scale.combined(with: .opacity))
+        }
     }
 
     /// Las últimas amplitudes. Crece desde la derecha, como una grabadora de verdad.

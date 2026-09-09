@@ -9,6 +9,8 @@ struct UserBubble: View {
     /// cualquier maquillaje del nombre (backticks, un 📎) sale literal o como un cuadro con
     /// interrogación. Ya pasaron las dos cosas.
     var adjuntos: [Adjunto] = []
+    /// El espacio donde vuela una nota de voz recién soltada. Ver `ConversationView`.
+    var vuelo: Namespace.ID
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
@@ -76,6 +78,9 @@ extension UserBubble {
             }
             ForEach(voces) { a in
                 NotaDeVoz(adjunto: a, claro: true)
+                    // El DESTINO del vuelo: la barra de grabación que acabas de soltar se
+                    // convierte en esta burbuja en vez de desaparecer y reaparecer.
+                    .matchedGeometryEffect(id: "voz-\(a.id)", in: vuelo, isSource: true)
             }
             ForEach(otros) { a in
                 HStack(spacing: 9) {
