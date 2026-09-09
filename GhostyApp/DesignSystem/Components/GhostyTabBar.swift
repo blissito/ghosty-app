@@ -1,0 +1,61 @@
+import SwiftUI
+
+enum GhostyTab: String, CaseIterable, Identifiable {
+    case chat, fleet, ideas, goals, artifacts
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .chat:      return "bubble.left"
+        case .fleet:     return "square.split.2x1"
+        case .ideas:     return "lightbulb"
+        case .goals:     return "checkmark.square"
+        case .artifacts: return "circle.grid.2x2"
+        }
+    }
+}
+
+/// Píldora flotante propia, no `TabView`.
+///
+/// `TabView` nativo no da fondo de píldora con márgenes, sombra propia ni pestaña
+/// activa con relleno. Se puede forzar con `UITabBarAppearance`, pero eso se rompió
+/// con el tab bar de iOS 26 — justo la versión que corre aquí.
+struct GhostyTabBar: View {
+    @Binding var selection: GhostyTab
+    @Namespace private var resaltado
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(GhostyTab.allCases) { tab in
+                Button {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                        selection = tab
+                    }
+                } label: {
+                    ZStack {
+                        if selection == tab {
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .fill(Color.gFillStrong)
+                                .matchedGeometryEffect(id: "activa", in: resaltado)
+                        }
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 19, weight: .regular))
+                            .foregroundStyle(selection == tab ? Color.gInk : Color.gInk4)
+                    }
+                    // 44 pt de alto mínimo: es el tamaño de toque, no una decisión estética
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(6)
+        // Altura fija: el toque queda en 44 pt y la píldora no se estira al ZStack.
+        .frame(height: 56)
+        .background(Color.gCard)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous))
+        .shadow(color: .black.opacity(0.07), radius: 1, x: 0, y: 1)
+        .shadow(color: .black.opacity(0.07), radius: 14, x: 0, y: 8)
+        .padding(.horizontal, 16)
+    }
+}

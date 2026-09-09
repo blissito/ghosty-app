@@ -1,0 +1,10 @@
+# Generado por XcodeGen — no se versiona
+*.xcodeproj
+*.xcworkspace
+
+# Xcode
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.DS_Store
