@@ -2,7 +2,11 @@ import SwiftUI
 
 struct RootView: View {
     @State private var store = LiveAgentStore()
-    @State private var tab: GhostyTab = .chat
+    // GHOSTY_TAB / GHOSTY_SHEET son ganchos de desarrollo: dejan abrir una pantalla
+    // concreta desde la línea de comandos para poder verificarlas sin tocar la
+    // pantalla del simulador, que no acepta toques por script.
+    @State private var tab: GhostyTab =
+        GhostyTab(rawValue: ProcessInfo.processInfo.environment["GHOSTY_TAB"] ?? "") ?? .chat
     @State private var hoja: Agent?
 
     var body: some View {
@@ -47,6 +51,9 @@ struct RootView: View {
             // Sonda de desarrollo: con GHOSTY_PROBE puesta manda ese texto al
             // arrancar. Es lo que deja verificar el turno y el markdown sin
             // depender de que alguien teclee en el simulador.
+            if ProcessInfo.processInfo.environment["GHOSTY_SHEET"] == "1" {
+                hoja = store.selectedAgent
+            }
             if let sonda = ProcessInfo.processInfo.environment["GHOSTY_PROBE"],
                !sonda.isEmpty, case .lista = store.conexion {
                 await store.send(sonda)

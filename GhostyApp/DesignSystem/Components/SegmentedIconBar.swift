@@ -28,13 +28,15 @@ struct SegmentedIconBar<T: Hashable & Identifiable>: View {
                             .font(.system(size: 17, weight: .regular))
                             .foregroundStyle(selection == item ? Color.gInk : Color.gInk3)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(4)
+        // Altura fija: sin ella la cápsula del seleccionado se estira a lo que le den.
+        .frame(height: 42)
         .background(Color.gFillStrong)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }

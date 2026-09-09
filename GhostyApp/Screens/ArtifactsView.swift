@@ -41,7 +41,12 @@ struct ArtifactsView: View {
             .padding(.top, 16)
 
             ScrollView {
-                if pestana == 0 {
+                if pestana == 0 && store.artifacts.isEmpty {
+                    EmptyState(icon: "circle.grid.2x2",
+                               title: "Sin artefactos",
+                               detail: "Lo que el agente entregue —documentos, tableros, páginas— queda aquí.")
+                        .padding(.top, 60)
+                } else if pestana == 0 {
                     VStack(spacing: 0) {
                         ForEach(Array(store.artifacts.enumerated()), id: \.element.id) { i, art in
                             ArtifactRow(artifact: art)
