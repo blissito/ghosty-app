@@ -117,6 +117,13 @@ actor ACPClient {
         if tarea != nil { cerrar() }
 
         var req = URLRequest(url: url)
+        // ⚠️ HTTP/3 APAGADO, y no es paranoia: `EasyBitsClient` ya lleva esta misma línea
+        // porque QUIC mataba el SSE en silencio. Aquí es peor — un WebSocket sobre HTTP/3
+        // necesita CONNECT extendido, y si el proxy no lo soporta iOS aborta el socket con
+        // «Software caused connection abort», SIEMPRE y sólo en el teléfono: desde una Mac
+        // con un cliente que no habla HTTP/3 la misma URL conecta a la primera, así que
+        // parece un problema del servidor cuando es de transporte.
+        req.assumesHTTP3Capable = false
         // El token del agente vale como Bearer tal cual: no hace falta ticket firmado
         // ni el secreto de la plataforma. Vale igual para un `agt_` de EasyBits que
         // para el `gat_` de un agente nativo. Comprobado contra la caja.

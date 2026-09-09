@@ -245,11 +245,23 @@ final class LiveAgentStore: AgentStoring {
         do {
             infoDeLaCaja = try await c.conectar()
         } catch {
-            // ⚠️ Despertar con un turno HTTP de "ping" APENDABA al hilo por defecto
-            // del agente. `/revive` levanta la caja sin tocar la conversación.
-            EasyBitsClient.diag("socket falló, reviviendo la caja: \(error)")
-            try await EasyBitsClient(apiKey: cuenta.token).revive(agentID: cuenta.id)
-            infoDeLaCaja = try await c.conectar()
+            // ⚠️ El rescate por `/revive` es de EasyBits y SÓLO sirve para sus agentes:
+            // con un agente nativo se le manda un cuid de gs y un token `gat_` que no
+            // conoce, así que falla siempre — y su error TAPA al de verdad, que es lo que
+            // convertía cualquier tropiezo en un mensaje que no explica nada.
+            //
+            // Para un agente nativo se reintenta a secas: una caja que hiberna despierta
+            // con el propio upgrade del WebSocket, sólo tarda unos segundos.
+            EasyBitsClient.diag("socket falló: \(error)")
+            if cuenta.esAgenteNativo {
+                try await Task.sleep(for: .seconds(2))
+                infoDeLaCaja = try await c.conectar()
+            } else {
+                // ⚠️ Despertar con un turno HTTP de "ping" APENDABA al hilo por defecto
+                // del agente. `/revive` levanta la caja sin tocar la conversación.
+                try await EasyBitsClient(apiKey: cuenta.token).revive(agentID: cuenta.id)
+                infoDeLaCaja = try await c.conectar()
+            }
         }
         acp = c
         await c.alPedirPermiso { [weak self] p in
