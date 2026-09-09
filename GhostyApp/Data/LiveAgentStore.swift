@@ -37,6 +37,17 @@ final class LiveAgentStore: AgentStoring {
     var documentos: [EasyBitsClient.RemoteDocument] = []
     enum EstadoArchivos: Equatable { case sinPedir, cargando, listo, noPermitido, fallo(String) }
     var estadoArchivos: EstadoArchivos = .sinPedir
+
+    /// Los hilos que viven EN LA CAJA, no en este teléfono. Vienen por WebSocket
+    /// (`session/list`), así que sobreviven a reinstalar la app y los comparten
+    /// todos los clientes del agente.
+    var hilosRemotos: [ACPClient.Session] = []
+    enum EstadoHilos: Equatable { case sinPedir, cargando, listo, fallo(String) }
+    var estadoHilos: EstadoHilos = .sinPedir
+    var infoDeLaCaja: String?
+    /// Qué hilo remoto se está mirando, para marcarlo en la lista.
+    var hiloAbierto: String?
+    private var acp: ACPClient?
     private var turnoEnVuelo: Task<Void, Never>?
     private var promptDelTurno = ""
     private var usoDelTurno = (entrada: 0, salida: 0)
@@ -116,6 +127,13 @@ final class LiveAgentStore: AgentStoring {
         selectedAgentID = id
         messages = hilos[id] ?? []
         currentTurn = nil
+        // El socket es por agente: cambiar de agente lo suelta.
+        Task { [acp] in await acp?.cerrar() }
+        acp = nil
+        infoDeLaCaja = nil
+        hilosRemotos = []
+        estadoHilos = .sinPedir
+        hiloAbierto = nil
     }
 
     /// Empieza de cero con este agente. Suelta el `sessionId`, así que la caja abre
@@ -126,6 +144,7 @@ final class LiveAgentStore: AgentStoring {
         hilos[selectedAgentID] = []
         messages = []
         currentTurn = nil
+        hiloAbierto = nil
         cronometro?.cancel()
     }
 
@@ -134,6 +153,47 @@ final class LiveAgentStore: AgentStoring {
         hilos[id] = nil
         sesiones[id] = nil
         Task { await cargar() }
+    }
+
+    // MARK: - Hilos de la caja (WebSocket ACP)
+
+    /// El WebSocket convive con el HTTP en vez de reemplazarlo: el turno sigue yendo
+    /// por HTTP porque ése **despierta la caja**, y esto sirve para lo que HTTP no
+    /// puede — listar y cargar hilos.
+    func cargarHilos() async {
+        guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
+        guard estadoHilos != .cargando else { return }
+        estadoHilos = .cargando
+
+        let cliente = acp ?? ACPClient(agentID: cuenta.id, token: cuenta.token)
+        acp = cliente
+        do {
+            infoDeLaCaja = try await cliente.conectar()
+            hilosRemotos = try await cliente.sesiones()
+            estadoHilos = .listo
+        } catch {
+            estadoHilos = .fallo(error.localizedDescription)
+            acp = nil
+        }
+    }
+
+    /// Abre un hilo de la caja en la conversación. Lo que se pinta es el replay que
+    /// manda `session/load`, no algo guardado aquí.
+    func abrirHilo(_ hilo: ACPClient.Session) async {
+        guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
+        let cliente = acp ?? ACPClient(agentID: cuenta.id, token: cuenta.token)
+        acp = cliente
+        do {
+            if infoDeLaCaja == nil { infoDeLaCaja = try await cliente.conectar() }
+            let replay = try await cliente.cargar(hilo.id, cwd: hilo.cwd)
+            messages = ReplayToMessages.convertir(replay)
+            hilos[selectedAgentID] = messages
+            // El turno siguiente continúa ESE hilo, no uno nuevo.
+            sesiones[selectedAgentID] = hilo.id
+            hiloAbierto = hilo.id
+        } catch {
+            estadoHilos = .fallo(error.localizedDescription)
+        }
     }
 
     // MARK: - AgentStoring

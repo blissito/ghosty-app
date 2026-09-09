@@ -60,6 +60,14 @@ struct RootView: View {
             // Sonda de desarrollo: con GHOSTY_PROBE puesta manda ese texto al
             // arrancar. Es lo que deja verificar el turno y el markdown sin
             // depender de que alguien teclee en el simulador.
+            // Gancho de desarrollo: carga el hilo más reciente de la caja para
+            // poder verificar el replay sin tocar la pantalla.
+            if ProcessInfo.processInfo.environment["GHOSTY_LOAD_THREAD"] == "1" {
+                await store.cargarHilos()
+                if let primero = store.hilosRemotos.first {
+                    await store.abrirHilo(primero)
+                }
+            }
             if ProcessInfo.processInfo.environment["GHOSTY_SHEET"] == "1" {
                 hoja = store.selectedAgent
             }

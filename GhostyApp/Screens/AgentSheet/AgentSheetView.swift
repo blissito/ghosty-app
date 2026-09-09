@@ -24,7 +24,10 @@ struct AgentSheetView: View {
     var onNuevaConversacion: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
-    @State private var pane: SheetPane = .activity
+    // Gancho de desarrollo: el simulador no acepta toques por script, así que sin
+    // esto no hay forma de verificar una pestaña que no sea la primera.
+    @State private var pane: SheetPane =
+        SheetPane(rawValue: ProcessInfo.processInfo.environment["GHOSTY_PANE"] ?? "") ?? .activity
 
     var body: some View {
         VStack(spacing: 0) {
@@ -78,7 +81,7 @@ struct AgentSheetView: View {
                     switch pane {
                     case .activity:    ActivityPane(store: store)
                     case .permissions: PermissionsPane(store: store)
-                    case .history:     HistoryPane(store: store)
+                    case .history:     HistoryPane(store: store, onAbrir: { dismiss() })
                     case .memory:
                         EmptyState(icon: "brain",
                                    title: "Memoria",
