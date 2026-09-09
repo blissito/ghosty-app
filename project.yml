@@ -64,6 +64,12 @@ targets:
         # exportación en CADA subida y bloquea el build hasta contestarla.
         # false = sólo se usa el HTTPS del sistema, que está exento.
         ITSAppUsesNonExemptEncryption: false
+        # ⚠️ La VARIABLE, no un literal. xcodegen hornea aquí el valor de
+        # `CURRENT_PROJECT_VERSION` del project.yml, así que sin esta línea el
+        # `CURRENT_PROJECT_VERSION=N` que pasa `subir-testflight.sh` a xcodebuild NO llega
+        # al Info.plist: el .ipa sale con otro número, App Store Connect lo ignora por
+        # duplicado y NO manda correo. Tres subidas perdidas el 2026-09-09 por esto.
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         GhostyCommit: $(GHOSTY_COMMIT)
         # ⚠️ SIN estas dos, la app NO avisa: se CIERRA en el momento de abrir el selector.
         # iOS mata el proceso al pedir un permiso que no está declarado. El texto lo lee la

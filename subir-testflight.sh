@@ -45,6 +45,18 @@ xcodebuild -exportArchive -archivePath build/GhostyApp.xcarchive \
   -exportOptionsPlist ExportOptions.plist -exportPath build/ipa \
   -allowProvisioningUpdates
 
+# ⚠️ Se COMPRUEBA el número dentro del .ipa antes de subir. Sin esto el fallo es MUDO:
+# altool dice UPLOAD SUCCEEDED, App Store Connect ignora el paquete por traer un número
+# que ya existe, y no llega ningún correo — la build simplemente no aparece nunca. Así se
+# perdieron tres el 2026-09-09 antes de encontrarlo.
+DENTRO=$(unzip -p build/ipa/GhostyApp.ipa 'Payload/GhostyApp.app/Info.plist' | plutil -extract CFBundleVersion raw -o - -- - 2>/dev/null)
+if [ "$DENTRO" != "$SIGUIENTE" ]; then
+  echo "✗ el .ipa lleva build $DENTRO y esperaba $SIGUIENTE — no lo subo" >&2
+  echo "  (mira CFBundleVersion en project.yml: tiene que ser \$(CURRENT_PROJECT_VERSION))" >&2
+  exit 1
+fi
+echo "el .ipa lleva build $DENTRO ✓"
+
 xcrun altool --upload-app -f build/ipa/GhostyApp.ipa -t ios \
   --apiKey "$KEY" --apiIssuer "$ISS"
 

@@ -60,17 +60,19 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Es un respaldo para pintar, NO una promesa de que funcionan: cada fila dice "muy
     /// pronto" y no se puede tocar. En cuanto el servidor conteste, manda él.
     private static let catalogo: [Conector] = [
+        // Las de casa primero: son las que de verdad vamos a activar antes, y las que
+        // reconoces por su marca sin leer el nombre.
+        Conector(id: "easybits", nombre: "EasyBits", conectado: false, disponible: false),
+        Conector(id: "denik", nombre: "Deník", conectado: false, disponible: false),
+        Conector(id: "mailmask", nombre: "Mailmask", conectado: false, disponible: false),
         Conector(id: "github", nombre: "GitHub", conectado: false, disponible: false),
         Conector(id: "google", nombre: "Gmail", conectado: false, disponible: false),
         Conector(id: "google-calendar", nombre: "Google Calendar", conectado: false, disponible: false),
-        Conector(id: "denik", nombre: "Deník", conectado: false, disponible: false),
         Conector(id: "calendly", nombre: "Calendly", conectado: false, disponible: false),
         Conector(id: "spotify", nombre: "Spotify", conectado: false, disponible: false),
         Conector(id: "canva", nombre: "Canva", conectado: false, disponible: false),
         Conector(id: "odoo", nombre: "Odoo", conectado: false, disponible: false),
         Conector(id: "kommo", nombre: "Kommo", conectado: false, disponible: false),
-        Conector(id: "easybits", nombre: "EasyBits", conectado: false, disponible: false),
-        Conector(id: "mailmask", nombre: "Mailmask", conectado: false, disponible: false),
     ]
 
     func cargarConectores() async {

@@ -30,6 +30,17 @@ struct ConectoresPane: View {
     private var disponibles: [Conector] { store.conectores.filter { !$0.conectado } }
 
     var body: some View {
+        // ⚠️ Con ScrollView. Sin él la lista no cabía y el VStack se desbordaba por arriba:
+        // el título acababa bajo la isla y las filas salían de la tarjeta. Las otras
+        // pestañas ya lo tienen; ésta nació como panel de una hoja, donde el scroll lo
+        // ponía la hoja.
+        ScrollView {
+            contenido.padding(.top, 8)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var contenido: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Integraciones").gScreenTitle()
