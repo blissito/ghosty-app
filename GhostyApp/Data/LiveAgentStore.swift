@@ -125,45 +125,58 @@ final class LiveAgentStore: AgentStoring {
 
         turnoEnVuelo = Task { [weak self] in
             guard let self else { return }
+            // Un turno se intenta hasta dos veces, y sólo si el primero **no
+            // produjo nada**: reintentar con texto ya en pantalla duplicaría el
+            // turno del lado del agente (y lo cobraría dos veces).
             var acumulado = ""
-            do {
-                let flujo = cliente.message(
-                    agentID: agente,
-                    content: limpio,
-                    sessionID: self.sesiones[agente]
-                )
-                EasyBitsClient.diag("consumidor: iterando")
-                for try await evento in flujo {
-                    EasyBitsClient.diag("consumidor: evento \(evento)")
-                    switch evento {
-                    case .chunk(let trozo):
-                        acumulado += trozo
-                        self.pintarRespuesta(id: idRespuesta, texto: acumulado)
-                    case .usage(let entrada, let salida, _):
-                        self.ultimoUso = (entrada, salida)
-                    case .newSession(let s):
-                        self.sesiones[agente] = s
-                    case .error(let detalle):
-                        self.pintarRespuesta(id: idRespuesta,
-                                             texto: acumulado.isEmpty ? "⚠️ \(detalle)" : acumulado + "\n\n⚠️ \(detalle)")
-                    case .done:
-                        break
-                    case .unknown:
-                        break
+            var intentos = 0
+            let maxIntentos = 2
+
+            while intentos < maxIntentos {
+                intentos += 1
+                do {
+                    let flujo = cliente.message(
+                        agentID: agente,
+                        content: limpio,
+                        sessionID: self.sesiones[agente]
+                    )
+                    EasyBitsClient.diag("consumidor: iterando (intento \(intentos))")
+                    for try await evento in flujo {
+                        switch evento {
+                        case .chunk(let trozo):
+                            acumulado += trozo
+                            self.pintarRespuesta(id: idRespuesta, texto: acumulado)
+                        case .usage(let entrada, let salida, _):
+                            self.ultimoUso = (entrada, salida)
+                        case .newSession(let s):
+                            self.sesiones[agente] = s
+                        case .error(let detalle):
+                            self.pintarRespuesta(id: idRespuesta,
+                                                 texto: acumulado.isEmpty ? "⚠️ \(detalle)" : acumulado + "\n\n⚠️ \(detalle)")
+                        case .done, .unknown:
+                            break
+                        }
                     }
+                    EasyBitsClient.diag("consumidor: fin, \(acumulado.count) chars")
+                    if acumulado.isEmpty {
+                        self.pintarRespuesta(id: idRespuesta, texto: "_El turno cerró sin texto._")
+                    }
+                    break
+
+                } catch {
+                    EasyBitsClient.diag("consumidor: FALLO \(error)")
+                    let reintentable = Self.esCorteDeTransporte(error)
+
+                    if reintentable, acumulado.isEmpty, intentos < maxIntentos {
+                        self.pintarRespuesta(id: idRespuesta, texto: "_Se cortó la conexión. Reintentando…_")
+                        try? await Task.sleep(for: .seconds(1))
+                        continue
+                    }
+
+                    self.pintarRespuesta(id: idRespuesta,
+                                         texto: Self.mensajeDeFallo(error, parcial: acumulado))
+                    break
                 }
-                EasyBitsClient.diag("consumidor: fin, \(acumulado.count) chars")
-                if acumulado.isEmpty {
-                    self.pintarRespuesta(id: idRespuesta, texto: "_El turno cerró sin texto._")
-                }
-            } catch {
-                EasyBitsClient.diag("consumidor: FALLO \(error)")
-                self.pintarRespuesta(
-                    id: idRespuesta,
-                    texto: acumulado.isEmpty
-                        ? "⚠️ No pude completar el turno.\n\n\(error.localizedDescription)"
-                        : acumulado + "\n\n⚠️ El turno se cortó: \(error.localizedDescription)"
-                )
             }
             self.cerrarTurno(agente)
         }
@@ -192,6 +205,50 @@ final class LiveAgentStore: AgentStoring {
         await send(approve
                    ? "Aprueba el \(card.reference)."
                    : "Pide cambios en el \(card.reference) y deja el comentario en la línea del bloqueante.")
+    }
+
+    // MARK: - Fallos de red
+
+    /// Cortes del transporte, no del agente. En un teléfono son la vida normal:
+    /// un intermediario cierra el stream, o el sistema mueve la conexión de wifi
+    /// a datos y la deja caer a media respuesta.
+    static func esCorteDeTransporte(_ error: Error) -> Bool {
+        guard let url = error as? URLError else { return false }
+        switch url.code {
+        case .networkConnectionLost,   // -1005, el clásico con SSE en dispositivo
+             .timedOut,
+             .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Un mensaje que diga qué pasó de verdad. «network connection was lost» a secas
+    /// suena a que el agente falló, y no fue el agente.
+    static func mensajeDeFallo(_ error: Error, parcial: String) -> String {
+        let detalle: String
+        if let url = error as? URLError {
+            switch url.code {
+            case .networkConnectionLost:
+                detalle = "Se cortó la conexión a media respuesta. El agente sí recibió el mensaje: vuelve a preguntarle o revisa el hilo en un rato."
+            case .notConnectedToInternet:
+                detalle = "El teléfono no tiene internet."
+            case .timedOut:
+                detalle = "El turno tardó más de lo que aguanta la conexión."
+            default:
+                detalle = url.localizedDescription
+            }
+        } else {
+            detalle = error.localizedDescription
+        }
+        return parcial.isEmpty
+            ? "⚠️ \(detalle)"
+            : parcial + "\n\n⚠️ \(detalle)"
     }
 
     // MARK: - Interno
