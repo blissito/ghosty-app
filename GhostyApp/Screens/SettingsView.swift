@@ -151,18 +151,27 @@ struct SettingsView: View {
 
         let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = agente.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cliente = EasyBitsClient(apiKey: t)
-
+        // ⚠️ Antes esto mandaba un "ping" por HTTP, y ese ping **apendaba al hilo
+        // por defecto del agente**: probar la credencial ensuciaba una conversación.
+        // El `initialize` del WebSocket verifica lo mismo —que el token alcanza a esa
+        // caja— sin escribir nada, y de paso comprueba el transporte que la app usa
+        // de verdad.
+        let cliente = ACPClient(agentID: id, token: t)
         do {
-            var contesto = false
-            for try await evento in cliente.message(agentID: id, content: "ping") {
-                if case .chunk = evento { contesto = true }
-                if case .error(let d) = evento { resultado = .mal(d); return }
-                if case .done = evento { break }
-            }
-            guard contesto else { resultado = .mal("El turno cerró sin respuesta."); return }
+            let info = try await cliente.conectar()
+            await cliente.cerrar()
+            resultado = .bien("Conectado · \(info)")
         } catch {
-            resultado = .mal(error.localizedDescription); return
+            // La caja puede estar dormida: se la levanta y se reintenta una vez.
+            do {
+                try await EasyBitsClient(apiKey: t).revive(agentID: id)
+                let info = try await cliente.conectar()
+                await cliente.cerrar()
+                resultado = .bien("Conectado · \(info)")
+            } catch {
+                resultado = .mal(error.localizedDescription)
+                return
+            }
         }
 
         let limpio = nombre.trimmingCharacters(in: .whitespacesAndNewlines)

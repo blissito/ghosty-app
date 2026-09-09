@@ -371,53 +371,6 @@ final class LiveAgentStore: AgentStoring {
         cerrarTurno(cuenta.id)
     }
 
-    /// Turno por HTTP. Es el que **despierta la caja**, así que sigue siendo el
-    /// respaldo y el primer turno de una app recién abierta.
-    private func porHTTP(_ cuenta: AgentAccount, texto: String, respuesta: String) async {
-        porSocket = false
-        let cliente = EasyBitsClient(apiKey: cuenta.token)
-        var acumulado = ""
-        var intentos = 0
-
-        while intentos < 2 {
-            intentos += 1
-            do {
-                for try await evento in cliente.message(agentID: cuenta.id, content: texto,
-                                                        sessionID: sesiones[cuenta.id]) {
-                    switch evento {
-                    case .chunk(let t):
-                        acumulado += t
-                        pintarRespuesta(id: respuesta, texto: acumulado)
-                    case .usage(let e, let s, _):
-                        ultimoUso = (e, s); usoDelTurno = (e, s)
-                    case .newSession(let s):
-                        sesiones[cuenta.id] = s
-                    case .error(let d):
-                        pintarRespuesta(id: respuesta,
-                            texto: acumulado.isEmpty ? "⚠️ \(d)" : acumulado + "\n\n⚠️ \(d)")
-                    case .done, .unknown:
-                        break
-                    }
-                }
-                if acumulado.isEmpty {
-                    pintarRespuesta(id: respuesta, texto: "_El turno cerró sin texto._")
-                }
-                anotar(cuenta, chars: acumulado.count, como: .done)
-                break
-            } catch {
-                if Self.esCorteDeTransporte(error), acumulado.isEmpty, intentos < 2 {
-                    pintarRespuesta(id: respuesta, texto: "_Se cortó la conexión. Reintentando…_")
-                    try? await Task.sleep(for: .seconds(1))
-                    continue
-                }
-                pintarRespuesta(id: respuesta, texto: Self.mensajeDeFallo(error, parcial: acumulado))
-                anotar(cuenta, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
-                break
-            }
-        }
-        cerrarTurno(cuenta.id)
-    }
-
     func stopTurn() async {
         turnoEnVuelo?.cancel()
         cerrarTurno(selectedAgentID)
