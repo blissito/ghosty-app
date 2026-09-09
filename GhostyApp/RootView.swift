@@ -100,7 +100,8 @@ struct RootView: View {
         // último elemento de una lista y parece que falta contenido.
         switch tab {
         case .chat:
-            ConversationView(store: store, onOpenSheet: abrirHoja)
+            ConversationView(store: store, onOpenSheet: abrirHoja,
+                             onConectarAgente: { ajustes = true })
                 .padding(.bottom, Theme.Space.composerClearance)
         case .fleet:
             FleetView(store: store,

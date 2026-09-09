@@ -1,8 +1,9 @@
 import SwiftUI
 
 struct ConversationView: View {
-    let store: any AgentStoring
+    let store: LiveAgentStore
     var onOpenSheet: () -> Void
+    var onConectarAgente: () -> Void
 
     @State private var borrador = ""
     @FocusState private var escribiendo: Bool
@@ -76,15 +77,56 @@ struct ConversationView: View {
         }
     }
 
+    /// El compositor sólo trae controles que hacen algo.
+    ///
+    /// Antes tenía un clip y un micrófono que no hacían nada: la API de la caja
+    /// recibe `content` y punto —ni adjuntos ni audio—, así que dibujarlos era
+    /// prometer lo que no hay. El `+` sí abre lo que de verdad se puede hacer.
     private var compositor: some View {
         HStack(spacing: 10) {
-            TintedIcon(systemName: "paperclip", tint: .gInk3, background: .gCard, size: 46)
-                .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
-
             HStack(spacing: 10) {
-                Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Color.gInk3)
+                Menu {
+                    Button {
+                        store.nuevaConversacion()
+                    } label: {
+                        Label("Nueva conversación", systemImage: "arrow.counterclockwise")
+                    }
+
+                    if store.agents.count > 1 {
+                        Menu {
+                            ForEach(store.agents) { a in
+                                Button {
+                                    escribiendo = false
+                                    store.seleccionar(a.id)
+                                } label: {
+                                    if a.id == store.selectedAgentID {
+                                        Label(a.name, systemImage: "checkmark")
+                                    } else {
+                                        Text(a.name)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Cambiar de agente", systemImage: "arrow.left.arrow.right")
+                        }
+                    }
+
+                    Divider()
+
+                    Button {
+                        escribiendo = false
+                        onConectarAgente()
+                    } label: {
+                        Label("Conectar otro agente", systemImage: "plus.circle")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(Color.gInk3)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+
                 TextField("Mensaje", text: $borrador, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
@@ -100,23 +142,21 @@ struct ConversationView: View {
                                 .foregroundStyle(Color.gPrimary)
                         }
                     }
-                if borrador.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Image(systemName: "mic")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color.gInk3)
-                } else {
-                    Button(action: enviar) {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
-                            .background(Theme.primaryGradient)
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
+
+                Button(action: enviar) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(borrador.trimmingCharacters(in: .whitespaces).isEmpty
+                                    ? AnyShapeStyle(Color.gInk4.opacity(0.45))
+                                    : AnyShapeStyle(Theme.primaryGradient))
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .disabled(borrador.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
             .frame(minHeight: 46)
             .background(Color.gCard)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
