@@ -57,6 +57,24 @@ if [ "$DENTRO" != "$SIGUIENTE" ]; then
 fi
 echo "el .ipa lleva build $DENTRO ✓"
 
+# ⚠️ VALIDAR ANTES DE SUBIR. `--upload-app` dice `UPLOAD SUCCEEDED` en cuanto el paquete
+# viaja, y lo que lo rechaza después es MUDO: no hay correo y la build no aparece ni en
+# "Build Uploads" de App Store Connect. `--validate-app` da el mismo veredicto de forma
+# SÍNCRONA, en segundos.
+#
+# El caso real (2026-09-09): «Upload limit reached. The upload limit for your application
+# has been reached. Please wait 1 day and try again.» Apple tiene un TOPE DIARIO de subidas
+# por app y ese día se agotó con 21 builds. Cuatro horas creyendo que Apple iba lento, y
+# dos diagnósticos equivocados, por no preguntar antes de mandar.
+echo "validando el paquete…"
+if ! xcrun altool --validate-app -f build/ipa/GhostyApp.ipa -t ios \
+     --apiKey "$KEY" --apiIssuer "$ISS" 2>&1 | tee /tmp/gs-validate.log | grep -q "No errors validating"; then
+  echo "✗ Apple rechazó el paquete al validarlo. Motivo:" >&2
+  grep -iE "ERROR: \[altool|detail :" /tmp/gs-validate.log | head -3 >&2
+  exit 1
+fi
+echo "paquete válido ✓"
+
 xcrun altool --upload-app -f build/ipa/GhostyApp.ipa -t ios \
   --apiKey "$KEY" --apiIssuer "$ISS"
 

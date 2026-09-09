@@ -117,6 +117,11 @@ script; esto es para reconocerlos si vuelven:**
    duplicado SIN mandar correo**: `UPLOAD SUCCEEDED` y la build no aparece jamás. El script
    ahora lee el número de dentro del `.ipa` y aborta si no coincide.
 
+3. **Apple tiene un TOPE DIARIO de subidas por app.** Al agotarlo, `--upload-app` sigue
+   diciendo `UPLOAD SUCCEEDED` y el rechazo es mudo: ni correo, ni aparece en *Build
+   Uploads*. Por eso el script **valida antes de subir** (`altool --validate-app`), que
+   contesta en segundos: `Upload limit reached… Please wait 1 day and try again`.
+
 **Dónde mirar de verdad**: `https://appstoreconnect.apple.com/apps/6810017404/testflight/ios`.
 La API (`scripts/asc.py builds`) **no lista** lo que está procesando, así que "no aparece"
 no distingue entre procesando y perdido.
