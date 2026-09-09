@@ -70,6 +70,7 @@ final class LiveAgentStore: AgentStoring {
         Conector(id: "odoo", nombre: "Odoo", conectado: false, disponible: false),
         Conector(id: "kommo", nombre: "Kommo", conectado: false, disponible: false),
         Conector(id: "easybits", nombre: "EasyBits", conectado: false, disponible: false),
+        Conector(id: "mailmask", nombre: "Mailmask", conectado: false, disponible: false),
     ]
 
     func cargarConectores() async {

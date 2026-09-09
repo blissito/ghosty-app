@@ -17,8 +17,21 @@ struct Conector: Identifiable, Equatable, Sendable {
     /// Desde cuándo, si está conectado.
     var desde: Date?
 
-    /// El símbolo con el que se pinta. Del id, porque un logo de marca hay que
-    /// empaquetarlo y estos cambian sin que la app se actualice.
+    /// La marca de casa, si la tenemos empaquetada.
+    ///
+    /// ⚠️ Sólo las NUESTRAS. El logo de un tercero es una licencia que no tenemos, y además
+    /// la lista la manda el servidor: un conector nuevo tiene que verse decente sin
+    /// actualizar la app, y para eso está el símbolo.
+    var marca: String? {
+        switch id {
+        case "easybits": return "marca-easybits"
+        case "denik":    return "marca-denik"
+        case "mailmask": return "marca-mailmask"
+        default:         return nil
+        }
+    }
+
+    /// El símbolo con el que se pinta cuando no hay marca propia.
     var icono: String {
         switch id {
         case "github":                    return "chevron.left.forwardslash.chevron.right"
@@ -29,7 +42,6 @@ struct Conector: Identifiable, Equatable, Sendable {
         case "odoo", "kommo":             return "building.2.fill"
         case "calendly":                  return "clock.fill"
         case "drive", "google-drive":     return "folder.fill"
-        case "easybits":                  return "square.stack.3d.up.fill"
         default:                          return "puzzlepiece.extension.fill"
         }
     }

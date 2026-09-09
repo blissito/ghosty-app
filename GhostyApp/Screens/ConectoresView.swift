@@ -77,9 +77,20 @@ struct ConectoresPane: View {
 
     private func fila(_ c: Conector) -> some View {
         HStack(spacing: 12) {
-            TintedIcon(systemName: c.icono,
-                       tint: c.conectado ? .gPrimary : .gInk2,
-                       background: c.conectado ? .gPrimaryTint : .gFill, size: 34)
+            if let marca = c.marca {
+                // La marca va SIN teñir y sin fondo de color: un logo lleva su propia
+                // paleta, y meterlo en una caja morada lo desfigura.
+                Image(marca, bundle: GhostyAssets.bundle)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 34, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous))
+            } else {
+                TintedIcon(systemName: c.icono,
+                           tint: c.conectado ? .gPrimary : .gInk2,
+                           background: c.conectado ? .gPrimaryTint : .gFill, size: 34)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(c.nombre).font(.system(size: 15, weight: .medium)).foregroundStyle(Color.gInk)
                 if c.conectado { Text("Conectada").gCaption() }
