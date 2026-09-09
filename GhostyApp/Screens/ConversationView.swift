@@ -7,6 +7,7 @@ struct ConversationView: View {
 
     @State private var borrador = ""
     @FocusState private var escribiendo: Bool
+    @Namespace private var formaDelCompositor
 
     // Adjuntos que esperan a que se mande el turno.
     @State private var adjuntos: [Adjunto] = []
@@ -16,6 +17,10 @@ struct ConversationView: View {
     @State private var abrirCamara = false
     @State private var subiendo = false
     @State private var grabador = GrabadorDeVoz()
+    /// Cuánto se ha arrastrado desde el micrófono. Izquierda cancela, arriba bloquea.
+    @State private var arrastre: CGSize = .zero
+    /// Manos libres: se soltó el dedo y la grabación sigue.
+    @State private var vozBloqueada = false
     @State private var fallo: String?
 
     var body: some View {
@@ -67,6 +72,8 @@ struct ConversationView: View {
         }
         .sensoryFeedback(.success, trigger: entregasEnElHilo)
         .sensoryFeedback(.impact(weight: .light), trigger: adjuntos.count)
+        .sensoryFeedback(.start, trigger: grabador.grabando)
+        .sensoryFeedback(.impact(weight: .medium), trigger: vozBloqueada)
     }
 
     /// Ejemplos de lo que se le puede pedir. Al tocarlos se escriben en el campo —no se
@@ -234,81 +241,160 @@ struct ConversationView: View {
         .transition(.opacity)
     }
 
+    /// UNA sola cápsula que se transforma por dentro.
+    ///
+    /// ⚠️ Primero puse una cápsula distinta para grabar, y estaba mal: son dos vistas que
+    /// se sustituyen, o sea un salto. Lo que hace WhatsApp —y lo correcto— es que el
+    /// compositor SIGA siendo el mismo y le cambie el contenido, con el control de la
+    /// derecha en su sitio todo el rato.
     private var capsula: some View {
         HStack(spacing: 10) {
-            HStack(spacing: 10) {
-                Menu {
-                    Button { abrirFotos = true } label: { Label("Foto", systemImage: "photo") }
-                    Button { abrirCamara = true } label: { Label("Cámara", systemImage: "camera") }
-                    Button { abrirArchivos = true } label: { Label("Archivo", systemImage: "doc") }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(Color.gInk3)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
-                }
-
-                TextField("Mensaje", text: $borrador, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .lineLimit(1...4)
-                    .focused($escribiendo)
-                    .submitLabel(.send)
-                    .onSubmit(enviar)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Listo") { escribiendo = false }
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color.gPrimary)
-                        }
-                    }
-
-                // El micrófono ocupa el sitio del enviar mientras no haya nada que
-                // mandar, como en Muse y en WhatsApp: no caben los dos, y con el campo
-                // vacío el de enviar no sirve para nada.
-                if !hayQueMandar {
-                    Image(systemName: grabador.grabando ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(grabador.grabando
-                                    ? AnyShapeStyle(Color.gDanger)
-                                    : AnyShapeStyle(Theme.primaryGradient))
-                        .clipShape(Circle())
-                        .contentShape(Circle())
-                        // Mantener pulsado para hablar, soltar para enviar: es el gesto de
-                        // WhatsApp y el único que no deja notas abiertas por olvido.
-                        .gesture(
-                            LongPressGesture(minimumDuration: 0.15)
-                                .onEnded { _ in
-                                    escribiendo = false
-                                    grabador.empezar()
-                                }
-                                .sequenced(before: DragGesture(minimumDistance: 0))
-                                .onEnded { _ in soltarVoz() }
-                        )
-                } else {
-                Button(action: enviar) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(hayQueMandar && !subiendo
-                                    ? AnyShapeStyle(Theme.primaryGradient)
-                                    : AnyShapeStyle(Color.gInk4.opacity(0.45)))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!hayQueMandar || subiendo)
-                }
+            if grabador.grabando {
+                BarraDeGrabacion(segundos: grabador.segundos,
+                                 onda: grabador.onda,
+                                 haciaCancelar: haciaCancelar,
+                                 bloqueado: vozBloqueada,
+                                 alCancelar: { cancelarVoz() })
+                    .transition(.opacity)
+            } else {
+                campoInterior.transition(.opacity)
             }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 46)
-            .background(Color.gCard)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
+            control
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 46)
+        .background(Color.gCard)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
+        // Se tiñe de rojo según te acercas a cancelar: el aviso llega ANTES de soltar, que
+        // es cuando todavía se puede rectificar.
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.gDanger.opacity(haciaCancelar * 0.12))
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var haciaCancelar: Double {
+        grabador.grabando && !vozBloqueada ? min(1, max(0, Double(-arrastre.width) / 90)) : 0
+    }
+
+    /// El control de la derecha: enviar, parar, o el micrófono que late con tu voz.
+    @ViewBuilder
+    private var control: some View {
+        if grabador.grabando && vozBloqueada {
+            Button(action: soltarVoz) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Theme.primaryGradient, in: Circle())
+            }
+            .buttonStyle(.plain)
+        } else if hayQueMandar {
+            Button(action: enviar) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(subiendo
+                                ? AnyShapeStyle(Color.gInk4.opacity(0.45))
+                                : AnyShapeStyle(Theme.primaryGradient))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(subiendo)
+        } else {
+            microfono
+        }
+    }
+
+    /// ⚠️ **Late con tu voz.** Un micrófono que no reacciona no dice si te está oyendo, y
+    /// eso es lo primero que uno quiere saber al grabar. El nivel sale del medidor del
+    /// grabador, el mismo que dibuja la onda.
+    private var microfono: some View {
+        let nivel = Double(grabador.onda.last ?? 0)
+        return Image(systemName: "mic.fill")
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background {
+                Circle()
+                    .fill(grabador.grabando
+                          ? AnyShapeStyle(Color.gDanger)
+                          : AnyShapeStyle(Theme.primaryGradient))
+                    // El halo crece con la voz; el círculo sólo un poco, o el icono baila.
+                    .overlay {
+                        Circle()
+                            .stroke(Color.gDanger.opacity(grabador.grabando ? 0.35 : 0), lineWidth: 3)
+                            .scaleEffect(1 + nivel * 0.9)
+                    }
+            }
+            .scaleEffect(grabador.grabando ? 1 + nivel * 0.18 : 1)
+            .animation(.easeOut(duration: 0.08), value: nivel)
+            .contentShape(Circle())
+            .gesture(gestoDeVoz)
+    }
+
+    private var gestoDeVoz: some Gesture {
+        // Un solo `DragGesture` desde 0: tocar empieza a grabar, arrastrar decide, soltar
+        // manda. Encadenar LongPress con Drag —lo que había— hacía que el primer instante
+        // no respondiera y que el arrastre llegara en otro sistema de coordenadas: el gesto
+        // se sentía muerto.
+        DragGesture(minimumDistance: 0)
+            .onChanged { v in
+                if !grabador.grabando {
+                    escribiendo = false
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        grabador.empezar()
+                    }
+                }
+                arrastre = v.translation
+            }
+            .onEnded { v in
+                if v.translation.width < -90 { cancelarVoz() }
+                // Arriba = manos libres, como WhatsApp: sigue grabando y aparecen la
+                // papelera y el enviar.
+                else if v.translation.height < -70 {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        vozBloqueada = true
+                        arrastre = .zero
+                    }
+                } else { soltarVoz() }
+            }
+    }
+
+    /// Lo que va DENTRO de la cápsula cuando no se está grabando: el `+` y el campo.
+    /// El control de la derecha lo pone `capsula`, porque es el que cambia de identidad.
+    private var campoInterior: some View {
+        HStack(spacing: 10) {
+            Menu {
+                Button { abrirFotos = true } label: { Label("Foto", systemImage: "photo") }
+                Button { abrirCamara = true } label: { Label("Cámara", systemImage: "camera") }
+                Button { abrirArchivos = true } label: { Label("Archivo", systemImage: "doc") }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color.gInk3)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+
+            TextField("Mensaje", text: $borrador, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16))
+                .lineLimit(1...4)
+                .focused($escribiendo)
+                .submitLabel(.send)
+                .onSubmit(enviar)
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Listo") { escribiendo = false }
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color.gPrimary)
+                    }
+                }
         }
     }
 
@@ -348,7 +434,19 @@ struct ConversationView: View {
     /// ⚠️ "Parar es enviar", como en Teams. Dejarla en el compositor para que la persona le
     /// dé a un segundo botón convierte un gesto de dos segundos en uno de cuatro, y el
     /// motivo de hablar en vez de escribir era justamente ir rápido.
+    private func cancelarVoz() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            grabador.cancelar()
+            vozBloqueada = false
+            arrastre = .zero
+        }
+    }
+
     private func soltarVoz() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            vozBloqueada = false
+            arrastre = .zero
+        }
         guard let clip = grabador.terminar() else { grabador.cancelar(); return }
         let nota = Adjunto(voz: clip)
         let texto = borrador

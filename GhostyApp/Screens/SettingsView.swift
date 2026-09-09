@@ -80,7 +80,7 @@ struct SettingsView: View {
                             // Es verdad y se sostiene: la máquina de un agente es SUYA
                             // (dominio fijo por agente) y lo que se le manda vive en su
                             // disco, no en un montón compartido.
-                            Text("Ghosty vive en tu propia computadora en la nube. Lo que le das se queda ahí.")
+                            Text("Ghosty vive en su propia computadora en la nube. Lo que le das se queda ahí.")
                                 .gMeta()
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.bottom, 2)
