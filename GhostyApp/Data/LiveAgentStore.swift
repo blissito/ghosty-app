@@ -68,6 +68,7 @@ final class LiveAgentStore: AgentStoring {
         Conector(id: "github", nombre: "GitHub", conectado: false, disponible: false),
         Conector(id: "google", nombre: "Gmail", conectado: false, disponible: false),
         Conector(id: "google-calendar", nombre: "Google Calendar", conectado: false, disponible: false),
+        Conector(id: "google-drive", nombre: "Google Drive", conectado: false, disponible: false),
         Conector(id: "calendly", nombre: "Calendly", conectado: false, disponible: false),
         Conector(id: "spotify", nombre: "Spotify", conectado: false, disponible: false),
         Conector(id: "canva", nombre: "Canva", conectado: false, disponible: false),
