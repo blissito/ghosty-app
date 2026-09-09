@@ -221,16 +221,27 @@ actor ACPClient {
     }
 
     /// Manda un turno y va soltando lo que llega. El `stopReason` cierra el flujo.
-    nonisolated func prompt(sessionID: String, texto: String) -> AsyncThrowingStream<Replay, Error> {
+    nonisolated func prompt(sessionID: String, texto: String,
+                            imagenes: [Adjunto] = []) -> AsyncThrowingStream<Replay, Error> {
         AsyncThrowingStream { cont in
             let tarea = Task {
                 let (flujo, sink) = AsyncStream<Replay>.makeStream()
                 await self.abrirEnVivo(sink)
                 let bombeo = Task { for await e in flujo { cont.yield(e) } }
                 do {
+                    // El texto SIEMPRE va primero: es lo que la persona pidió, y las
+                    // imágenes son su contexto.
+                    var bloques: [[String: Any]] = [["type": "text", "text": texto]]
+                    for img in imagenes {
+                        bloques.append([
+                            "type": "image",
+                            "mimeType": img.mime,
+                            "data": img.datos.base64EncodedString(),
+                        ])
+                    }
                     let fin = try await self.pedir("session/prompt", [
                         "sessionId": sessionID,
-                        "prompt": [["type": "text", "text": texto]],
+                        "prompt": bloques,
                     ], timeout: 900)
                     // El cierre trae el gasto. Se emite ANTES de terminar el flujo para
                     // que el store lo tenga cuando anote el turno.
@@ -300,6 +311,38 @@ actor ACPClient {
         default:
             return nil
         }
+    }
+
+    /// Sube un archivo al workspace del agente y devuelve su ruta RELATIVA.
+    ///
+    /// ⚠️ Relativa a propósito: el `cwd` de la sesión ya es ese workspace, y cablear la
+    /// absoluta ataría la app al layout de UNA imagen de caja. Vienen más runtimes.
+    ///
+    /// Misma credencial que el socket — es la misma caja y la misma persona.
+    func subir(_ adjunto: Adjunto) async throws -> String {
+        var componentes = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        componentes.scheme = "https"
+        componentes.path = "/adjunto"
+        componentes.queryItems = [URLQueryItem(name: "nombre", value: adjunto.nombre)]
+
+        var req = URLRequest(url: componentes.url!)
+        req.httpMethod = "POST"
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(adjunto.mime, forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 120
+
+        let (datos, resp) = try await sesion.upload(for: req, from: adjunto.datos)
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard codigo == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let ruta = j["ruta"] as? String
+        else {
+            throw Fallo.remoto(codigo == 413
+                               ? "«\(adjunto.nombre)» pesa demasiado."
+                               : "No pude subir «\(adjunto.nombre)» (\(codigo)).")
+        }
+        return ruta
     }
 
     private func abrirEnVivo(_ sink: AsyncStream<Replay>.Continuation) { enVivo = sink }

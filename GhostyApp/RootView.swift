@@ -79,7 +79,11 @@ struct RootView: View {
             }
             if let sonda = ProcessInfo.processInfo.environment["GHOSTY_PROBE"],
                !sonda.isEmpty, case .lista = store.conexion {
-                await store.send(sonda)
+                // Gancho: `GHOSTY_ADJUNTOS=imagen|archivo|ambos` manda la sonda CON
+                // adjuntos. El simulador no acepta toques por script, así que sin esto no
+                // hay forma de verificar el camino de subida ni el de la imagen inline —
+                // que son justo los dos que fallan distinto.
+                await store.send(sonda, adjuntos: Self.adjuntosDePrueba())
             }
         }
         .sheet(isPresented: $ajustes) {
@@ -118,6 +122,30 @@ struct RootView: View {
         store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty
             ? [.chat, .fleet, .artifacts]
             : [.chat, .fleet]
+    }
+
+    /// Adjuntos sintéticos para el gancho `GHOSTY_ADJUNTOS`. Sólo se construyen si la
+    /// variable está puesta, así que en un build normal no cuestan nada.
+    private static func adjuntosDePrueba() -> [Adjunto] {
+        let modo = ProcessInfo.processInfo.environment["GHOSTY_ADJUNTOS"] ?? ""
+        guard !modo.isEmpty else { return [] }
+        var lista: [Adjunto] = []
+        if modo == "imagen" || modo == "ambos" {
+            // Un PNG rojo de 8×8. No hace falta que sea bonito, hace falta que el modelo
+            // pueda decir de qué color es.
+            //
+            // ⚠️ Estos bytes están COMPROBADOS contra el modelo, no sólo contra `file`. El
+            // primero que puse aquí lo daban por válido `file` y PIL, y el modelo contestaba
+            // "llegó dañada": estuve a punto de declarar roto el camino de imágenes por
+            // culpa de mi propio dato de prueba. Si se cambia, se vuelve a comprobar.
+            let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC")
+            if let png { lista.append(Adjunto(nombre: "rojo.png", mime: "image/png", datos: png)) }
+        }
+        if modo == "archivo" || modo == "ambos" {
+            let csv = Data("producto,precio\nteclado,750\nmonitor,3200\n".utf8)
+            lista.append(Adjunto(nombre: "compras.csv", mime: "text/csv", datos: csv))
+        }
+        return lista
     }
 
     @ViewBuilder

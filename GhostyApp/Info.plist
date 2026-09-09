@@ -35,6 +35,10 @@
 	<string>$(GHOSTY_COMMIT)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Para tomar una foto y mandársela a tu agente.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Para que puedas mandarle una foto a tu agente.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

@@ -42,10 +42,18 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
 
     var icono: String {
         switch forma {
-        case .archivo:  "paperclip"
-        case .doc:      "doc.text"
-        case .sheet:    "tablecells"
-        case .artifact: "safari"
+        case .doc:      return "doc.text"
+        case .sheet:    return "tablecells"
+        case .artifact: return "safari"
+        case .archivo:
+            // Un archivo puede ser cualquier cosa, así que el icono sale del sufijo: el
+            // clip genérico no distingue una foto de un contrato.
+            let n = titulo.lowercased()
+            if n.hasSuffix(".pdf") { return "doc.richtext" }
+            if [".png", ".jpg", ".jpeg", ".heic", ".gif", ".webp"].contains(where: n.hasSuffix) { return "photo" }
+            if [".csv", ".xlsx", ".numbers"].contains(where: n.hasSuffix) { return "tablecells" }
+            if [".zip", ".tar", ".gz"].contains(where: n.hasSuffix) { return "shippingbox" }
+            return "paperclip"
         }
     }
 

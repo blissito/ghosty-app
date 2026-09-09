@@ -1,4 +1,7 @@
 import Foundation
+// SwiftUI sólo por `withAnimation`: la entrega se inserta animada y la transacción
+// tiene que envolver al append (ver el comentario de abajo).
+import SwiftUI
 import Observation
 
 /// El store real: habla con las cajas de EasyBits. Implementa el mismo protocolo que
@@ -31,6 +34,13 @@ final class LiveAgentStore: AgentStoring {
     let bitacora = TurnLogStore()
     /// Lo que el agente ha entregado por este teléfono. Ver `Entregas.swift`.
     let entregas = EntregasStore()
+
+    /// ¿Se cayó el último envío ANTES de llegar al agente?
+    ///
+    /// Sólo lo enciende un fallo de subida, no un turno que reventó a medias: el
+    /// compositor lo usa para devolverle sus adjuntos a la persona, y devolvérselos
+    /// después de que el agente ya los recibió sería duplicarlos.
+    private(set) var ultimoEnvioFallo = false
     let titulos = TitleStore()
 
     /// Archivos y documentos de la cuenta. ⚠️ NO son del agente: el modelo `File` de
@@ -360,15 +370,30 @@ final class LiveAgentStore: AgentStoring {
 
     // MARK: - AgentStoring
 
-    func send(_ text: String) async {
+    /// ⚠️ El del protocolo `AgentStoring`, explícito y no por valor por defecto: Swift NO
+    /// da por cumplido un requisito con un parámetro que tiene default, y el error que da
+    /// («no conforma») no menciona el método.
+    func send(_ text: String) async { await send(text, adjuntos: []) }
+
+    func send(_ text: String, adjuntos: [Adjunto] = []) async {
         let limpio = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !limpio.isEmpty,
+        guard !limpio.isEmpty || !adjuntos.isEmpty,
               let cuenta = cuentas.first(where: { $0.id == selectedAgentID })
         else { return }
 
         turnoEnVuelo?.cancel()
         messages.removeAll { $0.kind == .typing }
-        messages.append(Message(id: UUID().uuidString, kind: .user(limpio)))
+        // Lo que se pinta lleva los adjuntos: mandar sólo una foto dejaría una burbuja
+        // vacía y parecería que el mensaje no salió.
+        //
+        // ⚠️ SIN emoji. El 📎 salía como un cuadro con interrogación: la burbuja se pinta
+        // con el renderizador de Markdown y su fuente no lo tiene. Un nombre entre backticks
+        // se lee igual de bien y no depende de qué glifos traiga la tipografía.
+        let visible = adjuntos.isEmpty
+            ? limpio
+            : ([limpio.isEmpty ? nil : limpio]
+                .compactMap { $0 } + adjuntos.map { "`\($0.nombre)`" }).joined(separator: "\n")
+        messages.append(Message(id: UUID().uuidString, kind: .user(visible)))
         let idRespuesta = UUID().uuidString
         messages.append(Message(id: "typing", kind: .typing))
 
@@ -385,13 +410,24 @@ final class LiveAgentStore: AgentStoring {
                 // cualquier turno por ahí acaba en la conversación equivocada.
                 let sid = try await self.asegurarHilo(cuenta)
                 self.titulos.anotarSiFalta(sid, desde: limpio)
-                await self.porSocket(cuenta, sid: sid, texto: limpio, respuesta: idRespuesta)
+                // Lo que no es imagen se SUBE a la máquina del agente y se le dice la ruta.
+                // Si falla, el turno no sale: mandarlo dejaría al agente buscando un archivo
+                // que no existe, y desde fuera eso se lee como que el agente miente.
+                let texto = try await self.conAdjuntos(limpio, adjuntos)
+                self.ultimoEnvioFallo = false
+                await self.porSocket(cuenta, sid: sid, texto: texto,
+                                     imagenes: adjuntos.filter(\.esImagen),
+                                     respuesta: idRespuesta)
             } catch {
                 // Si el socket no se puede ni levantando la caja, se dice. Mandarlo
                 // por HTTP en silencio lo metería en otro hilo, que es peor que fallar.
+                // Un fallo aquí es "no llegó a salir": o no se pudo abrir la conversación,
+                // o no se pudo subir un adjunto. En los dos casos el agente no vio nada, y
+                // el compositor tiene que poder devolverle su trabajo a la persona.
+                self.ultimoEnvioFallo = true
                 self.pintarRespuesta(
                     id: idRespuesta,
-                    texto: "⚠️ No pude abrir la conversación con tu agente.\n\n\(error.localizedDescription)")
+                    texto: "⚠️ \(error.localizedDescription)")
                 self.anotar(cuenta, chars: 0, como: .failed)
                 self.cerrarTurno(cuenta.id)
             }
@@ -399,8 +435,28 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// El turno por WebSocket.
+    /// Sube lo que no es imagen y le antepone al turno una línea que NOMBRA cada archivo.
+    ///
+    /// ⚠️ Decírselo no es opcional: guardar la ruta sin mencionarla no entrega nada. Es la
+    /// regla de la casa —«autodescubrible ≠ leída»— y aquí es literal, porque el agente no
+    /// tiene forma de enterarse de que apareció un archivo en su disco.
+    ///
+    /// La ruta es la que sus propias skills ya nombran (`adjuntos/…`), así que sabe qué
+    /// hacer con ella sin que se lo expliquemos.
+    private func conAdjuntos(_ texto: String, _ adjuntos: [Adjunto]) async throws -> String {
+        let archivos = adjuntos.filter { !$0.esImagen }
+        guard !archivos.isEmpty, let cliente = acp else { return texto }
+        var rutas: [String] = []
+        for a in archivos { rutas.append(try await cliente.subir(a)) }
+        let linea = rutas.count == 1
+            ? "Te adjunté el archivo `\(rutas[0])`."
+            : "Te adjunté estos archivos: " + rutas.map { "`\($0)`" }.joined(separator: ", ") + "."
+        return texto.isEmpty ? linea : "\(linea)\n\n\(texto)"
+    }
+
     private func porSocket(_ cuenta: AgentAccount, sid: String,
-                           texto: String, respuesta: String) async {
+                           texto: String, imagenes: [Adjunto] = [],
+                           respuesta: String) async {
         guard let cliente = acp else {
             pintarRespuesta(id: respuesta, texto: "⚠️ Se perdió la conexión con tu agente.")
             cerrarTurno(cuenta.id)
@@ -410,7 +466,7 @@ final class LiveAgentStore: AgentStoring {
         var herramientas: [(id: String, titulo: String)] = []
 
         do {
-            for try await evento in cliente.prompt(sessionID: sid, texto: texto) {
+            for try await evento in cliente.prompt(sessionID: sid, texto: texto, imagenes: imagenes) {
                 switch evento {
                 case .agent(let t):
                     acumulado += t
@@ -431,7 +487,14 @@ final class LiveAgentStore: AgentStoring {
                     // Tarjeta propia, no un campo del mensaje: la entrega llega a mitad
                     // del turno y el texto del agente sigue creciendo después. Metida en
                     // la burbuja, cada trozo nuevo la repintaría.
-                    messages.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
+                    // ⚠️ El append va DENTRO de `withAnimation` o la `.transition` de la
+                    // tarjeta no corre: SwiftUI anima la inserción sólo si el cambio de
+                    // estado ocurre dentro de una transacción animada. Este repo no usa
+                    // `.animation(` implícito en ningún sitio, y mezclarlo haría saltar
+                    // cosas sin que nada lo explique.
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        messages.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
+                    }
                 case .user, .thought, .toolDone:
                     break
                 }
