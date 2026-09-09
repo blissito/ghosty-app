@@ -400,7 +400,18 @@ final class LiveAgentStore: AgentStoring {
                 // cualquier turno por ahí acaba en la conversación equivocada.
                 let sid = try await self.asegurarHilo(cuenta)
                 self.titulos.anotarSiFalta(sid, desde: limpio)
-                // Lo que no es imagen se SUBE a la máquina del agente y se le dice la ruta.
+                // TODO adjunto se sube a la máquina del agente y se le dice la ruta; una
+                // imagen viaja ADEMÁS dentro del prompt.
+                //
+                // ⚠️ Las dos vías no son alternativas, son complementarias, y mandar sólo
+                // la inline fue un error de diseño con una firma clarísima: el agente
+                // contestaba «solo llegó pegada en el chat, no hay un archivo en disco con
+                // el que pueda trabajar». VER una foto y poder RECORTARLA son cosas
+                // distintas — lo segundo necesita el archivo, y su caja trae con qué.
+                //
+                // Subir de más cuesta un viaje y CERO tokens; no subir cuesta que "recorta
+                // esta foto" sea imposible.
+                //
                 // Si falla, el turno no sale: mandarlo dejaría al agente buscando un archivo
                 // que no existe, y desde fuera eso se lee como que el agente miente.
                 let texto = try await self.conAdjuntos(limpio, adjuntos)
@@ -434,13 +445,12 @@ final class LiveAgentStore: AgentStoring {
     /// La ruta es la que sus propias skills ya nombran (`adjuntos/…`), así que sabe qué
     /// hacer con ella sin que se lo expliquemos.
     private func conAdjuntos(_ texto: String, _ adjuntos: [Adjunto]) async throws -> String {
-        let archivos = adjuntos.filter { !$0.esImagen }
-        guard !archivos.isEmpty, let cliente = acp else { return texto }
+        guard !adjuntos.isEmpty, let cliente = acp else { return texto }
         var rutas: [String] = []
-        for a in archivos { rutas.append(try await cliente.subir(a)) }
+        for a in adjuntos { rutas.append(try await cliente.subir(a)) }
         let linea = rutas.count == 1
-            ? "Te adjunté el archivo `\(rutas[0])`."
-            : "Te adjunté estos archivos: " + rutas.map { "`\($0)`" }.joined(separator: ", ") + "."
+            ? "Te adjunté `\(rutas[0])`."
+            : "Te adjunté: " + rutas.map { "`\($0)`" }.joined(separator: ", ") + "."
         return texto.isEmpty ? linea : "\(linea)\n\n\(texto)"
     }
 
