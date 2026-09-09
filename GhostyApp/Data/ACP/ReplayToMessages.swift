@@ -28,8 +28,13 @@ enum ReplayToMessages {
 
             switch quien {
             case .usuario:
-                guard !limpio.isEmpty else { return }
-                mensajes.append(Message(id: "u\(mensajes.count)", kind: .user(limpio)))
+                // ⚠️ El replay devuelve el prompt TAL CUAL se envió, fontanería incluida:
+                // el bloque de adjuntos, los `curl` y una URL firmada de varias líneas. Sin
+                // esto, reabrir un hilo con una nota de voz enseñaba un muro de texto con
+                // credenciales dentro donde antes había un reproductor.
+                let visible = BloqueDeAdjuntos.limpiarParaMostrar(limpio)
+                guard !visible.isEmpty else { return }
+                mensajes.append(Message(id: "u\(mensajes.count)", kind: .user(visible)))
 
             case .agente:
                 let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)

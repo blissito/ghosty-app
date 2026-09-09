@@ -16,7 +16,42 @@ struct NotaDeVoz: View {
     @State private var reloj: Task<Void, Never>?
 
     private var tinta: Color { claro ? .gInk : .gInk }
-    private var barras: [Float] { adjunto.onda ?? [] }
+
+    /// Cuántas barras se pintan, pase lo que pase.
+    ///
+    /// ⚠️ Fijo a propósito. Antes se pintaba UNA barra por muestra, y como el grabador
+    /// muestrea cada 60 ms, una nota de seis segundos traía cien: a 1.5 pt cada una, la
+    /// onda se veía como una línea de puntos. Es lo que hacen WhatsApp y Telegram —
+    /// remuestrear a un número fijo—, y de paso una nota de 3 s y otra de 30 s se ven
+    /// igual de sólidas en vez de degradarse con la duración.
+    private static let numeroDeBarras = 34
+
+    private var barras: [Float] { Self.remuestrear(adjunto.onda ?? [], a: Self.numeroDeBarras) }
+
+    /// Remuestrea a `n` barras quedándose con el PICO de cada tramo, y lo normaliza contra
+    /// el pico de la nota.
+    ///
+    /// El pico, no el promedio: promediar aplana justo lo que se quiere ver —una nota es
+    /// picos de voz separados por silencios— y devuelve una tira uniforme.
+    ///
+    /// ⚠️ La normalización tiene suelo, y esto importa: escalar contra el pico haría que
+    /// una grabación MUDA se dibujara como una onda perfectamente normal, porque su
+    /// ruidito de fondo pasaría a valer 1. Justo lo contrario de para qué está la onda —
+    /// ver de un vistazo si el micrófono captó algo. Por debajo de ese suelo se deja
+    /// plana, que es la verdad.
+    static func remuestrear(_ crudo: [Float], a n: Int) -> [Float] {
+        guard !crudo.isEmpty, n > 0 else { return [] }
+        var fuera: [Float] = []
+        fuera.reserveCapacity(n)
+        for i in 0..<n {
+            let desde = i * crudo.count / n
+            let hasta = max(desde + 1, (i + 1) * crudo.count / n)
+            fuera.append(crudo[desde..<min(hasta, crudo.count)].max() ?? 0)
+        }
+        let pico = fuera.max() ?? 0
+        guard pico > 0.12 else { return fuera }
+        return fuera.map { min(1, $0 / pico) }
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -46,15 +81,21 @@ struct NotaDeVoz: View {
     private var onda: some View {
         GeometryReader { g in
             let n = max(barras.count, 1)
-            let ancho = max(1.5, (g.size.width - CGFloat(n - 1) * 2) / CGFloat(n))
-            HStack(alignment: .center, spacing: 2) {
+            // Barra y hueco en proporción fija (3:2), como una onda de verdad. El ancho
+            // sale del hueco disponible en vez de un valor a mano, así que la onda ocupa
+            // la burbuja completa en lugar de dejar una franja muerta a la derecha.
+            let paso = g.size.width / CGFloat(n)
+            let ancho = max(2, paso * 0.62)
+            HStack(alignment: .center, spacing: 0) {
                 ForEach(Array(barras.enumerated()), id: \.offset) { i, v in
                     let pasada = Double(i) / Double(n) <= avance
                     Capsule()
-                        .fill(pasada ? Color.gPrimary : Color.gInk4.opacity(0.5))
+                        .fill(pasada ? Color.gPrimary : Color.gInk4.opacity(0.55))
                         // Un mínimo visible: una barra de altura 0 parece un hueco, y el
-                        // silencio entre palabras es normal.
-                        .frame(width: ancho, height: max(3, CGFloat(v) * g.size.height))
+                        // silencio entre palabras es normal. Sube a 4 para que a esta
+                        // anchura se lea como barra y no como punto.
+                        .frame(width: ancho, height: max(4, CGFloat(v) * g.size.height))
+                        .frame(width: paso)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .center)

@@ -16,7 +16,11 @@ import Observation
 final class GrabadorDeVoz {
     private(set) var grabando = false
     private(set) var segundos: Double = 0
-    /// Amplitudes 0…1 de lo que va entrando, para pintar la onda EN VIVO.
+    /// La ventana que ve la barra de grabación: los últimos tramos, que es lo que da la
+    /// sensación de que la onda avanza. La COMPLETA se guarda en el clip.
+    var enVivo: [Float] { Array(onda.suffix(64)) }
+
+    /// Amplitudes 0…1 de TODA la grabación.
     ///
     /// ⚠️ Se muestrea del medidor mientras se graba y no del archivo al terminar: leer la
     /// forma de onda de un AAC ya escrito exige decodificarlo entero.
@@ -78,7 +82,11 @@ final class GrabadorDeVoz {
                 // pegado al suelo: -50 dB ya es voz normal, así que se recorta ahí.
                 let db = max(-50, Double(r.averagePower(forChannel: 0)))
                 self.onda.append(Float((db + 50) / 50))
-                if self.onda.count > 64 { self.onda.removeFirst() }
+                // ⚠️ Aquí había un `removeFirst()` al pasar de 64, y ESTE MISMO array es el
+                // que se guarda en el clip: la nota conservaba sólo sus últimos ~4 segundos
+                // y la onda de una nota larga dibujaba su cola, no la nota. El recorte es
+                // cosa de la vista EN VIVO —que enseña una ventana que avanza— y lo hace
+                // ella con `enVivo`. Un minuto de grabación son ~1000 floats: nada.
             }
         }
     }

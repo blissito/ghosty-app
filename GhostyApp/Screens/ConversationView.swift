@@ -255,7 +255,7 @@ struct ConversationView: View {
         HStack(spacing: 10) {
             if grabador.grabando {
                 BarraDeGrabacion(segundos: grabador.segundos,
-                                 onda: grabador.onda,
+                                 onda: grabador.enVivo,
                                  haciaCancelar: haciaCancelar,
                                  bloqueado: vozBloqueada,
                                  alCancelar: { cancelarVoz() })

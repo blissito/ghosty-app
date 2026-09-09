@@ -119,6 +119,56 @@ enum BloqueDeAdjuntos {
             + "Si una descarga falla, dilo tal cual — no te inventes el contenido."
     }
 
+    /// Deshace lo de arriba: de lo que se le MANDÓ al agente, lo que la persona escribió.
+    ///
+    /// ⚠️ Existe porque `session/load` devuelve el prompt **tal cual se envió**, y eso
+    /// incluye toda la fontanería: el bloque de adjuntos, los `curl` y una **URL firmada
+    /// de varias líneas**. Al reabrir un hilo, la burbuja de una nota de voz se convertía
+    /// en un muro de texto con credenciales dentro. En vivo no se nota —ahí la burbuja
+    /// pinta el `Adjunto` que tiene en la mano— y por eso sólo aparece al recargar.
+    ///
+    /// Vive JUNTO al que escribe el bloque a propósito: son el mismo formato, y separarlos
+    /// garantiza que el día que uno cambie el otro se quede leyendo lo de antes.
+    static func limpiarParaMostrar(_ crudo: String) -> String {
+        var t = crudo
+
+        // 1. La transcripción ES lo que la persona dijo: se queda, sin su envoltorio.
+        if let a = t.range(of: "[Nota de voz transcrita"),
+           let cierre = t.range(of: "]", range: a.upperBound..<t.endIndex) {
+            let resto = t[cierre.upperBound...]
+            if let c1 = resto.range(of: "«"), let c2 = resto.range(of: "»", range: c1.upperBound..<resto.endIndex) {
+                let dicho = String(resto[c1.upperBound..<c2.lowerBound])
+                t = t.replacingCharacters(in: a.lowerBound..<c2.upperBound, with: dicho)
+            }
+        }
+
+        // 2. El bloque de adjuntos entero fuera, quedándose con los NOMBRES: que se
+        //    mandó un archivo es información de la persona; el `curl` con su firma, no.
+        if let ini = t.range(of: "[ADJUNTOS DE ESTE MENSAJE") {
+            let finTexto = "no te inventes el contenido."
+            let fin = t.range(of: finTexto, range: ini.upperBound..<t.endIndex)
+            let hasta = fin?.upperBound ?? t.endIndex
+            let bloque = String(t[ini.lowerBound..<hasta])
+            let nombres = bloque
+                .split(separator: "\n")
+                .filter { $0.hasPrefix("· ") }
+                .compactMap { $0.dropFirst(2).split(separator: " (").first.map(String.init) }
+            t = t.replacingCharacters(in: ini.lowerBound..<hasta, with: "")
+            // El nombre va al FINAL y en su propia línea: lo que la persona escribió es lo
+            // que importa y va primero. Concatenarlo sin separador pegaba las dos cosas
+            // («…m4a[Música]») y se leía como un solo disparate.
+            let dicho = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !nombres.isEmpty {
+                let pie = "Adjunto: " + nombres.joined(separator: ", ")
+                t = dicho.isEmpty ? pie : dicho + "\n" + pie
+            } else {
+                t = dicho
+            }
+        }
+
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Un nombre que se pueda concatenar a una ruta sin sorpresas.
     static func saneado(_ nombre: String) -> String {
         let limpio = nombre.map { c -> Character in
