@@ -1,80 +1,115 @@
 import Foundation
 import Security
 
-/// Dónde vive la credencial.
+/// Un agente conectado en este teléfono.
 ///
-/// Orden: **Keychain** (lo que la persona pegó en Ajustes) → variables de entorno
-/// (el camino de desarrollo con el simulador) → `Info.plist`. Nunca se versiona ni
-/// viaja en el binario.
-///
-/// ⚠️ Hay dos clases de llave y no dan lo mismo:
-/// - `agt_…` es el **token del agente** (su `embedToken`, que la caja hornea como
-///   `ACP_AGENT_TOKEN`). Alcanza **sólo a ese agente** y no puede listar ni borrar.
-///   Es la que va en el teléfono de alguien más.
-/// - `eb_sk_…` es la **llave de cuenta**. Lista todos los agentes y **puede
-///   borrarlos**. Sólo para tu propia máquina.
+/// El nombre lo pone la persona: con un token de agente (`agt_…`) el API contesta
+/// **401** tanto al listar como al leer ese agente —sólo deja mandarle mensajes—, así
+/// que el servidor no puede decirnos cómo se llama. Comprobado contra la API real.
+struct AgentAccount: Identifiable, Codable, Equatable {
+    var id: String          // agentId
+    var token: String       // agt_… o eb_sk_…
+    var name: String
+
+    var esTokenDeAgente: Bool { token.hasPrefix("agt_") }
+    var esLlaveDeCuenta: Bool { token.hasPrefix("eb_sk_") }
+}
+
+/// Los agentes conectados y cuál está activo. Todo en el llavero de ESTE teléfono.
 enum Credentials {
 
-    static var apiKey: String? {
-        Keychain.leer(.token)
-            ?? entorno("EASYBITS_API_KEY")
-            ?? plist("EasyBitsAPIKey")
+    // MARK: - Lectura
+
+    static var accounts: [AgentAccount] {
+        if let json = Keychain.leer(.cuentas),
+           let datos = json.data(using: .utf8),
+           let lista = try? JSONDecoder().decode([AgentAccount].self, from: datos),
+           !lista.isEmpty {
+            return lista
+        }
+        // Nada guardado: se cae al agente horneado en el build (el del demo) o a las
+        // variables de entorno del simulador.
+        if let t = deEntornoOPlist("EASYBITS_API_KEY", "EasyBitsAPIKey"),
+           let id = deEntornoOPlist("GHOSTY_AGENT_ID", "GhostyAgentId") {
+            let nombre = deEntornoOPlist("GHOSTY_AGENT_NAME", "GhostyAgentName") ?? "Mi agente"
+            return [AgentAccount(id: id, token: t, name: nombre)]
+        }
+        return []
     }
 
-    static var agentID: String? {
-        Keychain.leer(.agente)
-            ?? entorno("GHOSTY_AGENT_ID")
-            ?? plist("GhostyAgentId")
+    static var activeID: String? {
+        let ids = accounts.map(\.id)
+        if let guardado = Keychain.leer(.activo), ids.contains(guardado) { return guardado }
+        return ids.first
     }
 
-    /// `true` cuando la llave sólo alcanza a un agente: entonces no se puede listar
-    /// y hay que traer el id configurado.
-    static var esTokenDeAgente: Bool {
-        (apiKey ?? "").hasPrefix("agt_")
+    static var active: AgentAccount? {
+        guard let id = activeID else { return nil }
+        return accounts.first { $0.id == id }
     }
 
-    static func guardar(token: String, agente: String) {
-        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        let a = agente.trimmingCharacters(in: .whitespacesAndNewlines)
-        t.isEmpty ? Keychain.borrar(.token)  : Keychain.escribir(.token, t)
-        a.isEmpty ? Keychain.borrar(.agente) : Keychain.escribir(.agente, a)
+    // MARK: - Escritura
+
+    static func guardar(_ lista: [AgentAccount]) {
+        guard let datos = try? JSONEncoder().encode(lista),
+              let json = String(data: datos, encoding: .utf8) else { return }
+        lista.isEmpty ? Keychain.borrar(.cuentas) : Keychain.escribir(.cuentas, json)
     }
 
-    // MARK: - Fuentes de respaldo
-
-    private static func entorno(_ clave: String) -> String? {
-        let v = ProcessInfo.processInfo.environment[clave]
-        return (v?.isEmpty == false) ? v : nil
+    /// Añade o reemplaza por id, y lo deja activo.
+    static func upsert(_ cuenta: AgentAccount) {
+        var lista = accounts
+        if let i = lista.firstIndex(where: { $0.id == cuenta.id }) {
+            lista[i] = cuenta
+        } else {
+            lista.append(cuenta)
+        }
+        guardar(lista)
+        activar(cuenta.id)
     }
 
-    private static func plist(_ clave: String) -> String? {
-        guard let v = Bundle.main.object(forInfoDictionaryKey: clave) as? String,
-              !v.isEmpty, !v.hasPrefix("$(") else { return nil }
-        return v
+    static func quitar(_ id: String) {
+        guardar(accounts.filter { $0.id != id })
+        if Keychain.leer(.activo) == id { Keychain.borrar(.activo) }
+    }
+
+    static func activar(_ id: String) {
+        Keychain.escribir(.activo, id)
+    }
+
+    static func olvidarTodo() {
+        Keychain.borrar(.cuentas); Keychain.borrar(.activo)
+    }
+
+    // MARK: - Respaldos
+
+    private static func deEntornoOPlist(_ env: String, _ plist: String) -> String? {
+        if let v = ProcessInfo.processInfo.environment[env], !v.isEmpty { return v }
+        if let v = Bundle.main.object(forInfoDictionaryKey: plist) as? String,
+           !v.isEmpty, !v.hasPrefix("$(") { return v }
+        return nil
     }
 }
 
-/// Llavero. Se usa `kSecClassGenericPassword` con `WhenUnlockedThisDeviceOnly`: la
-/// credencial no debe viajar al respaldo de iCloud ni a otro dispositivo.
+/// Llavero. `WhenUnlockedThisDeviceOnly`: la credencial no viaja al respaldo de
+/// iCloud ni a otro dispositivo.
 enum Keychain {
     enum Clave: String {
-        case token  = "easybits.token"
-        case agente = "ghosty.agentId"
+        case cuentas = "easybits.accounts"
+        case activo  = "ghosty.activeAgent"
     }
 
     private static let servicio = "studio.ghosty.app"
 
     static func leer(_ clave: Clave) -> String? {
-        var consulta = base(clave)
-        consulta[kSecReturnData as String] = true
-        consulta[kSecMatchLimit as String] = kSecMatchLimitOne
+        var q = base(clave)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
         var salida: CFTypeRef?
-        guard SecItemCopyMatching(consulta as CFDictionary, &salida) == errSecSuccess,
-              let datos = salida as? Data,
-              let texto = String(data: datos, encoding: .utf8),
-              !texto.isEmpty
+        guard SecItemCopyMatching(q as CFDictionary, &salida) == errSecSuccess,
+              let d = salida as? Data, let t = String(data: d, encoding: .utf8), !t.isEmpty
         else { return nil }
-        return texto
+        return t
     }
 
     static func escribir(_ clave: Clave, _ valor: String) {
@@ -85,15 +120,11 @@ enum Keychain {
         SecItemAdd(item as CFDictionary, nil)
     }
 
-    static func borrar(_ clave: Clave) {
-        SecItemDelete(base(clave) as CFDictionary)
-    }
+    static func borrar(_ clave: Clave) { SecItemDelete(base(clave) as CFDictionary) }
 
     private static func base(_ clave: Clave) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: servicio,
-            kSecAttrAccount as String: clave.rawValue,
-        ]
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: servicio,
+         kSecAttrAccount as String: clave.rawValue]
     }
 }

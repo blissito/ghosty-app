@@ -21,6 +21,7 @@ struct AgentSheetView: View {
     let agent: Agent
     let store: any AgentStoring
     var onAjustes: () -> Void
+    var onNuevaConversacion: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var pane: SheetPane = .activity
@@ -47,6 +48,26 @@ struct AgentSheetView: View {
                 StatusLine(status: agent.status).font(.system(size: 12.5))
             }
             .padding(.top, 10)
+
+            if let onNuevaConversacion {
+                Button {
+                    onNuevaConversacion()
+                    dismiss()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Nueva conversación").font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundStyle(Color.gPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.gPrimaryTint)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, Theme.Space.screenH)
+                .padding(.top, 18)
+            }
 
             SegmentedIconBar(items: SheetPane.allCases, icon: \.icon, selection: $pane)
                 .padding(.horizontal, Theme.Space.screenH)

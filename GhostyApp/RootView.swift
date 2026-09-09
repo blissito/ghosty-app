@@ -9,6 +9,7 @@ struct RootView: View {
         GhostyTab(rawValue: ProcessInfo.processInfo.environment["GHOSTY_TAB"] ?? "") ?? .chat
     @State private var hoja: Agent?
     @State private var ajustes = false
+    @State private var editando: AgentAccount?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -67,6 +68,13 @@ struct RootView: View {
                 await store.send(sonda)
             }
         }
+        .sheet(item: $editando) { cuenta in
+            SettingsView(editando: cuenta) { Task { await store.recargarCredencial() } }
+                #if os(iOS)
+                .presentationDetents([.large])
+                .presentationCornerRadius(Theme.Radius.sheet)
+                #endif
+        }
         .sheet(isPresented: $ajustes) {
             SettingsView { Task { await store.recargarCredencial() } }
                 #if os(iOS)
@@ -75,7 +83,9 @@ struct RootView: View {
                 #endif
         }
         .sheet(item: $hoja) { agente in
-            AgentSheetView(agent: agente, store: store, onAjustes: { hoja = nil; ajustes = true })
+            AgentSheetView(agent: agente, store: store,
+                           onAjustes: { hoja = nil; ajustes = true },
+                           onNuevaConversacion: { store.nuevaConversacion() })
                 #if os(iOS)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
@@ -93,7 +103,9 @@ struct RootView: View {
             ConversationView(store: store, onOpenSheet: abrirHoja)
                 .padding(.bottom, Theme.Space.composerClearance)
         case .fleet:
-            FleetView(store: store) { hoja = $0 }
+            FleetView(store: store,
+                      onConectar: { ajustes = true },
+                      onEditar: { editando = $0 })
                 .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
         case .ideas:
             EmptyState(icon: "lightbulb", title: "Ideas",

@@ -1,14 +1,12 @@
 import Foundation
 import Observation
 
-/// El store real: habla con la caja de EasyBits. Implementa el mismo protocolo que
-/// el mock, así que las vistas no cambian ni una línea al pasar de uno a otro —
-/// que es justo la razón de que la frontera exista.
+/// El store real: habla con las cajas de EasyBits. Implementa el mismo protocolo que
+/// el mock, así que las vistas no cambian al pasar de uno a otro.
 @Observable
 @MainActor
 final class LiveAgentStore: AgentStoring {
 
-    // Estado que las vistas leen
     var agents: [Agent] = []
     var selectedAgentID: Agent.ID = ""
     var messages: [Message] = []
@@ -19,115 +17,106 @@ final class LiveAgentStore: AgentStoring {
     var artifacts: [Artifact] = []
     var deliveredToday: [Artifact] = []
 
-    /// Estado de conexión, para que la pantalla pueda decir la verdad en vez de
-    /// quedarse en blanco.
     enum Conexion: Equatable {
-        case cargando
-        case lista
-        case sinLlave
+        case cargando, lista, sinLlave
         case fallo(String)
     }
     var conexion: Conexion = .cargando
     var ultimoUso: (entrada: Int, salida: Int)?
 
-    private var cliente: EasyBitsClient?
-    private var sesiones: [String: String] = [:]      // agentId → sessionId
+    /// Un hilo por agente: cambiar de agente no debe mezclar conversaciones.
+    private var hilos: [String: [Message]] = [:]
+    private var sesiones: [String: String] = [:]
+    private var cuentas: [AgentAccount] = []
     private var turnoEnVuelo: Task<Void, Never>?
     private var inicioDelTurno: Date?
     private var cronometro: Task<Void, Never>?
 
-    init() {
-        if let llave = Credentials.apiKey {
-            cliente = EasyBitsClient(apiKey: llave)
-        } else {
-            cliente = nil
-            conexion = .sinLlave
-        }
-    }
-
-    /// Se llama al guardar en Ajustes: rehace el cliente con la credencial nueva.
-    func recargarCredencial() async {
-        if let llave = Credentials.apiKey {
-            cliente = EasyBitsClient(apiKey: llave)
-            await cargar()
-        } else {
-            cliente = nil
-            conexion = .sinLlave
-        }
-    }
-
     // MARK: - Carga
 
     func cargar() async {
-        guard let cliente else { conexion = .sinLlave; return }
         conexion = .cargando
-        // Un token de agente (`agt_…`) no puede listar: alcanza sólo a su agente.
-        // Se arma la lista con el id configurado en lugar de fallar.
-        if Credentials.esTokenDeAgente {
-            guard let id = Credentials.agentID, !id.isEmpty else {
-                conexion = .fallo("Ese token es de un agente y falta su id. Ponlo en Ajustes.")
-                return
+        cuentas = Credentials.accounts
+        guard !cuentas.isEmpty else { conexion = .sinLlave; return }
+
+        // Con una llave de cuenta (`eb_sk_…`) sí se puede listar, así que la flota se
+        // completa con los agentes encendidos de ese dueño. Con un token de agente
+        // (`agt_…`) el API contesta 401 al listar: la lista es lo que haya conectado
+        // a mano, y ya.
+        for cuenta in cuentas where cuenta.esLlaveDeCuenta {
+            let cliente = EasyBitsClient(apiKey: cuenta.token)
+            if let remotos = try? await cliente.agents() {
+                for r in remotos where r.status == "running" {
+                    if !cuentas.contains(where: { $0.id == r.agentId }) {
+                        cuentas.append(AgentAccount(id: r.agentId,
+                                                    token: cuenta.token,
+                                                    name: r.name ?? "agente"))
+                    }
+                }
             }
-            agents = [Agent(id: id, name: "Tu agente", tone: .lila,
-                            status: .idle(since: "listo"), engine: "acp")]
-            selectedAgentID = id
-            conexion = .lista
-            return
         }
 
-        do {
-            let remotos = try await cliente.agents()
-            // Sólo los que hablan ACP y están de pie: un agente `lost` no contesta
-            // y meterlo en la lista sólo produce un turno que muere en 502.
-            let utiles = remotos.filter { $0.status == "running" }
-            let orden: [AgentTone] = [.durazno, .lila, .azul]
-            agents = utiles.enumerated().map { i, a in
-                Agent(
-                    id: a.agentId,
-                    name: a.name ?? "agente",
-                    tone: orden[i % orden.count],
-                    status: .idle(since: "listo"),
-                    engine: a.template ?? "—"
-                )
-            }
-            if let preferido = Credentials.agentID,
-               agents.contains(where: { $0.id == preferido }) {
-                selectedAgentID = preferido
-            } else {
-                selectedAgentID = agents.first?.id ?? ""
-            }
-            conexion = agents.isEmpty
-                ? .fallo("Ninguna de tus cajas está encendida ahora mismo.")
-                : .lista
-        } catch {
-            conexion = .fallo(error.localizedDescription)
+        let tonos: [AgentTone] = [.lila, .azul, .durazno]
+        agents = cuentas.enumerated().map { i, c in
+            Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
+                  status: .idle(since: "listo"),
+                  engine: c.esTokenDeAgente ? "token del agente" : "llave de cuenta")
         }
+        selectedAgentID = Credentials.activeID ?? cuentas[0].id
+        messages = hilos[selectedAgentID] ?? []
+        conexion = .lista
+    }
+
+    func recargarCredencial() async { await cargar() }
+
+    /// Cambia de agente conservando cada hilo por separado.
+    func seleccionar(_ id: String) {
+        guard id != selectedAgentID, cuentas.contains(where: { $0.id == id }) else { return }
+        hilos[selectedAgentID] = messages
+        Credentials.activar(id)
+        selectedAgentID = id
+        messages = hilos[id] ?? []
+        currentTurn = nil
+    }
+
+    /// Empieza de cero con este agente. Suelta el `sessionId`, así que la caja abre
+    /// un hilo nuevo y no arrastra el contexto anterior.
+    func nuevaConversacion() {
+        turnoEnVuelo?.cancel()
+        sesiones[selectedAgentID] = nil
+        hilos[selectedAgentID] = []
+        messages = []
+        currentTurn = nil
+        cronometro?.cancel()
+    }
+
+    func quitarAgente(_ id: String) {
+        Credentials.quitar(id)
+        hilos[id] = nil
+        sesiones[id] = nil
+        Task { await cargar() }
     }
 
     // MARK: - AgentStoring
 
     func send(_ text: String) async {
         let limpio = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !limpio.isEmpty, let cliente, !selectedAgentID.isEmpty else { return }
+        guard !limpio.isEmpty,
+              let cuenta = cuentas.first(where: { $0.id == selectedAgentID })
+        else { return }
 
         turnoEnVuelo?.cancel()
         messages.removeAll { $0.kind == .typing }
         messages.append(Message(id: UUID().uuidString, kind: .user(limpio)))
-
         let idRespuesta = UUID().uuidString
         messages.append(Message(id: "typing", kind: .typing))
 
-        let agente = selectedAgentID
-        // La etiqueta de estado NO es el prompt: un mensaje largo desbordaba la
-        // cabecera. El prompt completo ya se ve en su propia burbuja.
-        marcarTrabajando(agente, tarea: "Trabajando…")
+        marcarTrabajando(cuenta.id, tarea: "Trabajando…")
         arrancarCronometro(titulo: primeraFrase(limpio))
 
+        let cliente = EasyBitsClient(apiKey: cuenta.token)
         turnoEnVuelo = Task { [weak self] in
             guard let self else { return }
-            // Un turno se intenta hasta dos veces, y sólo si el primero **no
-            // produjo nada**: reintentar con texto ya en pantalla duplicaría el
-            // turno del lado del agente (y lo cobraría dos veces).
             var acumulado = ""
             var intentos = 0
             let maxIntentos = 2
@@ -135,50 +124,42 @@ final class LiveAgentStore: AgentStoring {
             while intentos < maxIntentos {
                 intentos += 1
                 do {
-                    let flujo = cliente.message(
-                        agentID: agente,
-                        content: limpio,
-                        sessionID: self.sesiones[agente]
-                    )
-                    EasyBitsClient.diag("consumidor: iterando (intento \(intentos))")
+                    let flujo = cliente.message(agentID: cuenta.id, content: limpio,
+                                                sessionID: self.sesiones[cuenta.id])
                     for try await evento in flujo {
                         switch evento {
                         case .chunk(let trozo):
                             acumulado += trozo
                             self.pintarRespuesta(id: idRespuesta, texto: acumulado)
-                        case .usage(let entrada, let salida, _):
-                            self.ultimoUso = (entrada, salida)
+                        case .usage(let e, let s, _):
+                            self.ultimoUso = (e, s)
                         case .newSession(let s):
-                            self.sesiones[agente] = s
-                        case .error(let detalle):
+                            self.sesiones[cuenta.id] = s
+                        case .error(let d):
                             self.pintarRespuesta(id: idRespuesta,
-                                                 texto: acumulado.isEmpty ? "⚠️ \(detalle)" : acumulado + "\n\n⚠️ \(detalle)")
+                                texto: acumulado.isEmpty ? "⚠️ \(d)" : acumulado + "\n\n⚠️ \(d)")
                         case .done, .unknown:
                             break
                         }
                     }
-                    EasyBitsClient.diag("consumidor: fin, \(acumulado.count) chars")
                     if acumulado.isEmpty {
                         self.pintarRespuesta(id: idRespuesta, texto: "_El turno cerró sin texto._")
                     }
                     break
-
                 } catch {
-                    EasyBitsClient.diag("consumidor: FALLO \(error)")
-                    let reintentable = Self.esCorteDeTransporte(error)
-
-                    if reintentable, acumulado.isEmpty, intentos < maxIntentos {
+                    // Se reintenta sólo si no llegó NADA: con texto en pantalla, otro
+                    // intento duplicaría el turno del lado del agente y lo cobraría dos veces.
+                    if Self.esCorteDeTransporte(error), acumulado.isEmpty, intentos < maxIntentos {
                         self.pintarRespuesta(id: idRespuesta, texto: "_Se cortó la conexión. Reintentando…_")
                         try? await Task.sleep(for: .seconds(1))
                         continue
                     }
-
                     self.pintarRespuesta(id: idRespuesta,
                                          texto: Self.mensajeDeFallo(error, parcial: acumulado))
                     break
                 }
             }
-            self.cerrarTurno(agente)
+            self.cerrarTurno(cuenta.id)
         }
     }
 
@@ -194,61 +175,44 @@ final class LiveAgentStore: AgentStoring {
         permissionHistory.insert(
             PermissionRecord(id: request.id,
                              icon: request.kind == .email ? .document : .cart,
-                             title: request.question,
-                             detail: request.detail,
-                             outcome: etiqueta(decision)),
-            at: 0
-        )
+                             title: request.question, detail: request.detail,
+                             outcome: etiqueta(decision)), at: 0)
     }
 
     func respondToPR(_ card: PullRequestCard, approve: Bool) async {
-        await send(approve
-                   ? "Aprueba el \(card.reference)."
-                   : "Pide cambios en el \(card.reference) y deja el comentario en la línea del bloqueante.")
+        await send(approve ? "Aprueba el \(card.reference)."
+                           : "Pide cambios en el \(card.reference) y deja el comentario en la línea del bloqueante.")
     }
 
     // MARK: - Fallos de red
 
-    /// Cortes del transporte, no del agente. En un teléfono son la vida normal:
-    /// un intermediario cierra el stream, o el sistema mueve la conexión de wifi
-    /// a datos y la deja caer a media respuesta.
+    /// Cortes del transporte, no del agente. En un teléfono son la vida normal.
     static func esCorteDeTransporte(_ error: Error) -> Bool {
-        guard let url = error as? URLError else { return false }
-        switch url.code {
-        case .networkConnectionLost,   // -1005, el clásico con SSE en dispositivo
-             .timedOut,
-             .cannotConnectToHost,
-             .cannotFindHost,
-             .dnsLookupFailed,
-             .notConnectedToInternet,
+        guard let u = error as? URLError else { return false }
+        switch u.code {
+        case .networkConnectionLost, .timedOut, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .notConnectedToInternet,
              .secureConnectionFailed:
             return true
-        default:
-            return false
+        default: return false
         }
     }
 
-    /// Un mensaje que diga qué pasó de verdad. «network connection was lost» a secas
-    /// suena a que el agente falló, y no fue el agente.
+    /// «network connection was lost» a secas suena a que el agente falló, y no fue él.
     static func mensajeDeFallo(_ error: Error, parcial: String) -> String {
         let detalle: String
-        if let url = error as? URLError {
-            switch url.code {
+        if let u = error as? URLError {
+            switch u.code {
             case .networkConnectionLost:
-                detalle = "Se cortó la conexión a media respuesta. El agente sí recibió el mensaje: vuelve a preguntarle o revisa el hilo en un rato."
-            case .notConnectedToInternet:
-                detalle = "El teléfono no tiene internet."
-            case .timedOut:
-                detalle = "El turno tardó más de lo que aguanta la conexión."
-            default:
-                detalle = url.localizedDescription
+                detalle = "Se cortó la conexión a media respuesta. El agente sí recibió el mensaje."
+            case .notConnectedToInternet: detalle = "El teléfono no tiene internet."
+            case .timedOut: detalle = "El turno tardó más de lo que aguanta la conexión."
+            default: detalle = u.localizedDescription
             }
         } else {
             detalle = error.localizedDescription
         }
-        return parcial.isEmpty
-            ? "⚠️ \(detalle)"
-            : parcial + "\n\n⚠️ \(detalle)"
+        return parcial.isEmpty ? "⚠️ \(detalle)" : parcial + "\n\n⚠️ \(detalle)"
     }
 
     // MARK: - Interno
@@ -256,11 +220,8 @@ final class LiveAgentStore: AgentStoring {
     private func pintarRespuesta(id: String, texto: String) {
         messages.removeAll { $0.kind == .typing }
         let nuevo = Message(id: id, kind: .agent(text: texto, tools: nil, trailing: nil))
-        if let i = messages.firstIndex(where: { $0.id == id }) {
-            messages[i] = nuevo
-        } else {
-            messages.append(nuevo)
-        }
+        if let i = messages.firstIndex(where: { $0.id == id }) { messages[i] = nuevo }
+        else { messages.append(nuevo) }
     }
 
     private func marcarTrabajando(_ id: String, tarea: String) {
@@ -270,8 +231,7 @@ final class LiveAgentStore: AgentStoring {
 
     private func cerrarTurno(_ id: String) {
         cronometro?.cancel(); cronometro = nil
-        currentTurn = nil
-        inicioDelTurno = nil
+        currentTurn = nil; inicioDelTurno = nil
         guard let i = agents.firstIndex(where: { $0.id == id }) else { return }
         agents[i].status = .idle(since: "ahora")
     }
@@ -295,15 +255,15 @@ final class LiveAgentStore: AgentStoring {
     }
 
     private func primeraFrase(_ t: String) -> String {
-        let corte = t.prefix(60)
-        return corte.count < t.count ? corte + "…" : String(corte)
+        let c = t.prefix(60)
+        return c.count < t.count ? c + "…" : String(c)
     }
 
     private func etiqueta(_ d: PermissionDecision) -> String {
         switch d {
-        case .allowOnce:    return "Permitido esta vez · ahora"
+        case .allowOnce: return "Permitido esta vez · ahora"
         case .allowForTask: return "Permitido para esa tarea · ahora"
-        case .deny:         return "Rechazado · ahora"
+        case .deny: return "Rechazado · ahora"
         }
     }
 }

@@ -7,3 +7,6 @@
 // Si este archivo no existe, la app arranca pidiendo la credencial en Ajustes.
 EASYBITS_TOKEN =
 GHOSTY_AGENT_ID =
+// Cómo se llama tu agente. El servidor no lo suelta con un token agt_
+// (contesta 401 al leerlo), así que se pone a mano.
+GHOSTY_AGENT_NAME =
