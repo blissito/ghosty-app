@@ -10,7 +10,7 @@ struct ConversationView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let agente = store.selectedAgent {
-                AgentHeader(agent: agente, onTap: onOpenSheet)
+                AgentHeader(agent: agente, onTap: { escribiendo = false; onOpenSheet() })
                     .padding(.top, 8)
                     .padding(.bottom, 14)
             }
@@ -35,6 +35,9 @@ struct ConversationView: View {
                     .padding(.bottom, 10)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    TapGesture().onEnded { escribiendo = false }
+                )
                 .onChange(of: store.messages.count) { _, _ in
                     withAnimation(.easeOut(duration: 0.25)) { scroll.scrollTo("fondo", anchor: .bottom) }
                 }
@@ -87,7 +90,16 @@ struct ConversationView: View {
                     .font(.system(size: 16))
                     .lineLimit(1...4)
                     .focused($escribiendo)
+                    .submitLabel(.send)
                     .onSubmit(enviar)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Listo") { escribiendo = false }
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color.gPrimary)
+                        }
+                    }
                 if borrador.trimmingCharacters(in: .whitespaces).isEmpty {
                     Image(systemName: "mic")
                         .font(.system(size: 16, weight: .medium))
