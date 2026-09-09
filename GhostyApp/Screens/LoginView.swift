@@ -7,7 +7,7 @@ struct LoginView: View {
     var alEntrar: () async -> Void
 
     @State private var flujo = LoginFlow()
-    @State private var yendo = false
+    @State private var yendo: LoginFlow.Proveedor?
     @State private var error: String?
 
     var body: some View {
@@ -31,10 +31,30 @@ struct LoginView: View {
 
             Spacer()
 
-            ActionButton(title: yendo ? "Abriendo…" : "Entrar", kind: .primary) {
-                Task { await entrar() }
+            // Los proveedores van AQUÍ y no en la web: tocar "Entrar" y que la página
+            // vuelva a preguntar con qué entrar son dos pasos para la misma decisión.
+            VStack(spacing: 10) {
+                ActionButton(title: titulo("Continuar con Google", .google), kind: .primary) {
+                    Task { await entrar(.google) }
+                }
+                .disabled(yendo != nil)
+
+                ActionButton(title: titulo("Continuar con Apple", .apple), kind: .secondary) {
+                    Task { await entrar(.apple) }
+                }
+                .disabled(yendo != nil)
+
+                Button {
+                    Task { await entrar(.cualquiera) }
+                } label: {
+                    Text("Otra forma de entrar")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color.gInk2)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+                .disabled(yendo != nil)
             }
-            .disabled(yendo)
             .padding(.horizontal, 24)
 
             if let error {
@@ -46,27 +66,31 @@ struct LoginView: View {
                     .padding(.top, 12)
             }
 
-            Text("Con tu cuenta de Google, Apple o tu correo.")
-                .gMeta()
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.top, 16)
-                .padding(.bottom, 40)
+            Spacer().frame(height: 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func entrar() async {
+    private func titulo(_ base: String, _ p: LoginFlow.Proveedor) -> String {
+        yendo == p ? "Abriendo…" : base
+    }
+
+    private func entrar(_ proveedor: LoginFlow.Proveedor) async {
         error = nil
-        yendo = true
-        defer { yendo = false }
+        yendo = proveedor
+        defer { yendo = nil }
         do {
-            try await flujo.entrar()
+            try await flujo.entrar(con: proveedor)
             await alEntrar()
+        } catch LoginFlow.Fallo.cancelado {
+            // Cancelar no es un fallo. ⚠️ No basta con devolver `nil` en
+            // `errorDescription`: `localizedDescription` cae entonces al texto de
+            // sistema ("The operation couldn't be completed…"), que es justo lo que
+            // salía en rojo al cerrar la hoja. Hay que atrapar el caso, no confiar
+            // en que el texto venga vacío.
+            error = nil
         } catch {
-            // Cancelar no es un fallo: `errorDescription` es nil y no se enseña nada.
-            // Regañar a alguien por cerrar una hoja que abrió él es ruido.
-            self.error = error.localizedDescription.isEmpty ? nil : error.localizedDescription
+            self.error = error.localizedDescription
         }
     }
 }
