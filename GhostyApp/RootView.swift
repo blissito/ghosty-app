@@ -112,7 +112,12 @@ struct RootView: View {
     /// la app entra con otro tipo de credencial, así que esa pestaña sólo podía abrirse
     /// para explicar por qué no funciona. Una pestaña que no sirve es peor que ninguna.
     private var pestanas: [GhostyTab] {
-        store.puedeVerArchivos ? [.chat, .fleet, .artifacts] : [.chat, .fleet]
+        // Artefactos aparece con el almacén de la cuenta o en cuanto el agente entrega
+        // algo. Que la pestaña nazca cuando hay contenido es a propósito: vacía sólo servía
+        // para explicar por qué estaba vacía.
+        store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty
+            ? [.chat, .fleet, .artifacts]
+            : [.chat, .fleet]
     }
 
     @ViewBuilder

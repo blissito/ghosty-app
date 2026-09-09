@@ -113,6 +113,8 @@ struct ConversationView: View {
             HStack { Spacer(minLength: 40); UserBubble(text: t) }
         case .agent(let t, let tools, let trailing):
             HStack { AgentBubble(text: t, tools: tools, trailing: trailing); Spacer(minLength: 30) }
+        case .entrega(let e):
+            HStack { EntregaCard(entrega: e); Spacer(minLength: 30) }
         case .prCard(let card):
             HStack {
                 PRCard(card: card,

@@ -52,6 +52,8 @@ actor ACPClient {
         case thought(String)
         case toolCall(id: String, title: String)
         case toolDone(id: String, ok: Bool)
+        /// El agente entregó algo: un archivo suyo o un artefacto que escribió.
+        case entrega(Entrega)
         /// Lo que costó el turno. Llega UNA vez, al cerrar.
         ///
         /// ⚠️ Sale de la RESPUESTA de `session/prompt`, no de una notificación: el agente
@@ -114,7 +116,12 @@ actor ACPClient {
         // El host lo manda el servidor cuando lo sabe (`/api/v2/me/agents`). El
         // derivado se queda como respaldo para lo conectado a mano: cablearlo como
         // único camino ataría la app a UN dominio de cajas, y ya hay dos fierros.
-        URL(string: "wss://\(host ?? "acp-\(agentID).sandboxes.easybits.cloud")/acp")!
+        // ⚠️ `?tools=1` no es opcional: es lo que hace que el relé le monte al agente el
+        // servidor MCP de Ghosty, o sea `entregar_archivo` y `crear_artefacto`. Sin eso el
+        // agente escribe en el disco de su máquina y no tiene forma de hacerte llegar
+        // nada — se limita a describir lo que hizo. Comprobado contra la caja: con la
+        // bandera, entregar un artefacto llega como `ghosty/artifact` por este socket.
+        URL(string: "wss://\(host ?? "acp-\(agentID).sandboxes.easybits.cloud")/acp?tools=1")!
     }
 
     // MARK: - Conexión
@@ -262,6 +269,39 @@ actor ACPClient {
         try await t.send(.string(String(decoding: d, as: UTF8.self)))
     }
 
+    /// Traduce el payload de `ghosty/artifact` a una entrega.
+    ///
+    /// El relé manda dos formas (ver `mcp.ts` de la plantilla):
+    ///   • `{tipo:"archivo", nombre, contenidoBase64}`
+    ///   • `{tipo:"artefacto", subtipo:"doc"|"sheet"|"artifact", titulo, contenido}`
+    ///
+    /// ⚠️ Un `subtipo` que no reconozcamos NO se descarta: entra como página. Tirar una
+    /// entrega porque el nombre de su forma es nuevo la haría desaparecer sin dejar
+    /// rastro, y el agente ya le dijo al usuario que se la entregó.
+    nonisolated static func entregaDesde(_ p: [String: Any], agentID: String) -> Entrega? {
+        let id = UUID().uuidString
+        switch p["tipo"] as? String {
+        case "archivo":
+            let nombre = (p["nombre"] as? String) ?? "Archivo"
+            let datos = (p["contenidoBase64"] as? String).flatMap { Data(base64Encoded: $0) }
+            return Entrega(id: id, agentID: agentID, forma: .archivo, titulo: nombre,
+                           recibida: Date(), contenido: nil, datos: datos)
+        case "artefacto":
+            let forma: Entrega.Forma
+            switch p["subtipo"] as? String {
+            case "doc":   forma = .doc
+            case "sheet": forma = .sheet
+            default:      forma = .artifact
+            }
+            return Entrega(id: id, agentID: agentID, forma: forma,
+                           titulo: (p["titulo"] as? String) ?? "Sin título",
+                           recibida: Date(),
+                           contenido: (p["contenido"] as? String) ?? "", datos: nil)
+        default:
+            return nil
+        }
+    }
+
     private func abrirEnVivo(_ sink: AsyncStream<Replay>.Continuation) { enVivo = sink }
     private func cerrarEnVivo() { enVivo?.finish(); enVivo = nil }
 
@@ -361,6 +401,15 @@ actor ACPClient {
                     herramienta: tc?["kind"] as? String ?? "",
                     opciones: opciones))
             }
+            return
+        }
+
+        // La entrega viaja como notificación PROPIA del relé, no como `session/update`:
+        // no lleva `sessionId` ni respuesta, y un cliente que no la conozca la ignora sin
+        // romperse (que es lo que le pasa a Zed). Ver `relay.ts` → `entregar()`.
+        if m["method"] as? String == "ghosty/artifact",
+           let p = m["params"] as? [String: Any] {
+            if let e = Self.entregaDesde(p, agentID: agentID) { enVivo?.yield(.entrega(e)) }
             return
         }
 

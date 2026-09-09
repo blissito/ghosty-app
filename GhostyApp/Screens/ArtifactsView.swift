@@ -19,13 +19,49 @@ struct ArtifactsView: View {
                 AgentHeader(agent: agente, onTap: onOpenSheet).padding(.top, 8)
             }
 
-            segmentos.padding(.horizontal, Theme.Space.screenH).padding(.top, 16)
+            if store.puedeVerArchivos {
+                segmentos.padding(.horizontal, Theme.Space.screenH).padding(.top, 16)
+            }
 
             ScrollView {
-                contenido.padding(.top, 16)
+                // Lo que ESTE agente entregó va primero y siempre: es lo único de esta
+                // pantalla que de verdad es suyo. El almacén de abajo es de la cuenta.
+                entregadas.padding(.top, 16)
+                if store.puedeVerArchivos { contenido.padding(.top, 16) }
             }
         }
         .task(id: store.selectedAgentID) { await store.cargarArchivos() }
+    }
+
+    /// Las entregas de este agente.
+    ///
+    /// ⚠️ Son las que pasaron por ESTE teléfono. La entrega es un empujón en vivo por el
+    /// socket del turno, no un estado que se pueda consultar después, así que lo que el
+    /// agente entregó desde otro cliente no está aquí. Se dice, en vez de dejar creer que
+    /// es todo lo que hizo.
+    @ViewBuilder
+    private var entregadas: some View {
+        let lista = store.entregas.de(store.selectedAgentID)
+        if lista.isEmpty {
+            EmptyState(icon: "tray",
+                       title: "Todavía nada",
+                       detail: "Lo que el agente te entregue —un archivo, un documento, una página— se queda aquí.")
+                .padding(.top, 50)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Lo que te entregó").gSectionTitle()
+                    .padding(.horizontal, Theme.Space.screenH)
+                VStack(spacing: 10) {
+                    ForEach(lista) { EntregaCard(entrega: $0) }
+                }
+                .padding(.horizontal, Theme.Space.screenH)
+                Text("Sólo lo entregado por este teléfono. Lo que el agente haga desde otro cliente no se ve aquí.")
+                    .gCaption()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Theme.Space.screenH)
+                    .padding(.top, 6)
+            }
+        }
     }
 
     private var segmentos: some View {

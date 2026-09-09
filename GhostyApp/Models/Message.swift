@@ -27,6 +27,8 @@ struct Message: Identifiable, Equatable, Sendable {
         case user(String)
         case agent(text: String, tools: ToolRun?, trailing: String?)
         case prCard(PullRequestCard)
+        /// Algo que el agente hizo llegar: un archivo o un artefacto. Ver `Entregas.swift`.
+        case entrega(Entrega)
         case typing
     }
 

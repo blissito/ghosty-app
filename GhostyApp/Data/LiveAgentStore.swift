@@ -29,6 +29,8 @@ final class LiveAgentStore: AgentStoring {
     private var sesiones: [String: String] = [:]
     private var cuentas: [AgentAccount] = []
     let bitacora = TurnLogStore()
+    /// Lo que el agente ha entregado por este teléfono. Ver `Entregas.swift`.
+    let entregas = EntregasStore()
     let titulos = TitleStore()
 
     /// Archivos y documentos de la cuenta. ⚠️ NO son del agente: el modelo `File` de
@@ -421,6 +423,15 @@ final class LiveAgentStore: AgentStoring {
                     }
                 case .usage(let entrada, let salida):
                     usoDelTurno = (entrada, salida)
+                case .entrega(let e):
+                    // Se guarda ANTES de pintarla: si la app muere entre una cosa y otra,
+                    // preferimos una entrega guardada que no se anunció a un anuncio de
+                    // algo que ya no está.
+                    entregas.registrar(e)
+                    // Tarjeta propia, no un campo del mensaje: la entrega llega a mitad
+                    // del turno y el texto del agente sigue creciendo después. Metida en
+                    // la burbuja, cada trozo nuevo la repintaría.
+                    messages.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
                 case .user, .thought, .toolDone:
                     break
                 }

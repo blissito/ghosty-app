@@ -80,6 +80,12 @@ enum ReplayToMessages {
             case .usage:
                 // El gasto no se pinta en el hilo: vive en el panel de actividad.
                 break
+
+            case .entrega:
+                // ⚠️ El replay de un hilo NO trae entregas: el relé las empuja en vivo y
+                // no las guarda. Lo entregado se recupera del almacén del teléfono, no de
+                // aquí. Esta rama existe para que el compilador avise si eso cambia.
+                break
             }
         }
         cerrar()
