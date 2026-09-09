@@ -97,3 +97,29 @@ propio que había antes lo rechazaba como encabezado, caía al párrafo, el pár
 rompía al ver `#` y **no avanzaba el índice**: bucle infinito en el hilo principal, y
 la app congelada en el primer chunk de cualquier respuesta con markdown. Fue una de
 las razones para pasar a la librería.
+
+## Subir a TestFlight
+
+```bash
+./subir-testflight.sh     # compila, sube, espera el VALID y la reparte al grupo Taller
+```
+
+⚠️ **Dos fallos MUDOS que ya costaron una tarde (2026-09-09). Los dos están cerrados en el
+script; esto es para reconocerlos si vuelven:**
+
+1. **Subir NO es repartir.** Una build queda `VALID` y no la ve ningún tester hasta que se
+   asigna a un grupo. El script lo hace solo; si Apple tarda más de 20 min en procesar,
+   imprime los comandos para hacerlo a mano.
+
+2. **El `.ipa` puede salir con OTRO número de build.** `CFBundleVersion` en `project.yml`
+   tiene que ser `$(CURRENT_PROJECT_VERSION)`; si es un literal, xcodegen lo hornea y el
+   número que pasa el script no llega. App Store Connect entonces **descarta el paquete por
+   duplicado SIN mandar correo**: `UPLOAD SUCCEEDED` y la build no aparece jamás. El script
+   ahora lee el número de dentro del `.ipa` y aborta si no coincide.
+
+**Dónde mirar de verdad**: `https://appstoreconnect.apple.com/apps/6810017404/testflight/ios`.
+La API (`scripts/asc.py builds`) **no lista** lo que está procesando, así que "no aparece"
+no distingue entre procesando y perdido.
+
+**Por cable**, sin depender de Apple: `./instalar.sh`.
+
