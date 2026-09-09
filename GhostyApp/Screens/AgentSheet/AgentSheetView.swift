@@ -34,12 +34,27 @@ struct AgentSheetView: View {
     var onNuevaConversacion: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
+    /// Cuál se está mirando. La clave de lo guardado; se lee al construir la vista.
+    private static let llaveDelPanel = "ghosty.panelDeLaHoja"
+
     /// El panel abierto, RECORDADO entre aperturas y entre arranques.
     ///
-    /// ⚠️ Era `@State` y por eso siempre volvía a Actividad: `.sheet(item:)` construye la
-    /// vista de nuevo cada vez que se abre, así que el estado local nace virgen. Quien
-    /// estaba mirando el historial tenía que volver a buscarlo en cada visita.
-    @AppStorage("ghosty.panelDeLaHoja") private var panelGuardado = SheetPane.activity.rawValue
+    /// ⚠️ Era `@State` a secas y por eso siempre volvía a Actividad: `.sheet(item:)`
+    /// construye la vista de nuevo cada vez que se abre, así que el estado local nace
+    /// virgen. Quien estaba mirando el historial tenía que volver a buscarlo.
+    ///
+    /// ⚠️ Y fue `@AppStorage`, que arregló eso y **rompió la animación**: el valor da la
+    /// vuelta por `UserDefaults` y vuelve en otro ciclo, o sea FUERA de la transacción del
+    /// `withAnimation` que lanzó el toque. La cápsula del segmentado no podía deslizarse
+    /// —su `matchedGeometryEffect` necesita que quitarla y ponerla ocurran en la MISMA
+    /// animación—, así que desaparecía de un sitio y aparecía en el otro.
+    ///
+    /// La memoria y la animación se separan: manda el `@State` (animable) y lo guardado es
+    /// una consecuencia.
+    @State private var panelActual: SheetPane =
+        panelForzado
+        ?? SheetPane(rawValue: UserDefaults.standard.string(forKey: llaveDelPanel) ?? "")
+        ?? .activity
 
     /// Gancho de desarrollo: el simulador no acepta toques por script, así que sin esto
     /// no hay forma de verificar un panel que no sea el primero. Gana sobre lo guardado.
@@ -48,8 +63,11 @@ struct AgentSheetView: View {
 
     private var pane: Binding<SheetPane> {
         Binding(
-            get: { Self.panelForzado ?? SheetPane(rawValue: panelGuardado) ?? .activity },
-            set: { panelGuardado = $0.rawValue },
+            get: { panelActual },
+            set: { nuevo in
+                panelActual = nuevo
+                UserDefaults.standard.set(nuevo.rawValue, forKey: Self.llaveDelPanel)
+            },
         )
     }
 

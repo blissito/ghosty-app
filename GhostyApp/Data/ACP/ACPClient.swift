@@ -52,6 +52,14 @@ actor ACPClient {
         case thought(String)
         case toolCall(id: String, title: String)
         case toolDone(id: String, ok: Bool)
+        /// Lo que costó el turno. Llega UNA vez, al cerrar.
+        ///
+        /// ⚠️ Sale de la RESPUESTA de `session/prompt`, no de una notificación: el agente
+        /// manda `usage_update` mientras trabaja, pero el número bueno —el acumulado del
+        /// turno— viene con el `stopReason`. Antes esa respuesta se descartaba con un
+        /// `_ =`, así que el panel de actividad decía **0 tokens** para siempre por más
+        /// turnos que se hicieran.
+        case usage(input: Int, output: Int)
     }
 
     enum Fallo: LocalizedError {
@@ -213,10 +221,20 @@ actor ACPClient {
                 await self.abrirEnVivo(sink)
                 let bombeo = Task { for await e in flujo { cont.yield(e) } }
                 do {
-                    _ = try await self.pedir("session/prompt", [
+                    let fin = try await self.pedir("session/prompt", [
                         "sessionId": sessionID,
                         "prompt": [["type": "text", "text": texto]],
                     ], timeout: 900)
+                    // El cierre trae el gasto. Se emite ANTES de terminar el flujo para
+                    // que el store lo tenga cuando anote el turno.
+                    if let u = fin["usage"] as? [String: Any] {
+                        let entrada = (u["inputTokens"] as? Int) ?? 0
+                        let salida = (u["outputTokens"] as? Int) ?? 0
+                        // Algunos motores sólo mandan el total. Se atribuye a entrada, que
+                        // es donde está el grueso: inventarle un reparto sería peor.
+                        let total = (u["totalTokens"] as? Int) ?? 0
+                        cont.yield(.usage(input: entrada > 0 ? entrada : total, output: salida))
+                    }
                     await self.cerrarEnVivo()
                     bombeo.cancel()
                     cont.finish()

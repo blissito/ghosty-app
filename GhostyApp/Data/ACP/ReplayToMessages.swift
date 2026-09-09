@@ -76,6 +76,10 @@ enum ReplayToMessages {
                 if let previa = herramientas[id] {
                     herramientas[id] = (previa.titulo, ok)
                 }
+
+            case .usage:
+                // El gasto no se pinta en el hilo: vive en el panel de actividad.
+                break
             }
         }
         cerrar()

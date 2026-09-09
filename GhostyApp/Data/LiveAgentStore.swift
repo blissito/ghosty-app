@@ -419,6 +419,8 @@ final class LiveAgentStore: AgentStoring {
                         herramientas.append((id, titulo))
                         pintarRespuesta(id: respuesta, texto: acumulado, herramientas: herramientas)
                     }
+                case .usage(let entrada, let salida):
+                    usoDelTurno = (entrada, salida)
                 case .user, .thought, .toolDone:
                     break
                 }
