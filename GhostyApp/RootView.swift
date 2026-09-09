@@ -124,9 +124,15 @@ struct RootView: View {
         // Artefactos aparece con el almacén de la cuenta o en cuanto el agente entrega
         // algo. Que la pestaña nazca cuando hay contenido es a propósito: vacía sólo servía
         // para explicar por qué estaba vacía.
-        store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty
-            ? [.chat, .fleet, .artifacts]
-            : [.chat, .fleet]
+        var lista: [GhostyTab] = [.chat, .fleet]
+        if store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty {
+            lista.append(.artifacts)
+        }
+        // Integraciones se enseña SIEMPRE, aunque el servidor todavía no las sirva: la
+        // lista se va a ir completando y ver lo que viene es información útil. Cada fila
+        // apagada lo dice. Decidido el 2026-09-09.
+        lista.append(.connectors)
+        return lista
     }
 
     /// Adjuntos sintéticos para el gancho `GHOSTY_ADJUNTOS`. Sólo se construyen si la
@@ -174,6 +180,9 @@ struct RootView: View {
             EmptyState(icon: "checkmark.square", title: "Metas",
                        detail: "Lo que persigue y su plan para llegar. Todavía no está.")
                 .padding(.bottom, Theme.Space.tabBarClearance)
+        case .connectors:
+            ConectoresPane(store: store)
+                .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
         case .artifacts:
             ArtifactsView(store: store, onOpenSheet: abrirHoja)
                 .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)

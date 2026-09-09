@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum GhostyTab: String, CaseIterable, Identifiable {
-    case chat, fleet, ideas, goals, artifacts
+    case chat, fleet, ideas, goals, artifacts, connectors
     var id: String { rawValue }
 
     var icon: String {
@@ -11,6 +11,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
         case .ideas:     return "lightbulb"
         case .goals:     return "checkmark.square"
         case .artifacts: return "circle.grid.2x2"
+        case .connectors: return "puzzlepiece.extension"
         }
     }
 }

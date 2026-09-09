@@ -1,10 +1,11 @@
 import SwiftUI
 
 enum SheetPane: String, CaseIterable, Identifiable, Hashable {
-    // ⚠️ Las integraciones van AQUÍ y no en Ajustes: son capacidades DEL AGENTE, y este
-    // panel es donde vive su configuración. En Ajustes quedaban a tres toques y detrás de
-    // un engrane que casi nadie encuentra.
-    case activity, permissions, history, memory, connectors
+    // ⚠️ Las integraciones NO están aquí, y es a propósito: son de la CUENTA, no del
+    // agente. La tabla es `gc_user_connectors` con clave `(sub, provider)` y el agente usa
+    // la conexión de quien lo invoca. Dentro del panel del agente parecería que cada uno
+    // tiene las suyas. Viven en su propia pestaña.
+    case activity, permissions, history, memory
     var id: String { rawValue }
 
     /// El nombre del panel. Se usa para VoiceOver: el segmentado es sólo iconos.
@@ -14,7 +15,6 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
         case .permissions: return "Permisos"
         case .history:     return "Historial"
         case .memory:      return "Memoria"
-        case .connectors:  return "Integraciones"
         }
     }
 
@@ -24,7 +24,6 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
         case .permissions: return "checkmark.shield"
         case .history:     return "clock.arrow.circlepath"
         case .memory:      return "brain"
-        case .connectors:  return "puzzlepiece.extension"
         }
     }
 }
@@ -129,7 +128,6 @@ struct AgentSheetView: View {
                     case .activity:    ActivityPane(store: store)
                     case .permissions: PermissionsPane(store: store)
                     case .history:     HistoryPane(store: store, onAbrir: { dismiss() })
-                    case .connectors:  ConectoresPane(store: store)
                     case .memory:
                         EmptyState(icon: "brain",
                                    title: "Memoria",

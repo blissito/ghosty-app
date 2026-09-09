@@ -8,11 +8,13 @@ import SwiftUI
 /// `ASWebAuthenticationSession`, el mismo con el que se entra con Google o Apple. Sacar a
 /// alguien de la app a mitad de una conversación para volver a entrar es justo la fricción
 /// que este producto no puede permitirse.
-/// Las apps que tu agente puede usar en tu nombre, dentro del panel del agente.
+/// Las apps que tus agentes pueden usar en tu nombre. Es una PESTAÑA, no un panel del
+/// agente.
 ///
-/// ⚠️ Vive AQUÍ y no en Ajustes: son capacidades DEL AGENTE. En Ajustes quedaban a tres
-/// toques y detrás de un engrane que casi nadie encuentra — y menos desde que el `+` dejó
-/// de llevar "Tu cuenta".
+/// ⚠️ La conexión es de la CUENTA: la tabla es `gc_user_connectors` con clave
+/// `(sub, provider)` y el agente usa la de quien lo invoca. Metida en el panel del agente
+/// —donde estuvo un rato— parecía que cada agente tenía las suyas y que había que
+/// conectarlas una por una.
 ///
 /// ⚠️ El OAuth se hace en el teléfono. Se dio por hecho que había que mandar a la persona
 /// al panel web «porque OAuth necesita navegador», y la app ya tiene uno:
@@ -29,6 +31,17 @@ struct ConectoresPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Integraciones").gScreenTitle()
+                // ⚠️ Se dice que son TUYAS, no del agente: la conexión cuelga de la persona
+                // y cualquier agente que invoques usa la misma. Sin esta línea, en una app
+                // con varios agentes se lee como que hay que conectarlas una por una.
+                Text("Son de tu cuenta: cualquier agente que uses trabaja con ellas.")
+                    .gMeta()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, Theme.Space.screenH)
+            .padding(.top, 8)
             if let fallo {
                 Text(fallo).gCaption().foregroundStyle(Color.gDangerInk)
                     .padding(.horizontal, Theme.Space.screenH)
@@ -45,6 +58,7 @@ struct ConectoresPane: View {
             }
         }
         .task { await store.cargarConectores() }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func seccion(_ titulo: String, _ lista: [Conector]) -> some View {
