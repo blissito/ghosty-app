@@ -8,11 +8,17 @@ import Security
 /// que el servidor no puede decirnos cómo se llama. Comprobado contra la API real.
 struct AgentAccount: Identifiable, Codable, Equatable {
     var id: String          // agentId
-    var token: String       // agt_… o eb_sk_…
+    var token: String       // agt_… · eb_sk_… · gat_… (agente nativo por ACP)
     var name: String
+    /// Host de la caja ACP, tal como lo manda el servidor. `nil` = derivarlo del id
+    /// (el dominio por defecto). Viene del servidor y no cableado porque ya hay dos
+    /// fierros y el dominio puede cambiar sin que la app se entere.
+    var host: String?
 
     var esTokenDeAgente: Bool { token.hasPrefix("agt_") }
     var esLlaveDeCuenta: Bool { token.hasPrefix("eb_sk_") }
+    /// Agente nativo de ghosty.studio que habla ACP.
+    var esAgenteNativo: Bool { token.hasPrefix("gat_") }
 }
 
 /// Los agentes conectados y cuál está activo. Todo en el llavero de ESTE teléfono.
@@ -27,13 +33,9 @@ enum Credentials {
            !lista.isEmpty {
             return lista
         }
-        // Nada guardado: se cae al agente horneado en el build (el del demo) o a las
-        // variables de entorno del simulador.
-        if let t = deEntornoOPlist("EASYBITS_API_KEY", "EasyBitsAPIKey"),
-           let id = deEntornoOPlist("GHOSTY_AGENT_ID", "GhostyAgentId") {
-            let nombre = deEntornoOPlist("GHOSTY_AGENT_NAME", "GhostyAgentName") ?? "Mi agente"
-            return [AgentAccount(id: id, token: t, name: nombre)]
-        }
+        // ⚠️ Ya NO hay respaldo al token horneado en el build. La credencial sale del
+        // login contra ghosty.studio, y punto: dos caminos de autenticación vivos
+        // significan que el que no pruebas es donde se esconde el fallo.
         return []
     }
 
@@ -81,14 +83,6 @@ enum Credentials {
         Keychain.borrar(.cuentas); Keychain.borrar(.activo)
     }
 
-    // MARK: - Respaldos
-
-    private static func deEntornoOPlist(_ env: String, _ plist: String) -> String? {
-        if let v = ProcessInfo.processInfo.environment[env], !v.isEmpty { return v }
-        if let v = Bundle.main.object(forInfoDictionaryKey: plist) as? String,
-           !v.isEmpty, !v.hasPrefix("$(") { return v }
-        return nil
-    }
 }
 
 /// Llavero. `WhenUnlockedThisDeviceOnly`: la credencial no viaja al respaldo de
@@ -97,6 +91,8 @@ enum Keychain {
     enum Clave: String {
         case cuentas = "easybits.accounts"
         case activo  = "ghosty.activeAgent"
+        /// La sesión OAuth2 con ghosty.studio (access + refresh). Ver `Session`.
+        case sesion  = "ghosty.session"
     }
 
     private static let servicio = "studio.ghosty.app"

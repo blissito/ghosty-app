@@ -20,12 +20,6 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>EasyBitsAPIKey</key>
-	<string>$(EASYBITS_TOKEN)</string>
-	<key>GhostyAgentId</key>
-	<string>$(GHOSTY_AGENT_ID)</string>
-	<key>GhostyAgentName</key>
-	<string>$(GHOSTY_AGENT_NAME)</string>
 	<key>GhostyCommit</key>
 	<string>$(GHOSTY_COMMIT)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

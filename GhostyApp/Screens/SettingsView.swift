@@ -1,28 +1,16 @@
 import SwiftUI
 
-/// Conectar un agente. La credencial se guarda en el llavero de este teléfono y
-/// **nunca viaja en el binario** — salvo la del demo, que se hornea aparte.
+/// Tu cuenta: quién eres, qué agentes tienes y cómo salir.
+///
+/// ⚠️ Aquí ya NO se pega ningún token. La credencial sale del login contra
+/// ghosty.studio y el servidor dice qué agentes hay; teclear un id de agente en un
+/// teléfono era justo lo que hacía que la app no sirviera para nadie más que nosotros.
 struct SettingsView: View {
-    /// Si viene un agente, se está editando; si no, se conecta uno nuevo.
-    var editando: AgentAccount?
-    var onGuardado: () -> Void
+    var store: LiveAgentStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var abrir
 
-    @State private var nombre: String
-    @State private var agente: String
-    @State private var token: String
-    @State private var probando = false
-    @State private var resultado: Resultado?
-
-    init(editando: AgentAccount? = nil, onGuardado: @escaping () -> Void) {
-        self.editando = editando
-        self.onGuardado = onGuardado
-        _nombre = State(initialValue: editando?.name ?? "")
-        _agente = State(initialValue: editando?.id ?? "")
-        _token  = State(initialValue: editando?.token ?? "")
-    }
-
-    private enum Resultado: Equatable { case bien(String), mal(String) }
+    @State private var saliendo = false
 
     /// Qué build trae este teléfono. Sin esto no hay forma de saberlo sin cable, y
     /// ya me llevó a diagnosticar mal una vez.
@@ -35,12 +23,16 @@ struct SettingsView: View {
         return "Ghosty \(v) (build \(n))\(sufijo)"
     }
 
-    private var esDeAgente: Bool { token.hasPrefix("agt_") }
-    private var esDeCuenta: Bool { token.hasPrefix("eb_sk_") }
-    private var listo: Bool {
-        !token.trimmingCharacters(in: .whitespaces).isEmpty
-        && !agente.trimmingCharacters(in: .whitespaces).isEmpty
-    }
+    /// Lo que se abre en el navegador. La sesión la resuelve la web con su propio
+    /// handshake, así que la app no tiene que llevar ninguna credencial ahí.
+    private let sitios: [(String, String, URL)] = [
+        ("Teams", "Conversaciones, documentos y llamadas",
+         URL(string: "https://teams.ghosty.studio")!),
+        ("Tasks", "Tableros y pendientes",
+         URL(string: "https://tasks.ghosty.studio")!),
+        ("Sales", "Tu embudo y tus conversaciones de venta",
+         URL(string: "https://sales.ghosty.studio")!),
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,130 +47,73 @@ struct SettingsView: View {
             .padding(.top, 16)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(editando == nil ? "Conectar agente" : "Editar agente").gScreenTitle()
-                        Text("Se guarda en el llavero de este teléfono. No sale de aquí.")
-                            .gMeta().fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    campo("Nombre", "Cómo quieres verlo en la lista", $nombre, mono: false)
-                    campo("Token", "El del agente empieza con agt_ · el de cuenta con eb_sk_", $token, mono: true)
-
-                    if esDeCuenta {
-                        aviso("exclamationmark.triangle",
-                              "Es la llave de tu cuenta: alcanza todos tus agentes y puede borrarlos. En un teléfono ajeno usa el agt_ del agente.",
-                              .gDanger, .gDangerTint)
-                    } else if esDeAgente {
-                        aviso("checkmark.shield",
-                              "Token de un solo agente. No puede listar ni borrar nada.",
-                              .gGreenInk, .gGreenTint)
-                    }
-
-                    campo("Id del agente", "Lo da EasyBits al crearlo", $agente, mono: true)
-
-                    if let resultado {
-                        switch resultado {
-                        case .bien(let d): aviso("checkmark.circle", d, .gGreenInk, .gGreenTint)
-                        case .mal(let d):  aviso("xmark.circle", d, .gDangerInk, .gDangerTint)
+                        Text("Tu cuenta").gScreenTitle()
+                        if let correo = store.correo {
+                            Text(correo).gMeta()
                         }
                     }
 
-                    HStack(spacing: 6) {
-                        Image(systemName: "info.circle").font(.system(size: 12))
-                        Text(Self.version)
-                    }
-                    .gCaption()
-
-                    VStack(spacing: 9) {
-                        ActionButton(title: probando ? "Probando…" : "Probar y guardar", kind: .primary) {
-                            Task { await probarYGuardar() }
-                        }
-                        .disabled(probando || !listo)
-                        .opacity(probando || !listo ? 0.55 : 1)
-
-                        if let editando {
-                            ActionButton(title: "Quitar este agente", kind: .destructive) {
-                                Credentials.quitar(editando.id)
-                                onGuardado(); dismiss()
+                    if !store.agents.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Tus agentes").gSectionTitle()
+                            ForEach(store.agents) { a in
+                                HStack(spacing: 10) {
+                                    Text(a.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(Color.gInk)
+                                    Text(a.engine).gMeta()
+                                    Spacer()
+                                    if a.id == store.selectedAgentID {
+                                        Text("activo").gMeta()
+                                    }
+                                }
+                                .padding(.vertical, 4)
                             }
                         }
                     }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("En la web").gSectionTitle()
+                        ForEach(sitios, id: \.0) { nombre, detalle, url in
+                            Button { abrir(url) } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(nombre)
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundStyle(Color.gInk)
+                                        Text(detalle).gMeta()
+                                    }
+                                    Spacer()
+                                    Image(systemName: "arrow.up.right")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color.gInk3)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    Text(Self.version).gMeta()
+
+                    ActionButton(title: saliendo ? "Saliendo…" : "Cerrar sesión", kind: .destructive) {
+                        saliendo = true
+                        Task {
+                            // Cierra ANTES de despedir la hoja: si se hace al revés, la
+                            // vista se va y la tarea se queda a medias.
+                            await store.cerrarSesion()
+                            dismiss()
+                        }
+                    }
+                    .disabled(saliendo)
                 }
-                .padding(.horizontal, Theme.Space.screenH)
-                .padding(.top, 12)
-                .padding(.bottom, 30)
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 40)
             }
         }
-        .background(Color.gBg)
-    }
-
-    // MARK: - Piezas
-
-    private func campo(_ titulo: String, _ ayuda: String, _ texto: Binding<String>, mono: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk)
-            TextField("", text: texto)
-                .textFieldStyle(.plain)
-                .font(.system(size: 15, design: mono ? .monospaced : .default))
-                .textInputAutocapitalization(mono ? .never : .words)
-                .autocorrectionDisabled(mono)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 46)
-                .background(Color.gCard)
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            Text(ayuda).gCaption().fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func aviso(_ icono: String, _ texto: String, _ tono: Color, _ fondo: Color) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icono).font(.system(size: 14, weight: .semibold)).foregroundStyle(tono)
-            Text(texto).font(.system(size: 13.5)).foregroundStyle(Color.gInk2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(fondo)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    /// Se prueba ANTES de guardar: una credencial mala guardada deja la app en un
-    /// estado que desde fuera parece un fallo del servicio.
-    private func probarYGuardar() async {
-        probando = true; resultado = nil
-        defer { probando = false }
-
-        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        let id = agente.trimmingCharacters(in: .whitespacesAndNewlines)
-        // ⚠️ Antes esto mandaba un "ping" por HTTP, y ese ping **apendaba al hilo
-        // por defecto del agente**: probar la credencial ensuciaba una conversación.
-        // El `initialize` del WebSocket verifica lo mismo —que el token alcanza a esa
-        // caja— sin escribir nada, y de paso comprueba el transporte que la app usa
-        // de verdad.
-        let cliente = ACPClient(agentID: id, token: t)
-        do {
-            let info = try await cliente.conectar()
-            await cliente.cerrar()
-            resultado = .bien("Conectado · \(info)")
-        } catch {
-            // La caja puede estar dormida: se la levanta y se reintenta una vez.
-            do {
-                try await EasyBitsClient(apiKey: t).revive(agentID: id)
-                let info = try await cliente.conectar()
-                await cliente.cerrar()
-                resultado = .bien("Conectado · \(info)")
-            } catch {
-                resultado = .mal(error.localizedDescription)
-                return
-            }
-        }
-
-        let limpio = nombre.trimmingCharacters(in: .whitespacesAndNewlines)
-        Credentials.upsert(AgentAccount(id: id, token: t,
-                                        name: limpio.isEmpty ? "Mi agente" : limpio))
-        resultado = .bien("Conectado.")
-        onGuardado()
-        dismiss()
+        .background(Color.gBg.ignoresSafeArea())
     }
 }

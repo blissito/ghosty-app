@@ -117,7 +117,7 @@ struct ConversationView: View {
                         escribiendo = false
                         onConectarAgente()
                     } label: {
-                        Label("Conectar otro agente", systemImage: "plus.circle")
+                        Label("Tu cuenta", systemImage: "person.crop.circle")
                     }
                 } label: {
                     Image(systemName: "plus")

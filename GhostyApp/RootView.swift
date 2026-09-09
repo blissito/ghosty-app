@@ -9,7 +9,6 @@ struct RootView: View {
         GhostyTab(rawValue: ProcessInfo.processInfo.environment["GHOSTY_TAB"] ?? "") ?? .chat
     @State private var hoja: Agent?
     @State private var ajustes = false
-    @State private var editando: AgentAccount?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -23,16 +22,8 @@ struct RootView: View {
                         Text("Buscando tus cajas…").gMeta()
                     }
                 case .sinLlave:
-                    VStack(spacing: 16) {
-                        EmptyState(
-                            icon: "key",
-                            title: "Falta la credencial",
-                            detail: "Pega el token de tu agente para que la app pueda hablar con su caja."
-                        )
-                        ActionButton(title: "Abrir Ajustes", kind: .primary) { ajustes = true }
-                            .frame(maxWidth: 240)
-                    }
-                    .padding(.horizontal, 24)
+                    // Ya no se pega ningún token: se entra con la cuenta.
+                    LoginView { await store.cargar() }
                 case .fallo(let detalle):
                     VStack(spacing: 14) {
                         EmptyState(icon: "exclamationmark.triangle", title: "No pude conectar", detail: detalle)
@@ -82,15 +73,8 @@ struct RootView: View {
                 await store.send(sonda)
             }
         }
-        .sheet(item: $editando) { cuenta in
-            SettingsView(editando: cuenta) { Task { await store.recargarCredencial() } }
-                #if os(iOS)
-                .presentationDetents([.large])
-                .presentationCornerRadius(Theme.Radius.sheet)
-                #endif
-        }
         .sheet(isPresented: $ajustes) {
-            SettingsView { Task { await store.recargarCredencial() } }
+            SettingsView(store: store)
                 #if os(iOS)
                 .presentationDetents([.large])
                 .presentationCornerRadius(Theme.Radius.sheet)
@@ -120,7 +104,7 @@ struct RootView: View {
         case .fleet:
             FleetView(store: store,
                       onConectar: { ajustes = true },
-                      onEditar: { editando = $0 })
+                      onEditar: { _ in ajustes = true })
                 .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
         case .ideas:
             EmptyState(icon: "lightbulb", title: "Ideas",

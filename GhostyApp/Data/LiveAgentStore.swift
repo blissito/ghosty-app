@@ -65,39 +65,73 @@ final class LiveAgentStore: AgentStoring {
 
     // MARK: - Carga
 
+    /// El correo de la cuenta, para poder enseñarlo en Ajustes.
+    var correo: String?
+
     func cargar() async {
         conexion = .cargando
-        cuentas = Credentials.accounts
-        guard !cuentas.isEmpty else { conexion = .sinLlave; return }
 
-        // Con una llave de cuenta (`eb_sk_…`) sí se puede listar, así que la flota se
-        // completa con los agentes encendidos de ese dueño. Con un token de agente
-        // (`agt_…`) el API contesta 401 al listar: la lista es lo que haya conectado
-        // a mano, y ya.
-        for cuenta in cuentas where cuenta.esLlaveDeCuenta {
-            let cliente = EasyBitsClient(apiKey: cuenta.token)
-            if let remotos = try? await cliente.agents() {
-                for r in remotos where r.status == "running" {
-                    if !cuentas.contains(where: { $0.id == r.agentId }) {
-                        cuentas.append(AgentAccount(id: r.agentId,
-                                                    token: cuenta.token,
-                                                    name: r.name ?? "agente"))
-                    }
-                }
-            }
+        // Sin sesión no hay nada que pedir: la app arranca en el login.
+        guard Session.haySesion else { conexion = .sinLlave; return }
+
+        // La flota la sabe el servidor. Esto es lo que borra el paso de teclear un
+        // token y un id: la cuenta ya sabe qué agentes tiene, y si no tiene ninguno,
+        // el servidor le provisiona el primero.
+        let flota: GhostyAPI.Flota
+        do {
+            flota = try await GhostyAPI.flota()
+        } catch Session.Fallo.caducada {
+            conexion = .sinLlave
+            return
+        } catch {
+            conexion = .fallo(error.localizedDescription)
+            return
+        }
+
+        correo = flota.correo
+        cuentas = flota.agentes
+        Credentials.guardar(cuentas)
+
+        guard !cuentas.isEmpty else {
+            // Vacío tiene DOS causas distintas y la persona merece saber cuál: o no se
+            // pudo crear el agente, o existe pero todavía no se le puede hablar.
+            conexion = .fallo(
+                flota.motivoSinAgente
+                    ?? (flota.faltanTokens
+                        ? "Tu agente se está preparando. Vuelve a intentarlo en un momento."
+                        : "Todavía no tienes ningún agente.")
+            )
+            return
         }
 
         let tonos: [AgentTone] = [.lila, .azul, .durazno]
         agents = cuentas.enumerated().map { i, c in
             Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
                   status: .idle(since: "listo"),
-                  engine: c.esTokenDeAgente ? "token del agente" : "llave de cuenta")
+                  engine: c.esAgenteNativo ? "Ghosty Studio" : "EasyBits")
         }
-        selectedAgentID = Credentials.activeID ?? cuentas[0].id
+        // El agente activo se conserva entre arranques, pero sólo si sigue existiendo:
+        // uno borrado desde la web dejaría la app apuntando a la nada.
+        let activo = Credentials.activeID
+        selectedAgentID = cuentas.contains(where: { $0.id == activo }) ? activo! : cuentas[0].id
         messages = hilos[selectedAgentID] ?? []
         conexion = .lista
     }
 
+    /// Cierra sesión: revoca en el servidor, borra el llavero y vuelve al login.
+    func cerrarSesion() async {
+        await Session.cerrarSesion()
+        cuentas = []
+        agents = []
+        messages = []
+        hilos = [:]
+        sesiones = [:]
+        hilosRemotos = []
+        correo = nil
+        conexion = .sinLlave
+    }
+
+    /// Vuelve a pedir la flota al servidor. La usa la pantalla de cuenta.
     func recargarCredencial() async { await cargar() }
 
     /// Trae archivos y documentos. Con un token de agente el API contesta **401**
@@ -207,7 +241,7 @@ final class LiveAgentStore: AgentStoring {
     /// reintenta.
     private func asegurarSocket(_ cuenta: AgentAccount) async throws -> ACPClient {
         if let c = acp, infoDeLaCaja != nil { return c }
-        let c = ACPClient(agentID: cuenta.id, token: cuenta.token)
+        let c = ACPClient(agentID: cuenta.id, token: cuenta.token, host: cuenta.host)
         do {
             infoDeLaCaja = try await c.conectar()
         } catch {

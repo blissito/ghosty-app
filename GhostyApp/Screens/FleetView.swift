@@ -16,8 +16,10 @@ struct FleetView: View {
                 HStack {
                     Text("Tu flota").gScreenTitle()
                     Spacer()
+                    // Ya no se "añade" un agente desde aquí: los agentes son de la
+                    // cuenta. Este botón abre la cuenta, y el icono lo dice.
                     Button(action: onConectar) {
-                        TintedIcon(systemName: "plus", tint: .gInk, background: .gCard, size: 36)
+                        TintedIcon(systemName: "person.crop.circle", tint: .gInk, background: .gCard, size: 36)
                             .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
                     }
                     .buttonStyle(.plain)
@@ -38,7 +40,7 @@ struct FleetView: View {
                 .padding(.horizontal, Theme.Space.cardH)
                 .ghostyCard()
 
-                Text("Un token `agt_` alcanza sólo a su agente y no puede listar ni borrar. Es el que se le da a alguien más.")
+                Text("Tus agentes salen de tu cuenta de Ghosty Studio. Para crear o configurar uno, entra desde la web.")
                     .gCaption()
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 14)

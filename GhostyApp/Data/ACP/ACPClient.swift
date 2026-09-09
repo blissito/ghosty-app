@@ -72,6 +72,8 @@ actor ACPClient {
 
     private let agentID: String
     private let token: String
+    /// Host de la caja tal como lo da el servidor. `nil` = derivarlo del id.
+    private let host: String?
     private var tarea: URLSessionWebSocketTask?
     private var lector: Task<Void, Never>?
     private var siguienteID = 0
@@ -91,15 +93,20 @@ actor ACPClient {
         return URLSession(configuration: cfg)
     }()
 
-    init(agentID: String, token: String) {
+    init(agentID: String, token: String, host: String? = nil) {
         self.agentID = agentID
         self.token = token
+        self.host = host
     }
 
     var url: URL {
         // El dominio es fijo por agente y el router del host lo sigue de caja en
         // caja, así que sobrevive a que la recreen.
-        URL(string: "wss://acp-\(agentID).sandboxes.easybits.cloud/acp")!
+        //
+        // El host lo manda el servidor cuando lo sabe (`/api/v2/me/agents`). El
+        // derivado se queda como respaldo para lo conectado a mano: cablearlo como
+        // único camino ataría la app a UN dominio de cajas, y ya hay dos fierros.
+        URL(string: "wss://\(host ?? "acp-\(agentID).sandboxes.easybits.cloud")/acp")!
     }
 
     // MARK: - Conexión
@@ -110,8 +117,9 @@ actor ACPClient {
         if tarea != nil { cerrar() }
 
         var req = URLRequest(url: url)
-        // El `agt_` del agente vale como Bearer: no hace falta ticket firmado ni el
-        // secreto de la plataforma. Comprobado contra la caja.
+        // El token del agente vale como Bearer tal cual: no hace falta ticket firmado
+        // ni el secreto de la plataforma. Vale igual para un `agt_` de EasyBits que
+        // para el `gat_` de un agente nativo. Comprobado contra la caja.
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 30
 
