@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Environment(\.openURL) private var abrir
 
     @State private var saliendo = false
+    @State private var conectores = false
 
     /// Qué build trae este teléfono. Sin esto no hay forma de saberlo sin cable, y
     /// ya me llevó a diagnosticar mal una vez.
@@ -35,6 +36,17 @@ struct SettingsView: View {
     ]
 
     var body: some View {
+        contenido
+            .sheet(isPresented: $conectores) {
+                ConectoresView(store: store)
+                    #if os(iOS)
+                    .presentationDetents([.large])
+                    .presentationCornerRadius(Theme.Radius.sheet)
+                    #endif
+            }
+    }
+
+    private var contenido: some View {
         VStack(spacing: 0) {
             HStack {
                 Button { dismiss() } label: {
@@ -107,6 +119,42 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .padding(.vertical, 4)
+                        }
+                    }
+
+                    // ⚠️ Sólo si el servidor lo soporta. Enseñar "Integraciones" y que abra
+                    // una lista vacía sería prometer lo que no hay — la regla que ya nos
+                    // costó las pestañas de Ideas y Metas.
+                    if store.hayConectores {
+                        Button { conectores = true } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Integraciones")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(Color.gInk)
+                                    Text(store.conectores.filter(\.conectado).isEmpty
+                                         ? "Conecta las apps que ya usas"
+                                         : "\(store.conectores.filter(\.conectado).count) conectadas")
+                                        .gMeta()
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Color.gInk3)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if let a = store.almacenamiento {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Almacenamiento").gSectionTitle()
+                            // ⚠️ El tope lo dice el SERVIDOR, no se calcula aquí: un número
+                            // metido en un binario tarda días en poder corregirse, y este
+                            // tier todavía está sin diseñar.
+                            ProgressView(value: a.fraccion)
+                                .tint(a.fraccion > 0.9 ? Color.gDanger : Color.gPrimary)
+                            Text(a.texto).gMeta()
                         }
                     }
 

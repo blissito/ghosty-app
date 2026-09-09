@@ -57,6 +57,11 @@ struct RootView: View {
         }
         .task {
             await store.cargar()
+            // En paralelo: ninguna de las dos bloquea la pantalla y las dos deciden qué se
+            // enseña en Ajustes.
+            async let almacen: Void = store.cargarAlmacenamiento()
+            async let integraciones: Void = store.cargarConectores()
+            _ = await (almacen, integraciones)
             // Sonda de desarrollo: con GHOSTY_PROBE puesta manda ese texto al
             // arrancar. Es lo que deja verificar el turno y el markdown sin
             // depender de que alguien teclee en el simulador.

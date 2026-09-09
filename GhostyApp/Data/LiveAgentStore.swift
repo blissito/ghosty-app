@@ -48,6 +48,27 @@ final class LiveAgentStore: AgentStoring {
     /// Cuánto almacenamiento lleva usado la cuenta. Lo dice el SERVIDOR.
     private(set) var almacenamiento: GhostyAPI.Almacenamiento?
 
+    /// Las integraciones de la cuenta. Vacío = no hay ninguna; `hayConectores` false =
+    /// el servidor todavía no lo soporta, y entonces la entrada NO se enseña.
+    private(set) var conectores: [Conector] = []
+    private(set) var hayConectores = false
+
+    func cargarConectores() async {
+        if let lista = await GhostyAPI.conectores() {
+            conectores = lista
+            hayConectores = true
+        } else {
+            hayConectores = false
+        }
+    }
+
+    func urlDeConexion(_ id: String) async -> URL? { await GhostyAPI.urlDeConexion(id) }
+
+    func desconectar(_ id: String) async {
+        guard await GhostyAPI.desconectar(id) else { return }
+        await cargarConectores()
+    }
+
     func cargarAlmacenamiento() async {
         almacenamiento = try? await GhostyAPI.almacenamiento()
     }

@@ -86,6 +86,60 @@ enum GhostyAPI {
                              url: url)
     }
 
+    /// Las apps que el agente puede usar en tu nombre.
+    ///
+    /// ⚠️ Devuelve `nil` —no una lista vacía— cuando el servidor todavía no tiene el
+    /// endpoint. La diferencia es la pantalla entera: vacía significa "no has conectado
+    /// nada", y `nil` significa "esto no existe todavía", que es cuando NO hay que enseñar
+    /// la entrada. Una pantalla que se abre para explicar por qué está vacía es justo lo
+    /// que quitamos de esta app hace unas horas.
+    static func conectores() async -> [Conector]? {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/connectors"))
+        req.assumesHTTP3Capable = false
+        guard let token = try? await Session.accessToken() else { return nil }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let lista = j["connectors"] as? [[String: Any]]
+        else { return nil }
+
+        let iso = ISO8601DateFormatter()
+        return lista.compactMap { c in
+            guard let id = c["id"] as? String else { return nil }
+            return Conector(id: id,
+                            nombre: (c["nombre"] as? String) ?? (c["name"] as? String) ?? id,
+                            conectado: (c["conectado"] as? Bool) ?? (c["connected"] as? Bool) ?? false,
+                            desde: (c["desde"] as? String).flatMap { iso.date(from: $0) })
+        }
+    }
+
+    /// Dónde mandar el navegador para conectar uno.
+    static func urlDeConexion(_ id: String) async -> URL? {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/connectors/\(id)/start"))
+        req.httpMethod = "POST"
+        req.assumesHTTP3Capable = false
+        guard let token = try? await Session.accessToken() else { return nil }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let s = j["url"] as? String
+        else { return nil }
+        return URL(string: s)
+    }
+
+    @discardableResult
+    static func desconectar(_ id: String) async -> Bool {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/connectors/\(id)"))
+        req.httpMethod = "DELETE"
+        req.assumesHTTP3Capable = false
+        guard let token = try? await Session.accessToken() else { return false }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (_, resp) = try? await URLSession.shared.data(for: req) else { return false }
+        return (resp as? HTTPURLResponse)?.statusCode == 200
+    }
+
     /// Transcribe un audio con el whisper de la flota.
     ///
     /// ⚠️ Bytes CRUDOS, no base64. El endpoint de partner que ya existía usa base64 porque
