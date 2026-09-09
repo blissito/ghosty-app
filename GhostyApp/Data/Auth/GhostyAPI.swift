@@ -17,11 +17,99 @@ enum GhostyAPI {
 
     enum Fallo: LocalizedError {
         case servidor(Int)
+        /// Lo que dijo el servidor, para enseñarlo tal cual.
+        case mensaje(String)
         var errorDescription: String? {
             switch self {
             case .servidor(let c): "El servidor contestó \(c)."
+            case .mensaje(let m):  m
             }
         }
+    }
+
+    /// Un archivo de la cuenta, ya en el almacenamiento de gs.
+    struct ArchivoRemoto {
+        var id: String
+        var nombre: String
+        var mime: String
+        var bytes: Int
+        /// ⚠️ FIRMADA y caduca a las 6 h. No se guarda como si fuera permanente: para un
+        /// archivo viejo hay que volver a pedirla con `urlDe(id:)`.
+        var url: String
+    }
+
+    /// Cuánto lleva usado la cuenta. El tope viene del SERVIDOR a propósito: un número
+    /// dentro de un binario tarda días en poder corregirse.
+    struct Almacenamiento {
+        var usados: Int
+        var tope: Int
+        var tier: String
+
+        var fraccion: Double { tope > 0 ? min(1, Double(usados) / Double(tope)) : 0 }
+        var texto: String {
+            let f = ByteCountFormatter()
+            f.countStyle = .file
+            return "\(f.string(fromByteCount: Int64(usados))) de \(f.string(fromByteCount: Int64(tope)))"
+        }
+    }
+
+    /// Sube un archivo al almacenamiento de la CUENTA.
+    ///
+    /// ⚠️ Ya no va a la caja del agente. Un adjunto vivía sólo en `/data/work/adjuntos/`, y
+    /// el janitor recicla esa caja a las 72 h dormida y la repone vacía: el archivo
+    /// desaparecía sin que nada lo dijera. Aquí cuelga de la cuenta y sobrevive.
+    static func subir(_ adjunto: Adjunto, sesion: String?) async throws -> ArchivoRemoto {
+        var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/files"),
+                              resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "nombre", value: adjunto.nombre)]
+            + (sesion.map { [URLQueryItem(name: "sesion", value: $0)] } ?? [])
+
+        var req = URLRequest(url: c.url!)
+        req.httpMethod = "POST"
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
+        req.setValue(adjunto.mime, forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 180
+
+        let (datos, resp) = try await URLSession.shared.upload(for: req, from: adjunto.datos)
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+        guard codigo == 200, let j, let id = j["id"] as? String, let url = j["url"] as? String else {
+            // El mensaje del servidor se enseña TAL CUAL: sabe si fue el tamaño, el tope de
+            // la conversación o el almacenamiento lleno, y la app no.
+            throw Fallo.mensaje((j?["error"] as? String) ?? "No pude subir «\(adjunto.nombre)».")
+        }
+        return ArchivoRemoto(id: id,
+                             nombre: (j["name"] as? String) ?? adjunto.nombre,
+                             mime: (j["mime"] as? String) ?? adjunto.mime,
+                             bytes: (j["size"] as? Int) ?? adjunto.datos.count,
+                             url: url)
+    }
+
+    /// Una firma nueva para un archivo que ya está subido.
+    static func urlDe(_ id: String) async throws -> String {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files/\(id)"))
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
+        let (datos, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let url = j["url"] as? String
+        else { throw Fallo.mensaje("Ese archivo ya no está.") }
+        return url
+    }
+
+    /// Cuánto almacenamiento lleva usado la cuenta.
+    static func almacenamiento() async throws -> Almacenamiento? {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files"))
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
+        let (datos, _) = try await URLSession.shared.data(for: req)
+        guard let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let s = j["storage"] as? [String: Any] else { return nil }
+        return Almacenamiento(usados: (s["usedBytes"] as? Int) ?? 0,
+                              tope: (s["limitBytes"] as? Int) ?? 0,
+                              tier: (s["tier"] as? String) ?? "")
     }
 
     /// Los agentes de la cuenta. Si está vacía, el servidor le provisiona el primero.

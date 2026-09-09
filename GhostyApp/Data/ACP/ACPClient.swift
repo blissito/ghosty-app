@@ -222,23 +222,42 @@ actor ACPClient {
 
     /// Manda un turno y va soltando lo que llega. El `stopReason` cierra el flujo.
     nonisolated func prompt(sessionID: String, texto: String,
-                            imagenes: [Adjunto] = []) -> AsyncThrowingStream<Replay, Error> {
+                            adjuntos: [Adjunto] = []) -> AsyncThrowingStream<Replay, Error> {
         AsyncThrowingStream { cont in
             let tarea = Task {
                 let (flujo, sink) = AsyncStream<Replay>.makeStream()
                 await self.abrirEnVivo(sink)
                 let bombeo = Task { for await e in flujo { cont.yield(e) } }
                 do {
-                    // El texto SIEMPRE va primero: es lo que la persona pidió, y las
-                    // imágenes son su contexto.
-                    var bloques: [[String: Any]] = [["type": "text", "text": texto]]
-                    for img in imagenes {
-                        bloques.append([
-                            "type": "image",
-                            "mimeType": img.mime,
-                            "data": img.datos.base64EncodedString(),
-                        ])
+                    // El orden es el de Teams y no es casual: primero las imágenes (que
+                    // el modelo VE), después el bloque que dice cómo abrir los archivos, y
+                    // el mensaje de la persona AL FINAL y solo en su bloque — es lo único
+                    // que escribió un humano.
+                    var bloques: [[String: Any]] = []
+                    var lineas: [String] = []
+                    for a in adjuntos {
+                        if a.esImagen {
+                            bloques.append([
+                                "type": "image",
+                                "mimeType": a.mime,
+                                "data": a.datos.base64EncodedString(),
+                            ])
+                        }
+                        if let r = a.remoto {
+                            bloques.append(["type": "resource_link", "uri": r.url,
+                                            "name": r.nombre, "mimeType": r.mime])
+                            lineas.append(BloqueDeAdjuntos.linea(nombre: r.nombre, mime: r.mime,
+                                                                 url: r.url, bytes: r.bytes))
+                        } else {
+                            // No se calla: un archivo que no llegó y no se anuncia es el
+                            // fallo mudo de siempre.
+                            lineas.append(BloqueDeAdjuntos.noEntregado(a.nombre))
+                        }
                     }
+                    if let aviso = BloqueDeAdjuntos.texto(lineas) {
+                        bloques.append(["type": "text", "text": aviso])
+                    }
+                    bloques.append(["type": "text", "text": texto])
                     let fin = try await self.pedir("session/prompt", [
                         "sessionId": sessionID,
                         "prompt": bloques,
@@ -311,38 +330,6 @@ actor ACPClient {
         default:
             return nil
         }
-    }
-
-    /// Sube un archivo al workspace del agente y devuelve su ruta RELATIVA.
-    ///
-    /// ⚠️ Relativa a propósito: el `cwd` de la sesión ya es ese workspace, y cablear la
-    /// absoluta ataría la app al layout de UNA imagen de caja. Vienen más runtimes.
-    ///
-    /// Misma credencial que el socket — es la misma caja y la misma persona.
-    func subir(_ adjunto: Adjunto) async throws -> String {
-        var componentes = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-        componentes.scheme = "https"
-        componentes.path = "/adjunto"
-        componentes.queryItems = [URLQueryItem(name: "nombre", value: adjunto.nombre)]
-
-        var req = URLRequest(url: componentes.url!)
-        req.httpMethod = "POST"
-        req.assumesHTTP3Capable = false
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue(adjunto.mime, forHTTPHeaderField: "Content-Type")
-        req.timeoutInterval = 120
-
-        let (datos, resp) = try await sesion.upload(for: req, from: adjunto.datos)
-        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        guard codigo == 200,
-              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
-              let ruta = j["ruta"] as? String
-        else {
-            throw Fallo.remoto(codigo == 413
-                               ? "«\(adjunto.nombre)» pesa demasiado."
-                               : "No pude subir «\(adjunto.nombre)» (\(codigo)).")
-        }
-        return ruta
     }
 
     private func abrirEnVivo(_ sink: AsyncStream<Replay>.Continuation) { enVivo = sink }

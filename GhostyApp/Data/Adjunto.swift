@@ -22,10 +22,14 @@ import UniformTypeIdentifiers
 /// Es la misma doctrina que ya usa Teams: **al agente se le da ACCESO al archivo, no el
 /// archivo**.
 struct Adjunto: Identifiable, Equatable, Sendable {
+    static func == (a: Adjunto, b: Adjunto) -> Bool { a.id == b.id && a.remoto?.id == b.remoto?.id }
+
     let id: String
     var nombre: String
     var mime: String
     var datos: Data
+    /// Lo que devolvió la subida a gs. `nil` = todavía no se ha subido, o falló.
+    var remoto: GhostyAPI.ArchivoRemoto?
 
     /// ¿Viaja dentro del prompt, o se sube y se nombra por su ruta?
     var esImagen: Bool { mime.hasPrefix("image/") }

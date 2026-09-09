@@ -298,7 +298,8 @@ struct ConversationView: View {
         fallo = nil
         // ⚠️ `subiendo` gatea el botón mientras los archivos viajan a la máquina del
         // agente. Sin esto se pueden encolar dos turnos con el mismo adjunto.
-        subiendo = !envio.filter { !$0.esImagen }.isEmpty
+        // Todo adjunto se sube ahora, imágenes incluidas.
+        subiendo = !envio.isEmpty
         Task {
             await store.send(texto, adjuntos: envio)
             subiendo = false

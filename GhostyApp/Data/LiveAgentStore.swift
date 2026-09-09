@@ -41,6 +41,16 @@ final class LiveAgentStore: AgentStoring {
     /// compositor lo usa para devolverle sus adjuntos a la persona, y devolvérselos
     /// después de que el agente ya los recibió sería duplicarlos.
     private(set) var ultimoEnvioFallo = false
+
+    /// Lo que dijo el servidor si un adjunto no se pudo subir. El compositor lo enseña.
+    var falloDeSubida: String?
+
+    /// Cuánto almacenamiento lleva usado la cuenta. Lo dice el SERVIDOR.
+    private(set) var almacenamiento: GhostyAPI.Almacenamiento?
+
+    func cargarAlmacenamiento() async {
+        almacenamiento = try? await GhostyAPI.almacenamiento()
+    }
     let titulos = TitleStore()
 
     /// Archivos y documentos de la cuenta. ⚠️ NO son del agente: el modelo `File` de
@@ -400,24 +410,11 @@ final class LiveAgentStore: AgentStoring {
                 // cualquier turno por ahí acaba en la conversación equivocada.
                 let sid = try await self.asegurarHilo(cuenta)
                 self.titulos.anotarSiFalta(sid, desde: limpio)
-                // TODO adjunto se sube a la máquina del agente y se le dice la ruta; una
-                // imagen viaja ADEMÁS dentro del prompt.
-                //
-                // ⚠️ Las dos vías no son alternativas, son complementarias, y mandar sólo
-                // la inline fue un error de diseño con una firma clarísima: el agente
-                // contestaba «solo llegó pegada en el chat, no hay un archivo en disco con
-                // el que pueda trabajar». VER una foto y poder RECORTARLA son cosas
-                // distintas — lo segundo necesita el archivo, y su caja trae con qué.
-                //
-                // Subir de más cuesta un viaje y CERO tokens; no subir cuesta que "recorta
-                // esta foto" sea imposible.
-                //
-                // Si falla, el turno no sale: mandarlo dejaría al agente buscando un archivo
-                // que no existe, y desde fuera eso se lee como que el agente miente.
-                let texto = try await self.conAdjuntos(limpio, adjuntos)
+// Todo adjunto se sube a la cuenta; una imagen viaja ADEMÁS inline.
+                let conArchivos = await self.subidos(adjuntos, sesion: sid)
                 self.ultimoEnvioFallo = false
-                await self.porSocket(cuenta, sid: sid, texto: texto,
-                                     imagenes: adjuntos.filter(\.esImagen),
+                await self.porSocket(cuenta, sid: sid, texto: limpio,
+                                     adjuntos: conArchivos,
                                      respuesta: idRespuesta)
             } catch {
                 // Si el socket no se puede ni levantando la caja, se dice. Mandarlo
@@ -444,18 +441,37 @@ final class LiveAgentStore: AgentStoring {
     ///
     /// La ruta es la que sus propias skills ya nombran (`adjuntos/…`), así que sabe qué
     /// hacer con ella sin que se lo expliquemos.
-    private func conAdjuntos(_ texto: String, _ adjuntos: [Adjunto]) async throws -> String {
-        guard !adjuntos.isEmpty, let cliente = acp else { return texto }
-        var rutas: [String] = []
-        for a in adjuntos { rutas.append(try await cliente.subir(a)) }
-        let linea = rutas.count == 1
-            ? "Te adjunté `\(rutas[0])`."
-            : "Te adjunté: " + rutas.map { "`\($0)`" }.joined(separator: ", ") + "."
-        return texto.isEmpty ? linea : "\(linea)\n\n\(texto)"
+    /// Sube los adjuntos al almacenamiento de la CUENTA y devuelve los que llegaron.
+    ///
+    /// ⚠️ Ya no van a la caja del agente. Un adjunto vivía sólo en `/data/work/adjuntos/`,
+    /// y el janitor recicla esa caja a las 72 h dormida y la repone vacía: el archivo
+    /// desaparecía sin que nada lo dijera, así que "vuelve a mirar la foto de ayer" no
+    /// tenía respuesta. Ahora cuelga de la cuenta y el agente se lo baja cuando lo
+    /// necesita — la caja sigue siendo desechable a propósito.
+    ///
+    /// ⚠️ Las imágenes se suben IGUAL que lo demás, aunque además viajen inline. Inline es
+    /// lo único que deja al modelo VERLA; el archivo es lo que deja recortarla o medirla.
+    /// Son complementarias, no alternativas.
+    ///
+    /// ⚠️ Un archivo que no sube NO tumba el turno: se manda igual y el prompt lo DICE
+    /// (`BloqueDeAdjuntos.noEntregado`). Perder la pregunta entera por un adjunto es peor
+    /// que contestar sin él, y callarlo es el fallo mudo de siempre.
+    private func subidos(_ adjuntos: [Adjunto], sesion: String?) async -> [Adjunto] {
+        var salida: [Adjunto] = []
+        for var a in adjuntos {
+            do {
+                a.remoto = try await GhostyAPI.subir(a, sesion: sesion)
+            } catch {
+                falloDeSubida = error.localizedDescription
+                print("[adjunto] no subió \(a.nombre): \(error.localizedDescription)")
+            }
+            salida.append(a)
+        }
+        return salida
     }
 
     private func porSocket(_ cuenta: AgentAccount, sid: String,
-                           texto: String, imagenes: [Adjunto] = [],
+                           texto: String, adjuntos: [Adjunto] = [],
                            respuesta: String) async {
         guard let cliente = acp else {
             pintarRespuesta(id: respuesta, texto: "⚠️ Se perdió la conexión con tu agente.")
@@ -466,7 +482,7 @@ final class LiveAgentStore: AgentStoring {
         var herramientas: [(id: String, titulo: String)] = []
 
         do {
-            for try await evento in cliente.prompt(sessionID: sid, texto: texto, imagenes: imagenes) {
+            for try await evento in cliente.prompt(sessionID: sid, texto: texto, adjuntos: adjuntos) {
                 switch evento {
                 case .agent(let t):
                     acumulado += t
