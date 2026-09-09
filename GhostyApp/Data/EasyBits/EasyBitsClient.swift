@@ -56,12 +56,76 @@ struct EasyBitsClient: Sendable {
     // MARK: - Listado
 
     func agents() async throws -> [Agent] {
-        var req = URLRequest(url: baseURL.appending(path: "/api/v2/agents"))
+        var req = URLRequest(url: URL(string: baseURL.absoluteString + "/api/v2/agents")!)
         req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         let (data, resp) = try await Self.sesion.data(for: req)
         try Self.comprobar(resp, data)
         struct Sobre: Decodable { let agents: [Agent] }
         return try JSONDecoder().decode(Sobre.self, from: data).agents
+    }
+
+    // MARK: - Archivos y documentos
+
+    /// Un archivo del almacenamiento de la cuenta.
+    struct RemoteFile: Sendable, Identifiable, Decodable, Equatable {
+        let id: String
+        let name: String?
+        let contentType: String?
+        let size: Int?
+        let access: String?
+        let createdAt: String?
+    }
+
+    /// Un documento —lo que EasyBits llama artefacto— con su liga si está publicado.
+    struct RemoteDocument: Sendable, Identifiable, Decodable, Equatable {
+        let id: String
+        let name: String?
+        let status: String?
+        let pageCount: Int?
+        let shareUrl: String?
+        let pdfUrl: String?
+        let updatedAt: String?
+    }
+
+    /// ⚠️ La lista es de TODA la cuenta, no de un agente. El modelo `File` de
+    /// EasyBits no tiene `agentId`, y los artefactos se atribuyen al DUEÑO —el MCP
+    /// del agente construye su contexto con `ctxForOwner`—, así que el agente
+    /// desaparece del registro. Filtrar por agente en el cliente sería inventar.
+    func files(limit: Int = 50) async throws -> [RemoteFile] {
+        struct Sobre: Decodable { let items: [RemoteFile] }
+        return try await pedir("/api/v2/files?limit=\(limit)", Sobre.self).items
+    }
+
+    func documents(limit: Int = 50) async throws -> [RemoteDocument] {
+        struct Sobre: Decodable { let items: [RemoteDocument] }
+        return try await pedir("/api/v2/documents?limit=\(limit)", Sobre.self).items
+    }
+
+    /// La liga de descarga viene **firmada y caduca en una hora**, así que se pide
+    /// al momento de abrir y no se guarda.
+    func readURL(fileID: String) async throws -> URL? {
+        struct Sobre: Decodable {
+            let readUrl: String?
+            struct F: Decodable { let readUrl: String? }
+            let file: F?
+        }
+        let s = try await pedir("/api/v2/files/\(fileID)", Sobre.self)
+        guard let t = s.readUrl ?? s.file?.readUrl else { return nil }
+        return URL(string: t)
+    }
+
+    /// ⚠️ `appending(path:)` **porcentea el `?`**, así que una ruta con query se
+    /// convierte en un path literal y el servidor contesta 404. Hay que armar la URL
+    /// con la cadena completa.
+    private func pedir<T: Decodable>(_ ruta: String, _ tipo: T.Type) async throws -> T {
+        guard let url = URL(string: baseURL.absoluteString + ruta) else {
+            throw Fallo.http(status: -1, body: "URL inválida: \(ruta)")
+        }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await Self.sesion.data(for: req)
+        try Self.comprobar(resp, data)
+        return try JSONDecoder().decode(tipo, from: data)
     }
 
     // MARK: - Turno
@@ -77,7 +141,7 @@ struct EasyBitsClient: Sendable {
         AsyncThrowingStream { continuation in
             let tarea = Task {
                 do {
-                    var req = URLRequest(url: baseURL.appending(path: "/api/v2/agents/\(agentID)/message"))
+                    var req = URLRequest(url: URL(string: baseURL.absoluteString + "/api/v2/agents/\(agentID)/message")!)
                     req.httpMethod = "POST"
                     req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -177,7 +241,15 @@ struct EasyBitsClient: Sendable {
         var errorDescription: String? {
             switch self {
             case .http(let s, let b):
-                return "La caja contestó \(s). \(b.prefix(300))"
+                // Un 404 de framework devuelve la página HTML entera. Volcarla en
+                // pantalla no informa de nada y tapa el error real — es el mismo
+                // fallo que tuvo el conector de Odoo.
+                let limpio = b.trimmingCharacters(in: .whitespacesAndNewlines)
+                if limpio.hasPrefix("<") || limpio.lowercased().hasPrefix("<!doctype") {
+                    return "El servidor contestó \(s) con una página web en vez de datos. "
+                         + "Suele ser una ruta mal armada."
+                }
+                return "El servidor contestó \(s). \(limpio.prefix(200))"
             case .sinLlave:
                 return "Falta la llave de EasyBits. Ponla en EASYBITS_API_KEY o en ~/.ghosty-app.json"
             }

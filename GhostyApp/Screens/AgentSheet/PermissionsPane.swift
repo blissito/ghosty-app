@@ -11,7 +11,7 @@ struct PermissionsPane: View {
             } else {
                 EmptyState(icon: "checkmark.shield",
                            title: "Nada pendiente",
-                           detail: "Aquí aparece lo que el agente no puede deshacer: enviar, comprar, publicar.")
+                           detail: "Aquí te pediría permiso para lo que no se puede deshacer: enviar, comprar, publicar. Su caja todavía no manda esas peticiones.")
                     .padding(.top, 40)
                     .padding(.bottom, 30)
             }

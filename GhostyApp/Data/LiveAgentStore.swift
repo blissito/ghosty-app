@@ -29,6 +29,14 @@ final class LiveAgentStore: AgentStoring {
     private var sesiones: [String: String] = [:]
     private var cuentas: [AgentAccount] = []
     let bitacora = TurnLogStore()
+
+    /// Archivos y documentos de la cuenta. ⚠️ NO son del agente: el modelo `File` de
+    /// EasyBits no tiene `agentId` y los artefactos se atribuyen al dueño, así que
+    /// filtrar por agente sería inventar. La pantalla lo dice.
+    var archivos: [EasyBitsClient.RemoteFile] = []
+    var documentos: [EasyBitsClient.RemoteDocument] = []
+    enum EstadoArchivos: Equatable { case sinPedir, cargando, listo, noPermitido, fallo(String) }
+    var estadoArchivos: EstadoArchivos = .sinPedir
     private var turnoEnVuelo: Task<Void, Never>?
     private var promptDelTurno = ""
     private var usoDelTurno = (entrada: 0, salida: 0)
@@ -71,6 +79,34 @@ final class LiveAgentStore: AgentStoring {
     }
 
     func recargarCredencial() async { await cargar() }
+
+    /// Trae archivos y documentos. Con un token de agente el API contesta **401**
+    /// —sólo deja mandar mensajes—, y eso se dice en pantalla en vez de mostrar una
+    /// lista vacía que parece un fallo.
+    func cargarArchivos() async {
+        guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
+        guard cuenta.esLlaveDeCuenta else { estadoArchivos = .noPermitido; return }
+        guard estadoArchivos != .cargando else { return }
+
+        estadoArchivos = .cargando
+        let cliente = EasyBitsClient(apiKey: cuenta.token)
+        do {
+            async let a = cliente.files(limit: 50)
+            async let d = cliente.documents(limit: 50)
+            archivos = try await a
+            documentos = try await d
+            estadoArchivos = .listo
+        } catch {
+            estadoArchivos = .fallo(error.localizedDescription)
+        }
+    }
+
+    /// La liga viene firmada y caduca en una hora, así que se pide al abrir.
+    func ligaDeArchivo(_ id: String) async -> URL? {
+        guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }),
+              cuenta.esLlaveDeCuenta else { return nil }
+        return try? await EasyBitsClient(apiKey: cuenta.token).readURL(fileID: id)
+    }
 
     /// Cambia de agente conservando cada hilo por separado.
     func seleccionar(_ id: String) {

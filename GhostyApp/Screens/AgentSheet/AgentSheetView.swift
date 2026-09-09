@@ -74,18 +74,24 @@ struct AgentSheetView: View {
                 .padding(.top, 16)
 
             ScrollView {
-                switch pane {
-                case .activity:    ActivityPane(store: store)
-                case .permissions: PermissionsPane(store: store)
-                case .history:     HistoryPane(store: store)
-                case .memory:
-                    EmptyState(icon: "brain",
-                               title: "Memoria",
-                               detail: "Lo que el agente recuerda de ti, en un archivo que puedes leer y corregir.")
-                        .padding(.top, 60)
+                Group {
+                    switch pane {
+                    case .activity:    ActivityPane(store: store)
+                    case .permissions: PermissionsPane(store: store)
+                    case .history:     HistoryPane(store: store)
+                    case .memory:
+                        EmptyState(icon: "brain",
+                                   title: "Memoria",
+                                   detail: "Lo que el agente recuerda de ti. Su caja todavía no lo expone, así que no hay nada que leer ni corregir.")
+                            .padding(.top, 60)
+                    }
                 }
+                // El contenido de la hoja no debe quedar pegado al borde inferior:
+                // con varios turnos el último se leía a medias.
+                .padding(.bottom, 28)
             }
             .padding(.top, 20)
+            .scrollIndicators(.hidden)
         }
         .background(Color.gBg)
     }
