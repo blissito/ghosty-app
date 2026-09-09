@@ -19,7 +19,7 @@ struct RootView: View {
                 case .cargando:
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Buscando tus cajas…").gMeta()
+                        Text("Buscando tus agentes…").gMeta()
                     }
                 case .sinLlave:
                     // Ya no se pega ningún token: se entra con la cuenta.
@@ -42,8 +42,17 @@ struct RootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if case .lista = store.conexion {
-                GhostyTabBar(selection: $tab)
+                GhostyTabBar(selection: $tab, tabs: pestanas)
                     .padding(.bottom, 4)
+                    // ⚠️ Si la pestaña activa deja de estar en la lista, hay que caer a
+                    // Chat: sin esto la pantalla se queda en una vista sin destino y la
+                    // barra sin píldora activa (el resaltado sólo se pinta cuando
+                    // `selection == tab`). Pasa de verdad al cambiar de agente con
+                    // Artefactos abierto, y también con el gancho `GHOSTY_TAB`.
+                    .onChange(of: pestanas) { _, nuevas in
+                        if !nuevas.contains(tab) { tab = .chat }
+                    }
+                    .onAppear { if !pestanas.contains(tab) { tab = .chat } }
             }
         }
         .task {
@@ -90,6 +99,20 @@ struct RootView: View {
                 .presentationCornerRadius(Theme.Radius.sheet)
                 #endif
         }
+    }
+
+    /// Las pestañas que se pintan hoy.
+    ///
+    /// **Ideas** y **Metas** no están: sus pantallas son cascarones que dicen "todavía no
+    /// está". El `case` se queda en el enum —quitarlo obliga a tocar dos `switch` y no
+    /// compra nada—, lo que se quita es su sitio en la barra.
+    ///
+    /// **Artefactos** sólo aparece con una llave de cuenta. Es exactamente la condición
+    /// que `LiveAgentStore.cargarArchivos()` ya exige, dicha UNA vez: el agente que enrola
+    /// la app entra con otro tipo de credencial, así que esa pestaña sólo podía abrirse
+    /// para explicar por qué no funciona. Una pestaña que no sirve es peor que ninguna.
+    private var pestanas: [GhostyTab] {
+        store.puedeVerArchivos ? [.chat, .fleet, .artifacts] : [.chat, .fleet]
     }
 
     @ViewBuilder

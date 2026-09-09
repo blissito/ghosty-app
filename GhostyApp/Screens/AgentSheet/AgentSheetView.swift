@@ -109,7 +109,7 @@ struct AgentSheetView: View {
                     case .memory:
                         EmptyState(icon: "brain",
                                    title: "Memoria",
-                                   detail: "Lo que el agente recuerda de ti. Su caja todavía no lo expone, así que no hay nada que leer ni corregir.")
+                                   detail: "Lo que el agente recuerda de ti. Todavía no se puede leer ni corregir desde aquí.")
                             .padding(.top, 60)
                     }
                 }

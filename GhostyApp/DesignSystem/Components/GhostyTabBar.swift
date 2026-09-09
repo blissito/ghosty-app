@@ -22,11 +22,19 @@ enum GhostyTab: String, CaseIterable, Identifiable {
 /// con el tab bar de iOS 26 — justo la versión que corre aquí.
 struct GhostyTabBar: View {
     @Binding var selection: GhostyTab
+    /// Qué pestañas se pintan.
+    ///
+    /// ⚠️ NO es `allCases`, y ésa es la gracia: una pestaña que existe en el enum pero
+    /// todavía no tiene pantalla —o que no aplica a este agente— **no se enseña**. Una
+    /// barra con tres de cinco destinos vacíos no se lee como "beta temprana", se lee como
+    /// "está roto". Quien decide la lista es `RootView`, que es quien sabe con qué cuenta
+    /// se entró.
+    var tabs: [GhostyTab] = GhostyTab.allCases
     @Namespace private var resaltado
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(GhostyTab.allCases) { tab in
+            ForEach(tabs) { tab in
                 Button {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
                         selection = tab

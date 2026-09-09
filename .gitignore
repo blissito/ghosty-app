@@ -17,3 +17,6 @@ Local.xcconfig
 
 # El .ipa y el archive son artefactos de build
 build/
+
+# Basura de Python al usar scripts/asc.py
+__pycache__/

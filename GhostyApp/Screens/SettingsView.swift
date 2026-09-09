@@ -58,6 +58,20 @@ struct SettingsView: View {
                     if !store.agents.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Tus agentes").gSectionTitle()
+                            // El ÚNICO sitio donde se nombra la máquina, y se nombra en
+                            // posesivo y como promesa. El molde es el de Meta con Muse
+                            // ("your own dedicated computer in the cloud" · "Your computer,
+                            // your data"): primero lo que es tuyo, y lo técnico sólo si
+                            // hace falta. En una pantalla vacía sería plomería; aquí es la
+                            // respuesta a "¿dónde queda lo que le mando?".
+                            //
+                            // Es verdad y se sostiene: la máquina de un agente es SUYA
+                            // (dominio fijo por agente) y lo que se le manda vive en su
+                            // disco, no en un montón compartido.
+                            Text("Ghosty vive en tu propia computadora en la nube. Lo que le das se queda ahí.")
+                                .gMeta()
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.bottom, 2)
                             ForEach(store.agents) { a in
                                 HStack(spacing: 10) {
                                     Text(a.name)

@@ -17,7 +17,7 @@ struct HistoryPane: View {
             case .sinPedir, .cargando:
                 VStack(spacing: 12) {
                     ProgressView()
-                    Text("Preguntándole a la caja…").gMeta()
+                    Text("Preguntándole a tu agente…").gMeta()
                 }
                 .frame(maxWidth: .infinity).padding(.top, 60)
 
@@ -36,7 +36,7 @@ struct HistoryPane: View {
                 if store.hilosRemotos.isEmpty {
                     EmptyState(icon: "clock.arrow.circlepath",
                                title: "Sin hilos",
-                               detail: "Las conversaciones que tengas con este agente quedan guardadas en su caja.")
+                               detail: "Las conversaciones que tengas con este agente se guardan solas, y las puedes retomar.")
                         .padding(.top, 60)
                 } else {
                     lista
@@ -50,7 +50,7 @@ struct HistoryPane: View {
     private var lista: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("En la caja").gSectionTitle()
+                Text("Guardadas").gSectionTitle()
                 Spacer()
                 if let info = store.infoDeLaCaja {
                     Text(info).gCaption()
@@ -94,7 +94,7 @@ struct HistoryPane: View {
                 }
             }
 
-            Text("Estos hilos viven en la caja del agente, no en el teléfono: los ves iguales desde cualquier cliente.")
+            Text("Estas conversaciones no viven en el teléfono: las ves iguales desde cualquier dispositivo.")
                 .gCaption()
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 16)

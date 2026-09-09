@@ -62,8 +62,8 @@ actor ACPClient {
 
         var errorDescription: String? {
             switch self {
-            case .noConectado:      return "No hay conexión con la caja del agente."
-            case .timeout(let m):   return "La caja no contestó a \(m)."
+            case .noConectado:      return "No hay conexión con tu agente."
+            case .timeout(let m):   return "Tu agente no contestó a \(m)."
             case .remoto(let m):    return m
             case .handshake(let m): return "No pude abrir la sesión: \(m)"
             }

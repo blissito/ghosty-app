@@ -137,6 +137,16 @@ final class LiveAgentStore: AgentStoring {
     /// Trae archivos y documentos. Con un token de agente el API contesta **401**
     /// —sólo deja mandar mensajes—, y eso se dice en pantalla en vez de mostrar una
     /// lista vacía que parece un fallo.
+    /// ¿Tiene esta cuenta forma de listar archivos?
+    ///
+    /// Es la MISMA regla que aplica `cargarArchivos()`, dicha en un solo sitio para que la
+    /// barra de pestañas pueda esconder Artefactos en vez de abrirla y disculparse. El
+    /// agente que enrola la app se conecta con otra credencial, así que para él esa
+    /// pantalla nunca tuvo nada que enseñar.
+    var puedeVerArchivos: Bool {
+        cuentas.first(where: { $0.id == selectedAgentID })?.esLlaveDeCuenta ?? false
+    }
+
     func cargarArchivos() async {
         guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
         guard cuenta.esLlaveDeCuenta else { estadoArchivos = .noPermitido; return }
@@ -379,7 +389,7 @@ final class LiveAgentStore: AgentStoring {
                 // por HTTP en silencio lo metería en otro hilo, que es peor que fallar.
                 self.pintarRespuesta(
                     id: idRespuesta,
-                    texto: "⚠️ No pude abrir la conversación con la caja.\n\n\(error.localizedDescription)")
+                    texto: "⚠️ No pude abrir la conversación con tu agente.\n\n\(error.localizedDescription)")
                 self.anotar(cuenta, chars: 0, como: .failed)
                 self.cerrarTurno(cuenta.id)
             }
@@ -390,7 +400,7 @@ final class LiveAgentStore: AgentStoring {
     private func porSocket(_ cuenta: AgentAccount, sid: String,
                            texto: String, respuesta: String) async {
         guard let cliente = acp else {
-            pintarRespuesta(id: respuesta, texto: "⚠️ Se perdió la conexión con la caja.")
+            pintarRespuesta(id: respuesta, texto: "⚠️ Se perdió la conexión con tu agente.")
             cerrarTurno(cuenta.id)
             return
         }

@@ -20,11 +20,17 @@ ACTUAL=$(python3 scripts/asc.py builds 2>/dev/null | grep -oE '^build +[0-9]+' |
 SIGUIENTE=$(( ACTUAL + 1 ))
 echo "build $SIGUIENTE (allá arriba había $ACTUAL)"
 
+# ⚠️ El commit se estampa TAMBIÉN aquí, no sólo en `instalar.sh`. Sin esto, Ajustes
+# enseña "Ghosty x (build N)" a secas y no hay forma de saber qué código trae un teléfono
+# que no está enchufado — que es exactamente lo que impidió confirmar un diagnóstico el
+# 2026-09-09.
+SHA=$(git rev-parse --short HEAD)
+
 xcodegen generate
 xcodebuild -project GhostyApp.xcodeproj -scheme GhostyApp \
   -destination 'generic/platform=iOS' -archivePath build/GhostyApp.xcarchive \
   -clonedSourcePackagesDirPath .spm -allowProvisioningUpdates \
-  CURRENT_PROJECT_VERSION="$SIGUIENTE" archive
+  CURRENT_PROJECT_VERSION="$SIGUIENTE" GHOSTY_COMMIT="$SHA" archive
 
 xcodebuild -exportArchive -archivePath build/GhostyApp.xcarchive \
   -exportOptionsPlist ExportOptions.plist -exportPath build/ipa \
@@ -33,4 +39,28 @@ xcodebuild -exportArchive -archivePath build/GhostyApp.xcarchive \
 xcrun altool --upload-app -f build/ipa/GhostyApp.ipa -t ios \
   --apiKey "$KEY" --apiIssuer "$ISS"
 
-echo "listo. Apple tarda 5-15 min en procesarlo."
+# ⚠️ SUBIR NO ES REPARTIR. Una build recién procesada queda VALID en App Store Connect y
+# NO la ve ni un tester: sin grupo asignado, TestFlight sigue enseñando la anterior. Y no
+# hay señal de nada — `asc.py builds` la lista igual que a las repartidas.
+#
+# Por eso se espera a que Apple la procese (VALID; 5-15 min) y se asigna al grupo aquí
+# mismo. Dejarlo "para después" es exactamente cómo se pierde media hora buscando un fallo
+# de la app que no existe.
+GRUPO=$(python3 scripts/asc.py groups | awk '$1=="Taller"{print $NF}' | cut -d= -f2)
+[ -n "$GRUPO" ] || { echo "✗ no encuentro el grupo Taller; asigna a mano con: asc.py asignar <buildId> <grupoId>" >&2; exit 1; }
+
+echo "esperando a que Apple procese la build $SIGUIENTE…"
+for _ in $(seq 1 60); do   # hasta 20 min
+  ID=$(python3 scripts/asc.py builds 2>/dev/null | awk -v v="$SIGUIENTE" '$2==v && $3=="VALID"{print $NF}' | cut -d= -f2)
+  [ -n "$ID" ] && break
+  sleep 20
+done
+
+if [ -n "$ID" ]; then
+  python3 scripts/asc.py asignar "$ID" "$GRUPO"
+  echo "listo: build $SIGUIENTE repartida al grupo Taller."
+else
+  echo "⚠ la build $SIGUIENTE sigue procesando. Cuando esté VALID, repártela:" >&2
+  echo "   python3 scripts/asc.py builds   # copia su id" >&2
+  echo "   python3 scripts/asc.py asignar <buildId> $GRUPO" >&2
+fi

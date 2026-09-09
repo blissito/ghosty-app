@@ -66,9 +66,13 @@ struct ArtifactsView: View {
                 .frame(maxWidth: .infinity).padding(.top, 70)
 
         case .noPermitido:
+            // ⚠️ Hoy es INALCANZABLE: `RootView.pestanas` esconde esta pestaña cuando la
+            // cuenta no puede listar archivos, que es la misma condición. Se conserva
+            // —sin acusar a ningún token— porque el estado sigue existiendo en el store y
+            // un camino nuevo podría llegar aquí.
             EmptyState(icon: "lock",
-                       title: "Con este token no se puede",
-                       detail: "El token de un agente sólo sirve para mandarle mensajes: el API contesta 401 al pedir archivos. Con la llave de la cuenta sí se ven.")
+                       title: "Aquí no hay nada que ver",
+                       detail: "Esta cuenta no guarda archivos. Los que te entregue el agente los verás en la conversación.")
                 .padding(.top, 60)
 
         case .fallo(let d):
@@ -145,7 +149,7 @@ struct ArtifactsView: View {
     }
 
     private var nota: some View {
-        Text("Es el almacenamiento de tu cuenta, no de este agente: EasyBits no guarda a qué agente pertenece cada archivo.")
+        Text("Es el almacén de tu cuenta, no el de este agente: los archivos no se guardan por agente.")
             .gCaption()
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, Theme.Space.screenH + 4)
