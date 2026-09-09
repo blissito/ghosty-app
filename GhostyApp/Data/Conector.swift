@@ -6,6 +6,22 @@ import Foundation
 /// semanas y una lista horneada en un binario tarda días en poder corregirse — el mismo
 /// criterio que ya se aplicó al tope de almacenamiento y a la lista de proveedores del
 /// login.
+/// Lo que contestó el servidor cuando se le preguntó por las integraciones.
+///
+/// ⚠️ Son TRES estados, no dos, y meterlos en un opcional fue el error original: `nil`
+/// significaba a la vez "este servidor no las sirve" y "algo falló", así que un 500 o una
+/// red caída se veían exactamente igual que la ausencia de la función — la pantalla
+/// enseñaba el catálogo apagado y la persona concluía que sus conectores se habían
+/// perdido. Un fallo se cuenta; una función que aún no existe se explica.
+enum RespuestaDeConectores: Sendable {
+    /// El servidor los sirve. Esta lista manda, incluido qué está disponible.
+    case servidos([Conector])
+    /// Este servidor todavía no sabe de integraciones (404). Se enseña lo que viene.
+    case sinSoporte
+    /// Algo se rompió, y se dice.
+    case fallo(String)
+}
+
 struct Conector: Identifiable, Equatable, Sendable {
     let id: String
     var nombre: String

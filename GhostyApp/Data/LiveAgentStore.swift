@@ -76,20 +76,50 @@ final class LiveAgentStore: AgentStoring {
         Conector(id: "kommo", nombre: "Kommo", conectado: false, disponible: false),
     ]
 
+    /// Lo último que falló al hablar de integraciones. La pantalla lo pinta y lo limpia.
+    private(set) var falloDeConectores: String?
+
     func cargarConectores() async {
-        if let lista = await GhostyAPI.conectores() {
+        switch await GhostyAPI.conectores() {
+        case .servidos(let lista):
             conectores = lista
             hayConectores = true
-        } else {
+            falloDeConectores = nil
+        case .sinSoporte:
             conectores = Self.catalogo
             hayConectores = false
+            falloDeConectores = nil
+        case .fallo(let motivo):
+            // ⚠️ Se CONSERVA lo que ya se había cargado. Pisarlo con el catálogo apagado
+            // haría que un error de red se viera como si los conectores se hubieran
+            // desconectado solos — y eso manda a la persona a reconectar algo que estaba
+            // perfectamente conectado.
+            if conectores.isEmpty { conectores = Self.catalogo }
+            falloDeConectores = motivo
         }
     }
 
     func urlDeConexion(_ id: String) async -> URL? { await GhostyAPI.urlDeConexion(id) }
 
     func desconectar(_ id: String) async {
-        guard await GhostyAPI.desconectar(id) else { return }
+        let r = await GhostyAPI.desconectar(id)
+        guard r.ok else {
+            falloDeConectores = "No pude desconectarlo. Inténtalo de nuevo."
+            return
+        }
+        falloDeConectores = r.aviso
+        await cargarConectores()
+    }
+
+    /// Tras conectar hay que soltar la conversación viva.
+    ///
+    /// ⚠️ No es cosmético: una sesión ACP **congela su catálogo de herramientas al nacer**
+    /// —el MCP pide `tools/list` una sola vez, al arrancar— así que la conversación que ya
+    /// existía seguiría sin las tools nuevas por mucho que la caja se haya reiniciado. Y el
+    /// modo en que eso se manifiesta es el peor: el agente no dice "no tengo permiso", dice
+    /// que la integración no está activa y manda a la persona a arreglar lo que ya está bien.
+    func reiniciarSesionTrasConectar() async {
+        nuevaConversacion()
         await cargarConectores()
     }
 

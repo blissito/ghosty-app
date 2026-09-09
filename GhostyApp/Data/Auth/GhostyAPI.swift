@@ -93,25 +93,39 @@ enum GhostyAPI {
     /// nada", y `nil` significa "esto no existe todavía", que es cuando NO hay que enseñar
     /// la entrada. Una pantalla que se abre para explicar por qué está vacía es justo lo
     /// que quitamos de esta app hace unas horas.
-    static func conectores() async -> [Conector]? {
+    static func conectores() async -> RespuestaDeConectores {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/connectors"))
         req.assumesHTTP3Capable = false
-        guard let token = try? await Session.accessToken() else { return nil }
+        guard let token = try? await Session.accessToken() else { return .sinSoporte }
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        guard let (datos, resp) = try? await URLSession.shared.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
+
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req) else {
+            return .fallo("Sin conexión. Inténtalo de nuevo.")
+        }
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        // ⚠️ 404 y "se cayó" NO son lo mismo, y hasta ahora degradaban igual y en silencio.
+        // 404 = este servidor todavía no sirve integraciones, y la pantalla lo dice con
+        // calma; cualquier otro error es un fallo que hay que contar, o la persona ve su
+        // conector desaparecer y cree que se desconectó solo.
+        if codigo == 404 { return .sinSoporte }
+        guard codigo == 200,
               let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
               let lista = j["connectors"] as? [[String: Any]]
-        else { return nil }
+        else { return .fallo("No pude leer tus integraciones (\(codigo)).") }
 
         let iso = ISO8601DateFormatter()
-        return lista.compactMap { c in
+        return .servidos(lista.compactMap { c in
             guard let id = c["id"] as? String else { return nil }
             return Conector(id: id,
                             nombre: (c["nombre"] as? String) ?? (c["name"] as? String) ?? id,
                             conectado: (c["conectado"] as? Bool) ?? (c["connected"] as? Bool) ?? false,
+                            // ⚠️ Este campo NO se leía, así que TODA fila del servidor
+                            // quedaba en el default `true`: los conectores que aún no
+                            // existen se pintaban como si se pudieran conectar, y el botón
+                            // llevaba a un error. El servidor es quien sabe cuáles sirve.
+                            disponible: (c["disponible"] as? Bool) ?? (c["available"] as? Bool) ?? true,
                             desde: (c["desde"] as? String).flatMap { iso.date(from: $0) })
-        }
+        })
     }
 
     /// Dónde mandar el navegador para conectar uno.
@@ -129,15 +143,21 @@ enum GhostyAPI {
         return URL(string: s)
     }
 
+    /// Desconecta. `aviso` trae lo que la persona tenga que ir a hacer por su cuenta —hoy,
+    /// que la llave siguió viva porque no se pudo revocar—. Silenciarlo dejaría creer que
+    /// desconectar ya lo resolvió todo.
     @discardableResult
-    static func desconectar(_ id: String) async -> Bool {
+    static func desconectar(_ id: String) async -> (ok: Bool, aviso: String?) {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/connectors/\(id)"))
         req.httpMethod = "DELETE"
         req.assumesHTTP3Capable = false
-        guard let token = try? await Session.accessToken() else { return false }
+        guard let token = try? await Session.accessToken() else { return (false, nil) }
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        guard let (_, resp) = try? await URLSession.shared.data(for: req) else { return false }
-        return (resp as? HTTPURLResponse)?.statusCode == 200
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200
+        else { return (false, nil) }
+        let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+        return (true, j?["aviso"] as? String)
     }
 
     /// Transcribe un audio con el whisper de la flota.

@@ -25,6 +25,8 @@ struct ConectoresPane: View {
     @State private var fallo: String?
     @State private var sesion: ASWebAuthenticationSession?
     @State private var ancla = AnclaDeLaSesion()
+    /// El nombre del conector cuyo alta está reiniciando el agente, si hay uno.
+    @State private var reiniciando: String?
 
     private var conectados: [Conector] { store.conectores.filter(\.conectado) }
     private var disponibles: [Conector] { store.conectores.filter { !$0.conectado } }
@@ -53,9 +55,19 @@ struct ConectoresPane: View {
             }
             .padding(.horizontal, Theme.Space.screenH)
             .padding(.top, 8)
-            if let fallo {
-                Text(fallo).gCaption().foregroundStyle(Color.gDangerInk)
+            // El fallo propio de esta pantalla, o el que reportó el store (una recarga que
+            // se cayó, una desconexión que no pudo revocar).
+            if let aviso = fallo ?? store.falloDeConectores {
+                Text(aviso).gCaption().foregroundStyle(Color.gDangerInk)
                     .padding(.horizontal, Theme.Space.screenH)
+            }
+            if let reiniciando {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reiniciando tu agente para activar \(reiniciando)…").gCaption()
+                }
+                .padding(.horizontal, Theme.Space.screenH)
+                .transition(.opacity)
             }
             if !conectados.isEmpty { seccion("Conectadas", conectados) }
             if !disponibles.isEmpty {
@@ -136,18 +148,44 @@ struct ConectoresPane: View {
                 fallo = "No pude empezar la conexión con \(c.nombre)."
                 return
             }
-            let s = ASWebAuthenticationSession(url: url, callbackURLScheme: Session.redirectScheme) { _, err in
-                trabajando = nil
+            let s = ASWebAuthenticationSession(url: url, callbackURLScheme: Session.redirectScheme) { volvio, err in
                 // Cancelar no es un error: es la persona cerrando la hoja.
                 if let err, (err as? ASWebAuthenticationSessionError)?.code != .canceledLogin {
+                    trabajando = nil
                     fallo = err.localizedDescription
+                    return
                 }
-                Task { await store.cargarConectores() }
+                // Sin URL de vuelta = canceló. No se toca nada.
+                guard let volvio, Self.salioBien(volvio) else {
+                    trabajando = nil
+                    if volvio != nil { fallo = "No se pudo conectar \(c.nombre)." }
+                    Task { await store.cargarConectores() }
+                    return
+                }
+                // ⚠️ El servidor acaba de reiniciar la caja para meterle la llave, y una
+                // sesión ACP congela sus herramientas al nacer. Si nos quedamos en la
+                // conversación de antes, el agente seguirá sin las tools y lo contará mal
+                // —dirá que la integración no está activa—. Así que se abre una nueva, y
+                // se DICE, porque el corte del turno se ve como un cuelgue.
+                reiniciando = c.nombre
+                Task {
+                    await store.reiniciarSesionTrasConectar()
+                    trabajando = nil
+                    reiniciando = nil
+                }
             }
             s.presentationContextProvider = ancla
             sesion = s
             s.start()
         }
+    }
+
+    /// El callback vuelve como `…://conector?conector=easybits&estado=ok`. El estado lo
+    /// pone NUESTRO servidor tras guardar la llave, no easybits: es lo único que prueba
+    /// que la conexión llegó a completarse de este lado.
+    private static func salioBien(_ url: URL) -> Bool {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "estado" }?.value == "ok"
     }
 
     private func desconectar(_ c: Conector) async {
