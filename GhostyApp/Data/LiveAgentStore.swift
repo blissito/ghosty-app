@@ -436,7 +436,11 @@ final class LiveAgentStore: AgentStoring {
         do {
             let cliente = try await asegurarSocket(cuenta)
             let replay = try await cliente.cargar(hilo.id, cwd: hilo.cwd)
-            messages = ReplayToMessages.convertir(replay)
+            // Los archivos que se subieron EN esta conversación. Es lo que devuelve a la
+            // vida sus adjuntos: el replay de ACP trae sólo texto. Best-effort — si no
+            // contesta, el hilo se abre igual y los adjuntos salen nombrados.
+            let archivos = await GhostyAPI.archivosDe(sesion: hilo.id)
+            messages = ReplayToMessages.convertir(replay, archivos: archivos)
             // El título sale del primer mensaje del hilo, que es lo que hacen
             // ChatGPT, Claude y la propia interfaz de goose. Sale gratis: el replay
             // ya está aquí.

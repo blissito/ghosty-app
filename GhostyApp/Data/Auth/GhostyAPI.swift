@@ -63,6 +63,8 @@ enum GhostyAPI {
                               resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "nombre", value: adjunto.nombre)]
             + (sesion.map { [URLQueryItem(name: "sesion", value: $0)] } ?? [])
+            // Cómo se PINTA, para poder rehidratar su reproductor al recargar el hilo.
+            + (metaDe(adjunto).map { [URLQueryItem(name: "meta", value: $0)] } ?? [])
 
         var req = URLRequest(url: c.url!)
         req.httpMethod = "POST"
@@ -84,6 +86,23 @@ enum GhostyAPI {
                              mime: (j["mime"] as? String) ?? adjunto.mime,
                              bytes: (j["size"] as? Int) ?? adjunto.datos.count,
                              url: url)
+    }
+
+    /// Lo que hace falta para volver a dibujar este adjunto sin tener sus bytes.
+    ///
+    /// ⚠️ La onda se manda YA REMUESTREADA a las barras que se pintan, un byte por barra:
+    /// la cruda son ~17 muestras por segundo, o sea mil floats por minuto que nadie va a
+    /// dibujar. Guardar el dato de PANTALLA es además lo que deja que quepa en un query
+    /// param — el cuerpo del POST son los bytes del archivo y ya está ocupado.
+    private static func metaDe(_ a: Adjunto) -> String? {
+        guard let segundos = a.segundos else { return nil }
+        var meta: [String: Any] = ["segundos": segundos]
+        if let onda = a.onda, !onda.isEmpty {
+            let barras = NotaDeVoz.remuestrear(onda, a: NotaDeVoz.numeroDeBarras)
+            meta["onda"] = Data(barras.map { UInt8(max(0, min(255, $0 * 255))) }).base64EncodedString()
+        }
+        guard let d = try? JSONSerialization.data(withJSONObject: meta) else { return nil }
+        return String(data: d, encoding: .utf8)
     }
 
     /// Las apps que el agente puede usar en tu nombre.
@@ -196,6 +215,33 @@ enum GhostyAPI {
         return limpio.isEmpty ? nil : limpio
     }
 
+    /// Un archivo de la cuenta, con lo que hace falta para volver a pintarlo.
+    struct ArchivoDeSesion: Sendable {
+        let id: String
+        let nombre: String
+        let mime: String
+        let bytes: Int
+        let segundos: Double?
+        let onda: [Float]?
+    }
+
+    /// Baja un archivo de la cuenta.
+    ///
+    /// ⚠️ Refresca la firma SIEMPRE antes de bajar. La URL que viajó en el prompt caduca a
+    /// las 6 h, y una descarga que falla por firma vencida se ve exactamente igual que un
+    /// audio corrupto: mismo silencio, causa distinta.
+    static func bajar(_ id: String) async throws -> Data {
+        let url = try await urlDe(id)
+        guard let u = URL(string: url) else { throw Fallo.mensaje("Ese archivo ya no está.") }
+        var req = URLRequest(url: u)
+        req.assumesHTTP3Capable = false
+        let (datos, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, !datos.isEmpty else {
+            throw Fallo.mensaje("No pude bajar el archivo.")
+        }
+        return datos
+    }
+
     /// Una firma nueva para un archivo que ya está subido.
     static func urlDe(_ id: String) async throws -> String {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files/\(id)"))
@@ -207,6 +253,48 @@ enum GhostyAPI {
               let url = j["url"] as? String
         else { throw Fallo.mensaje("Ese archivo ya no está.") }
         return url
+    }
+
+    /// Los archivos que se subieron en una conversación.
+    ///
+    /// Es lo que deja RECONSTRUIR un adjunto al recargar un hilo: el replay de ACP devuelve
+    /// sólo texto, así que sin esto una nota de voz vuelve como una línea muerta. Se cruza
+    /// por NOMBRE, que dentro de una sesión es único (los de voz llevan marca de tiempo).
+    static func archivosDe(sesion: String) async -> [String: ArchivoDeSesion] {
+        var comp = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/files"),
+                                 resolvingAgainstBaseURL: false)
+        comp?.queryItems = [URLQueryItem(name: "sesion", value: sesion)]
+        guard let url = comp?.url, let token = try? await Session.accessToken() else { return [:] }
+        var req = URLRequest(url: url)
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let lista = j["files"] as? [[String: Any]]
+        else { return [:] }
+
+        var mapa: [String: ArchivoDeSesion] = [:]
+        for f in lista {
+            guard let id = f["id"] as? String, let nombre = f["name"] as? String else { continue }
+            // ⚠️ El `meta` puede no estar: los archivos anteriores a que se guardara nacieron
+            // sin él. Sin duración no hay reproductor, y así es como debe ser — inventarle
+            // una onda plana sería pintar un widget que miente sobre lo que se grabó.
+            var segundos: Double?
+            var onda: [Float]?
+            if let crudo = f["meta"] as? String,
+               let m = try? JSONSerialization.jsonObject(with: Data(crudo.utf8)) as? [String: Any] {
+                segundos = m["segundos"] as? Double
+                if let b64 = m["onda"] as? String, let bytes = Data(base64Encoded: b64) {
+                    onda = bytes.map { Float($0) / 255 }
+                }
+            }
+            mapa[nombre] = ArchivoDeSesion(id: id, nombre: nombre,
+                                           mime: (f["mime"] as? String) ?? "application/octet-stream",
+                                           bytes: (f["size"] as? Int) ?? 0,
+                                           segundos: segundos, onda: onda)
+        }
+        return mapa
     }
 
     /// Cuánto almacenamiento lleva usado la cuenta.

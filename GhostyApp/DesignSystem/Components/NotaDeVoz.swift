@@ -14,6 +14,10 @@ struct NotaDeVoz: View {
     @State private var sonando = false
     @State private var avance: Double = 0
     @State private var reloj: Task<Void, Never>?
+    /// Los bytes, cuando hubo que bajarlos de la cuenta.
+    @State private var bajados: Data?
+    @State private var bajando = false
+    @State private var fallo: String?
 
     private var tinta: Color { claro ? .gInk : .gInk }
 
@@ -24,7 +28,7 @@ struct NotaDeVoz: View {
     /// onda se veía como una línea de puntos. Es lo que hacen WhatsApp y Telegram —
     /// remuestrear a un número fijo—, y de paso una nota de 3 s y otra de 30 s se ven
     /// igual de sólidas en vez de degradarse con la duración.
-    private static let numeroDeBarras = 34
+    static let numeroDeBarras = 34
 
     private var barras: [Float] { Self.remuestrear(adjunto.onda ?? [], a: Self.numeroDeBarras) }
 
@@ -56,22 +60,34 @@ struct NotaDeVoz: View {
     var body: some View {
         HStack(spacing: 10) {
             Button(action: alternar) {
-                Image(systemName: sonando ? "pause.fill" : "play.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
-                    .background(Theme.primaryGradient, in: Circle())
+                ZStack {
+                    Circle().fill(Theme.primaryGradient).frame(width: 32, height: 32)
+                    if bajando {
+                        ProgressView().controlSize(.small).tint(.white)
+                    } else {
+                        Image(systemName: sonando ? "pause.fill" : "play.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
             }
             .buttonStyle(.plain)
+            .disabled(bajando)
 
             onda
                 .frame(height: 24)
                 .frame(maxWidth: .infinity)
 
-            Text(Self.reloj(adjunto.segundos ?? 0))
-                .gMono(size: 12)
-                .foregroundStyle(Color.gInk2)
-                .monospacedDigit()
+            // Si algo falló, se dice AHÍ: un play que no hace nada se lee como una app
+            // rota, y la causa real (el archivo ya no está) es información útil.
+            if let fallo {
+                Text(fallo).gCaption().foregroundStyle(Color.gDangerInk)
+            } else {
+                Text(Self.reloj(adjunto.segundos ?? 0))
+                    .gMono(size: 12)
+                    .foregroundStyle(Color.gInk2)
+                    .monospacedDigit()
+            }
         }
         .frame(minWidth: 190)
         .onDisappear { parar() }
@@ -102,15 +118,44 @@ struct NotaDeVoz: View {
         }
     }
 
+    /// Los bytes con los que sonar: los que ya tenemos, o los que se bajaron.
+    private var audio: Data? {
+        if !adjunto.datos.isEmpty { return adjunto.datos }
+        return bajados
+    }
+
     private func alternar() {
         if sonando { parar(); return }
+        // Un hilo recargado trae la nota SIN bytes: sólo su id en la cuenta. Se bajan al
+        // primer play y se quedan mientras la burbuja viva; bajarlas al pintar la lista
+        // costaría una descarga por cada nota que pasa por pantalla.
+        guard audio != nil else {
+            guard let id = adjunto.remoto?.id else {
+                fallo = "No tengo el audio."
+                return
+            }
+            bajando = true; fallo = nil
+            Task {
+                do { bajados = try await GhostyAPI.bajar(id); bajando = false; sonar() }
+                catch {
+                    bajando = false
+                    fallo = (error as? GhostyAPI.Fallo)?.errorDescription ?? "No pude bajarlo."
+                }
+            }
+            return
+        }
+        sonar()
+    }
+
+    private func sonar() {
+        guard let datos = audio else { return }
         do {
             // ⚠️ `.playback` explícito: si la sesión se quedó en modo grabación, el audio
             // sale por el auricular de arriba a volumen mínimo y parece que no suena.
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
             try AVAudioSession.sharedInstance().setActive(true)
             let p: AVAudioPlayer
-            if let ya = reproductor { p = ya } else { p = try AVAudioPlayer(data: adjunto.datos) }
+            if let ya = reproductor { p = ya } else { p = try AVAudioPlayer(data: datos) }
             reproductor = p
             p.play()
             sonando = true
@@ -122,6 +167,7 @@ struct NotaDeVoz: View {
                 if !Task.isCancelled { sonando = false; avance = 0 }
             }
         } catch {
+            fallo = "No pude reproducirlo."
             print("[voz] no pude reproducir: \(error.localizedDescription)")
         }
     }

@@ -8,7 +8,11 @@ import Foundation
 /// cientos de burbujas de una letra.
 enum ReplayToMessages {
 
-    static func convertir(_ replay: [ACPClient.Replay]) -> [Message] {
+    /// `archivos` es el índice `nombre → archivo de la cuenta` de esta sesión. Es lo que
+    /// devuelve a la vida un adjunto: el replay de ACP trae SÓLO texto, así que sin él una
+    /// nota de voz vuelve como una línea muerta con el nombre del archivo.
+    static func convertir(_ replay: [ACPClient.Replay],
+                          archivos: [String: GhostyAPI.ArchivoDeSesion] = [:]) -> [Message] {
         var mensajes: [Message] = []
 
         // El turno que se está armando
@@ -32,9 +36,32 @@ enum ReplayToMessages {
                 // el bloque de adjuntos, los `curl` y una URL firmada de varias líneas. Sin
                 // esto, reabrir un hilo con una nota de voz enseñaba un muro de texto con
                 // credenciales dentro donde antes había un reproductor.
-                let visible = BloqueDeAdjuntos.limpiarParaMostrar(limpio)
-                guard !visible.isEmpty else { return }
-                mensajes.append(Message(id: "u\(mensajes.count)", kind: .user(visible)))
+                let (visible, nombres) = BloqueDeAdjuntos.limpiarParaMostrar(limpio)
+                // Se reconstruyen SIN bytes: `remoto` lleva el id con el que bajarlos, y la
+                // duración y la onda vienen del `meta` que se guardó al subir. Con eso
+                // `esVoz` vuelve a ser cierto y la burbuja pinta el reproductor sin que haya
+                // que tocar una línea de su reparto.
+                //
+                // ⚠️ Un archivo sin `meta` (los de antes de que se guardara) NO se convierte
+                // en nota de voz: se queda como fila de archivo. Inventarle una onda plana
+                // sería pintar un widget que miente sobre lo que se grabó.
+                let recuperados: [Adjunto] = nombres.compactMap { nombre in
+                    guard let f = archivos[nombre] else { return nil }
+                    var a = Adjunto(nombre: f.nombre, mime: f.mime, datos: Data(),
+                                    segundos: f.segundos, onda: f.onda)
+                    a.remoto = GhostyAPI.ArchivoRemoto(id: f.id, nombre: f.nombre, mime: f.mime,
+                                                       bytes: f.bytes, url: "")
+                    return a
+                }
+                // Los que no se pudieron recuperar se siguen NOMBRANDO: que se mandó un
+                // archivo es información de la persona, y callarlo deja el mensaje cojo.
+                let huerfanos = nombres.filter { archivos[$0] == nil }
+                let pie = huerfanos.isEmpty ? "" : "Adjunto: " + huerfanos.joined(separator: ", ")
+                let texto = [visible, pie].filter { !$0.isEmpty }.joined(separator: "\n")
+
+                guard !texto.isEmpty || !recuperados.isEmpty else { return }
+                mensajes.append(Message(id: "u\(mensajes.count)",
+                                        kind: .user(texto, adjuntos: recuperados)))
 
             case .agente:
                 let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)
