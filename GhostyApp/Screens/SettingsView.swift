@@ -11,7 +11,12 @@ struct SettingsView: View {
     @Environment(\.openURL) private var abrir
 
     @State private var saliendo = false
-    @State private var conectores = false
+
+    private var resumenDeConectores: String {
+        let n = store.conectores.filter(\.conectado).count
+        if n > 0 { return "\(n) conectada\(n == 1 ? "" : "s")" }
+        return store.hayConectores ? "Conecta las apps que ya usas" : "Muy pronto"
+    }
 
     /// Qué build trae este teléfono. Sin esto no hay forma de saberlo sin cable, y
     /// ya me llevó a diagnosticar mal una vez.
@@ -37,13 +42,6 @@ struct SettingsView: View {
 
     var body: some View {
         contenido
-            .sheet(isPresented: $conectores) {
-                ConectoresView(store: store)
-                    #if os(iOS)
-                    .presentationDetents([.large])
-                    .presentationCornerRadius(Theme.Radius.sheet)
-                    #endif
-            }
     }
 
     private var contenido: some View {
@@ -120,30 +118,6 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             .padding(.vertical, 4)
                         }
-                    }
-
-                    // ⚠️ Sólo si el servidor lo soporta. Enseñar "Integraciones" y que abra
-                    // una lista vacía sería prometer lo que no hay — la regla que ya nos
-                    // costó las pestañas de Ideas y Metas.
-                    if store.hayConectores {
-                        Button { conectores = true } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Integraciones")
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(Color.gInk)
-                                    Text(store.conectores.filter(\.conectado).isEmpty
-                                         ? "Conecta las apps que ya usas"
-                                         : "\(store.conectores.filter(\.conectado).count) conectadas")
-                                        .gMeta()
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Color.gInk3)
-                            }
-                        }
-                        .buttonStyle(.plain)
                     }
 
                     if let a = store.almacenamiento {

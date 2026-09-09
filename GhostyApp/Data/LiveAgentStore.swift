@@ -53,11 +53,30 @@ final class LiveAgentStore: AgentStoring {
     private(set) var conectores: [Conector] = []
     private(set) var hayConectores = false
 
+    /// Lo que existe hoy en el registry de Teams. Se enseña DESACTIVADO mientras el
+    /// servidor no lo sirva: la lista se irá completando conforme cada uno se active desde
+    /// el teléfono, y verla es más útil que una pantalla vacía.
+    ///
+    /// ⚠️ Es un respaldo para pintar, NO una promesa de que funcionan: cada fila dice "muy
+    /// pronto" y no se puede tocar. En cuanto el servidor conteste, manda él.
+    private static let catalogo: [Conector] = [
+        Conector(id: "github", nombre: "GitHub", conectado: false, disponible: false),
+        Conector(id: "google", nombre: "Gmail", conectado: false, disponible: false),
+        Conector(id: "google-calendar", nombre: "Google Calendar", conectado: false, disponible: false),
+        Conector(id: "denik", nombre: "Deník", conectado: false, disponible: false),
+        Conector(id: "calendly", nombre: "Calendly", conectado: false, disponible: false),
+        Conector(id: "spotify", nombre: "Spotify", conectado: false, disponible: false),
+        Conector(id: "canva", nombre: "Canva", conectado: false, disponible: false),
+        Conector(id: "odoo", nombre: "Odoo", conectado: false, disponible: false),
+        Conector(id: "kommo", nombre: "Kommo", conectado: false, disponible: false),
+    ]
+
     func cargarConectores() async {
         if let lista = await GhostyAPI.conectores() {
             conectores = lista
             hayConectores = true
         } else {
+            conectores = Self.catalogo
             hayConectores = false
         }
     }

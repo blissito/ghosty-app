@@ -10,6 +10,10 @@ struct Conector: Identifiable, Equatable, Sendable {
     let id: String
     var nombre: String
     var conectado: Bool
+    /// ¿Se puede conectar YA? `false` = está en el catálogo pero todavía no se activa desde
+    /// el teléfono. Se enseña igual, con leyenda y desactivado: ver la lista de lo que
+    /// viene es información útil; un vacío no dice nada.
+    var disponible: Bool = true
     /// Desde cuándo, si está conectado.
     var desde: Date?
 
