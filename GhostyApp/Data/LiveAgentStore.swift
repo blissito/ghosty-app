@@ -410,10 +410,18 @@ final class LiveAgentStore: AgentStoring {
                 // cualquier turno por ahí acaba en la conversación equivocada.
                 let sid = try await self.asegurarHilo(cuenta)
                 self.titulos.anotarSiFalta(sid, desde: limpio)
-// Todo adjunto se sube a la cuenta; una imagen viaja ADEMÁS inline.
+                // Todo adjunto se sube a la cuenta; una imagen viaja ADEMÁS inline, y una
+                // nota de voz se transcribe aquí.
                 let conArchivos = await self.subidos(adjuntos, sesion: sid)
                 self.ultimoEnvioFallo = false
-                await self.porSocket(cuenta, sid: sid, texto: limpio,
+                // La transcripción va en el TEXTO del turno, delante de lo que escribiera
+                // la persona: es lo que dijo, no un adjunto que haya que ir a buscar.
+                let dicho = conArchivos.compactMap(\.transcripcion)
+                    .map(BloqueDeAdjuntos.transcripcion)
+                    .joined(separator: "\n\n")
+                let conVoz = dicho.isEmpty ? limpio
+                    : (limpio.isEmpty ? dicho : "\(dicho)\n\n\(limpio)")
+                await self.porSocket(cuenta, sid: sid, texto: conVoz,
                                      adjuntos: conArchivos,
                                      respuesta: idRespuesta)
             } catch {
@@ -459,6 +467,15 @@ final class LiveAgentStore: AgentStoring {
     private func subidos(_ adjuntos: [Adjunto], sesion: String?) async -> [Adjunto] {
         var salida: [Adjunto] = []
         for var a in adjuntos {
+            // La voz se transcribe AQUÍ, en la plataforma. Medido en Teams: pedírselo al
+            // agente costaba 3 llamadas de shell para leer 4 segundos de voz.
+            //
+            // Best-effort: si whisper no contesta, el audio viaja igual y su línea del
+            // bloque vuelve a decirle al agente cómo transcribirlo él. Perder la nota
+            // entera por una transcripción sería mucho peor.
+            if a.esVoz {
+                a.transcripcion = await GhostyAPI.transcribir(a.datos, mime: a.mime)
+            }
             do {
                 a.remoto = try await GhostyAPI.subir(a, sesion: sesion)
             } catch {

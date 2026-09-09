@@ -86,6 +86,42 @@ enum GhostyAPI {
                              url: url)
     }
 
+    /// Transcribe un audio con el whisper de la flota.
+    ///
+    /// ⚠️ Bytes CRUDOS, no base64. El endpoint de partner que ya existía usa base64 porque
+    /// su firma HMAC se calcula sobre el cuerpo como texto y un binario no sobrevive ese
+    /// viaje; con bearer esa restricción no aplica.
+    ///
+    /// ⚠️ Timeout generoso a propósito: la caja de whisper vive HIBERNADA y la despierta el
+    /// proxy, así que la primera transcripción tras un rato tarda unos segundos. Darla por
+    /// fallida ahí sería tirar la nota justo en el caso más común —la primera del día—.
+    ///
+    /// Devuelve `nil` si no se pudo: es best-effort, el audio viaja igual y el turno lo dice.
+    static func transcribir(_ audio: Data, mime: String, lang: String = "es") async -> String? {
+        var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/stt"),
+                              resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "lang", value: lang)]
+        guard let url = c.url, let token = try? await Session.accessToken() else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(mime, forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 150
+
+        guard let (datos, resp) = try? await URLSession.shared.upload(for: req, from: audio),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let texto = j["text"] as? String
+        else {
+            print("[voz] no se pudo transcribir")
+            return nil
+        }
+        let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        return limpio.isEmpty ? nil : limpio
+    }
+
     /// Una firma nueva para un archivo que ya está subido.
     static func urlDe(_ id: String) async throws -> String {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files/\(id)"))

@@ -246,8 +246,9 @@ actor ACPClient {
                         if let r = a.remoto {
                             bloques.append(["type": "resource_link", "uri": r.url,
                                             "name": r.nombre, "mimeType": r.mime])
-                            lineas.append(BloqueDeAdjuntos.linea(nombre: r.nombre, mime: r.mime,
-                                                                 url: r.url, bytes: r.bytes))
+                            lineas.append(BloqueDeAdjuntos.linea(
+                                nombre: r.nombre, mime: r.mime, url: r.url, bytes: r.bytes,
+                                yaTranscrito: a.transcripcion != nil))
                         } else {
                             // No se calla: un archivo que no llegó y no se anuncia es el
                             // fallo mudo de siempre.

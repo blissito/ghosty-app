@@ -35,6 +35,9 @@ struct Adjunto: Identifiable, Equatable, Sendable {
     var segundos: Double?
     var onda: [Float]?
 
+    /// Lo que dijo whisper, si se pudo. Cambia lo que se le dice al agente del archivo.
+    var transcripcion: String?
+
     var esVoz: Bool { mime.hasPrefix("audio/") && segundos != nil }
 
     /// ¿Viaja dentro del prompt, o se sube y se nombra por su ruta?

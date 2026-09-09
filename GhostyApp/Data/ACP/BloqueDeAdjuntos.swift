@@ -69,14 +69,34 @@ enum BloqueDeAdjuntos {
     /// La ruta es RELATIVA (`adjuntos/…`) a propósito: el relé fija el cwd de la sesión al
     /// workspace de la caja, que es justo el `adjuntos/` que las skills ya nombran. Cablear
     /// la absoluta ataría la app al layout de UNA imagen, y vienen más runtimes.
-    static func linea(nombre: String, mime: String, url: String, bytes: Int) -> String {
+    static func linea(nombre: String, mime: String, url: String, bytes: Int,
+                      yaTranscrito: Bool = false) -> String {
         let seguro = saneado(nombre)
         let kb = max(1, bytes / 1024)
+        // ⚠️ Un audio YA transcrito por la plataforma no se vuelve a transcribir. Sin esta
+        // rama, `comoAbrir` le dice "transcríbelo con stt.mjs" y pagamos dos veces lo mismo
+        // — el gasto que esta función existe para evitar. El archivo se conserva porque
+        // cuando la transcripción suena rara, volver al original es justo lo que hay que
+        // hacer, y sin él no se puede.
+        let que = yaTranscrito
+            ? "ya está transcrito arriba. El archivo es SÓLO por si algo suena raro y quieres oírlo; NO lo transcribas otra vez"
+            : comoAbrir(seguro, mime, kb: kb)
         return """
         \(nombre) (\(mime))
             mkdir -p adjuntos && curl -sSL "\(url)" -o adjuntos/\(seguro)
-            luego: \(comoAbrir(seguro, mime, kb: kb))
+            luego: \(que)
         """
+    }
+
+    /// Cómo se le presenta al agente lo que dijo whisper.
+    ///
+    /// Portado de Teams (`stt.server.ts:70-98`). Las dos mitades cargan peso: decir **de
+    /// dónde sale** evita que lo lea como escrito por la persona, y decir que **el original
+    /// sigue adjunto** es lo que le hace volver al audio cuando la transcripción suena
+    /// rara — que es justo cuando hay que hacerlo.
+    static func transcripcion(_ texto: String) -> String {
+        "[Nota de voz transcrita por la plataforma (whisper). El audio original va adjunto: "
+            + "vuelve a él si algo suena mal.]\n«\(texto)»"
     }
 
     /// Lo que se dice de un archivo que NO se pudo entregar.
