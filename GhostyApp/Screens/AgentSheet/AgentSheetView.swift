@@ -4,6 +4,16 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
     case activity, permissions, history, memory
     var id: String { rawValue }
 
+    /// El nombre del panel. Se usa para VoiceOver: el segmentado es sólo iconos.
+    var nombre: String {
+        switch self {
+        case .activity:    return "Actividad"
+        case .permissions: return "Permisos"
+        case .history:     return "Historial"
+        case .memory:      return "Memoria"
+        }
+    }
+
     var icon: String {
         switch self {
         case .activity:    return "waveform.path.ecg"
@@ -24,10 +34,24 @@ struct AgentSheetView: View {
     var onNuevaConversacion: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
-    // Gancho de desarrollo: el simulador no acepta toques por script, así que sin
-    // esto no hay forma de verificar una pestaña que no sea la primera.
-    @State private var pane: SheetPane =
-        SheetPane(rawValue: ProcessInfo.processInfo.environment["GHOSTY_PANE"] ?? "") ?? .activity
+    /// El panel abierto, RECORDADO entre aperturas y entre arranques.
+    ///
+    /// ⚠️ Era `@State` y por eso siempre volvía a Actividad: `.sheet(item:)` construye la
+    /// vista de nuevo cada vez que se abre, así que el estado local nace virgen. Quien
+    /// estaba mirando el historial tenía que volver a buscarlo en cada visita.
+    @AppStorage("ghosty.panelDeLaHoja") private var panelGuardado = SheetPane.activity.rawValue
+
+    /// Gancho de desarrollo: el simulador no acepta toques por script, así que sin esto
+    /// no hay forma de verificar un panel que no sea el primero. Gana sobre lo guardado.
+    private static let panelForzado =
+        SheetPane(rawValue: ProcessInfo.processInfo.environment["GHOSTY_PANE"] ?? "")
+
+    private var pane: Binding<SheetPane> {
+        Binding(
+            get: { Self.panelForzado ?? SheetPane(rawValue: panelGuardado) ?? .activity },
+            set: { panelGuardado = $0.rawValue },
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,13 +96,13 @@ struct AgentSheetView: View {
                 .padding(.top, 18)
             }
 
-            SegmentedIconBar(items: SheetPane.allCases, icon: \.icon, selection: $pane)
+            SegmentedIconBar(items: SheetPane.allCases, icon: \.icon, label: \.nombre, selection: pane)
                 .padding(.horizontal, Theme.Space.screenH)
                 .padding(.top, 16)
 
             ScrollView {
                 Group {
-                    switch pane {
+                    switch pane.wrappedValue {
                     case .activity:    ActivityPane(store: store)
                     case .permissions: PermissionsPane(store: store)
                     case .history:     HistoryPane(store: store, onAbrir: { dismiss() })

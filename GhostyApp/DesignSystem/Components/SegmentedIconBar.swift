@@ -6,6 +6,9 @@ import SwiftUI
 struct SegmentedIconBar<T: Hashable & Identifiable>: View {
     let items: [T]
     let icon: (T) -> String
+    /// Cómo se llama cada panel. NO es decorativo: los botones son sólo iconos, y sin
+    /// esto VoiceOver los anuncia a los cuatro como "botón" y no hay forma de navegar.
+    let label: (T) -> String
     @Binding var selection: T
     @Namespace private var resaltado
 
@@ -32,6 +35,9 @@ struct SegmentedIconBar<T: Hashable & Identifiable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(label(item))
+                // Para que el lector diga cuál está puesto, no sólo cómo se llama.
+                .accessibilityAddTraits(selection == item ? [.isSelected] : [])
             }
         }
         .padding(4)
