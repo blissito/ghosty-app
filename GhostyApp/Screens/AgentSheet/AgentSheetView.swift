@@ -19,7 +19,7 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
 /// duplicada, y era el error que había en la primera versión del diseño.
 struct AgentSheetView: View {
     let agent: Agent
-    let store: any AgentStoring
+    let store: LiveAgentStore
     var onAjustes: () -> Void
     var onNuevaConversacion: (() -> Void)?
     @Environment(\.dismiss) private var dismiss

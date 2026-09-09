@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct PermissionsPane: View {
-    let store: any AgentStoring
+    let store: LiveAgentStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

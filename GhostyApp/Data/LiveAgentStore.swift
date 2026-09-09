@@ -28,7 +28,10 @@ final class LiveAgentStore: AgentStoring {
     private var hilos: [String: [Message]] = [:]
     private var sesiones: [String: String] = [:]
     private var cuentas: [AgentAccount] = []
+    let bitacora = TurnLogStore()
     private var turnoEnVuelo: Task<Void, Never>?
+    private var promptDelTurno = ""
+    private var usoDelTurno = (entrada: 0, salida: 0)
     private var inicioDelTurno: Date?
     private var cronometro: Task<Void, Never>?
 
@@ -113,6 +116,8 @@ final class LiveAgentStore: AgentStoring {
 
         marcarTrabajando(cuenta.id, tarea: "Trabajando…")
         arrancarCronometro(titulo: primeraFrase(limpio))
+        promptDelTurno = limpio
+        usoDelTurno = (0, 0)
 
         let cliente = EasyBitsClient(apiKey: cuenta.token)
         turnoEnVuelo = Task { [weak self] in
@@ -133,6 +138,7 @@ final class LiveAgentStore: AgentStoring {
                             self.pintarRespuesta(id: idRespuesta, texto: acumulado)
                         case .usage(let e, let s, _):
                             self.ultimoUso = (e, s)
+                            self.usoDelTurno = (e, s)
                         case .newSession(let s):
                             self.sesiones[cuenta.id] = s
                         case .error(let d):
@@ -145,6 +151,7 @@ final class LiveAgentStore: AgentStoring {
                     if acumulado.isEmpty {
                         self.pintarRespuesta(id: idRespuesta, texto: "_El turno cerró sin texto._")
                     }
+                    self.anotar(cuenta, chars: acumulado.count, como: .done)
                     break
                 } catch {
                     // Se reintenta sólo si no llegó NADA: con texto en pantalla, otro
@@ -156,6 +163,8 @@ final class LiveAgentStore: AgentStoring {
                     }
                     self.pintarRespuesta(id: idRespuesta,
                                          texto: Self.mensajeDeFallo(error, parcial: acumulado))
+                    self.anotar(cuenta, chars: acumulado.count,
+                                como: Task.isCancelled ? .stopped : .failed)
                     break
                 }
             }
@@ -182,6 +191,23 @@ final class LiveAgentStore: AgentStoring {
     func respondToPR(_ card: PullRequestCard, approve: Bool) async {
         await send(approve ? "Aprueba el \(card.reference)."
                            : "Pide cambios en el \(card.reference) y deja el comentario en la línea del bloqueante.")
+    }
+
+    /// Cierra la bitácora del turno. El tiempo sale del cronómetro que ya corría;
+    /// los tokens, del evento `usage` que manda la caja.
+    private func anotar(_ cuenta: AgentAccount, chars: Int, como: TurnRecord.Outcome) {
+        let inicio = inicioDelTurno ?? Date()
+        bitacora.registrar(TurnRecord(
+            id: UUID().uuidString,
+            agentID: cuenta.id,
+            agentName: cuenta.name,
+            prompt: promptDelTurno,
+            startedAt: inicio,
+            seconds: max(0, Int(Date().timeIntervalSince(inicio))),
+            inputTokens: usoDelTurno.entrada,
+            outputTokens: usoDelTurno.salida,
+            outcome: como,
+            replyChars: chars))
     }
 
     // MARK: - Fallos de red

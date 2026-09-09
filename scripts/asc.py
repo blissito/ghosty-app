@@ -109,5 +109,103 @@ elif cmd == "usuarios":
         print(f"{a.get('username',''):<34} {a.get('firstName','')} {a.get('lastName','')} "
               f"· roles {','.join(a.get('roles',[]))} · id={u['id']}")
 
+elif cmd == "invitar-usuario":
+    # Un tester INTERNO tiene que ser usuario de App Store Connect. Esto le manda la
+    # invitación; hasta que la acepte no se le puede meter al grupo de pruebas.
+    correo = sys.argv[2]
+    nombre = sys.argv[3] if len(sys.argv) > 3 else "Tester"
+    apellido = sys.argv[4] if len(sys.argv) > 4 else "-"
+    r = api("/userInvitations", "POST", {"data": {
+        "type": "userInvitations",
+        "attributes": {"email": correo, "firstName": nombre, "lastName": apellido,
+                       "roles": ["DEVELOPER"], "allAppsVisible": False,
+                       "provisioningAllowed": False},
+        "relationships": {"visibleApps": {"data": [{"type": "apps", "id": app_id()}]}}}})
+    print("invitación mandada a", r["data"]["attributes"]["email"])
+
+elif cmd == "invitaciones":
+    for i in api("/userInvitations?limit=100")["data"]:
+        a = i["attributes"]
+        print(f"{a['email']:<34} {a.get('firstName','')} · roles {','.join(a.get('roles',[]))} · PENDIENTE")
+
+elif cmd == "cancelar-invitacion":
+    correo = sys.argv[2]
+    for i in api("/userInvitations?limit=100")["data"]:
+        if i["attributes"]["email"].lower() == correo.lower():
+            api(f"/userInvitations/{i['id']}", "DELETE")
+            print("cancelada:", correo); break
+    else:
+        print("no encontré esa invitación")
+
+elif cmd == "preparar-externo":
+    # Beta App Review exige dos bloques de metadatos antes de aceptar el envío:
+    # la localización (qué es la app y a dónde va la retroalimentación) y los datos
+    # de contacto del responsable.
+    app = app_id()
+
+    # 1) Localización
+    locs = api(f"/apps/{app}/betaAppLocalizations")["data"]
+    cuerpo_loc = {
+        "description": ("Ghosty es un cliente para hablar con tus agentes de IA. "
+                        "Escribes al agente, él trabaja en un servidor y su respuesta "
+                        "se muestra con formato: listas, tablas y bloques de código. "
+                        "La app trae una credencial de prueba ya configurada, así que "
+                        "abre y funciona sin registro."),
+        "feedbackEmail": "rotcehcm@hotmail.com",
+    }
+    if locs:
+        api(f"/betaAppLocalizations/{locs[0]['id']}", "PATCH",
+            {"data": {"type": "betaAppLocalizations", "id": locs[0]["id"],
+                      "attributes": cuerpo_loc}})
+        print("localización actualizada")
+    else:
+        api("/betaAppLocalizations", "POST",
+            {"data": {"type": "betaAppLocalizations",
+                      "attributes": {**cuerpo_loc, "locale": "es-MX"},
+                      "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})
+        print("localización creada")
+
+    # 2) Datos de contacto. Sin cuenta de demo: la credencial va horneada, así que
+    # el revisor abre la app y ya está conectada.
+    det = api(f"/apps/{app}/betaAppReviewDetail")["data"]
+    cuerpo_det = {
+        "contactFirstName": "Hector",
+        "contactLastName": "Campos",
+        "contactEmail": "rotcehcm@hotmail.com",
+        "contactPhone": os.environ.get("ASC_PHONE", ""),
+        "demoAccountRequired": False,
+        "notes": ("No hace falta cuenta: la app trae una credencial de prueba "
+                  "configurada y al abrir ya puede escribirle al agente. "
+                  "Escribe cualquier mensaje en el campo de texto y el agente "
+                  "responde en unos segundos."),
+    }
+    api(f"/betaAppReviewDetails/{det['id']}", "PATCH",
+        {"data": {"type": "betaAppReviewDetails", "id": det["id"], "attributes": cuerpo_det}})
+    print("datos de contacto listos")
+
+elif cmd == "grupo-externo":
+    nombre = sys.argv[2] if len(sys.argv) > 2 else "Beta"
+    r = api("/betaGroups", "POST", {"data": {
+        "type": "betaGroups",
+        "attributes": {"name": nombre, "isInternalGroup": False,
+                       "publicLinkEnabled": True, "publicLinkLimitEnabled": False},
+        "relationships": {"app": {"data": {"type": "apps", "id": app_id()}}}}})
+    a = r["data"]["attributes"]
+    print("grupo externo:", r["data"]["id"])
+    print("liga pública:", a.get("publicLink") or "(aparece tras la revisión)")
+
+elif cmd == "enviar-revision":
+    build = sys.argv[2]
+    r = api("/betaAppReviewSubmissions", "POST", {"data": {
+        "type": "betaAppReviewSubmissions",
+        "relationships": {"build": {"data": {"type": "builds", "id": build}}}}})
+    print("enviado a revisión ·", r["data"]["attributes"].get("betaReviewState"))
+
+elif cmd == "revision":
+    for s_ in api(f"/apps/{app_id()}/builds?limit=5&sort=-version")["data"]:
+        d = api(f"/builds/{s_['id']}/betaAppReviewSubmission")["data"]
+        estado = d["attributes"]["betaReviewState"] if d else "sin enviar"
+        print(f"build {s_['attributes']['version']}: {estado}")
+
 else:
     sys.exit(__doc__)
