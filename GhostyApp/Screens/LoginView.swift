@@ -33,9 +33,14 @@ struct LoginView: View {
         static let respaldo: [Proveedor] = [.init(id: "google", etiqueta: "Google")]
     }
 
-    /// Apple arriba; el resto en el orden que mandó el servidor.
+    /// Google arriba (es el camino de casi todos); el resto en el orden del servidor.
+    ///
+    /// ⚠️ Lo que Apple exige de Sign in with Apple NO es ir primero: es que su botón no
+    /// sea MÁS CHICO que los otros y que se vea SIN hacer scroll. Los tres miden 50 pt y
+    /// caben en pantalla, así que esto cumple. Lo que rompería la regla es encogerlo,
+    /// esconderlo tras un "más opciones", o empujarlo fuera de la vista.
     private var ordenados: [Proveedor] {
-        proveedores.filter { $0.id == "apple" } + proveedores.filter { $0.id != "apple" }
+        proveedores.filter { $0.id == "google" } + proveedores.filter { $0.id != "google" }
     }
 
     var body: some View {
@@ -57,10 +62,6 @@ struct LoginView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                // ⚠️ Apple va PRIMERO, pase lo que pase con el orden del servidor.
-                // "Colocado debajo de los botones sociales" es una de las causas de
-                // rechazo citadas explícitamente: la HIG pide que Sign in with Apple no
-                // quede menos prominente que los demás proveedores.
                 ForEach(ordenados) { p in
                     boton(p)
                 }
