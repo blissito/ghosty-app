@@ -11,3 +11,6 @@ xcuserdata/
 
 # Dependencias resueltas por SwiftPM
 .spm/
+
+# Credencial del demo: fuera del repo
+Local.xcconfig

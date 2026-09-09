@@ -1,0 +1,9 @@
+// Copia esto a Local.xcconfig y pon el token de TU agente.
+// Sale del listado de EasyBits: el campo `embedToken` (empieza con agt_).
+//
+//   curl -s -H "Authorization: Bearer $EASYBITS_API_KEY" \
+//     https://www.easybits.cloud/api/v2/agents | jq '.agents[] | {name, agentId, embedToken}'
+//
+// Si este archivo no existe, la app arranca pidiendo la credencial en Ajustes.
+EASYBITS_TOKEN =
+GHOSTY_AGENT_ID =

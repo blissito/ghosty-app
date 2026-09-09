@@ -28,10 +28,18 @@ targets:
       - path: GhostyApp
     dependencies:
       - package: MarkdownUI
+    # El xcconfig local mete la credencial del demo sin que toque el repo. Si no
+    # existe el archivo, los valores quedan como "$(…)" y `Credentials` los
+    # ignora → la app arranca pidiendo el token en Ajustes.
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
     info:
       path: GhostyApp/Info.plist
       properties:
         CFBundleDisplayName: Ghosty
+        EasyBitsAPIKey: $(EASYBITS_TOKEN)
+        GhostyAgentId: $(GHOSTY_AGENT_ID)
         UILaunchScreen:
           UIColorName: bg
         UISupportedInterfaceOrientations:
