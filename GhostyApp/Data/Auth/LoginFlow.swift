@@ -86,14 +86,12 @@ final class LoginFlow: NSObject {
                 }
             }
 
-            // ⚠️ `callbackURLScheme:` NO intercepta un https://: sólo reconoce schemes
-            // propios. Con él, la hoja se quedaría cargando la página del callback y el
-            // login no terminaría nunca. Para un Universal Link hace falta este
-            // inicializador con `.https(host:path:)`, que llegó en iOS 17.4 — y por eso
-            // el proyecto pide 17.4 y no 17.0.
+            // El scheme propio va declarado en Info.plist (CFBundleURLTypes) y es lo
+            // que cierra la hoja. Ver el comentario de `Session.redirectURI`: el camino
+            // por Universal Link se probó en un teléfono y no cerraba.
             let s = ASWebAuthenticationSession(
                 url: url,
-                callback: .https(host: "www.ghosty.studio", path: "/app/cb"),
+                callbackURLScheme: Session.redirectScheme,
                 completionHandler: manejar,
             )
             s.presentationContextProvider = self

@@ -14,9 +14,20 @@ enum Session {
     /// PKCE.
     static let clientID = "ghosty-app-ios"
     static let base = URL(string: "https://www.ghosty.studio")!
-    /// Universal Link, no un scheme propio: `ghostyapp://` lo puede registrar cualquier
-    /// otra app del teléfono y quedarse con el authorization code.
-    static let redirectURI = "https://www.ghosty.studio/app/cb"
+    /// ⚠️ Scheme propio, y NO el Universal Link, aunque el https:// suene más seguro.
+    ///
+    /// El `.https(host:path:)` de ASWebAuthenticationSession se probó en un teléfono real
+    /// y NO cerró la hoja: cargaba la página del callback y ahí se quedaba, con Cancelar
+    /// como única salida. Todo lo demás estaba correcto y comprobado —entitlements en el
+    /// binario, AASA en el CDN de Apple, perfil de distribución—, así que no es
+    /// configuración: es que ese camino no resulta fiable.
+    ///
+    /// El scheme propio es lo que la RFC 8252 §7.1 recomienda para apps nativas, y lo
+    /// que hacen los SDK de Google. El riesgo conocido —que otra app registre el mismo
+    /// scheme y se quede con el código— lo cubre **PKCE**: sin el `code_verifier`, que
+    /// nunca sale de este proceso, un código robado no se puede canjear.
+    static let redirectScheme = "com.fixtergeek.ghostyapp"
+    static let redirectURI = "com.fixtergeek.ghostyapp://cb"
 
     // MARK: - Estado
 

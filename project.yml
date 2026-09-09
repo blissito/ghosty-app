@@ -54,6 +54,12 @@ targets:
       path: GhostyApp/Info.plist
       properties:
         CFBundleDisplayName: Ghosty
+        # El scheme que cierra la hoja del login. Sin esta declaración,
+        # ASWebAuthenticationSession no reconoce el callback y la sesión no termina.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.fixtergeek.ghostyapp
+            CFBundleURLSchemes:
+              - com.fixtergeek.ghostyapp
         # Sin esta clave, App Store Connect pregunta por cumplimiento de
         # exportación en CADA subida y bloquea el build hasta contestarla.
         # false = sólo se usa el HTTPS del sistema, que está exento.
