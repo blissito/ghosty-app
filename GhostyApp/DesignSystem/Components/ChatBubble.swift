@@ -47,7 +47,8 @@ extension UserBubble {
             guard a.esImagen, let i = UIImage(data: a.datos) else { return nil }
             return (a, i)
         }
-        let otros = adjuntos.filter { !$0.esImagen }
+        let voces = adjuntos.filter(\.esVoz)
+        let otros = adjuntos.filter { !$0.esImagen && !$0.esVoz }
 
         VStack(alignment: .leading, spacing: 6) {
             if imagenes.count == 1 {
@@ -72,6 +73,9 @@ extension UserBubble {
                             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
                     }
                 }
+            }
+            ForEach(voces) { a in
+                NotaDeVoz(adjunto: a, claro: true)
             }
             ForEach(otros) { a in
                 HStack(spacing: 9) {

@@ -15,6 +15,7 @@ struct ConversationView: View {
     @State private var abrirArchivos = false
     @State private var abrirCamara = false
     @State private var subiendo = false
+    @State private var grabador = GrabadorDeVoz()
     @State private var fallo: String?
 
     var body: some View {
@@ -264,6 +265,31 @@ struct ConversationView: View {
                         }
                     }
 
+                // El micrófono ocupa el sitio del enviar mientras no haya nada que
+                // mandar, como en Muse y en WhatsApp: no caben los dos, y con el campo
+                // vacío el de enviar no sirve para nada.
+                if !hayQueMandar {
+                    Image(systemName: grabador.grabando ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(grabador.grabando
+                                    ? AnyShapeStyle(Color.gDanger)
+                                    : AnyShapeStyle(Theme.primaryGradient))
+                        .clipShape(Circle())
+                        .contentShape(Circle())
+                        // Mantener pulsado para hablar, soltar para enviar: es el gesto de
+                        // WhatsApp y el único que no deja notas abiertas por olvido.
+                        .gesture(
+                            LongPressGesture(minimumDuration: 0.15)
+                                .onEnded { _ in
+                                    escribiendo = false
+                                    grabador.empezar()
+                                }
+                                .sequenced(before: DragGesture(minimumDistance: 0))
+                                .onEnded { _ in soltarVoz() }
+                        )
+                } else {
                 Button(action: enviar) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 15, weight: .bold))
@@ -276,6 +302,7 @@ struct ConversationView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!hayQueMandar || subiendo)
+                }
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 46)
@@ -313,6 +340,24 @@ struct ConversationView: View {
                 }
                 fallo = "No se pudo mandar. Inténtalo otra vez."
             }
+        }
+    }
+
+    /// Se soltó el micrófono: la nota se manda sola.
+    ///
+    /// ⚠️ "Parar es enviar", como en Teams. Dejarla en el compositor para que la persona le
+    /// dé a un segundo botón convierte un gesto de dos segundos en uno de cuatro, y el
+    /// motivo de hablar en vez de escribir era justamente ir rápido.
+    private func soltarVoz() {
+        guard let clip = grabador.terminar() else { grabador.cancelar(); return }
+        let nota = Adjunto(voz: clip)
+        let texto = borrador
+        borrador = ""
+        fallo = nil
+        subiendo = true
+        Task {
+            await store.send(texto, adjuntos: [nota])
+            subiendo = false
         }
     }
 

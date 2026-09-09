@@ -30,6 +30,12 @@ struct Adjunto: Identifiable, Equatable, Sendable {
     var datos: Data
     /// Lo que devolvió la subida a gs. `nil` = todavía no se ha subido, o falló.
     var remoto: GhostyAPI.ArchivoRemoto?
+    /// Sólo en una nota de voz: cuánto dura y su onda. Sin esto se vería como un archivo
+    /// cualquiera, y una nota de voz sin duración no se sabe si son 3 segundos o 3 minutos.
+    var segundos: Double?
+    var onda: [Float]?
+
+    var esVoz: Bool { mime.hasPrefix("audio/") && segundos != nil }
 
     /// ¿Viaja dentro del prompt, o se sube y se nombra por su ruta?
     var esImagen: Bool { mime.hasPrefix("image/") }
@@ -48,11 +54,23 @@ struct Adjunto: Identifiable, Equatable, Sendable {
         }
     }
 
-    init(id: String = UUID().uuidString, nombre: String, mime: String, datos: Data) {
+    init(id: String = UUID().uuidString, nombre: String, mime: String, datos: Data,
+         segundos: Double? = nil, onda: [Float]? = nil) {
         self.id = id
         self.nombre = nombre
         self.mime = mime
         self.datos = datos
+        self.segundos = segundos
+        self.onda = onda
+    }
+
+    /// Una nota de voz recién grabada.
+    init(voz clip: GrabadorDeVoz.Clip) {
+        // El nombre lleva la hora porque acaba impreso en el almacenamiento de la cuenta y
+        // "audio.m4a" repetido veinte veces no se puede distinguir.
+        let sello = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        self.init(nombre: "nota-de-voz-\(sello).m4a", mime: "audio/mp4",
+                  datos: clip.datos, segundos: clip.segundos, onda: clip.onda)
     }
 
     /// Desde un archivo del disco. El mime sale del sistema, no de la extensión a mano.

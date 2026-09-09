@@ -20,3 +20,6 @@ build/
 
 # Basura de Python al usar scripts/asc.py
 __pycache__/
+
+# El último número de build que subí; ver subir-testflight.sh
+.ultima-build

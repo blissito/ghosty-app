@@ -17,8 +17,17 @@ ISS=69a6de85-8e77-47e3-e053-5b8c7c11a4d1
 # por duplicado al final. Un listado vacío no es "no hay ninguna".
 ACTUAL=$(python3 scripts/asc.py builds 2>/dev/null | grep -oE '^build +[0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1)
 [ -n "$ACTUAL" ] || { echo "✗ no pude leer las builds de App Store Connect; abortando para no subir un número repetido" >&2; exit 1; }
-SIGUIENTE=$(( ACTUAL + 1 ))
-echo "build $SIGUIENTE (allá arriba había $ACTUAL)"
+
+# ⚠️ App Store Connect NO lista una build mientras la procesa, y procesar puede tardar más
+# de una hora. Dos subidas seguidas dentro de esa ventana calculaban el MISMO número y la
+# segunda se rechazaba por duplicada — pasó el 2026-09-09 con la 22, dos veces. Por eso el
+# número no sale sólo de allá arriba: se recuerda el último usado AQUÍ y se toma el mayor
+# de los dos. El fichero no se versiona; si se pierde, lo peor es volver al caso viejo.
+ULTIMA=$(cat .ultima-build 2>/dev/null || echo 0)
+BASE=$(( ACTUAL > ULTIMA ? ACTUAL : ULTIMA ))
+SIGUIENTE=$(( BASE + 1 ))
+echo "$SIGUIENTE" > .ultima-build
+echo "build $SIGUIENTE (procesadas: $ACTUAL · última que subí: $ULTIMA)"
 
 # ⚠️ El commit se estampa TAMBIÉN aquí, no sólo en `instalar.sh`. Sin esto, Ajustes
 # enseña "Ghosty x (build N)" a secas y no hay forma de saber qué código trae un teléfono

@@ -70,6 +70,7 @@ targets:
         # persona en el diálogo, así que dice para qué, no que "se necesita acceso".
         NSPhotoLibraryUsageDescription: Para que puedas mandarle una foto a tu agente.
         NSCameraUsageDescription: Para tomar una foto y mandársela a tu agente.
+        NSMicrophoneUsageDescription: Para grabar notas de voz y mandárselas a tu agente.
         UILaunchScreen:
           UIColorName: bg
         UISupportedInterfaceOrientations:
