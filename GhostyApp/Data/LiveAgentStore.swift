@@ -30,15 +30,26 @@ final class LiveAgentStore: AgentStoring {
     var conexion: Conexion = .cargando
     var ultimoUso: (entrada: Int, salida: Int)?
 
-    private let cliente: EasyBitsClient?
+    private var cliente: EasyBitsClient?
     private var sesiones: [String: String] = [:]      // agentId → sessionId
     private var turnoEnVuelo: Task<Void, Never>?
     private var inicioDelTurno: Date?
     private var cronometro: Task<Void, Never>?
 
     init() {
-        if let llave = Credentials.easyBitsAPIKey() {
+        if let llave = Credentials.apiKey {
             cliente = EasyBitsClient(apiKey: llave)
+        } else {
+            cliente = nil
+            conexion = .sinLlave
+        }
+    }
+
+    /// Se llama al guardar en Ajustes: rehace el cliente con la credencial nueva.
+    func recargarCredencial() async {
+        if let llave = Credentials.apiKey {
+            cliente = EasyBitsClient(apiKey: llave)
+            await cargar()
         } else {
             cliente = nil
             conexion = .sinLlave
@@ -50,6 +61,20 @@ final class LiveAgentStore: AgentStoring {
     func cargar() async {
         guard let cliente else { conexion = .sinLlave; return }
         conexion = .cargando
+        // Un token de agente (`agt_…`) no puede listar: alcanza sólo a su agente.
+        // Se arma la lista con el id configurado en lugar de fallar.
+        if Credentials.esTokenDeAgente {
+            guard let id = Credentials.agentID, !id.isEmpty else {
+                conexion = .fallo("Ese token es de un agente y falta su id. Ponlo en Ajustes.")
+                return
+            }
+            agents = [Agent(id: id, name: "Tu agente", tone: .lila,
+                            status: .idle(since: "listo"), engine: "acp")]
+            selectedAgentID = id
+            conexion = .lista
+            return
+        }
+
         do {
             let remotos = try await cliente.agents()
             // Sólo los que hablan ACP y están de pie: un agente `lost` no contesta
@@ -65,7 +90,7 @@ final class LiveAgentStore: AgentStoring {
                     engine: a.template ?? "—"
                 )
             }
-            if let preferido = Credentials.defaultAgentID(),
+            if let preferido = Credentials.agentID,
                agents.contains(where: { $0.id == preferido }) {
                 selectedAgentID = preferido
             } else {

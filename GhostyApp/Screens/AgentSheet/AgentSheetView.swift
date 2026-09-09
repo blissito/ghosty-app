@@ -20,15 +20,26 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
 struct AgentSheetView: View {
     let agent: Agent
     let store: any AgentStoring
+    var onAjustes: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var pane: SheetPane = .activity
 
     var body: some View {
         VStack(spacing: 0) {
-            SheetHeader { dismiss() }
-                .padding(.horizontal, 18)
-                .padding(.top, 16)
+            HStack {
+                Button { dismiss() } label: {
+                    TintedIcon(systemName: "xmark", tint: .gInk, background: .gSeparator, size: 34)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Button(action: onAjustes) {
+                    TintedIcon(systemName: "gearshape", tint: .gInk, background: .gSeparator, size: 34)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
 
             VStack(spacing: 5) {
                 GhostyMascot(tone: agent.tone, height: 52)

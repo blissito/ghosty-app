@@ -8,6 +8,7 @@ struct RootView: View {
     @State private var tab: GhostyTab =
         GhostyTab(rawValue: ProcessInfo.processInfo.environment["GHOSTY_TAB"] ?? "") ?? .chat
     @State private var hoja: Agent?
+    @State private var ajustes = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -21,18 +22,25 @@ struct RootView: View {
                         Text("Buscando tus cajas…").gMeta()
                     }
                 case .sinLlave:
-                    EmptyState(
-                        icon: "key",
-                        title: "Falta la llave",
-                        detail: "Pon tu llave de EasyBits en EASYBITS_API_KEY, o en ~/.ghosty-app.json como easyBitsApiKey."
-                    )
+                    VStack(spacing: 16) {
+                        EmptyState(
+                            icon: "key",
+                            title: "Falta la credencial",
+                            detail: "Pega el token de tu agente para que la app pueda hablar con su caja."
+                        )
+                        ActionButton(title: "Abrir Ajustes", kind: .primary) { ajustes = true }
+                            .frame(maxWidth: 240)
+                    }
                     .padding(.horizontal, 24)
                 case .fallo(let detalle):
                     VStack(spacing: 14) {
                         EmptyState(icon: "exclamationmark.triangle", title: "No pude conectar", detail: detalle)
-                        Button("Reintentar") { Task { await store.cargar() } }
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color.gPrimary)
+                        HStack(spacing: 18) {
+                            Button("Reintentar") { Task { await store.cargar() } }
+                            Button("Ajustes") { ajustes = true }
+                        }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.gPrimary)
                     }
                     .padding(.horizontal, 24)
                 case .lista:
@@ -59,8 +67,15 @@ struct RootView: View {
                 await store.send(sonda)
             }
         }
+        .sheet(isPresented: $ajustes) {
+            SettingsView { Task { await store.recargarCredencial() } }
+                #if os(iOS)
+                .presentationDetents([.large])
+                .presentationCornerRadius(Theme.Radius.sheet)
+                #endif
+        }
         .sheet(item: $hoja) { agente in
-            AgentSheetView(agent: agente, store: store)
+            AgentSheetView(agent: agente, store: store, onAjustes: { hoja = nil; ajustes = true })
                 #if os(iOS)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
