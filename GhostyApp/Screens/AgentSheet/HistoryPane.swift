@@ -94,8 +94,9 @@ struct HistoryPane: View {
                            background: h.id == store.hiloAbierto ? .gPrimaryTint : .gFill)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text(h.title).font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.gInk).lineLimit(1)
+                Text(nombre(h)).font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.gInk).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(detalle(h)).gMeta()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -106,6 +107,19 @@ struct HistoryPane: View {
         }
         .padding(.vertical, Theme.Space.row)
         .contentShape(Rectangle())
+    }
+
+    /// ⚠️ La caja **no nombra los hilos**: `session/list` devuelve "New Chat" para
+    /// todos con `userSetName: false`, y `session/set_title` no existe en el
+    /// protocolo. El título sale del primer mensaje que se mandó desde aquí; para los
+    /// hilos que nacieron en otro cliente, la fecha es lo único honesto que hay.
+    private func nombre(_ h: ACPClient.Session) -> String {
+        if let t = store.titulos.titulo(h.id) { return t }
+        if h.title != "New Chat", !h.title.isEmpty, h.title != "Sin título" { return h.title }
+        if let f = h.updatedAt {
+            return "Conversación del " + f.formatted(.dateTime.day().month(.abbreviated).hour().minute())
+        }
+        return "Conversación \(h.id)"
     }
 
     private func detalle(_ h: ACPClient.Session) -> String {

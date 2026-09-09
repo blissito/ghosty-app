@@ -29,6 +29,7 @@ final class LiveAgentStore: AgentStoring {
     private var sesiones: [String: String] = [:]
     private var cuentas: [AgentAccount] = []
     let bitacora = TurnLogStore()
+    let titulos = TitleStore()
 
     /// Archivos y documentos de la cuenta. ⚠️ NO son del agente: el modelo `File` de
     /// EasyBits no tiene `agentId` y los artefactos se atribuyen al dueño, así que
@@ -53,6 +54,9 @@ final class LiveAgentStore: AgentStoring {
     var porSocket = false
     private var acp: ACPClient?
     private var modoDeSesion: [String: String] = [:]
+    /// La creación de hilo en vuelo. Sin esto, escribir rápido después de tocar
+    /// "Nueva conversación" mandaba el turno sin sesión y caía en el hilo viejo.
+    private var creandoHilo: Task<String, Error>?
     private var turnoEnVuelo: Task<Void, Never>?
     private var promptDelTurno = ""
     private var usoDelTurno = (entrada: 0, salida: 0)
@@ -157,18 +161,11 @@ final class LiveAgentStore: AgentStoring {
         sesiones[selectedAgentID] = nil
 
         guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
+        creandoHilo = nil
         Task {
             do {
-                let cliente = try await asegurarSocket(cuenta)
-                let (id, modos) = try await cliente.nuevaSesion()
-                sesiones[cuenta.id] = id
-                hiloAbierto = id
-                // `approve` es lo que hace que el agente PIDA permiso; en `auto`
-                // aprueba las herramientas solo y nunca llega la petición.
-                if modos?.disponibles.contains(where: { $0.id == "approve" }) == true {
-                    modoDeSesion[id] = "auto"
-                }
-                hilosRemotos = try await cliente.sesiones()
+                _ = try await asegurarHilo(cuenta)
+                if let cliente = acp { hilosRemotos = try await cliente.sesiones() }
             } catch {
                 estadoHilos = .fallo(error.localizedDescription)
             }
@@ -214,9 +211,10 @@ final class LiveAgentStore: AgentStoring {
         do {
             infoDeLaCaja = try await c.conectar()
         } catch {
-            EasyBitsClient.diag("socket falló, despertando por HTTP: \(error)")
-            let http = EasyBitsClient(apiKey: cuenta.token)
-            for try await _ in http.message(agentID: cuenta.id, content: "ping") { break }
+            // ⚠️ Despertar con un turno HTTP de "ping" APENDABA al hilo por defecto
+            // del agente. `/revive` levanta la caja sin tocar la conversación.
+            EasyBitsClient.diag("socket falló, reviviendo la caja: \(error)")
+            try await EasyBitsClient(apiKey: cuenta.token).revive(agentID: cuenta.id)
             infoDeLaCaja = try await c.conectar()
         }
         acp = c
@@ -224,6 +222,29 @@ final class LiveAgentStore: AgentStoring {
             Task { @MainActor in self?.recibirPermiso(p) }
         }
         return c
+    }
+
+    /// Devuelve el hilo activo, creándolo si hace falta.
+    ///
+    /// ⚠️ Esto existe porque **al abrir la app no había ninguna sesión**, así que el
+    /// primer turno se iba por HTTP — y por HTTP EasyBits siempre habla con la única
+    /// sesión ACP del agente, o sea que caía en el hilo viejo. Sin sesión no se manda
+    /// nada por HTTP.
+    private func asegurarHilo(_ cuenta: AgentAccount) async throws -> String {
+        if let sid = sesiones[cuenta.id] { return sid }
+        if let enVuelo = creandoHilo { return try await enVuelo.value }
+
+        let tarea = Task<String, Error> {
+            let cliente = try await asegurarSocket(cuenta)
+            let (id, modos) = try await cliente.nuevaSesion()
+            sesiones[cuenta.id] = id
+            hiloAbierto = id
+            modoDeSesion[id] = modos?.actual ?? "auto"
+            return id
+        }
+        creandoHilo = tarea
+        defer { creandoHilo = nil }
+        return try await tarea.value
     }
 
     /// El agente pidió permiso. El turno está detenido hasta que se conteste.
@@ -293,29 +314,33 @@ final class LiveAgentStore: AgentStoring {
 
         turnoEnVuelo = Task { [weak self] in
             guard let self else { return }
-            // Se prefiere el WebSocket: es el único que respeta el hilo. El HTTP
-            // siempre habla con la única sesión ACP del agente, así que por ahí todo
-            // acaba en la misma conversación.
-            if let sid = self.sesiones[cuenta.id],
-               await self.intentarPorSocket(cuenta, sid: sid, texto: limpio, respuesta: idRespuesta) {
-                return
+            do {
+                // El turno va SIEMPRE por el socket: es el único que respeta el hilo.
+                // Por HTTP EasyBits habla con la única sesión ACP del agente, así que
+                // cualquier turno por ahí acaba en la conversación equivocada.
+                let sid = try await self.asegurarHilo(cuenta)
+                self.titulos.anotarSiFalta(sid, desde: limpio)
+                await self.porSocket(cuenta, sid: sid, texto: limpio, respuesta: idRespuesta)
+            } catch {
+                // Si el socket no se puede ni levantando la caja, se dice. Mandarlo
+                // por HTTP en silencio lo metería en otro hilo, que es peor que fallar.
+                self.pintarRespuesta(
+                    id: idRespuesta,
+                    texto: "⚠️ No pude abrir la conversación con la caja.\n\n\(error.localizedDescription)")
+                self.anotar(cuenta, chars: 0, como: .failed)
+                self.cerrarTurno(cuenta.id)
             }
-            await self.porHTTP(cuenta, texto: limpio, respuesta: idRespuesta)
         }
     }
 
-    /// Turno por WebSocket. Devuelve `false` si no se pudo ni empezar, para que el
-    /// HTTP tome el relevo.
-    private func intentarPorSocket(_ cuenta: AgentAccount, sid: String,
-                                   texto: String, respuesta: String) async -> Bool {
-        let cliente: ACPClient
-        do { cliente = try await asegurarSocket(cuenta) }
-        catch {
-            EasyBitsClient.diag("socket no disponible, va por HTTP: \(error)")
-            return false
+    /// El turno por WebSocket.
+    private func porSocket(_ cuenta: AgentAccount, sid: String,
+                           texto: String, respuesta: String) async {
+        guard let cliente = acp else {
+            pintarRespuesta(id: respuesta, texto: "⚠️ Se perdió la conexión con la caja.")
+            cerrarTurno(cuenta.id)
+            return
         }
-
-        porSocket = true
         var acumulado = ""
         var herramientas: [(id: String, titulo: String)] = []
 
@@ -344,7 +369,6 @@ final class LiveAgentStore: AgentStoring {
             anotar(cuenta, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
         }
         cerrarTurno(cuenta.id)
-        return true
     }
 
     /// Turno por HTTP. Es el que **despierta la caja**, así que sigue siendo el

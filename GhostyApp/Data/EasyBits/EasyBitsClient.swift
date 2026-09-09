@@ -128,6 +128,30 @@ struct EasyBitsClient: Sendable {
         return try JSONDecoder().decode(tipo, from: data)
     }
 
+    /// Despierta la caja **sin mandarle un mensaje**.
+    ///
+    /// ⚠️ Antes se despertaba con un turno HTTP de "ping", y ese ping **apendaba al
+    /// hilo por defecto del agente** — justo lo que se estaba tratando de evitar.
+    /// `/revive` no toca la conversación y devuelve el `wsUrl`. Funciona con el token
+    /// del agente (comprobado: 200).
+    @discardableResult
+    func revive(agentID: String) async throws -> String? {
+        struct R: Decodable { let status: String?; let wsUrl: String? }
+        guard let url = URL(string: baseURL.absoluteString + "/api/v2/agents/\(agentID)/revive") else {
+            return nil
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{}".utf8)
+        // Revivir una caja tarda decenas de segundos: boot más handshake.
+        req.timeoutInterval = 180
+        let (data, resp) = try await Self.sesion.data(for: req)
+        try Self.comprobar(resp, data)
+        return (try? JSONDecoder().decode(R.self, from: data))?.wsUrl
+    }
+
     // MARK: - Turno
 
     /// Abre el turno y va soltando eventos conforme llegan. El texto viene partido
