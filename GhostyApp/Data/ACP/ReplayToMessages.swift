@@ -14,13 +14,16 @@ enum ReplayToMessages {
         // El turno que se está armando
         var quien: Quien?
         var texto = ""
-        var herramientas: [String: (titulo: String, ok: Bool?)] = [:]
-        var ordenHerramientas: [String] = []
+        // ⚠️ Un array y no un diccionario: el ORDEN es parte del dato —lo que hizo
+        // primero— y con un diccionario había que llevar una lista paralela para
+        // recuperarlo. Además el `ok` que se guardaba ahí NUNCA se usaba al cerrar, así
+        // que un hilo recargado perdía qué había fallado.
+        var herramientas: [Herramienta] = []
 
         enum Quien { case usuario, agente }
 
         func cerrar() {
-            defer { texto = ""; herramientas = [:]; ordenHerramientas = [] }
+            defer { texto = ""; herramientas = [] }
             let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
 
             switch quien {
@@ -29,16 +32,7 @@ enum ReplayToMessages {
                 mensajes.append(Message(id: "u\(mensajes.count)", kind: .user(limpio)))
 
             case .agente:
-                let corridas = ordenHerramientas.compactMap { herramientas[$0] }
-                let tools: ToolRun? = corridas.isEmpty ? nil : ToolRun(
-                    count: corridas.count,
-                    // Los títulos vienen como "shell · cat /opt/goose/skills/…":
-                    // se queda la primera parte, que es la que se entiende de un vistazo.
-                    summary: corridas
-                        .map { $0.titulo.components(separatedBy: " · ").first ?? $0.titulo }
-                        .reduce(into: [String]()) { acc, t in if !acc.contains(t) { acc.append(t) } }
-                        .joined(separator: " · ")
-                )
+                let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)
                 guard !limpio.isEmpty || tools != nil else { return }
                 mensajes.append(Message(
                     id: "a\(mensajes.count)",
@@ -65,16 +59,17 @@ enum ReplayToMessages {
                 // y en la caja son párrafos enteros por turno.
                 break
 
-            case .toolCall(let id, let titulo):
+            case .tool(let h):
                 // Una herramienta pertenece al turno del agente aunque llegue antes
                 // de que él escriba una palabra.
                 if quien != .agente { cerrar(); quien = .agente }
-                if herramientas[id] == nil { ordenHerramientas.append(id) }
-                herramientas[id] = (titulo, nil)
-
-            case .toolDone(let id, let ok):
-                if let previa = herramientas[id] {
-                    herramientas[id] = (previa.titulo, ok)
+                if let k = herramientas.firstIndex(where: { $0.id == h.id }) {
+                    var v = h
+                    if v.titulo == "herramienta" { v.titulo = herramientas[k].titulo }
+                    if v.salida == nil { v.salida = herramientas[k].salida }
+                    herramientas[k] = v
+                } else {
+                    herramientas.append(h)
                 }
 
             case .usage:

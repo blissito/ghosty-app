@@ -550,7 +550,7 @@ final class LiveAgentStore: AgentStoring {
             return
         }
         var acumulado = ""
-        var herramientas: [(id: String, titulo: String)] = []
+        var herramientas: [Herramienta] = []
 
         do {
             for try await evento in cliente.prompt(sessionID: sid, texto: texto, adjuntos: adjuntos) {
@@ -558,12 +558,29 @@ final class LiveAgentStore: AgentStoring {
                 case .agent(let t):
                     acumulado += t
                     pintarRespuesta(id: respuesta, texto: acumulado, herramientas: herramientas)
-                case .toolCall(let id, let titulo):
-                    // "Corrió N herramientas" con datos de verdad, y EN VIVO.
-                    if !herramientas.contains(where: { $0.id == id }) {
-                        herramientas.append((id, titulo))
-                        pintarRespuesta(id: respuesta, texto: acumulado, herramientas: herramientas)
+                case .tool(let h):
+                    // ACP manda la MISMA herramienta varias veces conforme avanza: se
+                    // actualiza en su sitio en vez de duplicarla, y así el spinner se
+                    // convierte en palomita sin que la lista salte.
+                    //
+                    // ⚠️ Un update posterior puede venir sin título (sólo con el estado):
+                    // se conserva el que ya teníamos o quedaría "herramienta" a secas.
+                    if let i = herramientas.firstIndex(where: { $0.id == h.id }) {
+                        var v = h
+                        if v.titulo == "herramienta" { v.titulo = herramientas[i].titulo }
+                        if v.salida == nil { v.salida = herramientas[i].salida }
+                        if v.donde == nil { v.donde = herramientas[i].donde }
+                        herramientas[i] = v
+                    } else {
+                        herramientas.append(h)
                     }
+                    // Lo que está haciendo AHORA, donde el ojo ya está mirando.
+                    if let viva = herramientas.last(where: \.esperando) {
+                        currentTurn?.detail = viva.titulo
+                    }
+                    currentTurn?.step = herramientas.filter { !$0.esperando }.count
+                    currentTurn?.totalSteps = herramientas.count
+                    pintarRespuesta(id: respuesta, texto: acumulado, herramientas: herramientas)
                 case .usage(let entrada, let salida):
                     usoDelTurno = (entrada, salida)
                 case .entrega(let e):
@@ -582,7 +599,7 @@ final class LiveAgentStore: AgentStoring {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         messages.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
                     }
-                case .user, .thought, .toolDone:
+                case .user, .thought:
                     break
                 }
             }
@@ -695,14 +712,9 @@ final class LiveAgentStore: AgentStoring {
     // MARK: - Interno
 
     private func pintarRespuesta(id: String, texto: String,
-                                 herramientas: [(id: String, titulo: String)] = []) {
+                                 herramientas: [Herramienta] = []) {
         messages.removeAll { $0.kind == .typing }
-        let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(
-            count: herramientas.count,
-            summary: herramientas
-                .map { $0.titulo.components(separatedBy: " · ").first ?? $0.titulo }
-                .reduce(into: [String]()) { acc, t in if !acc.contains(t) { acc.append(t) } }
-                .joined(separator: " · "))
+        let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)
         let nuevo = Message(id: id, kind: .agent(text: texto, tools: tools, trailing: nil))
         if let i = messages.firstIndex(where: { $0.id == id }) { messages[i] = nuevo }
         else { messages.append(nuevo) }

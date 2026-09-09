@@ -50,8 +50,9 @@ actor ACPClient {
         case user(String)
         case agent(String)
         case thought(String)
-        case toolCall(id: String, title: String)
-        case toolDone(id: String, ok: Bool)
+        /// Una herramienta que empieza o que cambia. Llega varias veces por la misma:
+        /// ACP manda `tool_call` al crearla y `tool_call_update` cada vez que avanza.
+        case tool(Herramienta)
         /// El agente entregó algo: un archivo suyo o un artefacto que escribió.
         case entrega(Entrega)
         /// Lo que costó el turno. Llega UNA vez, al cerrar.
@@ -300,6 +301,48 @@ actor ACPClient {
         try await t.send(.string(String(decoding: d, as: UTF8.self)))
     }
 
+    /// Traduce un `tool_call` / `tool_call_update` a una herramienta.
+    ///
+    /// ⚠️ `content` de una herramienta es un **ARRAY**, no un objeto. Ahí estaba el fallo:
+    /// el resto del cliente lo lee como `content.text` —que es la forma de los chunks de
+    /// mensaje— y por eso el resultado no aparecía nunca. No es que no llegara: es que se
+    /// leía mal.
+    nonisolated static func herramienta(_ u: [String: Any], id: String) -> Herramienta {
+        let estado: Herramienta.Estado
+        switch u["status"] as? String {
+        case "completed": estado = .hecha
+        case "failed":    estado = .fallida
+        default:          estado = .corriendo   // `pending` e `in_progress`
+        }
+
+        // El primer archivo que toca, para poder decir SOBRE QUÉ trabaja.
+        let donde = (u["locations"] as? [[String: Any]])?
+            .compactMap { $0["path"] as? String }.first
+            .map { ($0 as NSString).lastPathComponent }
+
+        return Herramienta(
+            id: id,
+            titulo: (u["title"] as? String) ?? "herramienta",
+            clase: .init(u["kind"] as? String),
+            estado: estado,
+            salida: Self.salidaDe(u["content"]),
+            donde: donde)
+    }
+
+    /// El texto legible de lo que devolvió una herramienta, si lo hay.
+    private nonisolated static func salidaDe(_ crudo: Any?) -> String? {
+        guard let partes = crudo as? [[String: Any]] else { return nil }
+        var trozos: [String] = []
+        for p in partes {
+            // `content` envuelve un bloque; `diff` y `terminal` traen lo suyo.
+            if let c = p["content"] as? [String: Any], let t = c["text"] as? String { trozos.append(t) }
+            else if let t = p["text"] as? String { trozos.append(t) }
+            else if let d = p["newText"] as? String { trozos.append(d) }
+        }
+        let junto = trozos.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return junto.isEmpty ? nil : junto
+    }
+
     /// Traduce el payload de `ghosty/artifact` a una entrega.
     ///
     /// El relé manda dos formas (ver `mcp.ts` de la plantilla):
@@ -457,14 +500,8 @@ actor ACPClient {
         case "user_message_chunk":    evento = .user(texto)
         case "agent_message_chunk":   evento = .agent(texto)
         case "agent_thought_chunk":   evento = .thought(texto)
-        case "tool_call":
-            evento = (u["toolCallId"] as? String).map {
-                .toolCall(id: $0, title: u["title"] as? String ?? "herramienta")
-            }
-        case "tool_call_update":
-            evento = (u["toolCallId"] as? String).map {
-                .toolDone(id: $0, ok: (u["status"] as? String) == "completed")
-            }
+        case "tool_call", "tool_call_update":
+            evento = (u["toolCallId"] as? String).map { .tool(Self.herramienta(u, id: $0)) }
         default: evento = nil
         }
         guard let evento else { return }

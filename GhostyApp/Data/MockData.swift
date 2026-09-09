@@ -17,7 +17,16 @@ enum MockData {
         Message(id: "m1", kind: .user("Revisa el PR 204 y dime si lo mergeo")),
         Message(id: "m2", kind: .agent(
             text: "Lo revisé. Toca tres archivos y la CI está verde, pero hay un detalle que sí frena el merge.",
-            tools: ToolRun(count: 4, summary: "GitHub: leer PR · leer diff · log del job · buscar en el repo"),
+            tools: ToolRun(herramientas: [
+                .init(id: "1", titulo: "GitHub: leer PR", clase: .fetch, estado: .hecha,
+                      salida: nil, donde: nil),
+                .init(id: "2", titulo: "leer diff", clase: .read, estado: .hecha,
+                      salida: "+42 −7 en 3 archivos", donde: "auth.ts"),
+                .init(id: "3", titulo: "log del job", clase: .execute, estado: .hecha,
+                      salida: "✓ 128 tests, 0 fallos", donde: nil),
+                .init(id: "4", titulo: "buscar en el repo", clase: .search, estado: .hecha,
+                      salida: nil, donde: nil),
+            ]),
             trailing: "El bloqueante: `resolveTicket` ya no valida el workspace. Un ticket firmado para un tenant abre la sesión de otro."
         )),
         Message(id: "m3", kind: .prCard(PullRequestCard(

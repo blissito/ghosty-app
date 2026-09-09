@@ -2,9 +2,17 @@ import Foundation
 
 /// Una llamada a herramienta que el agente hizo dentro de un turno. En el chat se
 /// colapsa a una línea: lo que importa es que se vea que trabajó, no el detalle.
+/// Lo que el agente CORRIÓ en un turno.
+///
+/// ⚠️ Antes era `(count, summary)`: un contador y un texto que **no se pintaba en ningún
+/// sitio**. La burbuja decía "Corrió 4 herramientas" con un chevron decorativo que no
+/// desplegaba nada — prometía detalle y no lo daba.
 struct ToolRun: Equatable, Sendable {
-    var count: Int
-    var summary: String
+    var herramientas: [Herramienta]
+
+    var count: Int { herramientas.count }
+    var corriendo: Herramienta? { herramientas.last(where: \.esperando) }
+    var fallidas: Int { herramientas.filter { $0.estado == .fallida }.count }
 }
 
 /// Lo que la plataforma pinta cuando el agente cierra una revisión de PR. El modelo

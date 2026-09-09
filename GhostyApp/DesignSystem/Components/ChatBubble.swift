@@ -106,24 +106,12 @@ struct AgentBubble: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            GhostyMarkdown(markdown: text)
+            // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
+            // trabaja, después contesta. Debajo se leían como una nota al pie de algo que
+            // ya habías terminado de leer.
+            if let tools { PasosDelAgente(run: tools, abierto: tools.corriendo != nil) }
 
-            if let tools {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.gGreen)
-                        .frame(width: 18, height: 18)
-                        .overlay {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .heavy))
-                                .foregroundStyle(.white)
-                        }
-                    Text("Corrió \(tools.count) herramientas").gMeta()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.gInk4)
-                }
-            }
+            if !text.isEmpty { GhostyMarkdown(markdown: text) }
 
             if let trailing {
                 GhostyMarkdown(markdown: trailing)
