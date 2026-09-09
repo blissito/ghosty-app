@@ -29,6 +29,7 @@ struct Conector: Identifiable, Equatable, Sendable {
         case "odoo", "kommo":             return "building.2.fill"
         case "calendly":                  return "clock.fill"
         case "drive", "google-drive":     return "folder.fill"
+        case "easybits":                  return "square.stack.3d.up.fill"
         default:                          return "puzzlepiece.extension.fill"
         }
     }
