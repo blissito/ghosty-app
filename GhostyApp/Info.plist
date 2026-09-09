@@ -24,6 +24,8 @@
 	<string>$(EASYBITS_TOKEN)</string>
 	<key>GhostyAgentId</key>
 	<string>$(GHOSTY_AGENT_ID)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

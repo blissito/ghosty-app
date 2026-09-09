@@ -40,6 +40,10 @@ targets:
         CFBundleDisplayName: Ghosty
         EasyBitsAPIKey: $(EASYBITS_TOKEN)
         GhostyAgentId: $(GHOSTY_AGENT_ID)
+        # Sin esta clave, App Store Connect pregunta por cumplimiento de
+        # exportación en CADA subida y bloquea el build hasta contestarla.
+        # false = sólo se usa el HTTPS del sistema, que está exento.
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: bg
         UISupportedInterfaceOrientations:

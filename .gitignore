@@ -14,3 +14,6 @@ xcuserdata/
 
 # Credencial del demo: fuera del repo
 Local.xcconfig
+
+# El .ipa y el archive son artefactos de build
+build/
