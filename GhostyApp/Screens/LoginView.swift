@@ -33,6 +33,11 @@ struct LoginView: View {
         static let respaldo: [Proveedor] = [.init(id: "google", etiqueta: "Google")]
     }
 
+    /// Apple arriba; el resto en el orden que mandó el servidor.
+    private var ordenados: [Proveedor] {
+        proveedores.filter { $0.id == "apple" } + proveedores.filter { $0.id != "apple" }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
@@ -52,7 +57,11 @@ struct LoginView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                ForEach(proveedores) { p in
+                // ⚠️ Apple va PRIMERO, pase lo que pase con el orden del servidor.
+                // "Colocado debajo de los botones sociales" es una de las causas de
+                // rechazo citadas explícitamente: la HIG pide que Sign in with Apple no
+                // quede menos prominente que los demás proveedores.
+                ForEach(ordenados) { p in
                     boton(p)
                 }
 
