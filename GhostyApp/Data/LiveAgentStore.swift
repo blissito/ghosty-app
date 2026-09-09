@@ -284,6 +284,13 @@ final class LiveAgentStore: AgentStoring {
             let cliente = try await asegurarSocket(cuenta)
             let replay = try await cliente.cargar(hilo.id, cwd: hilo.cwd)
             messages = ReplayToMessages.convertir(replay)
+            // El título sale del primer mensaje del hilo, que es lo que hacen
+            // ChatGPT, Claude y la propia interfaz de goose. Sale gratis: el replay
+            // ya está aquí.
+            if let primero = messages.first(where: { if case .user = $0.kind { return true } else { return false } }),
+               case .user(let t) = primero.kind {
+                titulos.anotarSiFalta(hilo.id, desde: t)
+            }
             hilos[selectedAgentID] = messages
             // El turno siguiente continúa ESE hilo, no uno nuevo.
             sesiones[selectedAgentID] = hilo.id
@@ -490,8 +497,16 @@ final class LiveAgentStore: AgentStoring {
     private func cerrarTurno(_ id: String) {
         cronometro?.cancel(); cronometro = nil
         currentTurn = nil; inicioDelTurno = nil
-        guard let i = agents.firstIndex(where: { $0.id == id }) else { return }
-        agents[i].status = .idle(since: "ahora")
+        if let i = agents.firstIndex(where: { $0.id == id }) {
+            agents[i].status = .idle(since: "ahora")
+        }
+        // ⚠️ La caja NO guarda un hilo hasta que tiene mensajes: `session/new` no
+        // aparece en `session/list` hasta el primer turno. Por eso la lista se
+        // refresca al cerrar, o un hilo recién creado no se vería nunca.
+        Task { [weak self] in
+            guard let self, let cliente = self.acp else { return }
+            if let frescos = try? await cliente.sesiones() { self.hilosRemotos = frescos }
+        }
     }
 
     /// El cronómetro corre en el cliente porque la caja no manda progreso por paso:

@@ -59,6 +59,24 @@ struct HistoryPane: View {
             .padding(.bottom, 12)
 
             VStack(spacing: 0) {
+                // El hilo recién creado no está en `session/list` —la caja no lo
+                // guarda hasta que tiene mensajes— pero existe. Si no se enseña,
+                // tocar "Nueva conversación" parece no hacer nada.
+                if let actual = store.hiloAbierto,
+                   !store.hilosRemotos.contains(where: { $0.id == actual }) {
+                    HStack(alignment: .top, spacing: 12) {
+                        TintedIcon(systemName: "checkmark", tint: .gPrimary, background: .gPrimaryTint)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Conversación nueva").font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color.gInk)
+                            Text("Sin mensajes todavía").gMeta()
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.vertical, Theme.Space.row)
+                    .ghostySeparator(inset: store.hilosRemotos.isEmpty ? .infinity : 44)
+                }
+
                 ForEach(Array(store.hilosRemotos.enumerated()), id: \.element.id) { i, h in
                     Button {
                         abriendo = h.id
@@ -116,8 +134,10 @@ struct HistoryPane: View {
     private func nombre(_ h: ACPClient.Session) -> String {
         if let t = store.titulos.titulo(h.id) { return t }
         if h.title != "New Chat", !h.title.isEmpty, h.title != "Sin título" { return h.title }
-        if let f = h.updatedAt {
-            return "Conversación del " + f.formatted(.dateTime.day().month(.abbreviated).hour().minute())
+        // Último recurso: un hilo que nació en otro cliente y que nunca se ha
+        // abierto aquí. En cuanto se abra, su primer mensaje se vuelve el título.
+        if let n = h.messageCount, n > 0 {
+            return "Conversación sin abrir"
         }
         return "Conversación \(h.id)"
     }
