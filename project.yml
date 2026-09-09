@@ -16,6 +16,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: E77EZQG9YS
+    GHOSTY_COMMIT: ""
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "0.1"
     CURRENT_PROJECT_VERSION: "1"
@@ -45,6 +46,7 @@ targets:
         # exportación en CADA subida y bloquea el build hasta contestarla.
         # false = sólo se usa el HTTPS del sistema, que está exento.
         ITSAppUsesNonExemptEncryption: false
+        GhostyCommit: $(GHOSTY_COMMIT)
         UILaunchScreen:
           UIColorName: bg
         UISupportedInterfaceOrientations:

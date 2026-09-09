@@ -21,6 +21,29 @@ actor ACPClient {
         var messageCount: Int?
     }
 
+    /// Modo de la sesión. `session/new` los devuelve: `auto` aprueba las herramientas
+    /// solo; `approve` hace que el agente PIDA permiso, que es lo que enciende la
+    /// tarjeta de permisos.
+    struct Modos: Sendable, Equatable {
+        var actual: String
+        var disponibles: [(id: String, nombre: String, descripcion: String)]
+
+        static func == (a: Modos, b: Modos) -> Bool {
+            a.actual == b.actual && a.disponibles.map(\.id) == b.disponibles.map(\.id)
+        }
+    }
+
+    /// Una petición de permiso del agente AL cliente. Hay que contestarla o el turno
+    /// se queda esperando.
+    struct Permiso: Sendable, Identifiable {
+        let id: Int              // el id JSON-RPC con el que hay que responder
+        let sessionID: String
+        let titulo: String
+        let herramienta: String
+        /// Las opciones que ofrece el agente, con su `optionId` real.
+        var opciones: [(id: String, nombre: String, tipo: String)]
+    }
+
     /// Lo que trae el replay de `session/load`. Los `*_chunk` llegan **partidos**, así
     /// que hay que pegarlos por turno antes de mostrarlos.
     enum Replay: Sendable {
@@ -56,6 +79,10 @@ actor ACPClient {
     /// Las notificaciones del replay se acumulan aquí mientras `session/load` corre.
     private var replayEnCurso: [Replay] = []
     private var capturandoReplay = false
+    /// Por dónde salen los eventos del turno en vuelo.
+    private var enVivo: AsyncStream<Replay>.Continuation?
+    /// Los permisos que el agente pidió y nadie ha contestado.
+    private var permisoPendiente: ((Permiso) -> Void)?
 
     private let sesion: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
@@ -147,6 +174,74 @@ actor ACPClient {
         return replayEnCurso
     }
 
+    // MARK: - Turno
+
+    /// Crea un hilo nuevo. **Por HTTP esto no se puede**: EasyBits siempre usa la
+    /// única sesión ACP del agente, así que "nueva conversación" apendaba a la misma.
+    func nuevaSesion(cwd: String = "/data/work") async throws -> (id: String, modos: Modos?) {
+        let r = try await pedir("session/new", ["cwd": cwd, "mcpServers": []], timeout: 60)
+        guard let id = r["sessionId"] as? String else { throw Fallo.handshake("sin sessionId") }
+        return (id, leerModos(r["modes"]))
+    }
+
+    /// Pide al agente que PIDA permiso antes de usar herramientas. Sin esto el modo
+    /// es `auto` y nunca llega un `session/request_permission`.
+    func fijarModo(_ modo: String, sessionID: String) async throws {
+        _ = try await pedir("session/set_mode", ["sessionId": sessionID, "modeId": modo])
+    }
+
+    /// Manda un turno y va soltando lo que llega. El `stopReason` cierra el flujo.
+    nonisolated func prompt(sessionID: String, texto: String) -> AsyncThrowingStream<Replay, Error> {
+        AsyncThrowingStream { cont in
+            let tarea = Task {
+                let (flujo, sink) = AsyncStream<Replay>.makeStream()
+                await self.abrirEnVivo(sink)
+                let bombeo = Task { for await e in flujo { cont.yield(e) } }
+                do {
+                    _ = try await self.pedir("session/prompt", [
+                        "sessionId": sessionID,
+                        "prompt": [["type": "text", "text": texto]],
+                    ], timeout: 900)
+                    await self.cerrarEnVivo()
+                    bombeo.cancel()
+                    cont.finish()
+                } catch {
+                    await self.cerrarEnVivo()
+                    bombeo.cancel()
+                    cont.finish(throwing: error)
+                }
+            }
+            cont.onTermination = { _ in tarea.cancel() }
+        }
+    }
+
+    /// Se avisa por aquí cuando el agente pide permiso.
+    func alPedirPermiso(_ handler: @escaping (Permiso) -> Void) {
+        permisoPendiente = handler
+    }
+
+    /// Contesta una petición de permiso. El turno está detenido hasta esto.
+    func responderPermiso(_ id: Int, opcion: String) async throws {
+        guard let t = tarea else { throw Fallo.noConectado }
+        let sobre: [String: Any] = ["jsonrpc": "2.0", "id": id,
+                                    "result": ["outcome": ["outcome": "selected", "optionId": opcion]]]
+        let d = try JSONSerialization.data(withJSONObject: sobre)
+        try await t.send(.string(String(decoding: d, as: UTF8.self)))
+    }
+
+    private func abrirEnVivo(_ sink: AsyncStream<Replay>.Continuation) { enVivo = sink }
+    private func cerrarEnVivo() { enVivo?.finish(); enVivo = nil }
+
+    private func leerModos(_ crudo: Any?) -> Modos? {
+        guard let m = crudo as? [String: Any],
+              let actual = m["currentModeId"] as? String else { return nil }
+        let lista = (m["availableModes"] as? [[String: Any]] ?? []).compactMap { d -> (String, String, String)? in
+            guard let id = d["id"] as? String else { return nil }
+            return (id, d["name"] as? String ?? id, d["description"] as? String ?? "")
+        }
+        return Modos(actual: actual, disponibles: lista)
+    }
+
     // MARK: - JSON-RPC
 
     private func pedir(_ metodo: String,
@@ -217,6 +312,25 @@ actor ACPClient {
             return
         }
 
+        // Petición del AGENTE al cliente: hay que contestar o el turno se cuelga.
+        if let metodo = m["method"] as? String, let id = m["id"] as? Int {
+            if metodo == "session/request_permission",
+               let p = m["params"] as? [String: Any] {
+                let tc = p["toolCall"] as? [String: Any]
+                let opciones = (p["options"] as? [[String: Any]] ?? []).compactMap { o -> (String, String, String)? in
+                    guard let oid = o["optionId"] as? String else { return nil }
+                    return (oid, o["name"] as? String ?? oid, o["kind"] as? String ?? "")
+                }
+                permisoPendiente?(Permiso(
+                    id: id,
+                    sessionID: p["sessionId"] as? String ?? "",
+                    titulo: tc?["title"] as? String ?? "una herramienta",
+                    herramienta: tc?["kind"] as? String ?? "",
+                    opciones: opciones))
+            }
+            return
+        }
+
         // Notificación del agente
         guard m["method"] as? String == "session/update",
               let params = m["params"] as? [String: Any],
@@ -224,22 +338,27 @@ actor ACPClient {
               let tipo = u["sessionUpdate"] as? String
         else { return }
 
-        guard capturandoReplay else { return }
         let texto = (u["content"] as? [String: Any])?["text"] as? String ?? ""
-
+        let evento: Replay?
         switch tipo {
-        case "user_message_chunk":    replayEnCurso.append(.user(texto))
-        case "agent_message_chunk":   replayEnCurso.append(.agent(texto))
-        case "agent_thought_chunk":   replayEnCurso.append(.thought(texto))
+        case "user_message_chunk":    evento = .user(texto)
+        case "agent_message_chunk":   evento = .agent(texto)
+        case "agent_thought_chunk":   evento = .thought(texto)
         case "tool_call":
-            if let id = u["toolCallId"] as? String {
-                replayEnCurso.append(.toolCall(id: id, title: u["title"] as? String ?? "herramienta"))
+            evento = (u["toolCallId"] as? String).map {
+                .toolCall(id: $0, title: u["title"] as? String ?? "herramienta")
             }
         case "tool_call_update":
-            if let id = u["toolCallId"] as? String {
-                replayEnCurso.append(.toolDone(id: id, ok: (u["status"] as? String) == "completed"))
+            evento = (u["toolCallId"] as? String).map {
+                .toolDone(id: $0, ok: (u["status"] as? String) == "completed")
             }
-        default: break
+        default: evento = nil
         }
+        guard let evento else { return }
+
+        // El mismo evento sirve para el replay de `session/load` y para el turno en
+        // vivo: la caja usa `session/update` para los dos.
+        if capturandoReplay { replayEnCurso.append(evento) }
+        enVivo?.yield(evento)
     }
 }

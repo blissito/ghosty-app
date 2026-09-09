@@ -45,9 +45,14 @@ final class LiveAgentStore: AgentStoring {
     enum EstadoHilos: Equatable { case sinPedir, cargando, listo, fallo(String) }
     var estadoHilos: EstadoHilos = .sinPedir
     var infoDeLaCaja: String?
+    /// El permiso que el agente está esperando, con el id JSON-RPC para contestarlo.
+    var permisoACP: ACPClient.Permiso?
     /// Qué hilo remoto se está mirando, para marcarlo en la lista.
     var hiloAbierto: String?
+    /// Qué transporte llevó el último turno, para poder decirlo en pantalla.
+    var porSocket = false
     private var acp: ACPClient?
+    private var modoDeSesion: [String: String] = [:]
     private var turnoEnVuelo: Task<Void, Never>?
     private var promptDelTurno = ""
     private var usoDelTurno = (entrada: 0, salida: 0)
@@ -138,14 +143,54 @@ final class LiveAgentStore: AgentStoring {
 
     /// Empieza de cero con este agente. Suelta el `sessionId`, así que la caja abre
     /// un hilo nuevo y no arrastra el contexto anterior.
+    /// Empieza un hilo NUEVO en la caja.
+    ///
+    /// ⚠️ Por HTTP esto era imposible y por eso apendaba: EasyBits siempre usa la
+    /// única sesión ACP del agente. Sólo `session/new` por WebSocket crea un hilo.
     func nuevaConversacion() {
         turnoEnVuelo?.cancel()
-        sesiones[selectedAgentID] = nil
-        hilos[selectedAgentID] = []
-        messages = []
-        currentTurn = nil
-        hiloAbierto = nil
         cronometro?.cancel()
+        currentTurn = nil
+        messages = []
+        hilos[selectedAgentID] = []
+        hiloAbierto = nil
+        sesiones[selectedAgentID] = nil
+
+        guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
+        Task {
+            do {
+                let cliente = try await asegurarSocket(cuenta)
+                let (id, modos) = try await cliente.nuevaSesion()
+                sesiones[cuenta.id] = id
+                hiloAbierto = id
+                // `approve` es lo que hace que el agente PIDA permiso; en `auto`
+                // aprueba las herramientas solo y nunca llega la petición.
+                if modos?.disponibles.contains(where: { $0.id == "approve" }) == true {
+                    modoDeSesion[id] = "auto"
+                }
+                hilosRemotos = try await cliente.sesiones()
+            } catch {
+                estadoHilos = .fallo(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Cambia entre aprobar solo y pedir permiso.
+    func fijarModo(_ modo: String) async {
+        guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }),
+              let sid = sesiones[cuenta.id] else { return }
+        do {
+            let cliente = try await asegurarSocket(cuenta)
+            try await cliente.fijarModo(modo, sessionID: sid)
+            modoDeSesion[sid] = modo
+        } catch {
+            EasyBitsClient.diag("no pude fijar el modo: \(error)")
+        }
+    }
+
+    var modoActual: String {
+        guard let sid = sesiones[selectedAgentID] else { return "auto" }
+        return modoDeSesion[sid] ?? "auto"
     }
 
     func quitarAgente(_ id: String) {
@@ -160,20 +205,53 @@ final class LiveAgentStore: AgentStoring {
     /// El WebSocket convive con el HTTP en vez de reemplazarlo: el turno sigue yendo
     /// por HTTP porque ése **despierta la caja**, y esto sirve para lo que HTTP no
     /// puede — listar y cargar hilos.
+    /// Asegura socket abierto. Si la caja está dormida el WebSocket falla, así que se
+    /// la despierta con un turno HTTP mínimo —lo único que sabe despertarla— y se
+    /// reintenta.
+    private func asegurarSocket(_ cuenta: AgentAccount) async throws -> ACPClient {
+        if let c = acp, infoDeLaCaja != nil { return c }
+        let c = ACPClient(agentID: cuenta.id, token: cuenta.token)
+        do {
+            infoDeLaCaja = try await c.conectar()
+        } catch {
+            EasyBitsClient.diag("socket falló, despertando por HTTP: \(error)")
+            let http = EasyBitsClient(apiKey: cuenta.token)
+            for try await _ in http.message(agentID: cuenta.id, content: "ping") { break }
+            infoDeLaCaja = try await c.conectar()
+        }
+        acp = c
+        await c.alPedirPermiso { [weak self] p in
+            Task { @MainActor in self?.recibirPermiso(p) }
+        }
+        return c
+    }
+
+    /// El agente pidió permiso. El turno está detenido hasta que se conteste.
+    private func recibirPermiso(_ p: ACPClient.Permiso) {
+        permisoACP = p
+        pendingPermission = PermissionRequest(
+            id: "\(p.id)",
+            kind: .publish,
+            agentName: selectedAgent?.name ?? "El agente",
+            question: "¿Dejas que use \(p.titulo)?",
+            detail: p.opciones.isEmpty
+                ? "El agente espera tu respuesta para seguir."
+                : "El turno está detenido hasta que contestes.",
+            attachment: nil)
+    }
+
     func cargarHilos() async {
         guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
         guard estadoHilos != .cargando else { return }
         estadoHilos = .cargando
 
-        let cliente = acp ?? ACPClient(agentID: cuenta.id, token: cuenta.token)
-        acp = cliente
         do {
-            infoDeLaCaja = try await cliente.conectar()
+            let cliente = try await asegurarSocket(cuenta)
             hilosRemotos = try await cliente.sesiones()
             estadoHilos = .listo
         } catch {
             estadoHilos = .fallo(error.localizedDescription)
-            acp = nil
+            acp = nil; infoDeLaCaja = nil
         }
     }
 
@@ -181,10 +259,8 @@ final class LiveAgentStore: AgentStoring {
     /// manda `session/load`, no algo guardado aquí.
     func abrirHilo(_ hilo: ACPClient.Session) async {
         guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
-        let cliente = acp ?? ACPClient(agentID: cuenta.id, token: cuenta.token)
-        acp = cliente
         do {
-            if infoDeLaCaja == nil { infoDeLaCaja = try await cliente.conectar() }
+            let cliente = try await asegurarSocket(cuenta)
             let replay = try await cliente.cargar(hilo.id, cwd: hilo.cwd)
             messages = ReplayToMessages.convertir(replay)
             hilos[selectedAgentID] = messages
@@ -215,57 +291,107 @@ final class LiveAgentStore: AgentStoring {
         promptDelTurno = limpio
         usoDelTurno = (0, 0)
 
-        let cliente = EasyBitsClient(apiKey: cuenta.token)
         turnoEnVuelo = Task { [weak self] in
             guard let self else { return }
-            var acumulado = ""
-            var intentos = 0
-            let maxIntentos = 2
+            // Se prefiere el WebSocket: es el único que respeta el hilo. El HTTP
+            // siempre habla con la única sesión ACP del agente, así que por ahí todo
+            // acaba en la misma conversación.
+            if let sid = self.sesiones[cuenta.id],
+               await self.intentarPorSocket(cuenta, sid: sid, texto: limpio, respuesta: idRespuesta) {
+                return
+            }
+            await self.porHTTP(cuenta, texto: limpio, respuesta: idRespuesta)
+        }
+    }
 
-            while intentos < maxIntentos {
-                intentos += 1
-                do {
-                    let flujo = cliente.message(agentID: cuenta.id, content: limpio,
-                                                sessionID: self.sesiones[cuenta.id])
-                    for try await evento in flujo {
-                        switch evento {
-                        case .chunk(let trozo):
-                            acumulado += trozo
-                            self.pintarRespuesta(id: idRespuesta, texto: acumulado)
-                        case .usage(let e, let s, _):
-                            self.ultimoUso = (e, s)
-                            self.usoDelTurno = (e, s)
-                        case .newSession(let s):
-                            self.sesiones[cuenta.id] = s
-                        case .error(let d):
-                            self.pintarRespuesta(id: idRespuesta,
-                                texto: acumulado.isEmpty ? "⚠️ \(d)" : acumulado + "\n\n⚠️ \(d)")
-                        case .done, .unknown:
-                            break
-                        }
+    /// Turno por WebSocket. Devuelve `false` si no se pudo ni empezar, para que el
+    /// HTTP tome el relevo.
+    private func intentarPorSocket(_ cuenta: AgentAccount, sid: String,
+                                   texto: String, respuesta: String) async -> Bool {
+        let cliente: ACPClient
+        do { cliente = try await asegurarSocket(cuenta) }
+        catch {
+            EasyBitsClient.diag("socket no disponible, va por HTTP: \(error)")
+            return false
+        }
+
+        porSocket = true
+        var acumulado = ""
+        var herramientas: [(id: String, titulo: String)] = []
+
+        do {
+            for try await evento in cliente.prompt(sessionID: sid, texto: texto) {
+                switch evento {
+                case .agent(let t):
+                    acumulado += t
+                    pintarRespuesta(id: respuesta, texto: acumulado, herramientas: herramientas)
+                case .toolCall(let id, let titulo):
+                    // "Corrió N herramientas" con datos de verdad, y EN VIVO.
+                    if !herramientas.contains(where: { $0.id == id }) {
+                        herramientas.append((id, titulo))
+                        pintarRespuesta(id: respuesta, texto: acumulado, herramientas: herramientas)
                     }
-                    if acumulado.isEmpty {
-                        self.pintarRespuesta(id: idRespuesta, texto: "_El turno cerró sin texto._")
-                    }
-                    self.anotar(cuenta, chars: acumulado.count, como: .done)
-                    break
-                } catch {
-                    // Se reintenta sólo si no llegó NADA: con texto en pantalla, otro
-                    // intento duplicaría el turno del lado del agente y lo cobraría dos veces.
-                    if Self.esCorteDeTransporte(error), acumulado.isEmpty, intentos < maxIntentos {
-                        self.pintarRespuesta(id: idRespuesta, texto: "_Se cortó la conexión. Reintentando…_")
-                        try? await Task.sleep(for: .seconds(1))
-                        continue
-                    }
-                    self.pintarRespuesta(id: idRespuesta,
-                                         texto: Self.mensajeDeFallo(error, parcial: acumulado))
-                    self.anotar(cuenta, chars: acumulado.count,
-                                como: Task.isCancelled ? .stopped : .failed)
+                case .user, .thought, .toolDone:
                     break
                 }
             }
-            self.cerrarTurno(cuenta.id)
+            if acumulado.isEmpty && herramientas.isEmpty {
+                pintarRespuesta(id: respuesta, texto: "_El turno cerró sin texto._")
+            }
+            anotar(cuenta, chars: acumulado.count, como: .done)
+        } catch {
+            pintarRespuesta(id: respuesta, texto: Self.mensajeDeFallo(error, parcial: acumulado))
+            anotar(cuenta, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
         }
+        cerrarTurno(cuenta.id)
+        return true
+    }
+
+    /// Turno por HTTP. Es el que **despierta la caja**, así que sigue siendo el
+    /// respaldo y el primer turno de una app recién abierta.
+    private func porHTTP(_ cuenta: AgentAccount, texto: String, respuesta: String) async {
+        porSocket = false
+        let cliente = EasyBitsClient(apiKey: cuenta.token)
+        var acumulado = ""
+        var intentos = 0
+
+        while intentos < 2 {
+            intentos += 1
+            do {
+                for try await evento in cliente.message(agentID: cuenta.id, content: texto,
+                                                        sessionID: sesiones[cuenta.id]) {
+                    switch evento {
+                    case .chunk(let t):
+                        acumulado += t
+                        pintarRespuesta(id: respuesta, texto: acumulado)
+                    case .usage(let e, let s, _):
+                        ultimoUso = (e, s); usoDelTurno = (e, s)
+                    case .newSession(let s):
+                        sesiones[cuenta.id] = s
+                    case .error(let d):
+                        pintarRespuesta(id: respuesta,
+                            texto: acumulado.isEmpty ? "⚠️ \(d)" : acumulado + "\n\n⚠️ \(d)")
+                    case .done, .unknown:
+                        break
+                    }
+                }
+                if acumulado.isEmpty {
+                    pintarRespuesta(id: respuesta, texto: "_El turno cerró sin texto._")
+                }
+                anotar(cuenta, chars: acumulado.count, como: .done)
+                break
+            } catch {
+                if Self.esCorteDeTransporte(error), acumulado.isEmpty, intentos < 2 {
+                    pintarRespuesta(id: respuesta, texto: "_Se cortó la conexión. Reintentando…_")
+                    try? await Task.sleep(for: .seconds(1))
+                    continue
+                }
+                pintarRespuesta(id: respuesta, texto: Self.mensajeDeFallo(error, parcial: acumulado))
+                anotar(cuenta, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
+                break
+            }
+        }
+        cerrarTurno(cuenta.id)
     }
 
     func stopTurn() async {
@@ -276,6 +402,13 @@ final class LiveAgentStore: AgentStoring {
 
     func decide(_ request: PermissionRequest, _ decision: PermissionDecision) async {
         guard pendingPermission?.id == request.id else { return }
+
+        // Si viene de la caja, hay que contestarle: el turno está detenido esperando.
+        if let p = permisoACP, "\(p.id)" == request.id, let cliente = acp {
+            let opcion = Self.elegirOpcion(decision, entre: p.opciones)
+            try? await cliente.responderPermiso(p.id, opcion: opcion)
+            permisoACP = nil
+        }
         pendingPermission = nil
         permissionHistory.insert(
             PermissionRecord(id: request.id,
@@ -304,6 +437,25 @@ final class LiveAgentStore: AgentStoring {
             outputTokens: usoDelTurno.salida,
             outcome: como,
             replyChars: chars))
+    }
+
+    /// Traduce nuestra decisión al `optionId` que ofreció el agente. Los nombres
+    /// los pone él, así que se buscan por forma en vez de asumir un catálogo fijo.
+    private static func elegirOpcion(_ d: PermissionDecision,
+                                     entre opciones: [(id: String, nombre: String, tipo: String)]) -> String {
+        func buscar(_ agujas: [String]) -> String? {
+            for a in agujas {
+                if let o = opciones.first(where: { $0.tipo.lowercased().contains(a) || $0.id.lowercased().contains(a) }) {
+                    return o.id
+                }
+            }
+            return nil
+        }
+        switch d {
+        case .allowOnce:    return buscar(["allow_once", "once", "allow"]) ?? opciones.first?.id ?? "allow"
+        case .allowForTask: return buscar(["allow_always", "always", "session", "allow"]) ?? opciones.first?.id ?? "allow"
+        case .deny:         return buscar(["reject", "deny", "cancel"]) ?? opciones.last?.id ?? "reject"
+        }
     }
 
     // MARK: - Fallos de red
@@ -339,9 +491,16 @@ final class LiveAgentStore: AgentStoring {
 
     // MARK: - Interno
 
-    private func pintarRespuesta(id: String, texto: String) {
+    private func pintarRespuesta(id: String, texto: String,
+                                 herramientas: [(id: String, titulo: String)] = []) {
         messages.removeAll { $0.kind == .typing }
-        let nuevo = Message(id: id, kind: .agent(text: texto, tools: nil, trailing: nil))
+        let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(
+            count: herramientas.count,
+            summary: herramientas
+                .map { $0.titulo.components(separatedBy: " · ").first ?? $0.titulo }
+                .reduce(into: [String]()) { acc, t in if !acc.contains(t) { acc.append(t) } }
+                .joined(separator: " · "))
+        let nuevo = Message(id: id, kind: .agent(text: texto, tools: tools, trailing: nil))
         if let i = messages.firstIndex(where: { $0.id == id }) { messages[i] = nuevo }
         else { messages.append(nuevo) }
     }

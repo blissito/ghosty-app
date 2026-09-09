@@ -71,6 +71,12 @@ struct RootView: View {
             if ProcessInfo.processInfo.environment["GHOSTY_SHEET"] == "1" {
                 hoja = store.selectedAgent
             }
+            // Gancho: crea un hilo nuevo antes de la sonda, para verificar que
+            // session/new funciona y que el turno cae en ESE hilo.
+            if ProcessInfo.processInfo.environment["GHOSTY_NEW_THREAD"] == "1" {
+                store.nuevaConversacion()
+                try? await Task.sleep(for: .seconds(6))
+            }
             if let sonda = ProcessInfo.processInfo.environment["GHOSTY_PROBE"],
                !sonda.isEmpty, case .lista = store.conexion {
                 await store.send(sonda)

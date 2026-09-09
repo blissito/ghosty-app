@@ -24,6 +24,17 @@ struct SettingsView: View {
 
     private enum Resultado: Equatable { case bien(String), mal(String) }
 
+    /// Qué build trae este teléfono. Sin esto no hay forma de saberlo sin cable, y
+    /// ya me llevó a diagnosticar mal una vez.
+    static var version: String {
+        let b = Bundle.main
+        let v = b.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let n = b.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let commit = b.infoDictionary?["GhostyCommit"] as? String ?? ""
+        let sufijo = (commit.isEmpty || commit.hasPrefix("$(")) ? "" : " · \(commit)"
+        return "Ghosty \(v) (build \(n))\(sufijo)"
+    }
+
     private var esDeAgente: Bool { token.hasPrefix("agt_") }
     private var esDeCuenta: Bool { token.hasPrefix("eb_sk_") }
     private var listo: Bool {
@@ -72,6 +83,12 @@ struct SettingsView: View {
                         case .mal(let d):  aviso("xmark.circle", d, .gDangerInk, .gDangerTint)
                         }
                     }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle").font(.system(size: 12))
+                        Text(Self.version)
+                    }
+                    .gCaption()
 
                     VStack(spacing: 9) {
                         ActionButton(title: probando ? "Probando…" : "Probar y guardar", kind: .primary) {
