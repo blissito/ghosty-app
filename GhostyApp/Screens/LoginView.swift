@@ -56,16 +56,14 @@ struct LoginView: View {
                     boton(p)
                 }
 
-                Button {
-                    Task { await entrar("") }
-                } label: {
-                    Text("Otra forma de entrar")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color.gInk2)
-                        .padding(.vertical, 8)
-                }
-                .buttonStyle(.plain)
-                .disabled(yendo != nil)
+                // ⚠️ Aquí había un "Otra forma de entrar" que llevaba a la página de
+                // login de gs. Se quitó por redundante: con un proveedor puesto ya se
+                // entra a ghosty.studio, y ofrecer dos caminos al mismo sitio no ayuda
+                // a decidir.
+                //
+                // Lo que se pierde y hay que devolver: correo y passkey (Face ID) vivían
+                // en esa página. Mientras Apple no esté configurado, Google es la única
+                // puerta desde el teléfono.
             }
             .padding(.horizontal, 24)
 
