@@ -100,10 +100,11 @@ struct EntregaCard: View {
         case .artifact: return (.gPrimary, .gPrimaryTint)
         case .doc:      return (.gPrimary, .gPrimaryTint)
         case .archivo:
-            let n = entrega.titulo.lowercased()
-            if n.hasSuffix(".pdf") { return (.gDangerInk, .gDangerTint) }
-            if n.hasSuffix(".csv") || n.hasSuffix(".xlsx") { return (.gGreenInk, .gGreenTint) }
-            return (.gInk2, .gFill)
+            switch entrega.tipo {
+            case "pdf": return (.gDangerInk, .gDangerTint)
+            case "csv", "xlsx", "numbers": return (.gGreenInk, .gGreenTint)
+            default: return (.gInk2, .gFill)
+            }
         }
     }
 
@@ -114,7 +115,9 @@ struct EntregaCard: View {
     private static func asomo(_ e: Entrega) -> String? {
         let crudo: String?
         if let c = e.contenido { crudo = c }
-        else if let d = e.datos, d.count < 200_000 { crudo = String(data: d, encoding: .utf8) }
+        // ⚠️ `esTexto`, no "decodifica como UTF-8": la cabecera de un PDF decodifica
+        // perfectamente y se pintó `%PDF-1.7 %µ¶ % Written by MuPDF` en la tarjeta.
+        else if e.esTexto, let d = e.datos, d.count < 200_000 { crudo = String(data: d, encoding: .utf8) }
         else { crudo = nil }
         guard let crudo, !crudo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return crudo.split(separator: "\n", omittingEmptySubsequences: false)
@@ -130,15 +133,10 @@ struct EntregaCard: View {
     private static func aDisco(_ e: Entrega) -> URL? {
         let base = FileManager.default.temporaryDirectory
         let limpio = e.titulo.replacingOccurrences(of: "/", with: "-")
-        let sufijo: String
-        switch e.forma {
-        case .doc:      sufijo = "md"
-        case .sheet:    sufijo = "csv"
-        case .artifact: sufijo = "html"
-        case .archivo:  sufijo = ""
-        }
-        let nombre = sufijo.isEmpty || limpio.hasSuffix(".\(sufijo)")
-            ? limpio : "\(limpio).\(sufijo)"
+        // La extensión sale de `Entrega.tipo`, que la deduce del nombre o de los bytes.
+        let ext = e.tipo ?? ""
+        let nombre = ext.isEmpty || limpio.lowercased().hasSuffix(".\(ext)")
+            ? limpio : "\(limpio).\(ext)"
         let url = base.appending(path: nombre)
         do {
             if let datos = e.datos {
@@ -151,4 +149,5 @@ struct EntregaCard: View {
             return nil
         }
     }
+
 }

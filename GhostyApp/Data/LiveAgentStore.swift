@@ -356,7 +356,7 @@ final class LiveAgentStore: AgentStoring {
             // ChatGPT, Claude y la propia interfaz de goose. Sale gratis: el replay
             // ya está aquí.
             if let primero = messages.first(where: { if case .user = $0.kind { return true } else { return false } }),
-               case .user(let t) = primero.kind {
+               case .user(let t, _) = primero.kind {
                 titulos.anotarSiFalta(hilo.id, desde: t)
             }
             hilos[selectedAgentID] = messages
@@ -383,17 +383,7 @@ final class LiveAgentStore: AgentStoring {
 
         turnoEnVuelo?.cancel()
         messages.removeAll { $0.kind == .typing }
-        // Lo que se pinta lleva los adjuntos: mandar sólo una foto dejaría una burbuja
-        // vacía y parecería que el mensaje no salió.
-        //
-        // ⚠️ SIN emoji. El 📎 salía como un cuadro con interrogación: la burbuja se pinta
-        // con el renderizador de Markdown y su fuente no lo tiene. Un nombre entre backticks
-        // se lee igual de bien y no depende de qué glifos traiga la tipografía.
-        let visible = adjuntos.isEmpty
-            ? limpio
-            : ([limpio.isEmpty ? nil : limpio]
-                .compactMap { $0 } + adjuntos.map { "`\($0.nombre)`" }).joined(separator: "\n")
-        messages.append(Message(id: UUID().uuidString, kind: .user(visible)))
+        messages.append(Message(id: UUID().uuidString, kind: .user(limpio, adjuntos: adjuntos)))
         let idRespuesta = UUID().uuidString
         messages.append(Message(id: "typing", kind: .typing))
 

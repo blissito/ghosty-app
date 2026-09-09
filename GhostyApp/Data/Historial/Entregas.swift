@@ -40,20 +40,60 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
+    /// De qué es este archivo, DE VERDAD.
+    ///
+    /// Del sufijo del título si lo trae y, si no, de los primeros bytes. Un agente puede
+    /// entregar un PDF titulado «Reporte» a secas, y sin esto el visor del sistema no sabe
+    /// con qué abrirlo, el icono sale genérico y la vista previa intenta leerlo como texto
+    /// —enseñando `%PDF-1.7 %µ¶` en la tarjeta—. Es UN solo sitio a propósito: cuando esto
+    /// vivía repartido, cada consumidor acertaba o fallaba por su cuenta.
+    var tipo: String? {
+        if let punto = titulo.lastIndex(of: "."), punto != titulo.startIndex {
+            let ext = String(titulo[titulo.index(after: punto)...]).lowercased()
+            if !ext.isEmpty, ext.count <= 5 { return ext }
+        }
+        switch forma {
+        case .doc: return "md"
+        case .sheet: return "csv"
+        case .artifact: return "html"
+        case .archivo: break
+        }
+        guard let d = datos, d.count >= 4 else { return nil }
+        let b = [UInt8](d.prefix(4))
+        if b[0] == 0x25, b[1] == 0x50, b[2] == 0x44, b[3] == 0x46 { return "pdf" }
+        if b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47 { return "png" }
+        if b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF { return "jpg" }
+        if b[0] == 0x47, b[1] == 0x49, b[2] == 0x46 { return "gif" }
+        if b[0] == 0x50, b[1] == 0x4B, b[2] == 0x03, b[3] == 0x04 { return "zip" }
+        if String(data: d.prefix(512), encoding: .utf8) != nil { return "txt" }
+        return nil
+    }
+
+    /// ¿Se puede enseñar su contenido como texto en la tarjeta?
+    ///
+    /// ⚠️ NO basta con que decodifique como UTF-8: la cabecera de un PDF decodifica
+    /// perfectamente y acabó pintada en la tarjeta. Se pregunta por el TIPO.
+    var esTexto: Bool {
+        guard let t = tipo else { return false }
+        return ["md", "csv", "html", "txt", "json", "yaml", "yml", "log", "xml"].contains(t)
+    }
+
     var icono: String {
         switch forma {
         case .doc:      return "doc.text"
         case .sheet:    return "tablecells"
         case .artifact: return "safari"
         case .archivo:
-            // Un archivo puede ser cualquier cosa, así que el icono sale del sufijo: el
-            // clip genérico no distingue una foto de un contrato.
-            let n = titulo.lowercased()
-            if n.hasSuffix(".pdf") { return "doc.richtext" }
-            if [".png", ".jpg", ".jpeg", ".heic", ".gif", ".webp"].contains(where: n.hasSuffix) { return "photo" }
-            if [".csv", ".xlsx", ".numbers"].contains(where: n.hasSuffix) { return "tablecells" }
-            if [".zip", ".tar", ".gz"].contains(where: n.hasSuffix) { return "shippingbox" }
-            return "paperclip"
+            // Un archivo puede ser cualquier cosa, así que el icono sale de su tipo real:
+            // el clip genérico no distingue una foto de un contrato.
+            switch tipo {
+            case "pdf": return "doc.richtext"
+            case "png", "jpg", "jpeg", "heic", "gif", "webp": return "photo"
+            case "csv", "xlsx", "numbers": return "tablecells"
+            case "zip", "tar", "gz": return "shippingbox"
+            case "txt", "md", "json", "log": return "doc.plaintext"
+            default: return "paperclip"
+            }
         }
     }
 

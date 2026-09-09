@@ -4,7 +4,6 @@ import SwiftUI
 struct ConversationView: View {
     let store: LiveAgentStore
     var onOpenSheet: () -> Void
-    var onConectarAgente: () -> Void
 
     @State private var borrador = ""
     @FocusState private var escribiendo: Bool
@@ -140,8 +139,8 @@ struct ConversationView: View {
     @ViewBuilder
     private func fila(_ mensaje: Message) -> some View {
         switch mensaje.kind {
-        case .user(let t):
-            HStack { Spacer(minLength: 40); UserBubble(text: t) }
+        case .user(let t, let adj):
+            HStack { Spacer(minLength: 40); UserBubble(text: t, adjuntos: adj) }
         case .agent(let t, let tools, let trailing):
             HStack { AgentBubble(text: t, tools: tools, trailing: trailing); Spacer(minLength: 30) }
         case .entrega(let e):
@@ -160,9 +159,15 @@ struct ConversationView: View {
 
     /// El compositor sólo trae controles que hacen algo.
     ///
-    /// Antes tenía un clip y un micrófono que no hacían nada: la API de la caja
-    /// recibe `content` y punto —ni adjuntos ni audio—, así que dibujarlos era
-    /// prometer lo que no hay. El `+` sí abre lo que de verdad se puede hacer.
+    /// ⚠️ El `+` es SÓLO para adjuntar. Tuvo también "nueva conversación", "cambiar de
+    /// agente" y "tu cuenta", y las tres estaban duplicadas: la primera es el botón grande
+    /// de la hoja del agente, la segunda ES la pestaña Flota, y la tercera su engrane.
+    /// Llegaron ahí cuando eran el único acceso. Con seis entradas había que leerlas todas
+    /// para encontrar las tres que hacen lo que un `+` promete en cualquier app.
+    ///
+    /// Si "nueva conversación" acaba haciendo falta más cerca, la vuelta atrás NO es
+    /// devolverla al menú —un menú con dos intenciones ya se probó peor— sino darle su
+    /// propio icono aquí.
     private var compositor: some View {
         VStack(spacing: 8) {
             if !adjuntos.isEmpty || fallo != nil { antesDeMandar }
@@ -232,46 +237,9 @@ struct ConversationView: View {
         HStack(spacing: 10) {
             HStack(spacing: 10) {
                 Menu {
-                    // Lo que se usa a diario va arriba.
                     Button { abrirFotos = true } label: { Label("Foto", systemImage: "photo") }
                     Button { abrirCamara = true } label: { Label("Cámara", systemImage: "camera") }
                     Button { abrirArchivos = true } label: { Label("Archivo", systemImage: "doc") }
-
-                    Divider()
-
-                    Button {
-                        store.nuevaConversacion()
-                    } label: {
-                        Label("Nueva conversación", systemImage: "arrow.counterclockwise")
-                    }
-
-                    if store.agents.count > 1 {
-                        Menu {
-                            ForEach(store.agents) { a in
-                                Button {
-                                    escribiendo = false
-                                    store.seleccionar(a.id)
-                                } label: {
-                                    if a.id == store.selectedAgentID {
-                                        Label(a.name, systemImage: "checkmark")
-                                    } else {
-                                        Text(a.name)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Label("Cambiar de agente", systemImage: "arrow.left.arrow.right")
-                        }
-                    }
-
-                    Divider()
-
-                    Button {
-                        escribiendo = false
-                        onConectarAgente()
-                    } label: {
-                        Label("Tu cuenta", systemImage: "person.crop.circle")
-                    }
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18, weight: .medium))

@@ -24,7 +24,12 @@ struct PullRequestCard: Equatable, Sendable {
 
 struct Message: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
-        case user(String)
+        /// El texto y, si los hubo, lo que se mandó con él.
+        ///
+        /// ⚠️ Van los ADJUNTOS, no sus nombres. Enseñar «`foto-1.jpg`» en la burbuja no dice
+        /// qué mandaste —de tres fotos del carrete no distingues cuál— y además los backticks
+        /// salían literales, porque la burbuja del usuario es texto plano, no Markdown.
+        case user(String, adjuntos: [Adjunto] = [])
         case agent(text: String, tools: ToolRun?, trailing: String?)
         case prCard(PullRequestCard)
         /// Algo que el agente hizo llegar: un archivo o un artefacto. Ver `Entregas.swift`.
