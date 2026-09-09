@@ -1,22 +1,44 @@
 import SwiftUI
 
-/// La bienvenida. Un solo botón: todo lo demás —Google, Apple, Face ID, correo— vive en
-/// la página de ghosty.studio, así que la app no tiene que saber nada de proveedores ni
-/// crecer un botón cada vez que se añada uno.
+/// La bienvenida.
+///
+/// ⚠️ Los botones de proveedor NO son de diseño libre, y aquí no se improvisa:
+///
+///  • **Sign in with Apple** obliga a usar el botón de Apple —su logo, su texto, negro o
+///    blanco, mínimo 44 pt— y a que **no sea menos prominente** que los demás. Un estilo
+///    propio, más chico, o colocado debajo de los sociales es motivo documentado de
+///    rechazo (HIG → Sign in with Apple; guidelines 4.0 y 4.8).
+///  • **Google** sí permite botón propio, pero con su "G" oficial, sus colores y su
+///    tipografía (developers.google.com/identity/branding-guidelines).
+///
+/// La primera versión de esta pantalla los tenía inventados —morado liso, sin logos— y
+/// no habría pasado revisión.
 struct LoginView: View {
     var alEntrar: () async -> Void
 
     @State private var flujo = LoginFlow()
-    @State private var yendo: LoginFlow.Proveedor?
+    @State private var yendo: String?
     @State private var error: String?
+    @State private var proveedores: [Proveedor] = Proveedor.respaldo
+
+    /// Un proveedor tal como lo nombra el servidor. La lista NO va horneada: conectar
+    /// uno nuevo no debe exigir publicar una versión y esperar a App Review.
+    struct Proveedor: Identifiable, Decodable, Equatable {
+        var id: String
+        var etiqueta: String
+
+        /// Lo que se pinta antes de que conteste el servidor, y si no contesta. Google
+        /// lleva configurado desde siempre; enseñar una pantalla vacía mientras carga
+        /// sería peor que enseñar el camino que casi todos usan.
+        static let respaldo: [Proveedor] = [.init(id: "google", etiqueta: "Google")]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
 
             Image("ghosty-lila")
-                .resizable()
-                .scaledToFit()
+                .resizable().scaledToFit()
                 .frame(width: 96, height: 96)
                 .accessibilityHidden(true)
 
@@ -25,27 +47,17 @@ struct LoginView: View {
                 .foregroundStyle(Color.gInk)
                 .padding(.top, 20)
 
-            Text("Tu agente, en tu bolsillo.")
-                .gMeta()
-                .padding(.top, 6)
+            Text("Tu agente, en tu bolsillo.").gMeta().padding(.top, 6)
 
             Spacer()
 
-            // Los proveedores van AQUÍ y no en la web: tocar "Entrar" y que la página
-            // vuelva a preguntar con qué entrar son dos pasos para la misma decisión.
-            VStack(spacing: 10) {
-                ActionButton(title: titulo("Continuar con Google", .google), kind: .primary) {
-                    Task { await entrar(.google) }
+            VStack(spacing: 12) {
+                ForEach(proveedores) { p in
+                    boton(p)
                 }
-                .disabled(yendo != nil)
-
-                ActionButton(title: titulo("Continuar con Apple", .apple), kind: .secondary) {
-                    Task { await entrar(.apple) }
-                }
-                .disabled(yendo != nil)
 
                 Button {
-                    Task { await entrar(.cualquiera) }
+                    Task { await entrar("") }
                 } label: {
                     Text("Otra forma de entrar")
                         .font(.system(size: 15))
@@ -62,20 +74,40 @@ struct LoginView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Color.gDanger)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .padding(.top, 12)
+                    .padding(.horizontal, 32).padding(.top, 12)
             }
 
             Spacer().frame(height: 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task { await cargarProveedores() }
     }
 
-    private func titulo(_ base: String, _ p: LoginFlow.Proveedor) -> String {
-        yendo == p ? "Abriendo…" : base
+    @ViewBuilder
+    private func boton(_ p: Proveedor) -> some View {
+        switch p.id {
+        case "apple": BotonApple(cargando: yendo == p.id) { Task { await entrar(p.id) } }
+        case "google": BotonGoogle(cargando: yendo == p.id) { Task { await entrar(p.id) } }
+        // Un proveedor que el servidor conoce y esta versión de la app no (EasyBits será
+        // el primero). Sale con un botón neutro en vez de desaparecer: mejor entrar con
+        // un botón sin marca que no poder entrar.
+        default:
+            BotonNeutro(titulo: "Continuar con \(p.etiqueta)", cargando: yendo == p.id) {
+                Task { await entrar(p.id) }
+            }
+        }
     }
 
-    private func entrar(_ proveedor: LoginFlow.Proveedor) async {
+    private func cargarProveedores() async {
+        let url = Session.base.appendingPathComponent("oauth2/proveedores")
+        guard let (d, _) = try? await URLSession.shared.data(from: url),
+              let j = try? JSONDecoder().decode([String: [Proveedor]].self, from: d),
+              let lista = j["proveedores"], !lista.isEmpty
+        else { return }   // se queda el respaldo
+        proveedores = lista
+    }
+
+    private func entrar(_ proveedor: String) async {
         error = nil
         yendo = proveedor
         defer { yendo = nil }
@@ -83,14 +115,93 @@ struct LoginView: View {
             try await flujo.entrar(con: proveedor)
             await alEntrar()
         } catch LoginFlow.Fallo.cancelado {
-            // Cancelar no es un fallo. ⚠️ No basta con devolver `nil` en
-            // `errorDescription`: `localizedDescription` cae entonces al texto de
-            // sistema ("The operation couldn't be completed…"), que es justo lo que
-            // salía en rojo al cerrar la hoja. Hay que atrapar el caso, no confiar
-            // en que el texto venga vacío.
+            // ⚠️ Cancelar no es un fallo, y devolver `nil` en `errorDescription` NO
+            // basta: `localizedDescription` cae al texto de sistema ("The operation
+            // couldn't be completed…"), que es lo que salía en rojo al cerrar la hoja.
             error = nil
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+// MARK: - Los botones, con la marca que cada uno exige
+
+/// Negro, logo de Apple, texto aprobado. Va PRIMERO y del mismo tamaño que los demás:
+/// la HIG pide que no quede menos prominente que los otros proveedores.
+private struct BotonApple: View {
+    var cargando: Bool
+    var accion: () -> Void
+
+    var body: some View {
+        Button(action: accion) {
+            HStack(spacing: 8) {
+                Image(systemName: "apple.logo")
+                    .font(.system(size: 19, weight: .medium))
+                Text(cargando ? "Abriendo…" : "Continuar con Apple")
+                    .font(.system(size: 17, weight: .medium))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            // 50 pt: por encima del mínimo de 44 que pide la guía.
+            .frame(height: 50)
+            .background(Color.black, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(cargando)
+        .opacity(cargando ? 0.7 : 1)
+    }
+}
+
+/// Fondo blanco, borde gris y la "G" de cuatro colores, como pide la guía de marca de
+/// Google. El texto va en su gris (#1F1F1F), no en el tinte de la app.
+private struct BotonGoogle: View {
+    var cargando: Bool
+    var accion: () -> Void
+
+    var body: some View {
+        Button(action: accion) {
+            HStack(spacing: 10) {
+                Image("google-g").resizable().scaledToFit().frame(width: 20, height: 20)
+                Text(cargando ? "Abriendo…" : "Continuar con Google")
+                    .font(.system(size: 17, weight: .medium))
+            }
+            .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.12))
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(red: 0.455, green: 0.463, blue: 0.463), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(cargando)
+        .opacity(cargando ? 0.7 : 1)
+    }
+}
+
+/// Para un proveedor que esta versión todavía no sabe pintar con su marca.
+private struct BotonNeutro: View {
+    var titulo: String
+    var cargando: Bool
+    var accion: () -> Void
+
+    var body: some View {
+        Button(action: accion) {
+            Text(cargando ? "Abriendo…" : titulo)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color.gInk)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(Color.gCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.gSeparator, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(cargando)
+        .opacity(cargando ? 0.7 : 1)
     }
 }

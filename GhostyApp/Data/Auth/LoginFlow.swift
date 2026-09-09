@@ -25,16 +25,12 @@ final class LoginFlow: NSObject {
 
     private var sesionWeb: ASWebAuthenticationSession?
 
-    /// Con qué se entra. Se le pasa al servidor para que salte directo a ese proveedor:
-    /// preguntarlo otra vez en la web serían dos pasos para la misma decisión.
-    enum Proveedor: String {
-        case google, apple
-        /// Sin preferencia: la web ofrece todas las vías (correo, passkey, y las otras).
-        case cualquiera = ""
-    }
-
-    /// Entra. Al volver, la sesión ya está guardada en el llavero.
-    func entrar(con proveedor: Proveedor = .cualquiera) async throws {
+    /// Entra. `proveedor` es el id que dio el servidor (`google`, `apple`, …); vacío =
+    /// sin preferencia, y la web ofrece todas las vías.
+    ///
+    /// Es un String y no un enum a propósito: un proveedor nuevo tiene que poder llegar
+    /// desde el servidor sin que la app se recompile.
+    func entrar(con proveedor: String = "") async throws {
         let verifier = Self.nuevoVerifier()
         let challenge = Self.challenge(de: verifier)
         let state = UUID().uuidString
@@ -50,8 +46,8 @@ final class LoginFlow: NSObject {
             .init(name: "code_challenge", value: challenge),
             .init(name: "code_challenge_method", value: "S256"),
         ]
-        if proveedor != .cualquiera {
-            c.queryItems?.append(.init(name: "proveedor", value: proveedor.rawValue))
+        if !proveedor.isEmpty {
+            c.queryItems?.append(.init(name: "proveedor", value: proveedor))
         }
 
         let devuelta = try await abrirHoja(c.url!)
