@@ -39,8 +39,13 @@ struct OtrosTrabajando: View {
                 ScrollViewReader { fila in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 7) {
+                            // ⚠️ `id` estable por conversación: es lo que deja a SwiftUI
+                            // MOVER el chip a su sitio nuevo en vez de borrar uno y
+                            // dibujar otro, que es lo que se veía como un parpadeo.
                             ForEach(abiertas, id: \.hilo.clave) { par in
-                                chip(par.canal, par.hilo).id(par.hilo.clave)
+                                chip(par.canal, par.hilo)
+                                    .id(par.hilo.clave)
+                                    .transition(.opacity)
                             }
                         }
                         .padding(.leading, Theme.Space.cardH)
@@ -50,9 +55,19 @@ struct OtrosTrabajando: View {
                     // activo se quedaba fuera de la pantalla y no había forma de saber
                     // cuál era la abierta sin arrastrar la fila.
                     .onChange(of: store.claveDelHilo) { _, nueva in
-                        withAnimation(.easeOut(duration: 0.25)) { fila.scrollTo(nueva, anchor: .center) }
+                        traer(nueva, con: fila, animado: true)
                     }
-                    .onAppear { fila.scrollTo(store.claveDelHilo, anchor: .center) }
+                    // ⚠️ Y cuando cambia el ORDEN. Escribirle a una conversación la manda
+                    // al principio de la fila: si el scroll no la sigue, el chip se va de
+                    // la pantalla justo después de que le hablaste.
+                    .onChange(of: orden) { _, _ in
+                        traer(store.claveDelHilo, con: fila, animado: true)
+                    }
+                    // ⚠️ Y al aparecer hay que INSISTIR. Volver a esta pestaña reconstruye
+                    // la vista, y un `scrollTo` disparado antes de que la fila esté medida
+                    // no hace nada —el mismo fallo que tuvo el botón de ir abajo—, así que
+                    // el chip activo se quedaba fuera o a medio cortar.
+                    .onAppear { traer(store.claveDelHilo, con: fila, animado: false) }
                 }
                 // ⚠️ FUERA del scroll y clavado a la derecha. Puesto al final de la fila
                 // se iba de la pantalla en cuanto había tres conversaciones, que es justo
@@ -77,6 +92,33 @@ struct OtrosTrabajando: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("nueva-conversacion")
+    }
+
+    /// Trae un chip a la vista, y lo repite cuando la fila ya se midió.
+    /// El orden actual de la fila, para poder reaccionar cuando cambia.
+    private var orden: String { abiertas.map(\.hilo.clave).joined() }
+
+    /// Trae un chip a la vista.
+    ///
+    /// ⚠️ Cuando es animado se hace UNA vez: repetir el `scrollTo` a media animación la
+    /// corta y el movimiento se ve a tirones. Los reintentos son sólo para el arranque,
+    /// donde el primero se pierde porque la fila todavía no está medida —el mismo fallo
+    /// que tuvo el botón de ir abajo—.
+    private func traer(_ clave: String, con fila: ScrollViewProxy, animado: Bool) {
+        guard !clave.isEmpty else { return }
+        guard !animado else {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                fila.scrollTo(clave, anchor: .center)
+            }
+            return
+        }
+        fila.scrollTo(clave, anchor: .center)
+        Task { @MainActor in
+            for espera in [50, 250] {
+                try? await Task.sleep(for: .milliseconds(espera))
+                fila.scrollTo(clave, anchor: .center)
+            }
+        }
     }
 
     private func fondo(_ permiso: Bool, _ contesto: Bool, _ activa: Bool) -> Color {

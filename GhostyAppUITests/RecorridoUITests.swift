@@ -141,6 +141,7 @@ final class RecorridoUITests: XCTestCase {
         }
 
         // 7. Y que «Guardadas» se despliegue sólo cuando se toca.
+        app.buttons["tab-conversations"].tap()
         let guardadas = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'guardadas-'")).firstMatch
         XCTAssertTrue(guardadas.exists, "no salió el plegable de guardadas")
         guardadas.tap()

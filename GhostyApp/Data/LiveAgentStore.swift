@@ -858,7 +858,13 @@ final class LiveAgentStore: AgentStoring {
         // ⚠️ AQUÍ y sólo aquí: escribirle es lo que revive una conversación y la manda al
         // principio de la barra. Mirarla no la mueve — reordenar mientras eliges cambia
         // las fichas de sitio debajo del dedo.
-        hilo.tocado = Date()
+        //
+        // ⚠️ Y ANIMADO. Sin transacción, el chip salta de su sitio al principio de la fila
+        // en un fotograma: se lee como que la conversación **desapareció**, no como que se
+        // movió. Animado, se ve irse.
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            hilo.tocado = Date()
+        }
         // Mandarle a OTRO agente es dejarlo trabajando sin mirarlo: es justo el caso que
         // necesita el aviso, y el momento con contexto para pedirlo.
         if cuenta.id != selectedAgentID { Avisos.pedirPermisoSiHaceFalta() }

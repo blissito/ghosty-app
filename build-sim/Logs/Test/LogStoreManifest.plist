@@ -6,10 +6,10 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>05D80E6A-805E-48F8-8688-AF5E6771EF90</key>
+		<key>0B85B8FC-3CAE-4128-922A-D839CCAB9C2C</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>F1E43FE7-D731-4296-B01D-1F75087581A6</string>
+			<string>A0F1DFA8-581A-43BB-8DB1-F35390116991</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -30,7 +30,7 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-07-50--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_09-20-56--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -57,18 +57,18 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810745670.23062301</real>
+			<real>810746456.73308694</real>
 			<key>timeStoppedRecording</key>
-			<real>810745689.38187301</real>
+			<real>810746515.33204997</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>05D80E6A-805E-48F8-8688-AF5E6771EF90</string>
+			<string>0B85B8FC-3CAE-4128-922A-D839CCAB9C2C</string>
 		</dict>
-		<key>1477FDF1-C4FA-4049-9CDB-8307AC90FBE2</key>
+		<key>519AA479-5F19-42B8-B4F2-019AD62A885A</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>63E9ACE6-C279-43EB-A27C-C294395DF733</string>
+			<string>689E4845-5947-4322-9DCD-2BF7B8B21AE4</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -89,7 +89,7 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-09-36--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_09-23-20--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -116,18 +116,18 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810745776.17616904</real>
+			<real>810746600.87926602</real>
 			<key>timeStoppedRecording</key>
-			<real>810745811.08791399</real>
+			<real>810746660.258479</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>1477FDF1-C4FA-4049-9CDB-8307AC90FBE2</string>
+			<string>519AA479-5F19-42B8-B4F2-019AD62A885A</string>
 		</dict>
-		<key>2C4C3258-8F96-4751-B4CE-233081183C4A</key>
+		<key>6291D991-BD4D-4784-8B50-52D76CCB45DC</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>FD77DBB8-443F-473F-8ED0-6DFA110CE313</string>
+			<string>AA8F60F2-8A60-473F-B98C-EF6D696583E9</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -148,7 +148,66 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-06-41--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_09-19-16--0600.xcresult</string>
+			<key>hasAuxiliaryLog</key>
+			<true/>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>GhostyApp project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>GhostyApp</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Test GhostyApp</string>
+			<key>timeStartedRecording</key>
+			<real>810746356.85237396</real>
+			<key>timeStoppedRecording</key>
+			<real>810746394.09245896</real>
+			<key>title</key>
+			<string>Test GhostyApp</string>
+			<key>uniqueIdentifier</key>
+			<string>6291D991-BD4D-4784-8B50-52D76CCB45DC</string>
+		</dict>
+		<key>6F427AB4-592B-4730-9576-5355A6347BA5</key>
+		<dict>
+			<key>auxiliaryLogUniqueIdentifier</key>
+			<string>0C11DE9C-502C-4FA7-A2A6-2B7053D53C3D</string>
+			<key>auxiliaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>className</key>
+			<string>IDESchemeActionsInvocationRecord</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>com.apple.dt.unit.cocoaUnitTest</string>
+			<key>fileName</key>
+			<string>Test-GhostyApp-2026.09.10_09-22-06--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -175,18 +234,18 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810745601.08152401</real>
+			<real>810746526.28127301</real>
 			<key>timeStoppedRecording</key>
-			<real>810745624.10318303</real>
+			<real>810746583.66878998</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>2C4C3258-8F96-4751-B4CE-233081183C4A</string>
+			<string>6F427AB4-592B-4730-9576-5355A6347BA5</string>
 		</dict>
-		<key>3EC7B45E-6F60-478A-BD57-9D16289A3458</key>
+		<key>911271F8-56BE-463D-B33C-460798163461</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>139BE76E-125C-4BA5-A0E1-23836721B936</string>
+			<string>2F3ED179-0905-4947-A68D-B250D1A4B5AD</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -207,7 +266,66 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-14-54--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_09-17-30--0600.xcresult</string>
+			<key>hasAuxiliaryLog</key>
+			<true/>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>GhostyApp project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>GhostyApp</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Test GhostyApp</string>
+			<key>timeStartedRecording</key>
+			<real>810746250.69755602</real>
+			<key>timeStoppedRecording</key>
+			<real>810746290.04846704</real>
+			<key>title</key>
+			<string>Test GhostyApp</string>
+			<key>uniqueIdentifier</key>
+			<string>911271F8-56BE-463D-B33C-460798163461</string>
+		</dict>
+		<key>CBDC730C-B916-4085-89A9-D34BF89CD742</key>
+		<dict>
+			<key>auxiliaryLogUniqueIdentifier</key>
+			<string>EB423C01-95C7-4FA0-BF52-BDAFDA8ACDA1</string>
+			<key>auxiliaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>className</key>
+			<string>IDESchemeActionsInvocationRecord</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>com.apple.dt.unit.cocoaUnitTest</string>
+			<key>fileName</key>
+			<string>Test-GhostyApp-2026.09.10_09-24-34--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -234,18 +352,18 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810746094.47876596</real>
+			<real>810746674.91223395</real>
 			<key>timeStoppedRecording</key>
-			<real>810746124.47817302</real>
+			<real>810746733.99802494</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>3EC7B45E-6F60-478A-BD57-9D16289A3458</string>
+			<string>CBDC730C-B916-4085-89A9-D34BF89CD742</string>
 		</dict>
-		<key>45BA7193-67ED-4D63-957D-B507EBFBC272</key>
+		<key>F4DAD58C-E3D9-4A27-BED4-826064039AAE</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>77F52B26-F8C1-48C9-A851-7C045F140F51</string>
+			<string>EC1A83C3-9171-4912-A50A-B1683E985DD8</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -266,7 +384,7 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-11-21--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_09-26-33--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -293,367 +411,13 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810745881.43987405</real>
+			<real>810746793.14158595</real>
 			<key>timeStoppedRecording</key>
-			<real>810745919.486696</real>
+			<real>810746834.41922605</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>45BA7193-67ED-4D63-957D-B507EBFBC272</string>
-		</dict>
-		<key>65C41743-4E55-4EE5-8E24-A9E332E38620</key>
-		<dict>
-			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>B9851A1E-6C6E-49C5-B924-F79804BC167E</string>
-			<key>auxiliaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>className</key>
-			<string>IDESchemeActionsInvocationRecord</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>com.apple.dt.unit.cocoaUnitTest</string>
-			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-05-59--0600.xcresult</string>
-			<key>hasAuxiliaryLog</key>
-			<true/>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>T</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>1</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>GhostyApp project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>GhostyApp</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Test GhostyApp</string>
-			<key>timeStartedRecording</key>
-			<real>810745559.28081703</real>
-			<key>timeStoppedRecording</key>
-			<real>810745588.37454402</real>
-			<key>title</key>
-			<string>Test GhostyApp</string>
-			<key>uniqueIdentifier</key>
-			<string>65C41743-4E55-4EE5-8E24-A9E332E38620</string>
-		</dict>
-		<key>93BC0255-5AB6-4CAD-9309-E9E76949997C</key>
-		<dict>
-			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>2E3C21C2-AF10-43D1-B33C-71EAFAB3E0DE</string>
-			<key>auxiliaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>className</key>
-			<string>IDESchemeActionsInvocationRecord</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>com.apple.dt.unit.cocoaUnitTest</string>
-			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-08-21--0600.xcresult</string>
-			<key>hasAuxiliaryLog</key>
-			<true/>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>GhostyApp project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>GhostyApp</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Test GhostyApp</string>
-			<key>timeStartedRecording</key>
-			<real>810745701.06315398</real>
-			<key>timeStoppedRecording</key>
-			<real>810745737.912027</real>
-			<key>title</key>
-			<string>Test GhostyApp</string>
-			<key>uniqueIdentifier</key>
-			<string>93BC0255-5AB6-4CAD-9309-E9E76949997C</string>
-		</dict>
-		<key>AAA7AFE4-18DA-4AD8-90B0-68CEAFE10A66</key>
-		<dict>
-			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>0EA652D5-51DF-44C9-86AE-378B985CADBF</string>
-			<key>auxiliaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>className</key>
-			<string>IDESchemeActionsInvocationRecord</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>com.apple.dt.unit.cocoaUnitTest</string>
-			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-14-11--0600.xcresult</string>
-			<key>hasAuxiliaryLog</key>
-			<true/>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>T</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>1</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>GhostyApp project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>GhostyApp</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Test GhostyApp</string>
-			<key>timeStartedRecording</key>
-			<real>810746051.15320599</real>
-			<key>timeStoppedRecording</key>
-			<real>810746084.06551898</real>
-			<key>title</key>
-			<string>Test GhostyApp</string>
-			<key>uniqueIdentifier</key>
-			<string>AAA7AFE4-18DA-4AD8-90B0-68CEAFE10A66</string>
-		</dict>
-		<key>C7B5D93A-0A29-45CD-BD42-C02CFB441AE4</key>
-		<dict>
-			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>E7A7E761-58BE-40A3-A17D-F421CF97363D</string>
-			<key>auxiliaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>className</key>
-			<string>IDESchemeActionsInvocationRecord</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>com.apple.dt.unit.cocoaUnitTest</string>
-			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-15-45--0600.xcresult</string>
-			<key>hasAuxiliaryLog</key>
-			<true/>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>GhostyApp project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>GhostyApp</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Test GhostyApp</string>
-			<key>timeStartedRecording</key>
-			<real>810746145.15274203</real>
-			<key>timeStoppedRecording</key>
-			<real>810746183.48732305</real>
-			<key>title</key>
-			<string>Test GhostyApp</string>
-			<key>uniqueIdentifier</key>
-			<string>C7B5D93A-0A29-45CD-BD42-C02CFB441AE4</string>
-		</dict>
-		<key>F73ED7D1-097A-4E3D-8114-21FE2046B4AF</key>
-		<dict>
-			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>BF4C790D-0BCB-4DA4-9BD0-A0DB52868F11</string>
-			<key>auxiliaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>className</key>
-			<string>IDESchemeActionsInvocationRecord</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>com.apple.dt.unit.cocoaUnitTest</string>
-			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-07-19--0600.xcresult</string>
-			<key>hasAuxiliaryLog</key>
-			<true/>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>T</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>1</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>GhostyApp project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>GhostyApp</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Test GhostyApp</string>
-			<key>timeStartedRecording</key>
-			<real>810745639.53600895</real>
-			<key>timeStoppedRecording</key>
-			<real>810745660.09909594</real>
-			<key>title</key>
-			<string>Test GhostyApp</string>
-			<key>uniqueIdentifier</key>
-			<string>F73ED7D1-097A-4E3D-8114-21FE2046B4AF</string>
-		</dict>
-		<key>FAFDE131-0F88-4BB4-8253-4CF5996801DB</key>
-		<dict>
-			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>841638B3-223F-4DDC-A026-D95A33268D48</string>
-			<key>auxiliaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>S</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>0</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>className</key>
-			<string>IDESchemeActionsInvocationRecord</string>
-			<key>documentTypeString</key>
-			<string>&lt;nil&gt;</string>
-			<key>domainType</key>
-			<string>com.apple.dt.unit.cocoaUnitTest</string>
-			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_09-10-37--0600.xcresult</string>
-			<key>hasAuxiliaryLog</key>
-			<true/>
-			<key>hasPrimaryLog</key>
-			<true/>
-			<key>primaryObservable</key>
-			<dict>
-				<key>highLevelStatus</key>
-				<string>T</string>
-				<key>totalNumberOfAnalyzerIssues</key>
-				<integer>0</integer>
-				<key>totalNumberOfErrors</key>
-				<integer>0</integer>
-				<key>totalNumberOfTestFailures</key>
-				<integer>1</integer>
-				<key>totalNumberOfWarnings</key>
-				<integer>0</integer>
-			</dict>
-			<key>schemeIdentifier-containerName</key>
-			<string>GhostyApp project</string>
-			<key>schemeIdentifier-schemeName</key>
-			<string>GhostyApp</string>
-			<key>schemeIdentifier-sharedScheme</key>
-			<integer>1</integer>
-			<key>signature</key>
-			<string>Test GhostyApp</string>
-			<key>timeStartedRecording</key>
-			<real>810745837.17382205</real>
-			<key>timeStoppedRecording</key>
-			<real>810745870.11868405</real>
-			<key>title</key>
-			<string>Test GhostyApp</string>
-			<key>uniqueIdentifier</key>
-			<string>FAFDE131-0F88-4BB4-8253-4CF5996801DB</string>
+			<string>F4DAD58C-E3D9-4A27-BED4-826064039AAE</string>
 		</dict>
 	</dict>
 </dict>

@@ -459,6 +459,7 @@ struct ConversationView: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("enviar")
             .disabled(subiendo)
         } else {
             microfono
