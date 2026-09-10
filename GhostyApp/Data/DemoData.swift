@@ -93,14 +93,22 @@ enum DemoData {
         let entrega = Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto",
                               forma: .archivo, titulo: "recorte.png", recibida: Date(),
                               contenido: nil, datos: png)
+        // El texto pasa por el MISMO puente que en vivo, o la demo probaría otra cosa.
+        let crudo = "Ya está, recortada. Te la entrego.\n\n"
+            + "```eb-file\n{\"url\":\"\(imagenGrande().absoluteString)\","
+            + "\"name\":\"cotizacion.png\",\"size\":48213}\n```\n\n"
+            + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n"
+        var visible = crudo
+        var deEbFile: [Message] = []
+        for h in BloqueEbFile.buscar(crudo, agentID: "demo-1", sesionID: "s-foto").reversed() {
+            visible.removeSubrange(h.rango)
+            deEbFile.append(Message(id: "entrega-\(h.entrega.id)", kind: .entrega(h.entrega)))
+        }
+
         return [
             Message(id: "df1", kind: .user("solo me interesa la foto", adjuntos: [foto])),
-            Message(id: "df2", kind: .agent(
-                // La imagen va DENTRO de una lista a propósito: así se escribe cuando el
-                // agente devuelve resultados, y es el caso que se salía de la pantalla.
-                text: "Ya está, recortada. Te la entrego.\n\n"
-                    + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n",
-                tools: nil, trailing: nil)),
+            Message(id: "df2", kind: .agent(text: visible, tools: nil, trailing: nil)),
+        ] + deEbFile + [
             Message(id: "entrega-demo-entrega", kind: .entrega(entrega)),
             Message(id: "entrega-demo-audio", kind: .entrega(sonido)),
             Message(id: "entrega-demo-doc", kind: .entrega(doc)),

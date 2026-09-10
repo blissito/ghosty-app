@@ -37,6 +37,14 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     var contenido: String?
     /// El archivo, ya decodificado. `nil` para un artefacto.
     var datos: Data?
+    /// Dónde vive, si el agente lo anunció por URL en vez de mandarnos los bytes.
+    ///
+    /// ⚠️ Opcional para que el `entregas.json` viejo siga leyéndose. Una entrega con URL y
+    /// sin bytes es válida: se baja cuando hace falta, y de paso no engorda el JSON —que
+    /// guarda los bytes en base64— con megas que no hacen falta ahí. Ver `BloqueEbFile`.
+    var url: String?
+    /// Lo que dijo que pesaba, para poder decirlo sin bajarlo.
+    var bytesRemotos: Int?
 
     var etiqueta: String {
         switch forma {
@@ -65,7 +73,13 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         case .artifact: return "html"
         case .archivo: break
         }
-        guard let d = datos, d.count >= 12 else { return nil }
+        // Sin bytes, del sufijo de la URL: es la misma regla que con el título, con otra
+        // fuente. Un archivo anunciado por URL casi siempre la trae.
+        guard let d = datos, d.count >= 12 else {
+            if let url, let ext = URL(string: url)?.pathExtension.lowercased(),
+               !ext.isEmpty, ext.count <= 5 { return ext }
+            return nil
+        }
         let b = [UInt8](d.prefix(12))
         if b[0] == 0x25, b[1] == 0x50, b[2] == 0x44, b[3] == 0x46 { return "pdf" }
         if b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47 { return "png" }
@@ -105,6 +119,9 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// cómo compartirlo. Un MP3 sin ella se ofrecía como texto. Vive en el modelo porque
     /// lo necesitan la tarjeta, el visor de imagen y el reproductor — cuando cada uno se
     /// lo montaba por su cuenta, acertaba o fallaba por su cuenta.
+    /// ¿Hay que bajarlo antes de poder hacer nada con él?
+    var hayQueBajar: Bool { datos == nil && contenido == nil && url != nil }
+
     func aDisco() -> URL? {
         let base = FileManager.default.temporaryDirectory
         let limpio = titulo.replacingOccurrences(of: "/", with: "-")
@@ -192,7 +209,9 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
 
     /// Lo que ocupa, para poder decirlo sin abrirlo.
     var peso: String? {
-        let n = datos?.count ?? contenido?.utf8.count
+        // ⚠️ Si no hay bytes se usa lo que dijo el anuncio, y si tampoco lo dijo NO se
+        // inventa: un peso falso es peor que no decir ninguno.
+        let n = datos?.count ?? contenido?.utf8.count ?? bytesRemotos
         guard let n, n > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file)
     }

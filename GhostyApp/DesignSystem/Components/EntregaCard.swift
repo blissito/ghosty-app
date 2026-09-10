@@ -15,6 +15,13 @@ struct EntregaCard: View {
     let entrega: Entrega
     @State private var compartiendo: URL?
     @State private var mirando: UIImage?
+    /// Lo bajado, cuando la entrega vino sólo con URL. Ver `BloqueEbFile`.
+    @State private var bajados: Data?
+    @State private var bajando = false
+    @State private var falloAlBajar: String?
+
+    /// Los bytes, vengan de donde vengan.
+    private var datos: Data? { entrega.datos ?? bajados }
 
     /// La imagen entregada, si lo que llegó es una.
     ///
@@ -23,7 +30,7 @@ struct EntregaCard: View {
     /// justamente lo que uno quiere saber de un entregable. PDFKit lo hace nativo y ya
     /// tenemos los bytes en la mano.
     private var imagen: UIImage? {
-        guard entrega.forma == .archivo, let d = entrega.datos else { return nil }
+        guard entrega.forma == .archivo, let d = datos else { return nil }
         if entrega.tipo == "pdf" { return Self.portada(d) }
         return UIImage(data: d)
     }
@@ -41,6 +48,39 @@ struct EntregaCard: View {
         return pagina.thumbnail(of: CGSize(width: ancho, height: caja.height * escala), for: .mediaBox)
     }
 
+    /// La entrega con los bytes que se hayan bajado, para lo que necesite un archivo.
+    private func conBytes() -> Entrega? {
+        guard var e = Optional(entrega) else { return nil }
+        if e.datos == nil { e.datos = bajados }
+        return e
+    }
+
+    private func bajar(yAbrir: Bool) async {
+        guard let s = entrega.url, let u = URL(string: s), !bajando else { return }
+        bajando = true
+        defer { bajando = false }
+        do {
+            let (d, resp) = try await URLSession.shared.data(from: u)
+            // ⚠️ El código sólo se mira si HAY respuesta HTTP. Exigir un 200 a secas daba
+            // «ese enlace ya no sirve» con un `file://`, que no trae `HTTPURLResponse`.
+            let codigo = (resp as? HTTPURLResponse)?.statusCode
+            guard codigo == nil || codigo == 200 else {
+                // ⚠️ Una URL firmada CADUCA. Decirlo es la diferencia entre «esto ya no
+                // está» y una tarjeta que no hace nada al tocarla.
+                falloAlBajar = "Ese enlace ya no sirve."
+                return
+            }
+            bajados = d
+            falloAlBajar = nil
+            if yAbrir {
+                if let img = UIImage(data: d), entrega.esAudio == false { mirando = img }
+                else { compartiendo = conBytes()?.aDisco() }
+            }
+        } catch {
+            falloAlBajar = "No pude bajarlo."
+        }
+    }
+
     var body: some View {
         Button {
             // Una imagen la enseñamos nosotros; lo demás va al visor del sistema. Ver
@@ -49,7 +89,10 @@ struct EntregaCard: View {
             // tarjeta; lo demás va al visor del sistema.
             if let img = imagen { mirando = img }
             else if entrega.esAudio { return }
-            else { compartiendo = entrega.aDisco() }
+            // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
+            // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
+            else if datos == nil, entrega.url != nil { Task { await bajar(yAbrir: true) } }
+            else { compartiendo = conBytes()?.aDisco() }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 vistaPrevia
@@ -67,8 +110,16 @@ struct EntregaCard: View {
         }
         .buttonStyle(.plain)
         .quickLookPreview($compartiendo)
+        // ⚠️ Sólo las IMÁGENES se bajan al aparecer: la miniatura es lo que hace útil la
+        // tarjeta. Lo demás espera al toque — ver el aviso de arriba.
+        .task(id: entrega.id) {
+            guard entrega.hayQueBajar, bajados == nil else { return }
+            let ext = entrega.tipo ?? ""
+            guard ["png", "jpg", "jpeg", "heic", "gif", "webp"].contains(ext) else { return }
+            await bajar(yAbrir: false)
+        }
         .fullScreenCover(item: $mirando) { img in
-            VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: entrega.aDisco())
+            VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: conBytes()?.aDisco())
         }
     }
 
@@ -113,10 +164,15 @@ struct EntregaCard: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.gInk)
                     .lineLimit(1)
-                Text([entrega.etiqueta, entrega.peso].compactMap { $0 }.joined(separator: " · "))
-                    .gCaption()
+                if let falloAlBajar {
+                    Text(falloAlBajar).gCaption().foregroundStyle(Color.gDangerInk)
+                } else {
+                    Text([entrega.etiqueta, entrega.peso].compactMap { $0 }.joined(separator: " · "))
+                        .gCaption()
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if bajando { ProgressView().controlSize(.small) }
             Image(systemName: "arrow.up.right")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color.gInk3)

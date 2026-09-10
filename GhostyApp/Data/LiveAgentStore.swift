@@ -1033,6 +1033,22 @@ final class LiveAgentStore: AgentStoring {
                 switch evento {
                 case .agent(let t):
                     acumulado += t
+                    // ⚠️ Un ` ```eb-file ` deja de ser texto y pasa a ser tarjeta. Ver
+                    // `BloqueEbFile`: es un puente hasta que el relé mande
+                    // `ghosty/artifact` para todo lo que produce. Sin esto salía el JSON
+                    // crudo en mitad de la respuesta y el archivo no llegaba a Artefactos.
+                    for hallado in BloqueEbFile.buscar(acumulado, agentID: canal.cuenta.id,
+                                                       sesionID: sid).reversed() {
+                        acumulado.removeSubrange(hallado.rango)
+                        entregas.registrar(hallado.entrega)
+                        let idEntrega = "entrega-\(hallado.entrega.id)"
+                        if !hilo.mensajes.contains(where: { $0.id == idEntrega }) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                hilo.mensajes.append(Message(id: idEntrega,
+                                                             kind: .entrega(hallado.entrega)))
+                            }
+                        }
+                    }
                     pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
                 case .tool(let h):
                     // ACP manda la MISMA herramienta varias veces conforme avanza: se

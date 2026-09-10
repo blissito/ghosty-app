@@ -14,6 +14,8 @@ enum ReplayToMessages {
     static func convertir(_ replay: [ACPClient.Replay],
                           archivos: [String: GhostyAPI.ArchivoDeSesion] = [:]) -> [Message] {
         var mensajes: [Message] = []
+        /// Las tarjetas de `eb-file` que salieron del texto, con dónde van.
+        var entregasDelReplay: [(Int, Entrega)] = []
 
         // El turno que se está armando
         var quien: Quien?
@@ -65,7 +67,16 @@ enum ReplayToMessages {
 
             case .agente:
                 let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)
-                guard !limpio.isEmpty || tools != nil else { return }
+                // ⚠️ También al recargar, o un hilo viejo seguiría enseñando el JSON del
+                // `eb-file` que en vivo ya sale como tarjeta. Aquí no se registra la
+                // entrega —eso lo hizo el turno en su día—: sólo se saca del texto y se
+                // pinta, que es lo que hace que el hilo se vea igual que cuando pasó.
+                var limpio = limpio
+                for hallado in BloqueEbFile.buscar(limpio, agentID: "", sesionID: nil).reversed() {
+                    limpio.removeSubrange(hallado.rango)
+                    entregasDelReplay.append((mensajes.count, hallado.entrega))
+                }
+                guard !limpio.isEmpty || tools != nil || !entregasDelReplay.isEmpty else { return }
                 mensajes.append(Message(
                     id: "a\(mensajes.count)",
                     kind: .agent(text: limpio.isEmpty ? "_Trabajó sin escribir nada._" : limpio,
@@ -116,6 +127,13 @@ enum ReplayToMessages {
             }
         }
         cerrar()
+        // Las tarjetas se cosen al final, de atrás hacia delante para no mover índices.
+        for (donde, e) in entregasDelReplay.reversed() {
+            let id = "entrega-\(e.id)"
+            guard !mensajes.contains(where: { $0.id == id }) else { continue }
+            let sitio = min(donde + 1, mensajes.count)
+            mensajes.insert(Message(id: id, kind: .entrega(e)), at: sitio)
+        }
         return mensajes
     }
 }
