@@ -121,6 +121,8 @@ extension LiveAgentStore {
         // El orden de la barra es por ÚLTIMO MENSAJE ESCRITO, así que la demo lo fija a
         // mano en vez de dejarlo al orden de creación: si no, la conversación larga —la
         // que sirve para revisar el scroll— cae al final y las capturas no la enseñan.
+        // Una que reventó: es el estado que la lista no sabía distinguir.
+        larga.fallo = "Se cortó a media respuesta"
         larga.tocado = Date()
         foto.tocado = Date().addingTimeInterval(-120)
         vacia.tocado = Date().addingTimeInterval(-300)

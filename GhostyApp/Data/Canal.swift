@@ -60,6 +60,12 @@ final class Hilo {
     /// decidir a cuál volver.
     var termino: Date?
     var visto = true
+    /// Por qué se rompió el último turno, si se rompió.
+    ///
+    /// ⚠️ Una conversación que reventó se veía en la lista igual que una que fue bien
+    /// —«5 mensajes»— así que había que entrar a cada una para descubrir cuál había
+    /// fallado. Y con varias a la vez, eso es justo lo que no puedes hacer.
+    var fallo: String?
     /// Cuándo se le ESCRIBIÓ por última vez.
     ///
     /// ⚠️ Sólo al escribir, no al mirar. Es lo que ordena la barra de conversaciones, y
@@ -69,10 +75,14 @@ final class Hilo {
     var tocado = Date()
 
     /// En qué anda, en una línea, para una lista.
-    enum Estado: Equatable { case trabajando(String), listo(String), sinEstrenar, enReposo(String) }
+    enum Estado: Equatable {
+        case trabajando(String), listo(String), fallo(String), sinEstrenar, enReposo(String)
+    }
 
     var estado: Estado {
         if let turno { return .trabajando(turno.elapsed.isEmpty ? "…" : turno.elapsed) }
+        // Gana sobre «contestó»: si el turno se rompió, eso es lo que hay que saber.
+        if let fallo { return .fallo(fallo) }
         if let termino, !visto { return .listo(Self.hace(termino)) }
         if mensajes.isEmpty { return .sinEstrenar }
         let n = mensajes.count
@@ -90,9 +100,16 @@ final class Hilo {
     }
 
     /// De qué va, para poder nombrarlo en una lista.
+    /// De qué va la conversación: su PRIMER mensaje.
+    ///
+    /// ⚠️ Miraba `prompt` primero, y `prompt` es lo ÚLTIMO que escribiste: el título del
+    /// chip cambiaba con cada mensaje, así que una conversación que empezó con «ejecuta
+    /// echo hola» aparecía en la barra como «busca sonidos de comic». Una conversación se
+    /// llama por donde empezó, no por lo último que dijiste — es lo que hacen todos.
     var titulo: String {
-        if !prompt.isEmpty { return Self.limpio(prompt) }
         for m in mensajes { if case .user(let t, _) = m.kind, !t.isEmpty { return Self.limpio(t) } }
+        // Sólo mientras el mensaje va en camino y todavía no está en la lista.
+        if !prompt.isEmpty { return Self.limpio(prompt) }
         return "Conversación nueva"
     }
 

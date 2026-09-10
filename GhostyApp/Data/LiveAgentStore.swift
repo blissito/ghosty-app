@@ -855,6 +855,8 @@ final class LiveAgentStore: AgentStoring {
         // hacía que un mensaje acabara en una conversación en blanco.
         let hilo = canal.hilo ?? canal.abrir()
         canal.activa = hilo.clave
+        // Un turno nuevo borra el fallo del anterior: lo que importa es cómo va ÉSTE.
+        hilo.fallo = nil
         // ⚠️ AQUÍ y sólo aquí: escribirle es lo que revive una conversación y la manda al
         // principio de la barra. Mirarla no la mueve — reordenar mientras eliges cambia
         // las fichas de sitio debajo del dedo.
@@ -938,6 +940,7 @@ final class LiveAgentStore: AgentStoring {
                 // o no se pudo subir un adjunto. En los dos casos el agente no vio nada, y
                 // el compositor tiene que poder devolverle su trabajo a la persona.
                 hilo.envioFallo = true
+                hilo.fallo = "No llegó a salir"
                 self.pintarRespuesta(hilo, id: idRespuesta,
                                      texto: "⚠️ \(error.localizedDescription)")
                 self.anotar(canal, hilo, chars: 0, como: .failed)
@@ -1064,6 +1067,7 @@ final class LiveAgentStore: AgentStoring {
             anotar(canal, hilo, chars: acumulado.count, como: .done)
         } catch {
             pintarRespuesta(hilo, id: respuesta, texto: Self.mensajeDeFallo(error, parcial: acumulado))
+            hilo.fallo = Task.isCancelled ? nil : "Se cortó a media respuesta"
             anotar(canal, hilo, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
         }
         cerrarTurno(canal, hilo)
@@ -1189,6 +1193,10 @@ final class LiveAgentStore: AgentStoring {
             case .timedOut: detalle = "El turno tardó más de lo que aguanta la conexión."
             default: detalle = u.localizedDescription
             }
+        } else if (error as NSError).code == 40 || error.localizedDescription.contains("Message too long") {
+            // ⚠️ POSIX 40 = EMSGSIZE. Salía tal cual, en inglés y sin decir de qué mensaje
+            // hablaba. Ver el tope del socket en `ACPClient.conectar`.
+            detalle = "Ese turno traía un mensaje demasiado grande para la conexión."
         } else {
             detalle = error.localizedDescription
         }

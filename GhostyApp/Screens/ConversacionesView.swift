@@ -170,6 +170,9 @@ struct ConversacionesView: View {
         Group {
             if h.trabajando {
                 ProgressView().frame(width: 28, height: 28)
+            } else if h.fallo != nil {
+                TintedIcon(systemName: "exclamationmark.triangle.fill", tint: .gDangerInk,
+                           background: .gDangerTint, size: 28)
             } else if h.permisoPendiente != nil {
                 TintedIcon(systemName: "hand.raised.fill", tint: .gDangerInk,
                            background: .gDangerTint, size: 28)

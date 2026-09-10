@@ -22,6 +22,15 @@ struct EstadoDelHilo: View {
                         Text(reloj).gMono(size: 13, weight: .regular)
                             .foregroundStyle(Color.gInk4)
                     }
+                case .fallo(let motivo):
+                    // En rojo y con su triángulo: es la única fila de la lista que pide
+                    // que vuelvas a entrar.
+                    HStack(spacing: 5) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.gDangerInk)
+                        Text(motivo).gMeta().foregroundStyle(Color.gDangerInk)
+                    }
                 case .listo(let cuando):
                     // Verde y con palomita: es una respuesta que TE ESPERA.
                     HStack(spacing: 5) {

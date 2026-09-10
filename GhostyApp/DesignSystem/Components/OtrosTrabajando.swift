@@ -146,6 +146,10 @@ struct OtrosTrabajando: View {
                         .foregroundStyle(Color.gDanger)
                 } else if hilo.trabajando {
                     ProgressView().controlSize(.mini)
+                } else if hilo.fallo != nil {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.gDangerInk)
                 } else if contesto {
                     // Ya contestó y no lo has visto: es a donde hay que volver.
                     Image(systemName: "checkmark.circle.fill")
