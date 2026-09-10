@@ -15,7 +15,12 @@ conclusiones equivocadas por eso.
 
 **Reglas que quedan:**
 
-- **Iterar es por cable** (`./instalar.sh`) o en el simulador. TestFlight es para
+- **Una subida al día, al final del día.** No es un límite de Apple, es la regla de la
+  casa: se agrupa todo lo del día en una sola build y se sube al cerrar. Cualquier otra
+  subida hay que justificarla.
+
+- **Iterar es por cable o por WiFi** (`./instalar.sh` — el iPhone está pareado por red, así
+  que `devicectl` abre el túnel solo y no hace falta enchufarlo) o en el simulador. TestFlight es para
   **repartir**, no para probar.
 - Subir sólo cuando hay algo que de verdad tenga que ver otra persona, y **agrupando** los
   cambios del rato en una sola build.
