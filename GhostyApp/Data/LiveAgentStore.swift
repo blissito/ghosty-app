@@ -1331,6 +1331,12 @@ final class LiveAgentStore: AgentStoring {
         hilo.prompt = limpio
         hilo.uso = (0, 0)
 
+        // ⚠️ Se cancela lo anterior ANTES de asignar. Si el hilo estaba enganchado a su
+        // conversación —escuchando lo que pasara ahí— reemplazar la tarea sin cancelarla
+        // deja DOS suscripciones al mismo sitio, y todo lo que llegue se pinta dos veces.
+        // En el registro se ve como un `started` duplicado; en pantalla, como un agente
+        // tartamudo.
+        hilo.enVuelo?.cancel()
         hilo.enVuelo = Task { [weak self] in
             guard let self else { return }
             // El turno anterior tiene que estar MUERTO antes de hablarle a la misma sesión.
