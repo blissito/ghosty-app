@@ -538,9 +538,19 @@ final class LiveAgentStore: AgentStoring {
             var intento = 0
             while !Task.isCancelled, Date() < limite {
                 guard let self, let canal else { return }
-                // Si le escribiste otra vez, manda el turno nuevo: ponerse al día encima
-                // de una respuesta que está llegando es pisarla.
-                if hilo.trabajando { hilo.recogiendo = nil; return }
+                // ⚠️ Por SESIÓN, no por este objeto. Puede haber dos `Hilo` apuntando a
+                // la misma conversación —uno abierto y otro de la lista guardada— y con
+                // `hilo.trabajando` a secas la recogida del segundo seguía viva mientras
+                // el primero contestaba: cada intento abría OTRO socket a la misma caja y
+                // hacía `session/load` sobre la sesión que estaba corriendo. Medido en el
+                // teléfono: turno a las 16:36:47 y `session/load` cada dos segundos
+                // encima, hasta el intento 6. Eso es el «le escribo y no contesta».
+                if hilo.trabajando || canal.enCurso.contains(where: {
+                    $0.sesionID != nil && $0.sesionID == hilo.sesionID
+                }) {
+                    hilo.recogiendo = nil
+                    return
+                }
                 let completo = await self.resincronizar(hilo, de: canal)
                 if completo {
                     if let sid = hilo.sesionID {
@@ -575,6 +585,9 @@ final class LiveAgentStore: AgentStoring {
     @discardableResult
     private func resincronizar(_ hilo: Hilo, de canal: Canal) async -> Bool {
         guard let sid = hilo.sesionID else { hilo.interrumpido = false; return true }
+        // La misma regla, en el sitio donde de verdad se habla con la caja: nadie se pone
+        // al día de una conversación que está contestando ahora mismo.
+        if canal.enCurso.contains(where: { $0.sesionID == sid }) { return false }
         hilo.poniendoseAlDia = true
         defer { hilo.poniendoseAlDia = false }
         let antes = hilo.mensajes.count

@@ -13,22 +13,22 @@
 				<key>testDetener</key>
 				<dict>
 					<key>mrnet</key>
-					<real>11.172587990760803</real>
+					<real>8.5483840703964233</real>
 				</dict>
 				<key>testFiltroDeArtefactos</key>
 				<dict>
 					<key>mrnet</key>
-					<real>10.551927924156189</real>
+					<real>10.31069004535675</real>
 				</dict>
 				<key>testInterrumpido</key>
 				<dict>
 					<key>mrnet</key>
-					<real>9.3826209306716919</real>
+					<real>9.1693949699401855</real>
 				</dict>
 				<key>testRecorrido</key>
 				<dict>
 					<key>mrnet</key>
-					<real>32.971569061279297</real>
+					<real>32.875425934791565</real>
 				</dict>
 			</dict>
 		</dict>
