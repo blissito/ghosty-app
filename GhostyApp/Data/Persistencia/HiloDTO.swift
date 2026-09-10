@@ -71,7 +71,12 @@ struct HerramientaGuardada: Codable {
         case .hecha:     "hecha"
         case .fallida:   "fallida"
         }
-        salida = h.salida
+        // ⚠️ RECORTADA. `salida` trae lo que devolvió la herramienta entera: un diff, un
+        // log, la salida de un comando. Guardarla íntegra por 200 mensajes y por agente
+        // convertía `hilos.json` en varios MB, y ese archivo se re-serializa completo al
+        // cerrar cada turno — justo cuando la persona está mirando la pantalla. En el chat
+        // se enseña recortada de todas formas.
+        salida = h.salida.map { String($0.prefix(2000)) }
         donde = h.donde
     }
 

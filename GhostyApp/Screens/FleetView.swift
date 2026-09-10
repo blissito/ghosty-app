@@ -66,37 +66,64 @@ struct FleetView: View {
         return base + (ocupados == 1 ? " · 1 trabajando" : " · \(ocupados) trabajando")
     }
 
+    /// La tarjeta de un agente: quién es y qué hace, lo último que dijo, y por dónde
+    /// pedirle algo. Los tres pisos alineados con el texto, no con la mascota.
     private func fila(_ agente: Agent, ultima: Bool) -> some View {
         let canal = store.canales[agente.id]
-        return HStack(spacing: 13) {
+        return VStack(alignment: .leading, spacing: 9) {
+            cabecera(agente, canal: canal)
+            if let dicho = ultimoDicho(canal) {
+                Text(dicho)
+                    .gMeta()
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, Self.sangria)
+            }
+            pedir(agente, canal: canal)
+        }
+        .padding(.vertical, Theme.Space.row)
+        .ghostySeparator(inset: ultima ? .infinity : 0)
+    }
+
+    /// Lo que ocupa la mascota más su hueco: los pisos de abajo se alinean con el nombre.
+    private static let sangria: CGFloat = 61
+
+    private func cabecera(_ agente: Agent, canal: Canal?) -> some View {
+        HStack(spacing: 13) {
             GhostyMascot(tone: agente.tone, height: 48)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(agente.name).gRowTitle()
-                // ⚠️ Lo que está HACIENDO manda sobre el motor: el motor es lo mismo
-                // siempre y la tarea es lo único que cambia mientras esperas.
-                if let turno = canal?.turno {
-                    HStack(spacing: 5) {
-                        ProgressView().controlSize(.mini)
-                        Text("\(turno.detail) · \(turno.elapsed)")
-                            .gMeta()
-                            .lineLimit(1)
+                // ⚠️ `StatusLine` es de la casa y ya sabe pintar los tres estados —incluido
+                // el punto rojo de "espera tu visto bueno"—. La flota se había inventado los
+                // suyos, así que el mismo agente se veía distinto aquí y en la cabecera del
+                // chat.
+                HStack(spacing: 6) {
+                    StatusLine(status: agente.status)
+                    // El reloj sí es de aquí: es lo único que `AgentStatus` no lleva.
+                    if let turno = canal?.turno {
+                        Text(turno.elapsed)
+                            .gMono()
+                            .foregroundStyle(Color.gInk4)
                     }
-                } else if canal?.permisoPendiente != nil {
-                    Text("Espera tu permiso")
-                        .gMeta()
-                        .foregroundStyle(Color.gPrimary)
-                } else {
-                    Text(agente.engine).gMeta()
                 }
+                .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             // Detener sin ir a su conversación: si lo dejaste trabajando, pararlo no
             // debería obligarte a volver a donde estabas.
+            // El mismo botón de detener que dibuja `AgentRow`: cuadrado oscuro con el
+            // stop blanco. Un icono distinto para la misma acción se lee como otra cosa.
             if canal?.trabajando == true {
                 Button { store.detener(canal) } label: {
-                    TintedIcon(systemName: "stop.fill", tint: .gInk2, background: .gFill, size: 30)
+                    RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
+                        .fill(Color.gInk)
+                        .frame(width: 34, height: 34)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 2.5).fill(Color.white)
+                                .frame(width: 9, height: 9)
+                        }
                 }
                 .buttonStyle(.plain)
             }
@@ -144,7 +171,7 @@ struct FleetView: View {
                 TextField("Pídele algo…", text: Binding(
                     get: { borradores[agente.id] ?? "" },
                     set: { borradores[agente.id] = $0 }))
-                    .font(.system(size: 14))
+                    .gBody()
                     .textFieldStyle(.plain)
                     .submitLabel(.send)
                     .onSubmit { mandar(a: agente.id) }
@@ -154,16 +181,17 @@ struct FleetView: View {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
-                            .frame(width: 26, height: 26)
+                            .frame(width: 28, height: 28)
                             .background(Theme.primaryGradient, in: Circle())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(Color.gFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .padding(.leading, 61)
+            .padding(.horizontal, Theme.Space.cardH - 4)
+            .padding(.vertical, 8)
+            .background(Color.gFill,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .padding(.leading, Self.sangria)
         }
     }
 

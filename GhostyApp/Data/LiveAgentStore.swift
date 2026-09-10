@@ -340,8 +340,10 @@ final class LiveAgentStore: AgentStoring {
     func nuevaConversacion() {
         guard let canal = canalActivo else { return }
         canal.enVuelo?.cancel()
-        canal.cronometro?.cancel()
-        canal.turno = nil
+        // ⚠️ Por `cerrarTurno` y no a mano: puesto a mano se quedaba sin apagar
+        // `agents[i].status`, así que un agente al que le abrías conversación nueva a
+        // media respuesta seguía diciendo "trabajando" para siempre en la flota.
+        cerrarTurno(canal, avisar: false)
         canal.mensajes = []
         canal.hiloAbierto = nil
         canal.sesionID = nil
@@ -448,6 +450,12 @@ final class LiveAgentStore: AgentStoring {
     /// El agente pidió permiso. El turno está detenido hasta que se conteste.
     private func recibirPermiso(_ p: ACPClient.Permiso, en canal: Canal) {
         canal.permisoACP = p
+        // ⚠️ El estado del AGENTE, no sólo el del canal. `StatusLine` ya sabe pintar
+        // "Espera tu visto bueno" con su punto rojo, y no salía nunca porque el store
+        // sólo encendía `.working` e `.idle`.
+        if let i = agents.firstIndex(where: { $0.id == canal.cuenta.id }) {
+            agents[i].status = .awaitingApproval
+        }
         // El más urgente de los dos avisos: este turno está DETENIDO hasta que contestes,
         // así que no enterarte cuesta el trabajo entero.
         if canal.cuenta.id != selectedAgentID || Avisos.enElFondo {
@@ -481,11 +489,15 @@ final class LiveAgentStore: AgentStoring {
             canal.estadoHilos = .listo
             cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
         } catch {
+            // ⚠️ El socket se suelta ANTES de decidir si el fallo se enseña o no. Estaba
+            // sólo en la rama sin caché, y por eso con caché el canal se quedaba pegado a
+            // un socket muerto: `asegurarSocket` lo da por bueno mientras `infoDeLaCaja`
+            // no sea nil, así que ya no reintentaba la reconexión nunca.
+            canal.acp = nil; canal.infoDeLaCaja = nil
             // Un fallo de red con lista cacheada se traga: lo que hay sigue siendo cierto,
             // y cambiarlo por una pantalla de error borraría información buena.
             if hayCache { canal.estadoHilos = .listo; return }
             canal.estadoHilos = .fallo(error.localizedDescription)
-            canal.acp = nil; canal.infoDeLaCaja = nil
         }
     }
 
@@ -543,6 +555,9 @@ final class LiveAgentStore: AgentStoring {
         guard !limpio.isEmpty || !adjuntos.isEmpty,
               let canal = canales[agenteID ?? selectedAgentID] else { return }
         let cuenta = canal.cuenta
+        // Mandarle a OTRO agente es dejarlo trabajando sin mirarlo: es justo el caso que
+        // necesita el aviso, y el momento con contexto para pedirlo.
+        if cuenta.id != selectedAgentID { Avisos.pedirPermisoSiHaceFalta() }
 
         // ⚠️ Sólo se cancela el turno de ESTE canal. Antes era un `turnoEnVuelo` único,
         // así que escribirle a un agente cortaba en seco al otro.
@@ -730,7 +745,7 @@ final class LiveAgentStore: AgentStoring {
     func detener(_ canal: Canal?) {
         guard let canal else { return }
         canal.enVuelo?.cancel()
-        cerrarTurno(canal)
+        cerrarTurno(canal, avisar: false)
         canal.mensajes.removeAll { $0.kind == .typing }
     }
 
@@ -743,10 +758,23 @@ final class LiveAgentStore: AgentStoring {
         // Si viene de la caja, hay que contestarle: el turno está detenido esperando.
         if let p = canal.permisoACP, "\(p.id)" == request.id, let cliente = canal.acp {
             let opcion = Self.elegirOpcion(decision, entre: p.opciones)
-            try? await cliente.responderPermiso(p.id, opcion: opcion)
+            do {
+                try await cliente.responderPermiso(p.id, opcion: opcion)
+            } catch {
+                // ⚠️ Era un `try?` seguido de borrar la petición, y ése es el peor fallo
+                // mudo posible aquí: la pantalla daba el permiso por contestado y el turno
+                // del agente se quedaba detenido AL OTRO LADO, para siempre y sin forma de
+                // reintentar. Si no llegó, la pregunta se queda en pantalla.
+                canal.estadoHilos = .fallo("No pude contestarle a tu agente. Inténtalo otra vez.")
+                return
+            }
             canal.permisoACP = nil
         }
         canal.permisoPendiente = nil
+        // El agente vuelve a lo suyo: si el turno sigue vivo, a trabajar.
+        if canal.trabajando, let i = agents.firstIndex(where: { $0.id == canal.cuenta.id }) {
+            agents[i].status = .working(task: canal.turno?.detail ?? "Trabajando…")
+        }
         permissionHistory.insert(
             PermissionRecord(id: request.id,
                              icon: request.kind == .email ? .document : .cart,
@@ -842,7 +870,10 @@ final class LiveAgentStore: AgentStoring {
         agents[i].status = .working(task: tarea)
     }
 
-    private func cerrarTurno(_ canal: Canal) {
+    /// `avisar` es lo que distingue un turno que ACABÓ de uno que paraste tú o que
+    /// tiraste al abrir conversación nueva. Sin esta distinción, detener a un agente
+    /// desde la flota te mandaba una notificación diciendo que había terminado.
+    private func cerrarTurno(_ canal: Canal, avisar: Bool = true) {
         canal.cronometro?.cancel(); canal.cronometro = nil
         canal.turno = nil; canal.inicio = nil
         // El turno acabó: es el momento en que la conversación está completa y vale la
@@ -851,7 +882,7 @@ final class LiveAgentStore: AgentStoring {
         cache.guardarAbierto(canal.mensajes, hilo: canal.sesionID, de: canal.cuenta.id)
         // Sólo si NO lo estabas mirando. Avisar de algo que acabas de ver aparecer en
         // pantalla es ruido.
-        if canal.cuenta.id != selectedAgentID || Avisos.enElFondo {
+        if avisar, canal.cuenta.id != selectedAgentID || Avisos.enElFondo {
             Avisos.avisar(titulo: "\(canal.cuenta.name) terminó",
                           cuerpo: canal.prompt.isEmpty ? "Tu agente acabó el turno." : canal.prompt,
                           agentID: canal.cuenta.id)
