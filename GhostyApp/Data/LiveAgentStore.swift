@@ -52,6 +52,10 @@ final class LiveAgentStore: AgentStoring {
 
     var hayPendientes: Bool { !sinVer.isEmpty }
 
+    /// Pedirle al chat que abra el teclado al llegar. Lo enciende quien te manda allí
+    /// —el botón de nueva conversación— y lo apaga el chat al obedecer.
+    var pedirTeclado = false
+
     func visto(_ id: String) { sinVer.remove(id) }
     func vistoTodo() { sinVer.removeAll() }
 
@@ -467,7 +471,9 @@ final class LiveAgentStore: AgentStoring {
         // de la lista no hiciera nada —o peor, tocara el canal equivocado—. La lista
         // enseña a todos los agentes a la vez, así que el activo no dice nada de la fila.
         guard let canal = canalDe(hilo) else { return }
-        let sid = hilo.sesionID
+        // En demo no hay caja: se cierra aquí y ya. Sin esto el borrado se quedaba
+        // esperando a una red que no existe.
+        let sid = DemoData.encendido ? nil : hilo.sesionID
         if let sid {
             do {
                 let cliente = try await asegurarSocket(canal)
@@ -486,6 +492,10 @@ final class LiveAgentStore: AgentStoring {
     /// Borra una conversación guardada que no está abierta aquí.
     func borrarGuardada(_ sesion: ACPClient.Session, de agenteID: String) async {
         guard let canal = canales[agenteID] else { return }
+        guard !DemoData.encendido else {
+            canal.hilosRemotos.removeAll { $0.id == sesion.id }
+            return
+        }
         do {
             let cliente = try await asegurarSocket(canal)
             try await cliente.borrarSesion(sesion.id)

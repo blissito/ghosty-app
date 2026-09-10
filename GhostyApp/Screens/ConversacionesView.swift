@@ -14,7 +14,6 @@ struct ConversacionesView: View {
     /// Tocar una conversación te lleva a ella: quien cambia de pestaña es `RootView`.
     var onAbrir: () -> Void
 
-    @State private var borradores: [String: String] = [:]
     /// Qué agentes tienen desplegadas sus conversaciones guardadas.
     @State private var desplegados: Set<String> = []
 
@@ -86,7 +85,7 @@ struct ConversacionesView: View {
                     .ghostySeparator(inset: 0)
             }
 
-            pedir(agente, canal)
+            nuevaConversacion(agente)
                 .padding(.vertical, 10)
 
             guardadas(agente, canal)
@@ -189,35 +188,34 @@ struct ConversacionesView: View {
         }
     }
 
-    /// Mandarle algo sin entrar. ⚠️ Sin adjuntos: adjuntar es del chat, y traerlo aquí
-    /// duplicaría medio compositor dentro de una fila.
-    @ViewBuilder
-    private func pedir(_ agente: Agent, _ canal: Canal) -> some View {
-        HStack(spacing: 8) {
-            TextField("Pídele algo…", text: Binding(
-                get: { borradores[agente.id] ?? "" },
-                set: { borradores[agente.id] = $0 }))
-                .gBody()
-                .textFieldStyle(.plain)
-                .accessibilityIdentifier("pedir-\(agente.id)")
-                .submitLabel(.send)
-                .onSubmit { mandar(a: agente.id) }
-
-            if !(borradores[agente.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button { mandar(a: agente.id) } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(Theme.primaryGradient, in: Circle())
-                }
-                .buttonStyle(.plain)
+    /// Empezar una conversación con este agente.
+    ///
+    /// ⚠️ Aquí había un campo «Pídele algo…» que mandaba SIN llevarte al chat, y prometía
+    /// algo que no cumplía: caía en la conversación ACTIVA de ese agente —cuál era, no lo
+    /// decía—, la lista no cambiaba a la vista, y si se pasaba del tope de turnos el aviso
+    /// se quedaba dentro de esa conversación, donde no lo veías. Un botón que crea una
+    /// conversación y te lleva a ella no tiene ninguna de esas dudas.
+    private func nuevaConversacion(_ agente: Agent) -> some View {
+        Button {
+            store.seleccionar(agente.id)
+            store.nuevaConversacion()
+            store.pedirTeclado = true
+            onAbrir()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Nueva conversación").gChip()
+                Spacer(minLength: 0)
             }
+            .foregroundStyle(Color.gPrimary)
+            .padding(.horizontal, Theme.Space.cardH - 4)
+            .padding(.vertical, 10)
+            .background(Color.gPrimaryTint,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
         }
-        .padding(.horizontal, Theme.Space.cardH - 4)
-        .padding(.vertical, 8)
-        .background(Color.gFill,
-                    in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("nueva-\(agente.id)")
     }
 
     /// Lo que vive en la caja y no tienes abierto.
@@ -313,10 +311,4 @@ struct ConversacionesView: View {
         return partes.joined(separator: " · ")
     }
 
-    private func mandar(a id: String) {
-        let texto = (borradores[id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !texto.isEmpty else { return }
-        borradores[id] = ""
-        Task { await store.send(texto, a: id) }
-    }
 }

@@ -30,6 +30,8 @@ struct ConversationView: View {
     @State private var fallo: String?
     /// ¿Está el hilo al final? Decide si se enseña el botón de bajar.
     @State private var alFinal = true
+    /// Se incrementa al enviar: es la señal para bajar del todo.
+    @State private var bajarYa = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -145,6 +147,9 @@ struct ConversationView: View {
                 // hay nada que animar, sólo un sitio donde empezar a leer.
                 // Cambiar de conversación SÍ manda al final: es una pantalla nueva.
                 // Un reintento tras el layout, porque el alto todavía no es el definitivo.
+                // ⚠️ Al ENVIAR se baja siempre, aunque estuvieras arriba: acabas de
+                // escribir, y lo que quieres ver es tu mensaje y lo que conteste.
+                .onChange(of: bajarYa) { _, _ in traerAlFinal(scroll) }
                 .onChange(of: hiloVisible) { _, _ in traerAlFinal(scroll) }
                 .onAppear { traerAlFinal(scroll) }
             }
@@ -156,6 +161,16 @@ struct ConversationView: View {
             OtrosTrabajando(store: store)
 
             compositor
+                // Venir de «Nueva conversación» abre el teclado: si te llevan a una
+                // conversación vacía, lo siguiente que vas a hacer es escribir.
+                .onChange(of: store.pedirTeclado) { _, quiere in
+                    guard quiere else { return }
+                    escribiendo = true
+                    store.pedirTeclado = false
+                }
+                .onAppear {
+                    if store.pedirTeclado { escribiendo = true; store.pedirTeclado = false }
+                }
         }
         .sensoryFeedback(.success, trigger: entregasEnElHilo)
         .sensoryFeedback(.impact(weight: .light), trigger: adjuntos.count)
@@ -641,6 +656,10 @@ struct ConversationView: View {
         let texto = borrador
         let envio = adjuntos
         borrador = ""
+        // El teclado se va y el hilo baja: escribiste, ya está mandado, lo que toca es
+        // mirar. Dejarlo abierto tapaba media conversación justo cuando llega la respuesta.
+        escribiendo = false
+        bajarYa += 1
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             adjuntos = []
             adjuntando = false
@@ -694,6 +713,9 @@ struct ConversationView: View {
         enVuelo = nota.id
         let texto = borrador
         borrador = ""
+        // Igual que al enviar escrito: teclado fuera y al final del hilo.
+        escribiendo = false
+        bajarYa += 1
         fallo = nil
         subiendo = true
         Task {

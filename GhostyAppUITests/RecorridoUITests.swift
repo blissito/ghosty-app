@@ -121,13 +121,14 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["adjuntar-Cámara"].exists, "no salieron las tres tarjetas")
         mas.tap()
 
-        // 6. Pedirle algo sin entrar a la conversación.
+        // 6. Empezar una conversación desde la lista: tiene que LLEVARTE al chat.
         app.buttons["tab-conversations"].tap()
-        let pedir = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH 'pedir-'")).firstMatch
-        XCTAssertTrue(pedir.waitForExistence(timeout: 3), "no salió el campo de pedir")
-        pedir.tap()
-        pedir.typeText("hola")
-        foto("09-pidele-algo")
+        let nueva = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'nueva-'")).firstMatch
+        XCTAssertTrue(nueva.waitForExistence(timeout: 3), "no salió el botón de nueva conversación")
+        nueva.tap()
+        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
+                      "nueva conversación no llevó al chat")
+        foto("09-nueva-conversacion")
 
         // 6b. Toque largo sobre una conversación: menú y confirmación de borrado.
         app.buttons["tab-conversations"].tap()
@@ -135,6 +136,8 @@ final class RecorridoUITests: XCTestCase {
         if app.keyboards.count > 0 { app.swipeDown() }
         let paraBorrar = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 2)
+        let antes = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).count
         if paraBorrar.exists {
             paraBorrar.press(forDuration: 1.1)
             foto("11-menu-borrar")
@@ -149,12 +152,16 @@ final class RecorridoUITests: XCTestCase {
             foto("13-borrando")
             // Y de verdad tiene que haberse ido: sin esto el test pasaba con la fila
             // intacta, que fue justo lo que ocultó que se borraba el canal equivocado.
-            XCTAssertFalse(app.staticTexts["Conversación nueva"].waitForExistence(timeout: 2),
-                           "la conversación no se borró")
+            // Se comprueba que baje el número de filas, no un texto concreto: el paso
+            // anterior crea una conversación nueva y habría dos con el mismo nombre.
+            let quedan = app.descendants(matching: .any).matching(
+                NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).count
+            XCTAssertLessThan(quedan, antes, "la conversación no se borró")
             foto("14-borrado")
         }
 
         // 7. Y que «Guardadas» se despliegue sólo cuando se toca.
+        if app.keyboards.count > 0 { app.swipeDown() }
         app.buttons["tab-conversations"].tap()
         let guardadas = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'guardadas-'")).firstMatch
         XCTAssertTrue(guardadas.exists, "no salió el plegable de guardadas")
