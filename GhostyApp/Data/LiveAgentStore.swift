@@ -602,7 +602,14 @@ final class LiveAgentStore: AgentStoring {
             // vida sus adjuntos: el replay de ACP trae sólo texto. Best-effort — si no
             // contesta, el hilo se abre igual y los adjuntos salen nombrados.
             let archivos = await GhostyAPI.archivosDe(sesion: sesion.id)
-            let mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
+            var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
+            // ⚠️ Las entregas se vuelven a coser AQUÍ. El replay de la caja no las trae
+            // —el relé las empuja en vivo y no las guarda—, así que sin esto la foto que
+            // te entregó el agente desaparecía del hilo al reabrirlo: seguía en
+            // Artefactos, pero la conversación se quedaba con el texto solo.
+            for e in entregas.deSesion(sesion.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
+                mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
+            }
             // ⚠️ Sólo si el turno no arrancó mientras cargábamos: alguien pudo escribirle
             // a este hilo en el segundo que tardó el replay, y pisarlo borraría su
             // mensaje.
@@ -835,7 +842,10 @@ final class LiveAgentStore: AgentStoring {
                     pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
                 case .usage(let entrada, let salida):
                     hilo.uso = (entrada, salida)
-                case .entrega(let e):
+                case .entrega(var e):
+                    // De QUÉ conversación. Sin esto no se puede devolver al hilo al
+                    // recargarlo, porque el replay de la caja no trae entregas.
+                    e.sesionID = sid
                     // Se guarda ANTES de pintarla: si la app muere entre una cosa y otra,
                     // preferimos una entrega guardada que no se anunció a un anuncio de
                     // algo que ya no está.

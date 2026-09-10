@@ -23,6 +23,13 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
 
     let id: String
     var agentID: String
+    /// En QUÉ conversación se entregó.
+    ///
+    /// ⚠️ Opcional porque las guardadas antes de esto no lo tienen —y un `Codable` con
+    /// campo nuevo obligatorio no lee el archivo viejo—, pero sin él la tarjeta no puede
+    /// volver al hilo: al reabrirlo manda el replay, y el replay **no trae entregas**.
+    /// El archivo seguía en Artefactos y la foto desaparecía de la conversación.
+    var sesionID: String?
     var forma: Forma
     var titulo: String
     var recibida: Date
@@ -138,6 +145,12 @@ final class EntregasStore {
     func de(_ agentID: String?) -> [Entrega] {
         guard let agentID else { return entregas }
         return entregas.filter { $0.agentID == agentID }
+    }
+
+    /// Lo entregado EN una conversación, en el orden en que llegó. Es lo que devuelve las
+    /// tarjetas al hilo cuando se recarga desde la caja.
+    func deSesion(_ sesionID: String) -> [Entrega] {
+        entregas.filter { $0.sesionID == sesionID }.sorted { $0.recibida < $1.recibida }
     }
 
     func limpiar() {
