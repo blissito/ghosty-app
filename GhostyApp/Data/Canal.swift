@@ -60,11 +60,12 @@ final class Hilo {
     /// decidir a cuál volver.
     var termino: Date?
     var visto = true
-    /// Cuándo se usó por última vez: al abrirla, al mirarla o al escribirle.
+    /// Cuándo se le ESCRIBIÓ por última vez.
     ///
-    /// ⚠️ Es lo que ordena la barra de conversaciones. Sin esto el orden era el de
-    /// creación y no cambiaba nunca por mucho que interactuaras, así que la que acabas de
-    /// revivir se quedaba enterrada al final de la fila.
+    /// ⚠️ Sólo al escribir, no al mirar. Es lo que ordena la barra de conversaciones, y
+    /// reordenarla al tocar un chip movería las fichas debajo del dedo justo cuando estás
+    /// eligiendo: miras para decidir, y lo que miras no debe cambiarse de sitio. Lo que
+    /// revive una conversación es mandarle algo.
     var tocado = Date()
 
     /// En qué anda, en una línea, para una lista.
@@ -177,11 +178,9 @@ final class Canal {
 
     @discardableResult
     func abrir(_ sesionID: String? = nil) -> Hilo {
-        if let sesionID, let ya = hilo(sesion: sesionID) {
-            activa = ya.clave
-            ya.tocado = Date()
-            return ya
-        }
+        // Traer a la vista una que ya está abierta NO la reordena: eso sólo lo hace
+        // escribirle. Ver el aviso de `Hilo.tocado`.
+        if let sesionID, let ya = hilo(sesion: sesionID) { activa = ya.clave; return ya }
         let h = Hilo()
         h.sesionID = sesionID
         hilos.append(h)

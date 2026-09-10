@@ -115,9 +115,15 @@ extension LiveAgentStore {
         // Una que ya contestó y no has visto: es el estado que la lista no sabía decir.
         foto.termino = Date().addingTimeInterval(-120)
         foto.visto = false
-        _ = uno.abrir()
+        let vacia = uno.abrir()
         uno.activa = larga.clave
         larga.termino = Date().addingTimeInterval(-3600)
+        // El orden de la barra es por ÚLTIMO MENSAJE ESCRITO, así que la demo lo fija a
+        // mano en vez de dejarlo al orden de creación: si no, la conversación larga —la
+        // que sirve para revisar el scroll— cae al final y las capturas no la enseñan.
+        larga.tocado = Date()
+        foto.tocado = Date().addingTimeInterval(-120)
+        vacia.tocado = Date().addingTimeInterval(-300)
         uno.hilosRemotos = DemoData.sesiones
         uno.estadoHilos = .listo
         uno.infoDeLaCaja = "demo 1.0"
