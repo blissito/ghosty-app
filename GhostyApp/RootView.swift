@@ -56,6 +56,8 @@ struct RootView: View {
             }
         }
         .task {
+            // Lo primero, y barato: tirar las imágenes viejas del caché de disco.
+            CacheDeImagenes.purgar()
             await store.cargar()
             // En paralelo: ninguna de las dos bloquea la pantalla y las dos deciden qué se
             // enseña en Ajustes.

@@ -44,7 +44,10 @@ struct HistoryPane: View {
             }
         }
         .padding(.horizontal, Theme.Space.screenH)
-        .task { if store.estadoHilos == .sinPedir { await store.cargarHilos() } }
+        // ⚠️ Se pide SIEMPRE, no sólo `.sinPedir`: con la lista cacheada el estado nace
+        // en `.listo` y esa condición no volvería a refrescar nunca. `cargarHilos` ya se
+        // protege de pedirlo dos veces a la vez, y con caché no enseña spinner.
+        .task { await store.cargarHilos() }
     }
 
     private var lista: some View {

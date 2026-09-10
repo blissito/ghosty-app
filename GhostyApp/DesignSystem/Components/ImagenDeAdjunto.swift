@@ -8,9 +8,20 @@ import SwiftUI
 /// desaparecía al cambiar de conversación y volver, dejando sólo el texto.
 /// Aquí se baja por su id, igual que ya hace la nota de voz con su audio.
 enum CacheDeImagenes {
-    /// En memoria y por id. Volver a un hilo no vuelve a bajar lo mismo.
+    /// Dos niveles: memoria para lo de esta sesión, disco para que cerrar la app no
+    /// obligue a bajarlo todo otra vez.
     private static var cache: [String: UIImage] = [:]
     private static var enVuelo: [String: Task<UIImage?, Never>] = [:]
+
+    /// Cuánto puede ocupar el caché en disco antes de purgar por lo más viejo.
+    private static let topeBytes = 80 * 1024 * 1024
+
+    private static var carpeta: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "imagenes")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
 
     @MainActor
     static func imagen(_ adjunto: Adjunto) async -> UIImage? {
@@ -19,8 +30,15 @@ enum CacheDeImagenes {
         if let ya = cache[id] { return ya }
         if let tarea = enVuelo[id] { return await tarea.value }
 
+        let destino = carpeta.appending(path: id)
+        if let d = try? Data(contentsOf: destino), let img = UIImage(data: d) {
+            cache[id] = img
+            return img
+        }
+
         let tarea = Task<UIImage?, Never> {
             guard let d = try? await GhostyAPI.bajar(id) else { return nil }
+            try? d.write(to: destino, options: .atomic)
             return UIImage(data: d)
         }
         enVuelo[id] = tarea
@@ -28,6 +46,27 @@ enum CacheDeImagenes {
         enVuelo[id] = nil
         if let img { cache[id] = img }
         return img
+    }
+
+    /// Purga lo más viejo si el caché se pasó del tope. Se llama al arrancar: hacerlo en
+    /// cada escritura costaría un listado del directorio por cada imagen que baja.
+    static func purgar() {
+        let claves: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+        guard let archivos = try? FileManager.default.contentsOfDirectory(
+            at: carpeta, includingPropertiesForKeys: claves) else { return }
+
+        let conDatos = archivos.compactMap { url -> (URL, Date, Int)? in
+            guard let v = try? url.resourceValues(forKeys: Set(claves)),
+                  let fecha = v.contentModificationDate, let peso = v.fileSize else { return nil }
+            return (url, fecha, peso)
+        }
+        var total = conDatos.reduce(0) { $0 + $1.2 }
+        guard total > topeBytes else { return }
+        for (url, _, peso) in conDatos.sorted(by: { $0.1 < $1.1 }) {
+            guard total > topeBytes else { break }
+            try? FileManager.default.removeItem(at: url)
+            total -= peso
+        }
     }
 }
 

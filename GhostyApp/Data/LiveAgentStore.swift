@@ -64,6 +64,8 @@ final class LiveAgentStore: AgentStoring {
     var hiloAbierto: String? { canalActivo?.hiloAbierto }
     var permisoACP: ACPClient.Permiso? { canalActivo?.permisoACP }
     let bitacora = TurnLogStore()
+    /// Las conversaciones guardadas en el teléfono. Ver `CacheDeHilos.swift`.
+    let cache = CacheDeHilos()
     /// Lo que el agente ha entregado por este teléfono. Ver `Entregas.swift`.
     let entregas = EntregasStore()
 
@@ -228,7 +230,22 @@ final class LiveAgentStore: AgentStoring {
         // ⚠️ Los canales se crean AQUÍ y no bajo demanda desde una vista: crearlos al
         // leerlos sería mutar estado observado durante el pintado, y eso repinta en
         // bucle. Un canal que ya existe conserva su turno vivo entre recargas.
-        for c in cuentas where canales[c.id] == nil { canales[c.id] = Canal(cuenta: c) }
+        for c in cuentas where canales[c.id] == nil {
+            let canal = Canal(cuenta: c)
+            // Lo guardado se pinta ANTES de hablar con la caja. Es todo el punto: el
+            // historial y el hilo salen al instante y se afinan cuando la caja conteste.
+            let hilos = cache.lista(c.id)
+            if !hilos.isEmpty {
+                canal.hilosRemotos = hilos
+                canal.estadoHilos = .listo
+            }
+            if let (sid, mensajes) = cache.abierto(c.id) {
+                canal.mensajes = mensajes
+                canal.sesionID = sid
+                canal.hiloAbierto = sid
+            }
+            canales[c.id] = canal
+        }
         for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
             canales[id]?.soltar(); canales[id] = nil
         }
@@ -242,6 +259,7 @@ final class LiveAgentStore: AgentStoring {
         agents = []
         for c in canales.values { c.soltar() }
         canales = [:]
+        cache.limpiar()
         correo = nil
         conexion = .sinLlave
     }
@@ -315,6 +333,7 @@ final class LiveAgentStore: AgentStoring {
         canal.hiloAbierto = nil
         canal.sesionID = nil
         canal.creandoHilo = nil
+        cache.guardarAbierto([], hilo: nil, de: canal.cuenta.id)
         Task {
             do {
                 _ = try await asegurarHilo(canal)
@@ -343,6 +362,7 @@ final class LiveAgentStore: AgentStoring {
         Credentials.quitar(id)
         canales[id]?.soltar()
         canales[id] = nil
+        cache.olvidar(id)
         Task { await cargar() }
     }
 
@@ -428,13 +448,21 @@ final class LiveAgentStore: AgentStoring {
 
     func cargarHilos() async {
         guard let canal = canalActivo, canal.estadoHilos != .cargando else { return }
-        canal.estadoHilos = .cargando
+        // ⚠️ Con lista cacheada NO se enseña el spinner: ya hay algo bueno en pantalla y
+        // taparlo con "preguntándole a tu agente…" es empeorarlo a propósito. Se refresca
+        // por detrás y se sustituye al llegar.
+        let hayCache = !canal.hilosRemotos.isEmpty
+        if !hayCache { canal.estadoHilos = .cargando }
 
         do {
             let cliente = try await asegurarSocket(canal)
             canal.hilosRemotos = try await cliente.sesiones()
             canal.estadoHilos = .listo
+            cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
         } catch {
+            // Un fallo de red con lista cacheada se traga: lo que hay sigue siendo cierto,
+            // y cambiarlo por una pantalla de error borraría información buena.
+            if hayCache { canal.estadoHilos = .listo; return }
             canal.estadoHilos = .fallo(error.localizedDescription)
             canal.acp = nil; canal.infoDeLaCaja = nil
         }
@@ -444,6 +472,14 @@ final class LiveAgentStore: AgentStoring {
     /// manda `session/load`, no algo guardado aquí.
     func abrirHilo(_ hilo: ACPClient.Session) async {
         guard let canal = canalActivo else { return }
+        // Si es el que ya estaba guardado, se pinta YA y el replay lo sustituye cuando
+        // llegue. ⚠️ Manda el replay: un caché que gana sobre la caja es un caché que
+        // miente, y el hilo puede haber avanzado desde otro cliente.
+        if canal.hiloAbierto != hilo.id,
+           let (sid, mensajes) = cache.abierto(canal.cuenta.id), sid == hilo.id {
+            canal.mensajes = mensajes
+            canal.hiloAbierto = hilo.id
+        }
         do {
             let cliente = try await asegurarSocket(canal)
             let replay = try await cliente.cargar(hilo.id, cwd: hilo.cwd)
@@ -463,6 +499,7 @@ final class LiveAgentStore: AgentStoring {
             // El turno siguiente continúa ESE hilo, no uno nuevo.
             canal.sesionID = hilo.id
             canal.hiloAbierto = hilo.id
+            cache.guardarAbierto(mensajes, hilo: hilo.id, de: canal.cuenta.id)
         } catch {
             canal.estadoHilos = .fallo(error.localizedDescription)
         }
@@ -781,6 +818,10 @@ final class LiveAgentStore: AgentStoring {
     private func cerrarTurno(_ canal: Canal) {
         canal.cronometro?.cancel(); canal.cronometro = nil
         canal.turno = nil; canal.inicio = nil
+        // El turno acabó: es el momento en que la conversación está completa y vale la
+        // pena escribirla. Guardar en cada trozo del streaming sería escribir el archivo
+        // decenas de veces por respuesta.
+        cache.guardarAbierto(canal.mensajes, hilo: canal.sesionID, de: canal.cuenta.id)
         if let i = agents.firstIndex(where: { $0.id == canal.cuenta.id }) {
             agents[i].status = .idle(since: "ahora")
         }
