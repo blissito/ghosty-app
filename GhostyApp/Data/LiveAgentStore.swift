@@ -673,7 +673,11 @@ final class LiveAgentStore: AgentStoring {
         let cuenta = canal.cuenta
         // A qué conversación. Desde la flota se le manda a la que tuviera abierta; si no
         // tiene ninguna, se le abre una.
+        // ⚠️ `canal.hilo` ya cae en la última si `activa` quedó colgada; abrir una nueva
+        // aquí sólo pasa si el agente no tenía ninguna. Crear una a la ligera es lo que
+        // hacía que un mensaje acabara en una conversación en blanco.
         let hilo = canal.hilo ?? canal.abrir()
+        canal.activa = hilo.clave
         // Mandarle a OTRO agente es dejarlo trabajando sin mirarlo: es justo el caso que
         // necesita el aviso, y el momento con contexto para pedirlo.
         if cuenta.id != selectedAgentID { Avisos.pedirPermisoSiHaceFalta() }

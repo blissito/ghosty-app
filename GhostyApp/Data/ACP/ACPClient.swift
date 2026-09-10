@@ -375,6 +375,21 @@ actor ACPClient {
             donde: donde)
     }
 
+    /// Un hash que vale lo mismo en todos los arranques.
+    ///
+    /// ⚠️ **`hashValue` de Swift NO sirve para esto**: lleva una semilla aleatoria por
+    /// proceso, así que la misma entrega tenía un id distinto en cada lanzamiento. Con eso
+    /// la deduplicación no dedupe nada y la tarjeta se repite en el hilo al reabrir la app.
+    /// FNV-1a, que es determinista y basta para distinguir entregas.
+    private nonisolated static func huellaEstable(_ texto: String) -> String {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in texto.utf8 {
+            h ^= UInt64(b)
+            h = h &* 0x100000001b3
+        }
+        return String(h, radix: 36)
+    }
+
     /// El texto legible de lo que devolvió una herramienta, si lo hay.
     private nonisolated static func salidaDe(_ crudo: Any?) -> String? {
         guard let partes = crudo as? [[String: Any]] else { return nil }
@@ -408,7 +423,7 @@ actor ACPClient {
                       (p["contenido"] as? String).map { String($0.prefix(200)) },
                       (p["contenidoBase64"] as? String).map { String($0.prefix(200)) }]
             .compactMap { $0 }.joined(separator: "|")
-        let id = "e\(abs(huella.hashValue))"
+        let id = "e" + Self.huellaEstable(huella)
         switch p["tipo"] as? String {
         case "archivo":
             let nombre = (p["nombre"] as? String) ?? "Archivo"

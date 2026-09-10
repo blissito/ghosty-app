@@ -92,9 +92,15 @@ final class Canal {
     /// Cronómetro heredado; el de verdad vive en cada `Hilo`.
     var cronometro: Task<Void, Never>?
 
+    /// La conversación que se mira.
+    ///
+    /// ⚠️ Si `activa` apunta a una que ya no está, **cae en la última en vez de en nada**.
+    /// Devolver `nil` parecía más honesto y era peor: quien preguntaba acababa abriendo
+    /// una conversación NUEVA, así que salir a otra pestaña y volver te dejaba con el hilo
+    /// en blanco en lugar del que habías cargado.
     var hilo: Hilo? {
-        guard let activa else { return nil }
-        return hilos.first { $0.clave == activa }
+        if let activa, let h = hilos.first(where: { $0.clave == activa }) { return h }
+        return hilos.last
     }
 
     /// Cuántas conversaciones se guardan en memoria. Abiertas cuestan poco, pero no

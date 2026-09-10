@@ -33,7 +33,7 @@ struct HistoryPane: View {
                 .padding(.top, 50)
 
             case .listo:
-                if store.hilosRemotos.isEmpty {
+                if store.hilosRemotos.isEmpty && (store.canalActivo?.hilos.count ?? 0) <= 1 {
                     EmptyState(icon: "clock.arrow.circlepath",
                                title: "Sin hilos",
                                detail: "Las conversaciones que tengas con este agente se guardan solas, y las puedes retomar.")
@@ -50,6 +50,15 @@ struct HistoryPane: View {
         .task { await store.cargarHilos() }
     }
 
+    /// Las de la caja que NO están ya abiertas arriba.
+    ///
+    /// ⚠️ Sin esto la misma conversación salía dos veces —una en cada sección— y no había
+    /// forma de saber que eran la misma.
+    private var guardadas: [ACPClient.Session] {
+        let abiertas = Set((store.canalActivo?.hilos ?? []).compactMap(\.sesionID))
+        return store.hilosRemotos.filter { !abiertas.contains($0.id) }
+    }
+
     /// Las conversaciones que tienes abiertas EN LA APP, con su estado vivo.
     ///
     /// ⚠️ Van arriba y separadas de las guardadas porque no son lo mismo: éstas están
@@ -61,14 +70,17 @@ struct HistoryPane: View {
             Text("Abiertas").gSectionTitle().padding(.bottom, 12)
             VStack(spacing: 0) {
                 ForEach(Array(canal.hilos.enumerated()), id: \.element.clave) { i, h in
-                    Button {
-                        store.mirar(h)
-                        onAbrir?()
-                    } label: {
-                        filaAbierta(h, activa: h.clave == canal.activa)
-                    }
-                    .buttonStyle(.plain)
-                    .ghostySeparator(inset: i == canal.hilos.count - 1 ? .infinity : 44)
+                    // ⚠️ `onTapGesture` y NO un `Button`, porque la fila lleva dentro el
+                    // botón de cerrar: un `Button` dentro del `label` de otro `Button` se
+                    // come el toque y la fila entera deja de responder. Es el mismo patrón
+                    // que ya usa la Flota.
+                    filaAbierta(h, activa: h.clave == canal.activa)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            store.mirar(h)
+                            onAbrir?()
+                        }
+                        .ghostySeparator(inset: i == canal.hilos.count - 1 ? .infinity : 44)
                 }
             }
             .padding(.bottom, 22)
@@ -115,6 +127,7 @@ struct HistoryPane: View {
     private var lista: some View {
         VStack(alignment: .leading, spacing: 0) {
             abiertas
+            if !guardadas.isEmpty {
             HStack {
                 Text("Guardadas").gSectionTitle()
                 Spacer()
@@ -125,7 +138,7 @@ struct HistoryPane: View {
             .padding(.bottom, 12)
 
             VStack(spacing: 0) {
-                ForEach(Array(store.hilosRemotos.enumerated()), id: \.element.id) { i, h in
+                ForEach(Array(guardadas.enumerated()), id: \.element.id) { i, h in
                     Button {
                         abriendo = h.id
                         Task {
@@ -138,8 +151,9 @@ struct HistoryPane: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(abriendo != nil)
-                    .ghostySeparator(inset: i == store.hilosRemotos.count - 1 ? .infinity : 44)
+                    .ghostySeparator(inset: i == guardadas.count - 1 ? .infinity : 44)
                 }
+            }
             }
 
             Text("Estas conversaciones no viven en el teléfono: las ves iguales desde cualquier dispositivo.")

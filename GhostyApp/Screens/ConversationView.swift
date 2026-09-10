@@ -28,6 +28,8 @@ struct ConversationView: View {
     /// Manos libres: se soltó el dedo y la grabación sigue.
     @State private var vozBloqueada = false
     @State private var fallo: String?
+    /// ¿Está el hilo al final? Decide si se enseña el botón de bajar.
+    @State private var alFinal = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,11 +61,37 @@ struct ConversationView: View {
                                             ? .scale(scale: 0.94).combined(with: .opacity)
                                             : .identity)
                         }
+                        // ⚠️ El centinela del final. `onScrollGeometryChange` sería más
+                        // directo pero es de iOS 18 y aquí el mínimo es 17.4, así que se
+                        // mide con lo que hay: si esta última fila se ve, estás abajo.
                         Color.clear.frame(height: 1).id("fondo")
+                            .onAppear { alFinal = true }
+                            .onDisappear { alFinal = false }
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
                 }
+                .overlay(alignment: .bottom) {
+                    if !alFinal && !store.messages.isEmpty {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                scroll.scrollTo("fondo", anchor: .bottom)
+                            }
+                        } label: {
+                            Image(systemName: "arrow.down")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.gInk)
+                                .frame(width: 34, height: 34)
+                                .background(Color.gCard, in: Circle())
+                                .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+                                .shadow(color: .black.opacity(0.10), radius: 8, y: 4)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 8)
+                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: alFinal)
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(
                     TapGesture().onEnded {
