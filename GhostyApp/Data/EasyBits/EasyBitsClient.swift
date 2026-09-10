@@ -230,6 +230,7 @@ struct EasyBitsClient: Sendable {
     static func diag(_ mensaje: String) {
         guard diagnosticoEncendido else { return }
         NSLog("[ghosty-acp] %@", mensaje)
+        Bitacora.anotar(mensaje)
     }
 
     // MARK: - Interno

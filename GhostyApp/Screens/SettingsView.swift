@@ -134,6 +134,25 @@ struct SettingsView: View {
 
                     Text(Self.version).gMeta()
 
+                    // ⚠️ El registro, a mano. Medir en el teléfono dependía del cable, y
+                    // el túnel por WiFi se cayó tres veces seguidas; cuando aguantó, el
+                    // mensaje se mandó desde la instancia que no estaba enganchada a la
+                    // consola y el registro salió vacío. Un fallo reproducible sin una
+                    // sola línea de log es lo que este botón viene a evitar.
+                    //
+                    // Va después de la versión y antes de cerrar sesión, en gris y sin
+                    // ceremonia: no es una función que nadie vaya buscando, es la que se
+                    // pide por teléfono cuando algo va mal.
+                    ShareLink(item: Bitacora.volcar()) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 12))
+                            Text("Compartir el registro")
+                        }
+                        .gMeta()
+                        .foregroundStyle(Color.gInk3)
+                    }
+
                     ActionButton(title: saliendo ? "Saliendo…" : "Cerrar sesión", kind: .destructive) {
                         saliendo = true
                         Task {

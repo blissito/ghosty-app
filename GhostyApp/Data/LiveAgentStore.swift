@@ -500,6 +500,8 @@ final class LiveAgentStore: AgentStoring {
             }
             // El parcial de la respuesta también se guarda: es lo que vas a ver al abrir.
             if hayQueGuardar { guardarHilos(canal) }
+            // Y el registro: irse al fondo es justo cuando hay que poder mirarlo después.
+            Bitacora.volcar()
             Task { [acp = canal.acp] in await acp?.cerrar() }
             canal.acp = nil
             canal.infoDeLaCaja = nil
@@ -1431,6 +1433,7 @@ final class LiveAgentStore: AgentStoring {
             // dejaba el mensaje sin respuesta y sin explicación —tres «reintenta»
             // seguidos contra el vacío— porque el aviso del corte ya no se escribe en el
             // hilo. Si no te fuiste, se te dice.
+            EasyBitsClient.diag("[turno] \(sid) murió: \(error)")
             let deInmediato = !hilo.huboFondo
                 && Date().timeIntervalSince(hilo.inicio ?? Date()) < 20
             let corte = !Task.isCancelled && !deInmediato
