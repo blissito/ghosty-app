@@ -440,9 +440,14 @@ final class LiveAgentStore: AgentStoring {
                 pendientes.append(h)
             }
             guard !pendientes.isEmpty else { continue }
-            // El socket murió con la suspensión: se suelta para que se abra uno nuevo.
-            canal.acp = nil
-            canal.infoDeLaCaja = nil
+            // ⚠️ Sólo si NO hay nada corriendo. Soltarlo a ciegas era matar el turno que
+            // acababas de mandar: el siguiente `asegurarSocket` abre uno nuevo y, al
+            // hacerlo, CIERRA el viejo —y cerrar termina todos los turnos en vuelo—. Se
+            // veía como mensajes que no contestaban nunca.
+            if canal.enCurso.isEmpty {
+                canal.acp = nil
+                canal.infoDeLaCaja = nil
+            }
             // ⚠️ Una tarea POR HILO, no un `await` en fila. Con tres conversaciones
             // pendientes, la tercera esperaba a que las dos primeras acabaran de hablar
             // con la caja — minutos mirando una pantalla que no cambia.
@@ -510,8 +515,10 @@ final class LiveAgentStore: AgentStoring {
         guard !DemoData.encendido, Session.haySesion,
               let canal = canales[agentID],
               let hilo = canal.hilos.first(where: { $0.sesionID == sid }) else { return false }
-        canal.acp = nil
-        canal.infoDeLaCaja = nil
+        if canal.enCurso.isEmpty {
+            canal.acp = nil
+            canal.infoDeLaCaja = nil
+        }
         let antes = hilo.mensajes.count
         let completo = await resincronizar(hilo, de: canal)
         if completo { cache.saldarDeuda(sesion: sid, de: agentID) }
@@ -531,6 +538,9 @@ final class LiveAgentStore: AgentStoring {
             var intento = 0
             while !Task.isCancelled, Date() < limite {
                 guard let self, let canal else { return }
+                // Si le escribiste otra vez, manda el turno nuevo: ponerse al día encima
+                // de una respuesta que está llegando es pisarla.
+                if hilo.trabajando { hilo.recogiendo = nil; return }
                 let completo = await self.resincronizar(hilo, de: canal)
                 if completo {
                     if let sid = hilo.sesionID {
@@ -797,7 +807,19 @@ final class LiveAgentStore: AgentStoring {
     private func abrirSocket(_ canal: Canal) async throws -> ACPClient {
         let cuenta = canal.cuenta
         // El anterior se cierra: reemplazarlo a secas dejaba su socket y su lector vivos.
-        if let viejo = canal.acp { await viejo.cerrar(); canal.acp = nil }
+        //
+        // ⚠️ Salvo que tenga TURNOS EN VUELO. `cerrar()` termina sus flujos, así que
+        // cerrarlo aquí mataba la respuesta que estaba llegando por él — y el turno moría
+        // sin decir nada, que es como se veía «mandé tres mensajes y no contestó ninguno».
+        // Se suelta la referencia y el cliente se apaga solo cuando acaben sus turnos.
+        if let viejo = canal.acp {
+            if await viejo.turnosVivos > 0 {
+                EasyBitsClient.diag("[acp] socket viejo con turnos vivos: lo dejo terminar")
+            } else {
+                await viejo.cerrar()
+            }
+            canal.acp = nil
+        }
         // Levantar una caja dormida tarda segundos. Sin decirlo, la app se siente colgada.
         canal.despertando = true
         defer { canal.despertando = false }
@@ -1049,6 +1071,13 @@ final class LiveAgentStore: AgentStoring {
         if !canal.esperandoPermiso.isEmpty { return .awaitingApproval }
         if let vivo = canal.enCurso.last {
             return .working(task: vivo.turno?.detail ?? "Trabajando…")
+        }
+        // ⚠️ Un hilo INTERRUMPIDO no está en reposo. La cabecera decía «En reposo · listo»
+        // justo encima del cartel que dice «tu agente sigue con esto»: dos frases que se
+        // contradicen en la misma pantalla, y la de arriba es la que hace pensar que se
+        // colgó. El turno local ya no existe —lo mató la suspensión— pero el trabajo sí.
+        if canal.hilos.contains(where: { $0.interrumpido }) {
+            return .working(task: "Sigue trabajando…")
         }
         return .idle(since: "listo")
     }
@@ -1369,7 +1398,14 @@ final class LiveAgentStore: AgentStoring {
             // trabajando y su sesión está intacta. Marcarlo como roto —y decir «se cayó la
             // conexión» a secas— hacía creer que se perdía el trabajo cuando bloqueabas el
             // teléfono. Queda INTERRUMPIDO, y al volver se va a recoger lo que hizo.
-            let corte = !Task.isCancelled
+            // ⚠️ Un corte con la app DELANTE y a los pocos segundos de mandar no es «iOS
+            // me suspendió»: es que no se llegó a la caja. Tratarlo como interrumpido
+            // dejaba el mensaje sin respuesta y sin explicación —tres «reintenta»
+            // seguidos contra el vacío— porque el aviso del corte ya no se escribe en el
+            // hilo. Si no te fuiste, se te dice.
+            let deInmediato = !hilo.huboFondo
+                && Date().timeIntervalSince(hilo.inicio ?? Date()) < 20
+            let corte = !Task.isCancelled && !deInmediato
                 && Self.esCorteDeTransporte(error, seFueAlFondo: hilo.huboFondo)
             hilo.interrumpido = corte
             hilo.fallo = (Task.isCancelled || corte) ? nil : "Se cortó a media respuesta"
@@ -1563,6 +1599,8 @@ final class LiveAgentStore: AgentStoring {
             switch u.code {
             case .networkConnectionLost:
                 detalle = "Se cortó la conexión a media respuesta. El agente sí recibió el mensaje."
+            case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                detalle = "No pude alcanzar a tu agente. Puede que su caja esté despertando; vuelve a intentarlo."
             case .notConnectedToInternet: detalle = "El teléfono no tiene internet."
             case .timedOut: detalle = "El turno tardó más de lo que aguanta la conexión."
             default: detalle = u.localizedDescription
