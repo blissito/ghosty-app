@@ -13,6 +13,31 @@ struct ArtifactsView: View {
     @State private var pestana = 0
     @Environment(\.openURL) private var abrir
 
+    /// Lo último que falló al borrar. ⚠️ Se enseña: un borrado que no se hizo y no se dice
+    /// es la peor variante del fallo mudo — te deja creer que el archivo ya no está.
+    @ViewBuilder
+    private var avisoDeBorrado: some View {
+        if let fallo = store.falloAlBorrar {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.gDangerInk)
+                Text(fallo).gMeta().foregroundStyle(Color.gDangerInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button { store.falloAlBorrar = nil } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.gDangerInk)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(Color.gDangerTint,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .padding(.horizontal, Theme.Space.screenH)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let agente = store.selectedAgent {
@@ -24,6 +49,7 @@ struct ArtifactsView: View {
             }
 
             ScrollView {
+                avisoDeBorrado.padding(.top, 14)
                 // Lo que ESTE agente entregó va primero y siempre: es lo único de esta
                 // pantalla que de verdad es suyo. El almacén de abajo es de la cuenta.
                 entregadas.padding(.top, 16)
@@ -52,7 +78,13 @@ struct ArtifactsView: View {
                 Text("Lo que te entregó").gSectionTitle()
                     .padding(.horizontal, Theme.Space.screenH)
                 VStack(spacing: 10) {
-                    ForEach(lista) { EntregaCard(entrega: $0) }
+                    ForEach(lista) { e in
+                        EntregaCard(entrega: e)
+                            .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
+                                                 consecuencia: "Se quita de aquí y de la conversación donde te la entregó. Vive sólo en este teléfono.") {
+                                store.borrarEntrega(e.id)
+                            }
+                    }
                 }
                 .padding(.horizontal, Theme.Space.screenH)
                 Text("Sólo lo entregado por este teléfono. Lo que el agente haga desde otro cliente no se ve aquí.")
@@ -174,6 +206,13 @@ struct ArtifactsView: View {
                              abrible: true)
                     }
                     .buttonStyle(.plain)
+                    // ⚠️ Éste es el borrado que de verdad quita bytes del almacenamiento
+                    // de la cuenta, y el único que puede dejar cojas las conversaciones
+                    // que nombran el archivo. Se dice antes de hacerlo.
+                    .borrarConToqueLargo("¿Borrar «\(f.name ?? f.id)»?",
+                                         consecuencia: "Se borra del almacenamiento de tu cuenta. Las conversaciones que lo mencionen dejarán de poder abrirlo.") {
+                        Task { await store.borrarArchivo(f.id) }
+                    }
                     .ghostySeparator(inset: i == archivos.count - 1 ? .infinity : 51)
                 }
             }

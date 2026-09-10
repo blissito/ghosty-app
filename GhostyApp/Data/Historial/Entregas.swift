@@ -153,6 +153,13 @@ final class EntregasStore {
         entregas.filter { $0.sesionID == sesionID }.sorted { $0.recibida < $1.recibida }
     }
 
+    /// Borra UNA. Vive sólo en el teléfono, así que esto no puede dejar nada huérfano en
+    /// ningún sitio — es el único borrado que hoy se puede hacer sin preguntarle a nadie.
+    func olvidar(_ id: String) {
+        entregas.removeAll { $0.id == id }
+        guardar()
+    }
+
     func limpiar() {
         entregas = []
         try? FileManager.default.removeItem(at: archivo)

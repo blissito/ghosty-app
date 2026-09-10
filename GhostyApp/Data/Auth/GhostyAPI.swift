@@ -255,6 +255,37 @@ enum GhostyAPI {
         return url
     }
 
+    /// Borra un archivo de la cuenta. Molde de `desconectar(_:)`.
+    ///
+    /// ⚠️ Devuelve `.sinSoporte` si el servidor no conoce el endpoint (404/405/501), y eso
+    /// **no es lo mismo que un fallo**: quien llama NO debe quitar la fila de la lista. Si
+    /// la quitara, el objeto seguiría en el almacenamiento sin nada que lo nombre — el
+    /// huérfano que este borrado viene justo a evitar.
+    enum Borrado: Equatable { case hecho, sinSoporte, fallo(String) }
+
+    static func borrarArchivo(_ id: String) async -> Borrado {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files/\(id)"))
+        req.httpMethod = "DELETE"
+        req.assumesHTTP3Capable = false
+        guard let token = try? await Session.accessToken() else { return .fallo("No pude identificarte.") }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse
+        else { return .fallo("No hay conexión.") }
+
+        switch http.statusCode {
+        case 200, 202, 204: return .hecho
+        // Ya no está: para quien mira la lista, borrado es borrado.
+        case 404 where !(String(decoding: datos, as: UTF8.self).contains("Cannot DELETE")):
+            return .hecho
+        case 404, 405, 501: return .sinSoporte
+        default:
+            let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+            return .fallo((j?["error"] as? String) ?? "El servidor contestó \(http.statusCode).")
+        }
+    }
+
     /// Los archivos que se subieron en una conversación.
     ///
     /// Es lo que deja RECONSTRUIR un adjunto al recargar un hilo: el replay de ACP devuelve

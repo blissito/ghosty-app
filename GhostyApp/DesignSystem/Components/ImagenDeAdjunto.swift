@@ -48,6 +48,13 @@ enum CacheDeImagenes {
         return img
     }
 
+    /// Tira la copia de UNA imagen. Se llama al borrar su archivo de la cuenta: si no,
+    /// la miniatura seguiría saliendo de un archivo que ya no existe.
+    static func olvidar(_ id: String) {
+        cache[id] = nil
+        try? FileManager.default.removeItem(at: carpeta.appending(path: id))
+    }
+
     /// Purga lo más viejo si el caché se pasó del tope. Se llama al arrancar: hacerlo en
     /// cada escritura costaría un listado del directorio por cada imagen que baja.
     static func purgar() {

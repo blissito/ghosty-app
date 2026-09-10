@@ -96,6 +96,25 @@ final class RecorridoUITests: XCTestCase {
         pedir.typeText("hola")
         foto("09-pidele-algo")
 
+        // 6b. Toque largo sobre una conversación: menú y confirmación de borrado.
+        app.buttons["tab-conversations"].tap()
+        // Sin teclado: si queda abierto empuja el popover y tapa media pantalla.
+        if app.keyboards.count > 0 { app.swipeDown() }
+        let paraBorrar = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 2)
+        if paraBorrar.exists {
+            paraBorrar.press(forDuration: 1.1)
+            foto("11-menu-borrar")
+            let borrar = app.buttons["Borrar"].firstMatch
+            XCTAssertTrue(borrar.waitForExistence(timeout: 3), "el toque largo no ofreció borrar")
+            borrar.tap()
+            foto("12-confirmar-borrado")
+            // ⚠️ Se cancela tocando FUERA, no con un botón: desde un menú contextual iOS
+            // presenta la confirmación como popover, y en esa forma no pinta «Cancelar».
+            // La captura es de la pregunta, no del destrozo.
+            app.tap()
+        }
+
         // 7. Y que «Guardadas» se despliegue sólo cuando se toca.
         let guardadas = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'guardadas-'")).firstMatch
         XCTAssertTrue(guardadas.exists, "no salió el plegable de guardadas")

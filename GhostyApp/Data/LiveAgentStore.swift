@@ -405,6 +405,87 @@ final class LiveAgentStore: AgentStoring {
         hilo.visto = true
     }
 
+    // MARK: - Borrar
+
+    /// Lo último que falló al borrar algo. Lo pinta quien lo pidió y lo limpia al leerlo.
+    var falloAlBorrar: String?
+
+    /// Borra una entrega. Es LOCAL: no hay nada que se pueda quedar huérfano.
+    ///
+    /// ⚠️ Se quita también de las conversaciones. La entrega viaja DENTRO del mensaje
+    /// guardado (`MensajeGuardado.entrega`), así que borrarla sólo del almacén la haría
+    /// reaparecer en cuanto se recargara el hilo.
+    func borrarEntrega(_ id: String) {
+        entregas.olvidar(id)
+        for canal in canales.values {
+            for hilo in canal.hilos {
+                hilo.mensajes.removeAll { $0.id == "entrega-\(id)" }
+            }
+            guardarHilos(canal)
+        }
+    }
+
+    /// Borra un archivo del almacenamiento de la cuenta.
+    ///
+    /// ⚠️ Devuelve `false` si NO se borró allá, y entonces quien llama **no debe** quitarlo
+    /// de la lista: dejar la fila fuera y el objeto dentro es exactamente el huérfano que
+    /// esto viene a evitar.
+    @discardableResult
+    func borrarArchivo(_ id: String) async -> Bool {
+        switch await GhostyAPI.borrarArchivo(id) {
+        case .hecho:
+            archivos.removeAll { $0.id == id }
+            CacheDeImagenes.olvidar(id)
+            await cargarAlmacenamiento()
+            falloAlBorrar = nil
+            return true
+        case .sinSoporte:
+            falloAlBorrar = "Tu servidor todavía no sabe borrar archivos. No se tocó nada."
+            return false
+        case .fallo(let motivo):
+            falloAlBorrar = motivo
+            return false
+        }
+    }
+
+    /// Borra una conversación de la CAJA y de aquí.
+    ///
+    /// Si la caja no puede, se cierra en la app igual pero se dice que allá sigue: callarlo
+    /// haría creer que se borró de todas partes.
+    func borrarConversacion(_ hilo: Hilo) async {
+        guard let canal = canalActivo else { return }
+        let sid = hilo.sesionID
+        if let sid {
+            do {
+                let cliente = try await asegurarSocket(canal)
+                try await cliente.borrarSesion(sid)
+                falloAlBorrar = nil
+            } catch {
+                falloAlBorrar = "La cerré aquí, pero sigue guardada en tu agente."
+            }
+            titulos.olvidar(sid)
+            canal.hilosRemotos.removeAll { $0.id == sid }
+            cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
+        }
+        cerrarHilo(hilo)
+    }
+
+    /// Borra una conversación guardada que no está abierta aquí.
+    func borrarGuardada(_ sesion: ACPClient.Session, de agenteID: String) async {
+        guard let canal = canales[agenteID] else { return }
+        do {
+            let cliente = try await asegurarSocket(canal)
+            try await cliente.borrarSesion(sesion.id)
+            falloAlBorrar = nil
+        } catch {
+            falloAlBorrar = "Tu agente no pudo borrarla. Sigue ahí."
+            return
+        }
+        titulos.olvidar(sesion.id)
+        canal.hilosRemotos.removeAll { $0.id == sesion.id }
+        cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
+    }
+
     /// Cierra una conversación de la app. No la borra de la caja.
     func cerrarHilo(_ hilo: Hilo) {
         guard let canal = canalActivo else { return }

@@ -243,7 +243,14 @@ struct ConversationView: View {
         case .agent(let t, let tools, let trailing):
             HStack { AgentBubble(text: t, tools: tools, trailing: trailing); Spacer(minLength: 30) }
         case .entrega(let e):
-            HStack { EntregaCard(entrega: e); Spacer(minLength: 30) }
+            HStack {
+                EntregaCard(entrega: e)
+                    .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
+                                         consecuencia: "Se quita de esta conversación y de Artefactos. Vive sólo en este teléfono.") {
+                        store.borrarEntrega(e.id)
+                    }
+                Spacer(minLength: 30)
+            }
         case .prCard(let card):
             HStack {
                 PRCard(card: card,

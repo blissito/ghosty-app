@@ -154,6 +154,12 @@ struct ConversacionesView: View {
             store.mirar(h, de: agente.id)
             onAbrir()
         }
+        .borrarConToqueLargo("¿Borrar «\(h.titulo)»?",
+                             consecuencia: h.sesionID == nil
+                                ? "Todavía no existe en tu agente: se descarta y ya."
+                                : "Se borra también de tu agente. No se puede deshacer.") {
+            Task { await store.borrarConversacion(h) }
+        }
     }
 
     private func icono(_ h: Hilo, mirando: Bool) -> some View {
@@ -277,6 +283,10 @@ struct ConversacionesView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .borrarConToqueLargo("¿Borrar esta conversación?",
+                                             consecuencia: "Se borra de tu agente. No se puede deshacer.") {
+                            Task { await store.borrarGuardada(s, de: agente.id) }
+                        }
                     }
                 }
             }

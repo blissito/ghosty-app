@@ -325,6 +325,16 @@ actor ACPClient {
         permisoPendiente = handler
     }
 
+    /// Borra un hilo DE LA CAJA.
+    ///
+    /// ⚠️ La caja declara `sessionCapabilities: { list, delete, close }` en su `initialize`,
+    /// pero esto no se había llamado nunca, así que se trata como no confirmado: quien
+    /// llama tiene que estar preparado para que falle y decirlo, en vez de dar por hecho
+    /// que la conversación desapareció de allá.
+    func borrarSesion(_ id: String) async throws {
+        _ = try await pedir("session/delete", ["sessionId": id], timeout: 30)
+    }
+
     /// Le dice a la caja que **pare** el turno de ese hilo.
     ///
     /// ⚠️ Esto no existía, y por eso "Detener" era cosmético: se cancelaba la `Task` del
