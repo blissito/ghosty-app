@@ -40,6 +40,48 @@ struct ArtifactsView: View {
         }
     }
 
+    /// Filtrar por tipo.
+    ///
+    /// ⚠️ Sólo se pintan los cajones que EXISTEN. Un filtro «Audio» en una cuenta que
+    /// nunca ha recibido audio es un botón que sólo sirve para enseñar una lista vacía —
+    /// la misma regla por la que esta pestaña no aparece hasta que hay algo.
+    @ViewBuilder
+    private func filtros(de todo: [Entrega]) -> some View {
+        let cajones = Entrega.Categoria.allCases.filter { c in todo.contains { $0.categoria == c } }
+        if cajones.count > 1 {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    chipDeFiltro(nil, "Todo", "square.grid.2x2", todo.count)
+                    ForEach(cajones) { c in
+                        chipDeFiltro(c, c.nombre, c.icono, todo.filter { $0.categoria == c }.count)
+                    }
+                }
+                .padding(.horizontal, Theme.Space.screenH)
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func chipDeFiltro(_ cual: Entrega.Categoria?, _ nombre: String,
+                              _ icono: String, _ cuantos: Int) -> some View {
+        let puesto = filtro == cual
+        return Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { filtro = cual }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icono).font(.system(size: 11, weight: .semibold))
+                Text("\(nombre) \(cuantos)").gChip()
+            }
+            .foregroundStyle(puesto ? Color.white : Color.gInk2)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(puesto ? AnyShapeStyle(Theme.primaryGradient) : AnyShapeStyle(Color.gCard),
+                        in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("filtro-\(cual?.rawValue ?? "todo")")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let agente = store.selectedAgent {
@@ -69,8 +111,9 @@ struct ArtifactsView: View {
     /// es todo lo que hizo.
     @ViewBuilder
     private var entregadas: some View {
-        let lista = store.entregas.de(store.selectedAgentID)
-        if lista.isEmpty {
+        let todo = store.entregas.de(store.selectedAgentID)
+        let lista = filtro.map { c in todo.filter { $0.categoria == c } } ?? todo
+        if todo.isEmpty {
             EmptyState(icon: "tray",
                        title: "Todavía nada",
                        detail: "Lo que el agente te entregue —un archivo, un documento, una página— se queda aquí.")
@@ -79,6 +122,7 @@ struct ArtifactsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Lo que te entregó").gSectionTitle()
                     .padding(.horizontal, Theme.Space.screenH)
+                filtros(de: todo)
                 VStack(spacing: 10) {
                     ForEach(lista) { e in
                         EntregaCard(entrega: e)

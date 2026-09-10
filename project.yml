@@ -50,6 +50,13 @@ targets:
         com.apple.developer.associated-domains:
           - applinks:www.ghosty.studio
           - webcredentials:www.ghosty.studio
+        # ⚠️ El ENTORNO de APNs lo decide el build, no esta línea: `development` vale para
+        # lo que se instala por cable, y Xcode lo cambia a `production` al archivar para
+        # TestFlight. Equivocarse ahí no da ningún error — simplemente no llega nada.
+        aps-environment: development
+        # Un turno DETENIDO esperando tu permiso atraviesa un Focus con razón. Sin esto,
+        # `interruption-level: time-sensitive` se ignora y el aviso espera a que mires.
+        com.apple.developer.usernotifications.time-sensitive: true
     info:
       path: GhostyApp/Info.plist
       properties:

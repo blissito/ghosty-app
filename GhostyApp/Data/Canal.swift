@@ -69,6 +69,11 @@ final class Hilo {
     /// —«5 mensajes»— así que había que entrar a cada una para descubrir cuál había
     /// fallado. Y con varias a la vez, eso es justo lo que no puedes hacer.
     var fallo: String?
+    /// El turno murió porque se cayó el transporte —casi siempre, porque el teléfono se
+    /// fue al fondo—. No es un fallo: el agente sigue, y al volver hay que ir a recogerlo.
+    var interrumpido = false
+    /// Ahora mismo se está recogiendo lo que pasó mientras no mirábamos.
+    var poniendoseAlDia = false
     /// Cuándo se le ESCRIBIÓ por última vez.
     ///
     /// ⚠️ Sólo al escribir, no al mirar. Es lo que ordena la barra de conversaciones, y
@@ -80,11 +85,14 @@ final class Hilo {
     /// En qué anda, en una línea, para una lista.
     enum Estado: Equatable {
         case trabajando(String), listo(String), fallo(String), sinEstrenar, enReposo(String)
+        case interrumpido, alDia
     }
 
     var estado: Estado {
         if let turno { return .trabajando(turno.elapsed.isEmpty ? "…" : turno.elapsed) }
         // Gana sobre «contestó»: si el turno se rompió, eso es lo que hay que saber.
+        if poniendoseAlDia { return .alDia }
+        if interrumpido { return .interrumpido }
         if let fallo { return .fallo(fallo) }
         if let termino, !visto { return .listo(Self.hace(termino)) }
         if mensajes.isEmpty { return .sinEstrenar }

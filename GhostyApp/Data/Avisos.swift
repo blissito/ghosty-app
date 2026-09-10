@@ -18,6 +18,9 @@ import UIKit
 @MainActor
 enum Avisos {
     /// A quién hay que abrir cuando se toca un aviso. `RootView` lo escucha.
+    ///
+    /// El objeto es el `agentID` y el `userInfo` lleva `sesion` cuando se sabe: con varias
+    /// conversaciones por agente, abrir «el agente» ya no dice a cuál ir.
     static let alTocar = Notification.Name("ghosty.avisoTocado")
 
     private static var pedido = false
@@ -29,7 +32,43 @@ enum Avisos {
         guard !pedido else { return }
         pedido = true
         UNUserNotificationCenter.current().delegate = delegado
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { ok, _ in
+            guard ok else { return }
+            // ⚠️ El registro para PUSH va aquí y no antes: pedirlo sin permiso concedido
+            // no sirve de nada. Y es lo único que hace que un aviso llegue con la app
+            // CERRADA — los locales de este archivo sólo existen mientras la app vive.
+            Task { @MainActor in
+                #if canImport(UIKit)
+                UIApplication.shared.registerForRemoteNotifications()
+                #endif
+            }
+        }
+    }
+
+    /// El teléfono ya tiene su ficha en el servidor.
+    private static var tokenEnviado: String?
+
+    /// Lo que Apple nos dio, camino de gs.
+    ///
+    /// ⚠️ Se reenvía al arrancar y al cambiar de cuenta, no una sola vez: el token cambia
+    /// al reinstalar o restaurar el teléfono, y un token viejo es un aviso que se pierde
+    /// en silencio — el servidor cree que avisó y tú no ves nada.
+    static func registrar(token: Data) {
+        let hex = token.map { String(format: "%02x", $0) }.joined()
+        guard hex != tokenEnviado else { return }
+        tokenEnviado = hex
+        EasyBitsClient.diag("[push] token \(hex.prefix(12))… (\(entorno))")
+        Task { await GhostyAPI.registrarDispositivo(token: hex, entorno: entorno) }
+    }
+
+    /// ⚠️ Lo decide el BUILD, no una preferencia. **TestFlight usa producción** aunque sea
+    /// beta, y equivocarse aquí no da error: simplemente no llega nada.
+    static var entorno: String {
+        #if DEBUG
+        return "sandbox"
+        #else
+        return "production"
+        #endif
     }
 
     /// El sonido de "ya acabó".
@@ -51,6 +90,9 @@ enum Avisos {
         c.body = cuerpo
         c.sound = .default
         c.userInfo = ["agentID": agentID]
+        // Agrupa por conversación, igual que hará el push del servidor: con tres
+        // conversaciones a la vez, sin esto son tres avisos sueltos sin relación.
+        c.threadIdentifier = agentID
         // Sin disparador: se entrega ya.
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)
         UNUserNotificationCenter.current().add(req)
@@ -58,6 +100,11 @@ enum Avisos {
 
     /// ¿Está la app en el fondo? Decide si el aviso hace falta cuando el agente que
     /// termina SÍ es el que estás mirando.
+    /// ¿Puede el servidor avisar por su cuenta? Si sí, los avisos locales sobran cuando la
+    /// app no está delante — verías dos por el mismo hecho, y un aviso duplicado enseña a
+    /// ignorar los avisos.
+    static var hayPush: Bool { tokenEnviado != nil }
+
     static var enElFondo: Bool {
         #if canImport(UIKit)
         UIApplication.shared.applicationState != .active
@@ -75,10 +122,15 @@ enum Avisos {
 
         func userNotificationCenter(_ c: UNUserNotificationCenter,
                                     didReceive respuesta: UNNotificationResponse) async {
-            guard let id = respuesta.notification.request.content.userInfo["agentID"] as? String
+            let info = respuesta.notification.request.content.userInfo
+            // `agentID` lo pone el aviso local; `agentId` el push del servidor. Se aceptan
+            // los dos en vez de obligar a nadie a cambiar de nombre.
+            guard let id = (info["agentID"] as? String) ?? (info["agentId"] as? String)
             else { return }
+            let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String)
             await MainActor.run {
-                NotificationCenter.default.post(name: Avisos.alTocar, object: id)
+                NotificationCenter.default.post(name: Avisos.alTocar, object: id,
+                                                userInfo: sesion.map { ["sesion": $0] })
             }
         }
     }

@@ -409,6 +409,56 @@ final class LiveAgentStore: AgentStoring {
         hilo.visto = true
     }
 
+    // MARK: - Volver del fondo
+
+    /// La app volvió a estar delante: recoger lo que pasó mientras no mirábamos.
+    ///
+    /// ⚠️ iOS suspende la app a los pocos segundos de irte y se lleva el socket. La caja
+    /// **no** se entera: sigue trabajando y su sesión sigue ahí. Lo que fallaba es que al
+    /// volver nadie iba a preguntar, así que el turno se quedaba pintado como un fallo y
+    /// la respuesta que el agente sí produjo no aparecía nunca.
+    func volverDelFondo() async {
+        guard !DemoData.encendido, Session.haySesion else { return }
+        for canal in canales.values {
+            let pendientes = canal.hilos.filter { $0.interrumpido || $0.trabajando }
+            guard !pendientes.isEmpty else { continue }
+            // El socket murió con la suspensión: se suelta para que se abra uno nuevo.
+            canal.acp = nil
+            canal.infoDeLaCaja = nil
+            for hilo in pendientes { await resincronizar(hilo, de: canal) }
+        }
+    }
+
+    /// Vuelve a pedirle a la caja ESTA conversación y se queda con lo que diga.
+    ///
+    /// Es la misma operación que hace `abrirHilo`, con las mismas guardas: no pisar un
+    /// hilo que está contestando, no pisar si creció, y **nunca** pisar con un replay
+    /// vacío —que es lo que una vez dejó una conversación en blanco—.
+    private func resincronizar(_ hilo: Hilo, de canal: Canal) async {
+        guard let sid = hilo.sesionID else { hilo.interrumpido = false; return }
+        hilo.poniendoseAlDia = true
+        defer { hilo.poniendoseAlDia = false }
+        let antes = hilo.mensajes.count
+        do {
+            let cliente = try await asegurarSocket(canal)
+            guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else { return }
+            hilo.cargadaEn = ObjectIdentifier(cliente)
+            let archivos = await GhostyAPI.archivosDe(sesion: sid)
+            var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
+            for e in entregas.deSesion(sid) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
+                mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
+            }
+            guard !hilo.trabajando, hilo.mensajes.count <= antes, !mensajes.isEmpty else { return }
+            hilo.mensajes = mensajes
+            hilo.interrumpido = false
+            hilo.fallo = nil
+            guardarHilos(canal)
+            EasyBitsClient.diag("[fondo] \(sid) al día: \(mensajes.count) mensajes")
+        } catch {
+            EasyBitsClient.diag("[fondo] no pude ponerme al día con \(sid): \(error)")
+        }
+    }
+
     // MARK: - Borrar
 
     /// Lo último que falló al borrar algo. Lo pinta quien lo pidió y lo limpia al leerlo.
@@ -679,7 +729,9 @@ final class LiveAgentStore: AgentStoring {
         // El más urgente de los dos avisos: este turno está DETENIDO hasta que contestes.
         // ⚠️ La condición es por HILO, no por agente: con tres conversaciones del agente
         // que estás mirando, dos podían pedirte permiso y no avisarte de ninguna.
-        if hilo.clave != hiloActivo?.clave || Avisos.enElFondo {
+        // Misma regla que el aviso de fin: con push registrado, el local sólo con la app
+        // delante — si no, llegarían dos por lo mismo.
+        if hilo.clave != hiloActivo?.clave, !(Avisos.hayPush && Avisos.enElFondo) {
             Avisos.avisar(titulo: "\(canal.cuenta.name) espera tu permiso",
                           cuerpo: "¿Dejas que use \(p.titulo)?",
                           agentID: canal.cuenta.id)
@@ -1131,8 +1183,19 @@ final class LiveAgentStore: AgentStoring {
             }
             anotar(canal, hilo, chars: acumulado.count, como: .done)
         } catch {
-            pintarRespuesta(hilo, id: respuesta, texto: Self.mensajeDeFallo(error, parcial: acumulado))
-            hilo.fallo = Task.isCancelled ? nil : "Se cortó a media respuesta"
+            // ⚠️ Un corte de TRANSPORTE no es un fallo del agente: la caja sigue
+            // trabajando y su sesión está intacta. Marcarlo como roto —y decir «se cayó la
+            // conexión» a secas— hacía creer que se perdía el trabajo cuando bloqueabas el
+            // teléfono. Queda INTERRUMPIDO, y al volver se va a recoger lo que hizo.
+            let corte = !Task.isCancelled && Self.esCorteDeTransporte(error)
+            hilo.interrumpido = corte
+            hilo.fallo = (Task.isCancelled || corte) ? nil : "Se cortó a media respuesta"
+            pintarRespuesta(hilo, id: respuesta,
+                            texto: corte
+                                ? (acumulado.isEmpty ? "" : acumulado + "\n\n")
+                                    + "⚠️ Se cortó la conexión. Tu agente sigue trabajando; "
+                                    + "al volver te traigo lo que haya hecho."
+                                : Self.mensajeDeFallo(error, parcial: acumulado))
             anotar(canal, hilo, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
         }
         cerrarTurno(canal, hilo)

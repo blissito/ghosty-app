@@ -286,6 +286,36 @@ enum GhostyAPI {
         }
     }
 
+    /// Apunta este teléfono para que el servidor pueda avisarte con la app cerrada.
+    ///
+    /// ⚠️ Es lo único que hace que «tu agente terminó» llegue cuando no estás mirando: iOS
+    /// suspende la app a los pocos segundos de irte y con ella muere el socket. Sin esto,
+    /// los avisos sólo existen mientras la app vive — justo cuando menos falta hacen.
+    ///
+    /// Si el servidor todavía no conoce el endpoint, se dice en la bitácora y no se rompe
+    /// nada: la app queda lista para el día que lo tenga.
+    static func registrarDispositivo(token: String, entorno: String) async {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/devices"))
+        req.httpMethod = "POST"
+        req.assumesHTTP3Capable = false
+        guard let bearer = try? await Session.accessToken() else { return }
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "token": token, "plataforma": "ios", "entorno": entorno,
+        ])
+        guard let (_, resp) = try? await URLSession.shared.data(for: req) else {
+            EasyBitsClient.diag("[push] no pude registrar el teléfono: sin conexión")
+            return
+        }
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        switch codigo {
+        case 200, 201, 204: EasyBitsClient.diag("[push] teléfono registrado")
+        case 404, 405, 501: EasyBitsClient.diag("[push] gs todavía no sabe registrar teléfonos")
+        default:            EasyBitsClient.diag("[push] el registro contestó \(codigo)")
+        }
+    }
+
     /// Los archivos que se subieron en una conversación.
     ///
     /// Es lo que deja RECONSTRUIR un adjunto al recargar un hilo: el replay de ACP devuelve

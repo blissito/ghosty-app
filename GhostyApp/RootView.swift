@@ -12,6 +12,9 @@ struct RootView: View {
     /// La imagen que se está mirando a pantalla completa. Vive aquí porque quien pide
     /// abrirla está muy adentro —el proveedor de imágenes de una respuesta—. Ver `Visor`.
     @State private var visor = Visor()
+    /// ⚠️ La app no miraba si volvía del fondo, así que un turno interrumpido por la
+    /// suspensión se quedaba pintado como un fallo para siempre. Ver `volverDelFondo`.
+    @Environment(\.scenePhase) private var fase
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -61,9 +64,19 @@ struct RootView: View {
         }
         // Tocar un aviso abre a ese agente. Es la mitad que hace útil la notificación:
         // sin esto te enteras de que alguien terminó y sigues teniendo que buscarlo.
+        .onChange(of: fase) { _, nueva in
+            guard nueva == .active else { return }
+            Task { await store.volverDelFondo() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Avisos.alTocar)) { aviso in
             guard let id = aviso.object as? String else { return }
             store.seleccionar(id)
+            // Si el aviso dice de QUÉ conversación habla, se abre ésa: con varias por
+            // agente, abrir «el agente» ya no dice a cuál ir.
+            if let sesion = aviso.userInfo?["sesion"] as? String,
+               let hilo = store.canales[id]?.hilo(sesion: sesion) {
+                store.mirar(hilo, de: id)
+            }
             tab = .chat
         }
         .task {

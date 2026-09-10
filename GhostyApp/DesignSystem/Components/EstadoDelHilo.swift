@@ -27,6 +27,21 @@ struct EstadoDelHilo: View {
                         Text(reloj).gMono(size: 13, weight: .regular)
                             .foregroundStyle(Color.gInk4)
                     }
+                case .alDia:
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.mini)
+                        Text("Poniéndome al día…").gMeta().foregroundStyle(Color.gPrimary)
+                    }
+                case .interrumpido:
+                    // ⚠️ NO es un fallo, y por eso no va en rojo: se cayó la conexión
+                    // —normalmente porque bloqueaste el teléfono— pero el agente sigue
+                    // trabajando en su caja. Al volver se recoge lo que hizo.
+                    HStack(spacing: 5) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.gInk3)
+                        Text("Sigue en tu agente · al volver lo traigo").gMeta().lineLimit(1)
+                    }
                 case .fallo(let motivo):
                     // En rojo y con su triángulo: es la única fila de la lista que pide
                     // que vuelvas a entrar.

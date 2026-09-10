@@ -60,11 +60,7 @@ struct EntregaCard: View {
         bajando = true
         defer { bajando = false }
         do {
-            let (d, resp) = try await URLSession.shared.data(from: u)
-            // ⚠️ El código sólo se mira si HAY respuesta HTTP. Exigir un 200 a secas daba
-            // «ese enlace ya no sirve» con un `file://`, que no trae `HTTPURLResponse`.
-            let codigo = (resp as? HTTPURLResponse)?.statusCode
-            guard codigo == nil || codigo == 200 else {
+            guard let d = await Descargas.bytes(u) else {
                 // ⚠️ Una URL firmada CADUCA. Decirlo es la diferencia entre «esto ya no
                 // está» y una tarjeta que no hace nada al tocarla.
                 falloAlBajar = "Ese enlace ya no sirve."
@@ -76,8 +72,6 @@ struct EntregaCard: View {
                 if let img = UIImage(data: d), entrega.esAudio == false { mirando = img }
                 else { compartiendo = conBytes()?.aDisco() }
             }
-        } catch {
-            falloAlBajar = "No pude bajarlo."
         }
     }
 
@@ -115,7 +109,12 @@ struct EntregaCard: View {
         .task(id: entrega.id) {
             guard entrega.hayQueBajar, bajados == nil else { return }
             let ext = entrega.tipo ?? ""
-            guard ["png", "jpg", "jpeg", "heic", "gif", "webp"].contains(ext) else { return }
+            // ⚠️ El PDF también: su vista previa es la primera página, y sin bajarlo la
+            // tarjeta es una fila con un nombre. Se acota por peso —lo que dijo el
+            // anuncio— para no traerse un documento enorme sólo por la miniatura.
+            let conVistaPrevia = ["png", "jpg", "jpeg", "heic", "gif", "webp", "pdf"]
+            guard conVistaPrevia.contains(ext) else { return }
+            if let peso = entrega.bytesRemotos, peso > 8 * 1024 * 1024 { return }
             await bajar(yAbrir: false)
         }
         .fullScreenCover(item: $mirando) { img in

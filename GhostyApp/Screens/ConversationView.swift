@@ -32,6 +32,12 @@ struct ConversationView: View {
     @State private var alFinal = true
     /// Se incrementa al enviar: es la señal para bajar del todo.
     @State private var bajarYa = 0
+    /// Hasta cuándo hay que seguir bajando pase lo que pase.
+    ///
+    /// ⚠️ El mensaje se añade DESPUÉS de pedir la bajada —el envío es asíncrono, y con una
+    /// nota de voz encima hay que subirla primero—, así que un solo `scrollTo` al pulsar
+    /// enviar apuntaba a un final que todavía no existía y te dejaba a media conversación.
+    @State private var bajandoHasta = Date.distantPast
 
     var body: some View {
         VStack(spacing: 0) {
@@ -62,13 +68,6 @@ struct ConversationView: View {
                             }
                         ForEach(mensajesÚnicos) { mensaje in
                             fila(mensaje).id(mensaje.id)
-                                // ⚠️ El indicador de "estoy abajo" cuelga del ÚLTIMO
-                                // mensaje y no de un centinela de 1pt: dentro de un
-                                // `LazyVStack` una vista vacía puede no realizarse nunca,
-                                // así que su `onAppear` no llegaba y el botón se quedaba
-                                // puesto (o no salía).
-                                .onAppear { if mensaje.id == store.messages.last?.id { alFinal = true } }
-                                .onDisappear { if mensaje.id == store.messages.last?.id { alFinal = false } }
                                 // Sólo la entrega se anima al entrar: llega a mitad del
                                 // turno, cuando la persona está mirando, y aparecer de
                                 // golpe se lee como un salto del texto. Las burbujas no
@@ -110,11 +109,23 @@ struct ConversationView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("ir-abajo")
+                        .accessibilityLabel("Ir al final")
                         .padding(.bottom, 8)
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                     }
                 }
                 .animation(.spring(response: 0.3, dampingFraction: 0.85), value: alFinal)
+                // ⚠️ Se escucha el GESTO, no la geometría. Lo intenté midiendo dónde
+                // caía el centinela del final dentro de un espacio de coordenadas con
+                // nombre, y devolvía cero siempre: dentro de un `ScrollView` esa medida
+                // no se refresca al desplazarse, así que el botón no aparecía nunca.
+                // Arrastrar el dedo HACIA ABAJO es subir en el hilo, y eso sí se sabe
+                // sin adivinar nada.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 12).onChanged { v in
+                        if v.translation.height > 24 { alFinal = false }
+                    }
+                )
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(
                     TapGesture().onEnded {
@@ -130,13 +141,13 @@ struct ConversationView: View {
                 // algo, que la respuesta te tire hacia abajo es lo más molesto que puede
                 // hacer un chat — y era la mitad del «sube y baja».
                 .onChange(of: store.messages.count) { _, _ in
-                    guard alFinal else { return }
+                    guard alFinal || Date() < bajandoHasta else { return }
                     alFondo(scroll, animado: true)
                 }
                 // También al crecer el ÚLTIMO mensaje: la respuesta llega en trozos y
                 // sin esto el texto nuevo queda fuera de vista mientras se escribe.
                 .onChange(of: textoDelUltimo) { _, _ in
-                    guard alFinal else { return }
+                    guard alFinal || Date() < bajandoHasta else { return }
                     scroll.scrollTo("fondo", anchor: .bottom)
                 }
                 // ⚠️ Cargar un hilo entero NO es lo mismo que recibir un mensaje. El
@@ -278,6 +289,10 @@ struct ConversationView: View {
         } else {
             scroll.scrollTo("fondo", anchor: .bottom)
         }
+        // ⚠️ Se marca DESPUÉS de mandar el scroll, no dentro del botón antes de bajar:
+        // así estaba y escondía el botón aunque el desplazamiento fallara — «no sirve,
+        // pero desaparece».
+        alFinal = true
     }
 
     /// Al abrir una conversación: al final, y otra vez cuando ya se midió el alto.
@@ -660,6 +675,8 @@ struct ConversationView: View {
         // mirar. Dejarlo abierto tapaba media conversación justo cuando llega la respuesta.
         escribiendo = false
         bajarYa += 1
+        // Y se sigue bajando unos segundos, hasta que el mensaje esté puesto de verdad.
+        bajandoHasta = Date().addingTimeInterval(4)
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             adjuntos = []
             adjuntando = false
@@ -716,6 +733,8 @@ struct ConversationView: View {
         // Igual que al enviar escrito: teclado fuera y al final del hilo.
         escribiendo = false
         bajarYa += 1
+        // Y se sigue bajando unos segundos, hasta que el mensaje esté puesto de verdad.
+        bajandoHasta = Date().addingTimeInterval(4)
         fallo = nil
         subiendo = true
         Task {
@@ -735,3 +754,5 @@ struct ConversationView: View {
         }
     }
 }
+
+
