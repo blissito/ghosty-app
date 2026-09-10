@@ -10,6 +10,10 @@ struct FleetView: View {
     var onConectar: () -> Void
     var onEditar: (AgentAccount) -> Void
 
+    /// Lo que llevas escrito para cada agente. Por agente y no uno solo: si escribes a
+    /// dos, lo tecleado no puede saltar de una fila a otra.
+    @State private var borradores: [String: String] = [:]
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -112,9 +116,62 @@ struct FleetView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.vertical, Theme.Space.row)
         .contentShape(Rectangle())
         .onTapGesture { store.seleccionar(agente.id) }
-        .ghostySeparator(inset: ultima ? .infinity : 61)
+    }
+
+    /// Lo último que dijo el agente en su conversación, recortado.
+    private func ultimoDicho(_ canal: Canal?) -> String? {
+        guard let m = canal?.mensajes.last(where: {
+            if case .agent = $0.kind { return true } else { return false }
+        }), case .agent(let t, _, _) = m.kind else { return nil }
+        let limpio = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        return limpio.isEmpty ? nil : limpio
+    }
+
+    /// Mandarle algo SIN cambiar de conversación. Es lo que convierte esta pantalla en un
+    /// puesto de mando: poner a dos a trabajar deja de exigir ir y volver.
+    ///
+    /// ⚠️ Sin adjuntos a propósito. Adjuntar es del chat, y meterlo aquí sería duplicar
+    /// medio compositor —cámara, carrete, archivos, voz— en una fila de una lista.
+    @ViewBuilder
+    private func pedir(_ agente: Agent, canal: Canal?) -> some View {
+        // ⚠️ Mientras trabaja NO se enseña el campo. Encolarlo sería mentir sobre cuándo
+        // corre, y mandarlo encima cortaría el turno que ya está en marcha.
+        if canal?.trabajando != true {
+            HStack(spacing: 8) {
+                TextField("Pídele algo…", text: Binding(
+                    get: { borradores[agente.id] ?? "" },
+                    set: { borradores[agente.id] = $0 }))
+                    .font(.system(size: 14))
+                    .textFieldStyle(.plain)
+                    .submitLabel(.send)
+                    .onSubmit { mandar(a: agente.id) }
+
+                if !(borradores[agente.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button { mandar(a: agente.id) } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 26, height: 26)
+                            .background(Theme.primaryGradient, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.gFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.leading, 61)
+        }
+    }
+
+    private func mandar(a id: String) {
+        let texto = (borradores[id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !texto.isEmpty else { return }
+        borradores[id] = ""
+        // No cambia de agente: el chip sobre el chat es quien lo enseña trabajando.
+        Task { await store.send(texto, a: id) }
     }
 }

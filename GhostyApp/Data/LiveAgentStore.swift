@@ -533,9 +533,15 @@ final class LiveAgentStore: AgentStoring {
     /// («no conforma») no menciona el método.
     func send(_ text: String) async { await send(text, adjuntos: []) }
 
-    func send(_ text: String, adjuntos: [Adjunto] = []) async {
+    /// `a` es a QUÉ agente. Sin él, al que estás mirando.
+    ///
+    /// ⚠️ Existe para poder mandarle algo a otro agente **sin cambiar de conversación**,
+    /// que es lo que hace la Flota. Antes cualquier turno iba forzosamente al canal activo,
+    /// así que poner a dos a trabajar obligaba a ir y volver.
+    func send(_ text: String, adjuntos: [Adjunto] = [], a agenteID: String? = nil) async {
         let limpio = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !limpio.isEmpty || !adjuntos.isEmpty, let canal = canalActivo else { return }
+        guard !limpio.isEmpty || !adjuntos.isEmpty,
+              let canal = canales[agenteID ?? selectedAgentID] else { return }
         let cuenta = canal.cuenta
 
         // ⚠️ Sólo se cancela el turno de ESTE canal. Antes era un `turnoEnVuelo` único,
