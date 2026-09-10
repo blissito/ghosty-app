@@ -51,8 +51,10 @@ enum DemoData {
                               contenido: nil, datos: png)
         return [
             Message(id: "df1", kind: .user("solo me interesa la foto", adjuntos: [foto])),
-            Message(id: "df2", kind: .agent(text: "Ya está, recortada. Te la entrego.",
-                                            tools: nil, trailing: nil)),
+            Message(id: "df2", kind: .agent(
+                text: "Ya está, recortada. Te la entrego.\n\n"
+                    + "![gatito](https://images.pexels.com/photos/45201/kitty-cat-kitten-pet-45201.jpeg)",
+                tools: nil, trailing: nil)),
             Message(id: "entrega-demo-entrega", kind: .entrega(entrega)),
         ]
     }
@@ -89,8 +91,12 @@ extension LiveAgentStore {
             id: "demo-permiso", kind: .publish, agentName: "Ghosty",
             question: "¿Dejas que publique el recorte?",
             detail: "El turno está detenido hasta que contestes.", attachment: nil)
+        // Una que ya contestó y no has visto: es el estado que la lista no sabía decir.
+        foto.termino = Date().addingTimeInterval(-120)
+        foto.visto = false
         _ = uno.abrir()
         uno.activa = larga.clave
+        larga.termino = Date().addingTimeInterval(-3600)
         uno.hilosRemotos = DemoData.sesiones
         uno.estadoHilos = .listo
         uno.infoDeLaCaja = "demo 1.0"

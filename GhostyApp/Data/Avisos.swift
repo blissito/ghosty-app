@@ -1,4 +1,5 @@
 import Foundation
+import AudioToolbox
 import UserNotifications
 #if canImport(UIKit)
 import UIKit
@@ -29,6 +30,19 @@ enum Avisos {
         pedido = true
         UNUserNotificationCenter.current().delegate = delegado
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    /// El sonido de "ya acabó".
+    ///
+    /// ⚠️ Suena SÓLO cuando no estabas mirando esa conversación: un sonido por cada turno
+    /// que ves terminar delante de ti se vuelve ruido en dos minutos. Es un sonido del
+    /// sistema y no un archivo propio a propósito — encaja con el resto del teléfono y no
+    /// añade un asset que mantener.
+    static func sonarFin() {
+        AudioServicesPlaySystemSound(1057)
+        #if canImport(UIKit)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
     }
 
     static func avisar(titulo: String, cuerpo: String, agentID: String) {

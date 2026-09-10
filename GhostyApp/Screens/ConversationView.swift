@@ -40,10 +40,6 @@ struct ConversationView: View {
                     .padding(.bottom, 14)
             }
 
-            // Quién más sigue trabajando. Va ARRIBA, pegado a la cabecera del agente:
-            // es información sobre la flota, no sobre este hilo.
-            OtrosTrabajando(store: store)
-
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(spacing: 14) {
@@ -133,6 +129,12 @@ struct ConversationView: View {
                 .onChange(of: hiloVisible) { _, _ in alFondo(scroll) }
                 .onAppear { alFondo(scroll) }
             }
+
+            // ⚠️ El conmutador de conversaciones va ABAJO, pegado al compositor. Estuvo
+            // arriba —bajo la cabecera— y era donde no llega el pulgar: para cambiarte de
+            // conversación había que estirar el dedo hasta la cabeza del agente y abrir un
+            // panel. Aquí es un toque, en la zona donde ya tienes la mano.
+            OtrosTrabajando(store: store)
 
             compositor
         }

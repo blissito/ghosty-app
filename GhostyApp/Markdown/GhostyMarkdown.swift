@@ -18,6 +18,10 @@ struct GhostyMarkdown: View {
                 FontSize(16)
                 ForegroundColor(.gInk)
             }
+            // ⚠️ Las imágenes del markdown salían **a tamaño real**: una foto de 1200 px
+            // se pintaba a 1200 px y desbordaba la burbuja y la pantalla. Se acotan al
+            // ancho disponible y a un alto razonable, y con las esquinas del resto.
+            .markdownImageProvider(.acotada)
     }
 }
 
@@ -156,4 +160,41 @@ extension MarkdownUI.Theme {
                     .padding(.vertical, 9)
             }
     }
+}
+
+
+/// Las imágenes de una respuesta, a un tamaño que quepa.
+///
+/// ⚠️ El proveedor por defecto de MarkdownUI pinta la imagen a su tamaño natural. Con una
+/// foto de verdad —las que devuelve una búsqueda— eso es un bloque que se sale de la
+/// burbuja y empuja el hilo a lo ancho.
+struct ImagenAcotada: ImageProvider {
+    func makeImage(url: URL?) -> some View {
+        AsyncImage(url: url) { fase in
+            switch fase {
+            case .success(let img):
+                img.resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+            case .failure:
+                // No se calla: una imagen que no cargó y no se dice parece un hueco del
+                // diseño. Ver la regla de la casa sobre fallos mudos.
+                HStack(spacing: 6) {
+                    Image(systemName: "photo").font(.system(size: 13))
+                    Text("No pude cargar la imagen").gCaption()
+                }
+                .foregroundStyle(Color.gInk4)
+            default:
+                RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+                    .fill(Color.gFill)
+                    .frame(height: 140)
+                    .overlay { ProgressView().controlSize(.small) }
+            }
+        }
+    }
+}
+
+extension ImageProvider where Self == ImagenAcotada {
+    static var acotada: ImagenAcotada { ImagenAcotada() }
 }

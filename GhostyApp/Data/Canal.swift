@@ -53,11 +53,49 @@ final class Hilo {
     var trabajando: Bool { turno != nil }
     var transcurrido: String { turno?.elapsed ?? "" }
 
+    /// Cuándo cerró su último turno, y si ya lo viste.
+    ///
+    /// ⚠️ «4 mensajes» no dice lo que uno quiere saber de una conversación que dejaste
+    /// trabajando: quiere saber si YA CONTESTÓ. Con varias a la vez es la única forma de
+    /// decidir a cuál volver.
+    var termino: Date?
+    var visto = true
+
+    /// En qué anda, en una línea, para una lista.
+    enum Estado: Equatable { case trabajando(String), listo(String), sinEstrenar, enReposo(String) }
+
+    var estado: Estado {
+        if let turno { return .trabajando(turno.elapsed.isEmpty ? "…" : turno.elapsed) }
+        if let termino, !visto { return .listo(Self.hace(termino)) }
+        if mensajes.isEmpty { return .sinEstrenar }
+        let n = mensajes.count
+        return .enReposo(n == 1 ? "1 mensaje" : "\(n) mensajes")
+    }
+
+    /// «hace 2 min», en español y sin depender del idioma del teléfono para la forma.
+    static func hace(_ fecha: Date) -> String {
+        let s = Int(Date().timeIntervalSince(fecha))
+        if s < 10 { return "ahora mismo" }
+        if s < 60 { return "hace \(s) s" }
+        if s < 3600 { return "hace \(s / 60) min" }
+        if s < 86_400 { return "hace \(s / 3600) h" }
+        return "hace \(s / 86_400) d"
+    }
+
     /// De qué va, para poder nombrarlo en una lista.
     var titulo: String {
-        if !prompt.isEmpty { return String(prompt.prefix(40)) }
-        for m in mensajes { if case .user(let t, _) = m.kind, !t.isEmpty { return String(t.prefix(40)) } }
+        if !prompt.isEmpty { return Self.limpio(prompt) }
+        for m in mensajes { if case .user(let t, _) = m.kind, !t.isEmpty { return Self.limpio(t) } }
         return "Conversación nueva"
+    }
+
+    /// El título es texto PLANO: los backticks y asteriscos de lo que escribiste salían
+    /// literales («Ejecuta el comando \`echo»).
+    private static func limpio(_ t: String) -> String {
+        var s = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        for marca in ["**", "__", "`", "#"] { s = s.replacingOccurrences(of: marca, with: "") }
+        return String(s.trimmingCharacters(in: .whitespaces).prefix(40))
     }
 
     func soltar() {

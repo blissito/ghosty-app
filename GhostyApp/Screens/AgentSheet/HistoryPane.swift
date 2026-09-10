@@ -80,6 +80,9 @@ struct HistoryPane: View {
                             store.mirar(h)
                             onAbrir?()
                         }
+                        // Un solo elemento accesible: así se puede tocar por su nombre
+                        // sin confundirlo con una burbuja del chat que diga lo mismo.
+                        .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("hilo-abierto-\(i)")
                         .ghostySeparator(inset: i == canal.hilos.count - 1 ? .infinity : 44)
                 }
@@ -92,6 +95,9 @@ struct HistoryPane: View {
         HStack(alignment: .top, spacing: 12) {
             if h.trabajando {
                 ProgressView().frame(width: 32, height: 32)
+            } else if h.termino != nil, !h.visto {
+                // Ya contestó y no lo has visto: es la razón por la que abriste esto.
+                TintedIcon(systemName: "checkmark", tint: .gGreenInk, background: .gGreenTint)
             } else {
                 TintedIcon(systemName: activa ? "checkmark" : "bubble.left.and.bubble.right",
                            tint: activa ? .gPrimary : .gInk2,
@@ -100,14 +106,7 @@ struct HistoryPane: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(h.titulo).font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.gInk).lineLimit(1)
-                if h.permisoPendiente != nil {
-                    Text("Espera tu visto bueno").gMeta().foregroundStyle(Color.gDangerInk)
-                } else if h.trabajando {
-                    Text("Trabajando · \(h.transcurrido)").gMeta()
-                } else {
-                    Text(h.mensajes.isEmpty ? "Sin mensajes todavía"
-                         : "\(h.mensajes.count) mensajes").gMeta()
-                }
+                EstadoDelHilo(hilo: h)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // Cerrar la conversación de la app. No la borra de la caja.
@@ -208,9 +207,9 @@ struct HistoryPane: View {
     private func detalle(_ h: ACPClient.Session) -> String {
         var partes: [String] = []
         if let n = h.messageCount { partes.append(n == 1 ? "1 mensaje" : "\(n) mensajes") }
-        if let f = h.updatedAt {
-            partes.append(f.formatted(.relative(presentation: .named)))
-        }
+        // ⚠️ En español y a mano: `.relative` sigue el idioma del SISTEMA, así que en un
+        // teléfono en inglés salía «22 minutes ago» en medio de una pantalla en español.
+        if let f = h.updatedAt { partes.append(Hilo.hace(f)) }
         return partes.joined(separator: " · ")
     }
 }

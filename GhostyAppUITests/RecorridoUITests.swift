@@ -57,7 +57,7 @@ final class RecorridoUITests: XCTestCase {
         //    no funcionaba por tener un botón dentro de otro.
         // Se toca por su TEXTO, como lo haría una persona: un identificador puesto en un
         // contenedor de SwiftUI no siempre se expone como elemento.
-        let fila = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'informe'")).firstMatch
+        let fila = app.descendants(matching: .any)["hilo-abierto-0"]
         XCTAssertTrue(fila.waitForExistence(timeout: 3), "no se pintaron las conversaciones abiertas")
         fila.tap()
         foto("05-tras-tocar-abierta")
@@ -71,6 +71,14 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(bajar.waitForExistence(timeout: 3), "el botón de ir abajo no apareció al subir")
         bajar.tap()
         foto("07-tras-bajar")
+
+        // 4b. La conversación con foto: imagen de markdown y tarjeta de entrega. Aquí es
+        //     donde se ve si una imagen grande respeta el ancho de la burbuja.
+        let conFoto = app.buttons.matching(NSPredicate(format: "label CONTAINS 'solo me interesa'")).firstMatch
+        if conFoto.waitForExistence(timeout: 3) {
+            conFoto.tap()
+            foto("07b-conversacion-con-imagen")
+        }
 
         // 5. El adjuntador de tres tarjetas.
         let mas = app.buttons["adjuntar"]

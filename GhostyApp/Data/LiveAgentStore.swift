@@ -402,6 +402,7 @@ final class LiveAgentStore: AgentStoring {
         let id = agenteID ?? selectedAgentID
         if id != selectedAgentID { seleccionar(id) }
         canales[id]?.activa = hilo.clave
+        hilo.visto = true
     }
 
     /// Cierra una conversación de la app. No la borra de la caja.
@@ -1098,8 +1099,16 @@ final class LiveAgentStore: AgentStoring {
     /// tiraste al abrir conversación nueva. Sin esta distinción, detener a un agente
     /// desde la flota te mandaba una notificación diciendo que había terminado.
     private func cerrarTurno(_ canal: Canal, _ hilo: Hilo, avisar: Bool = true) {
+        let hubo = hilo.turno != nil
         hilo.cronometro?.cancel(); hilo.cronometro = nil
         hilo.turno = nil; hilo.inicio = nil
+        if hubo {
+            hilo.termino = Date()
+            // Visto sólo si lo estabas mirando de verdad. Si no, la conversación queda
+            // marcada como "contestó" hasta que entres, y suena.
+            hilo.visto = hilo.clave == hiloActivo?.clave && !Avisos.enElFondo
+            if !hilo.visto { Avisos.sonarFin() }
+        }
         refrescarEstado(canal)
         // El turno acabó: es el momento en que la conversación está completa y vale la
         // pena escribirla. Guardar en cada trozo del streaming sería escribir el archivo

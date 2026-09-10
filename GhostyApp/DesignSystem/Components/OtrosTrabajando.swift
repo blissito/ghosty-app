@@ -12,27 +12,46 @@ import SwiftUI
 struct OtrosTrabajando: View {
     let store: LiveAgentStore
 
-    private var otros: [(canal: Canal, hilo: Hilo)] {
-        let mirando = store.hiloActivo?.clave
-        return store.enCurso.filter { $0.hilo.clave != mirando }
+    /// ⚠️ TODAS las conversaciones abiertas, no sólo las que trabajan. Con la fila
+    /// puesta arriba y sólo con las vivas, para cambiarte a una que ya contestó había que
+    /// estirar el dedo hasta la cabeza del agente y abrir un panel. Ahora vive **junto al
+    /// compositor**, que es donde está el pulgar.
+    private var abiertas: [(canal: Canal, hilo: Hilo)] {
+        var lista: [(Canal, Hilo)] = []
+        if let c = store.canalActivo { lista += c.hilos.map { (c, $0) } }
+        // De los otros agentes sólo lo que está vivo: sus conversaciones dormidas son de
+        // otra pantalla.
+        lista += store.enCurso.filter { $0.canal.cuenta.id != store.selectedAgentID }
+            .map { ($0.canal, $0.hilo) }
+        return lista
     }
 
     var body: some View {
-        if !otros.isEmpty {
+        // Con una sola conversación no hay entre qué elegir: la fila no aparece.
+        if abiertas.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(otros, id: \.hilo.clave) { par in
+                HStack(spacing: 7) {
+                    ForEach(abiertas, id: \.hilo.clave) { par in
                         chip(par.canal, par.hilo)
                     }
                 }
                 .padding(.horizontal, Theme.Space.cardH)
+                .padding(.vertical, 4)
             }
-            .padding(.bottom, Theme.Space.row - 3)
+            .padding(.bottom, 4)
         }
+    }
+
+    private func fondo(_ permiso: Bool, _ contesto: Bool, _ activa: Bool) -> Color {
+        if permiso { return .gDangerTint }
+        if contesto { return .gGreenTint }
+        return .gCard
     }
 
     private func chip(_ canal: Canal, _ hilo: Hilo) -> some View {
         let esperaPermiso = hilo.permisoPendiente != nil
+        let activa = hilo.clave == store.hiloActivo?.clave
+        let contesto = hilo.termino != nil && !hilo.visto && !hilo.trabajando
         // El nombre del agente sólo si NO es el que miras: dentro del mismo agente lo
         // que distingue una conversación de otra es de qué va, no de quién es.
         let mismoAgente = canal.cuenta.id == store.selectedAgentID
@@ -41,13 +60,18 @@ struct OtrosTrabajando: View {
         return Button {
             store.mirar(hilo, de: canal.cuenta.id)
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: 6) {
                 if esperaPermiso {
                     Image(systemName: "hand.raised.fill")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.gDanger)
-                } else {
+                } else if hilo.trabajando {
                     ProgressView().controlSize(.mini)
+                } else if contesto {
+                    // Ya contestó y no lo has visto: es a donde hay que volver.
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.gGreenInk)
                 }
                 Text(etiqueta)
                     .gChip()
@@ -55,18 +79,25 @@ struct OtrosTrabajando: View {
                     .lineLimit(1)
                 // El reloj en cifras de ancho fijo: si no, el chip se ensancha cada
                 // segundo y la fila entera tiembla.
-                Text(esperaPermiso ? "espera permiso" : hilo.transcurrido)
-                    .gMono(size: 12.5, weight: .regular)
-                    .foregroundStyle(esperaPermiso ? Color.gDangerInk : Color.gInk3)
+                if esperaPermiso {
+                    Text("permiso").gChip().foregroundStyle(Color.gDangerInk)
+                } else if hilo.trabajando {
+                    Text(hilo.transcurrido).gMono(size: 12.5, weight: .regular)
+                        .foregroundStyle(Color.gInk3)
+                }
             }
-            .frame(maxWidth: 210)
+            .frame(maxWidth: 190)
             .padding(.horizontal, Theme.Space.cardH - 4)
             .padding(.vertical, 7)
             // ⚠️ El que espera permiso va en rojo, no en el primario: es lo mismo que
             // dice `StatusLine` para este estado, y su turno está DETENIDO — no es una
             // notita, es lo único de la pantalla que te está esperando a ti.
-            .background(esperaPermiso ? Color.gDangerTint : Color.gCard, in: Capsule())
-            // La misma elevación que el resto de superficies blancas sobre el fondo.
+            .background(fondo(esperaPermiso, contesto, activa), in: Capsule())
+            .overlay {
+                // La que miras va perfilada, no rellena: rellena competía con el chip que
+                // te está esperando, que es el que tiene que llamar la atención.
+                if activa { Capsule().stroke(Color.gPrimary, lineWidth: 1.5) }
+            }
             .shadow(color: .black.opacity(0.055), radius: 1, y: 1)
             .shadow(color: .black.opacity(0.05), radius: 7, y: 4)
         }
