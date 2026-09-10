@@ -319,6 +319,16 @@ final class LiveAgentStore: AgentStoring {
             if canal.hilos.isEmpty { canal.abrir() }
             canal.activa = canal.hilos.last?.clave
             canales[c.id] = canal
+            // ⚠️ Al ARRANCAR también hay que volver a escuchar. Si el turno siguió
+            // mientras la app estaba cerrada —que es justo lo que se compró con este
+            // transporte—, la conversación se abriría enseñando tu mensaje y ninguna
+            // respuesta, y el agente escribiendo sin público.
+            // ⚠️ Con gs, quién tiene la verdad de qué conversaciones hay es el SERVIDOR,
+            // no el caché del teléfono. Medido: si la app muere de golpe —iOS matándola,
+            // o un `terminate`— el mensaje que acababas de mandar no llega ni a guardarse,
+            // y al abrir aparecía una conversación en blanco mientras el agente contestaba
+            // del otro lado. Pedir la lista y abrir la última cuesta una llamada.
+            if Self.porGS { retomarDesdeElServidor(canal) }
         }
         for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
             canales[id]?.soltar(); canales[id] = nil
@@ -429,7 +439,28 @@ final class LiveAgentStore: AgentStoring {
 
     // MARK: - Volver del fondo
 
-    /// La app volvió a estar delante: recoger lo que pasó mientras no mirábamos.
+    /// Al arrancar: qué conversaciones hay de verdad, y ponerse al día con la última.
+    private func retomarDesdeElServidor(_ canal: Canal) {
+        Task { [weak self, weak canal] in
+            guard let self, let canal else { return }
+            guard let cliente = try? await self.asegurarSocket(canal),
+                  let frescas = try? await cliente.sesiones(), !frescas.isEmpty else {
+                if let activo = canal.hilo { self.engancharse(activo, de: canal, ponerseAlDia: true) }
+                return
+            }
+            canal.hilosRemotos = frescas
+            canal.estadoHilos = .listo
+            self.cache.guardarLista(frescas, de: canal.cuenta.id)
+            // La última que se tocó es la que estabas mirando. Si ya está abierta, no se
+            // duplica: `abrir(_:)` la reutiliza por su `sessionId`.
+            let ultima = frescas[0]
+            let hilo = canal.hilo(sesion: ultima.id) ?? canal.abrir(ultima.id)
+            if canal.hilo?.mensajes.isEmpty ?? true { canal.activa = hilo.clave }
+            self.engancharse(hilo, de: canal, ponerseAlDia: true)
+        }
+    }
+
+    /// La app volvió a estar delante: volver a escuchar lo que siguió sin nosotros.
     ///
     /// ⚠️ iOS suspende la app a los pocos segundos de irte y se lleva el socket. La caja
     /// **no** se entera: sigue trabajando y su sesión sigue ahí. Lo que fallaba es que al
@@ -462,7 +493,13 @@ final class LiveAgentStore: AgentStoring {
             // ⚠️ Una tarea POR HILO, no un `await` en fila. Con tres conversaciones
             // pendientes, la tercera esperaba a que las dos primeras acabaran de hablar
             // con la caja — minutos mirando una pantalla que no cambia.
-            for hilo in pendientes { recoger(hilo, de: canal) }
+            //
+            // Con el transporte nuevo no hay nada que «recoger»: el turno siguió y basta
+            // con volver a escucharlo. Recuperar a base de recargar el hilo era la
+            // consecuencia de que el trabajo muriera contigo.
+            for hilo in pendientes {
+                if Self.porGS { engancharse(hilo, de: canal, ponerseAlDia: true) } else { recoger(hilo, de: canal) }
+            }
         }
     }
 
@@ -628,6 +665,7 @@ final class LiveAgentStore: AgentStoring {
         do {
             let cliente = try await asegurarSocket(canal)
             guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else { return false }
+            defer { engancharse(hilo, de: canal) }
             hilo.cargadaEn = ObjectIdentifier(cliente)
             let archivos = await GhostyAPI.archivosDe(sesion: sid)
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
@@ -1064,6 +1102,10 @@ final class LiveAgentStore: AgentStoring {
             let cliente = try await asegurarSocket(canal)
             guard let replay = try await cliente.cargar(sesion.id, cwd: sesion.cwd) else { return }
             hilo.cargadaEn = ObjectIdentifier(cliente)
+            // Y engancharse a lo que esté pasando ahí ahora mismo: abrir una conversación
+            // con un turno vivo tiene que enseñar lo que el agente está escribiendo, no
+            // sólo lo que había cuando te fuiste.
+            defer { engancharse(hilo, de: canal) }
             // Los archivos que se subieron EN esta conversación. Es lo que devuelve a la
             // vida sus adjuntos: el replay de ACP trae sólo texto. Best-effort — si no
             // contesta, el hilo se abre igual y los adjuntos salen nombrados.
@@ -1282,8 +1324,12 @@ final class LiveAgentStore: AgentStoring {
                 // reconstruye el contexto del modelo, así que si no se la mandamos
                 // nosotros, el agente empieza en blanco en cada mensaje. Es un parche con
                 // coste en tokens y se borra el día que la caja lo haga bien.
-                let conHistoria = BloqueDeHistorial.texto(hilo.mensajes)
-                    .map { "\($0)\n\n\(conVoz)" } ?? conVoz
+                // ⚠️ Con gs NO se manda: el contexto lo mantiene el servidor, que es
+                // dueño de la sesión. Mandarlo igual no es sólo pagar tokens de más —
+                // medido en la caja de pruebas, el agente se puso a comentar el propio
+                // bloque en vez de contestar la pregunta.
+                let conHistoria = Self.porGS ? conVoz
+                    : (BloqueDeHistorial.texto(hilo.mensajes).map { "\($0)\n\n\(conVoz)" } ?? conVoz)
                 await self.porSocket(canal, hilo, sid: sid, texto: conHistoria,
                                      adjuntos: conArchivos,
                                      respuesta: idRespuesta)
@@ -1359,11 +1405,47 @@ final class LiveAgentStore: AgentStoring {
             cerrarTurno(canal, hilo)
             return
         }
+        await consumir(cliente.prompt(sessionID: sid, texto: texto, adjuntos: adjuntos),
+                       canal, hilo, sid: sid, texto: texto, respuesta: respuesta)
+    }
+
+    /// Vuelve a engancharse a un turno que sigue corriendo allá.
+    ///
+    /// ⚠️ Es lo que convierte «el turno es del servidor» en algo que se ve. Sin esto,
+    /// volver a la app con trabajo en marcha enseña tu mensaje y ninguna respuesta: el
+    /// agente estaba escribiendo y aquí no lo miraba nadie. Con el WebSocket no existía —
+    /// allí no había turno al que volver—.
+    func engancharse(_ hilo: Hilo, de canal: Canal, ponerseAlDia: Bool = false) {
+        guard Self.porGS, let sid = hilo.sesionID, !hilo.trabajando else { return }
+        hilo.enVuelo?.cancel()
+        hilo.enVuelo = Task { [weak self] in
+            guard let self else { return }
+            // ⚠️ Primero el hilo, después el directo. El backlog del SSE dura unos minutos
+            // y vive en la memoria del servidor: para «me fui un rato» lo que hay que
+            // hacer es PEDIR la conversación, no confiar en que el backlog siga ahí.
+            // Medido: la app volvía y enseñaba tu mensaje sin la respuesta, que estaba
+            // escrita y guardada del otro lado.
+            if ponerseAlDia { _ = await self.resincronizar(hilo, de: canal) }
+            guard let cliente = try? await self.asegurarSocket(canal),
+                  let flujo = cliente.seguir(sessionID: sid) else { return }
+            let respuesta = "resp-\(UUID().uuidString.prefix(8))"
+            await self.consumir(flujo, canal, hilo, sid: sid, texto: "", respuesta: respuesta,
+                                enganchado: true)
+        }
+    }
+
+    /// El bucle que pinta lo que llega, venga de un turno recién mandado o de uno al que
+    /// nos acabamos de enganchar. Es el mismo trabajo y por eso es la misma función: dos
+    /// copias de esto se separan en cuanto una de las dos cambie.
+    private func consumir(_ flujo: AsyncThrowingStream<ACPClient.Replay, Error>,
+                          _ canal: Canal, _ hilo: Hilo, sid: String,
+                          texto: String, respuesta: String,
+                          enganchado: Bool = false) async {
         var acumulado = ""
         var herramientas: [Herramienta] = []
 
         do {
-            for try await evento in cliente.prompt(sessionID: sid, texto: texto, adjuntos: adjuntos) {
+            for try await evento in flujo {
                 // ⚠️ Que llegue UN evento es la prueba de que la caja está ahí: se apaga
                 // la marca de interrumpido. Sin esto, un hilo que se cortó una vez se
                 // quedaba con el cartel de «tu agente sigue con esto» y la cabecera
@@ -1372,6 +1454,13 @@ final class LiveAgentStore: AgentStoring {
                 if hilo.interrumpido {
                     hilo.interrumpido = false
                     cache.saldarDeuda(sesion: sid, de: canal.cuenta.id)
+                    refrescarEstado(canal)
+                }
+                // Al engancharnos no hay turno local: lo hay ALLÁ. En cuanto llega algo se
+                // enciende el reloj, o la conversación se vería quieta mientras el agente
+                // escribe.
+                if enganchado, hilo.turno == nil {
+                    arrancarCronometro(hilo, titulo: hilo.prompt.isEmpty ? "lo de antes" : hilo.prompt)
                     refrescarEstado(canal)
                 }
                 switch evento {
@@ -1460,8 +1549,14 @@ final class LiveAgentStore: AgentStoring {
                     break
                 }
             }
-            if acumulado.isEmpty && herramientas.isEmpty {
+            // ⚠️ Sólo si el turno era NUESTRO. Al engancharnos a una conversación en
+            // reposo, gs manda `done` de entrada —es cómo dice «aquí no está pasando
+            // nada»— y eso pintaba un «cerró sin texto» por cada vez que abrías el hilo.
+            if acumulado.isEmpty && herramientas.isEmpty && !enganchado {
                 pintarRespuesta(hilo, id: respuesta, texto: "_El turno cerró sin texto._")
+            }
+            if enganchado && acumulado.isEmpty {
+                hilo.mensajes.removeAll { $0.kind == .typing }
             }
             // Terminó de verdad: nada de esto sigue pendiente.
             hilo.interrumpido = false

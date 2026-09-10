@@ -213,6 +213,26 @@ actor ClienteGS: TransporteDeAgente {
         }
     }
 
+    /// Engancharse a lo que ya esté pasando en esa conversación.
+    ///
+    /// Si no hay turno vivo, gs manda `done` de entrada y el flujo se cierra solo: quien
+    /// llama no tiene que preguntar primero si hay algo. Si lo hay, llega el backlog
+    /// —todo lo que el turno emitió mientras no mirábamos— y después el directo.
+    nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<ACPClient.Replay, Error>? {
+        AsyncThrowingStream { cont in
+            let tarea = Task {
+                do { try await self.escuchar(sessionID, cont) }
+                catch { cont.finish(throwing: error) }
+            }
+            cont.onTermination = { _ in
+                tarea.cancel()
+                // ⚠️ Irse de una conversación NO cancela su turno: eso es justo lo que se
+                // gana con este transporte. Sólo se deja de escuchar.
+                Task { await self.dejarDeEscuchar(sessionID) }
+            }
+        }
+    }
+
     private func dejarDeEscuchar(_ sesion: String) {
         escuchas[sesion]?.cancel()
         escuchas[sesion] = nil

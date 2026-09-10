@@ -29,6 +29,14 @@ protocol TransporteDeAgente: Actor {
     nonisolated func prompt(sessionID: String, texto: String,
                             adjuntos: [Adjunto]) -> AsyncThrowingStream<ACPClient.Replay, Error>
 
+    /// Engancharse a una conversación que ya está trabajando, sin mandar nada.
+    ///
+    /// ⚠️ Es la mitad que hace útil que el turno sea del servidor. Sin esto, volver a la
+    /// app con un turno en marcha enseña tu mensaje y ninguna respuesta: el trabajo sigue
+    /// allá y aquí no lo mira nadie. Devuelve `nil` si el transporte no sabe hacerlo —el
+    /// WebSocket no puede: allí el turno murió con el socket—.
+    nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<ACPClient.Replay, Error>?
+
     func cancelar(_ sessionID: String) async
 
     func borrarSesion(_ id: String) async throws

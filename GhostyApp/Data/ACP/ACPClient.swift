@@ -357,6 +357,10 @@ actor ACPClient: TransporteDeAgente {
         }
     }
 
+    /// Por el socket no hay nada a lo que engancharse: el turno murió con la conexión.
+    /// Ver el aviso de `TransporteDeAgente`.
+    nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<Replay, Error>? { nil }
+
     /// Se avisa por aquí cuando el agente pide permiso.
     func alPedirPermiso(_ handler: @escaping @Sendable (Permiso) -> Void) {
         permisoPendiente = handler
