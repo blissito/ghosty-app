@@ -86,15 +86,12 @@ struct ConversationView: View {
                 .overlay(alignment: .bottom) {
                     if !alFinal && !store.messages.isEmpty {
                         Button {
-                            // ⚠️ Al ÚLTIMO MENSAJE, no al centinela. "fondo" es una vista
-                            // de 1pt dentro de un `LazyVStack`: si está fuera de pantalla
-                            // no existe todavía, y `scrollTo` a algo que no se ha creado
-                            // no hace nada. Por eso el botón no servía.
-                            alFinal = true
-                            withAnimation(.easeOut(duration: 0.28)) {
-                                scroll.scrollTo(store.messages.last?.id ?? "fondo",
-                                                anchor: .bottom)
-                            }
+                            // ⚠️ NO se toca `alFinal` a mano. Ponerlo aquí escondía el
+                            // botón ANTES de bajar, así que si el scroll fallaba el botón
+                            // desaparecía igual: «no sirve, pero desaparece». Ahora lo
+                            // dice el último mensaje cuando de verdad aparece en pantalla,
+                            // y el scroll insiste hasta que el `LazyVStack` lo ha creado.
+                            alFondo(scroll, animado: true)
                         } label: {
                             Image(systemName: "arrow.down")
                                 .font(.system(size: 14, weight: .semibold))
@@ -240,14 +237,25 @@ struct ConversationView: View {
     }
 
     /// Al fondo de verdad: ahora y otra vez cuando las filas ya se midieron.
-    private func alFondo(_ scroll: ScrollViewProxy) {
+    /// Al final del hilo, insistiendo hasta que la fila exista.
+    ///
+    /// ⚠️ Los reintentos no son paranoia: dentro de un `LazyVStack` una fila que está
+    /// fuera de pantalla **no se ha creado todavía**, y `scrollTo` a algo que no existe no
+    /// hace nada. Por eso el botón de bajar no bajaba.
+    private func alFondo(_ scroll: ScrollViewProxy, animado: Bool = false) {
         guard let ultimo = store.messages.last?.id else { return }
-        alFinal = true
-        scroll.scrollTo(ultimo, anchor: .bottom)
+        func ir(_ id: String) {
+            if animado {
+                withAnimation(.easeOut(duration: 0.28)) { scroll.scrollTo(id, anchor: .bottom) }
+            } else {
+                scroll.scrollTo(id, anchor: .bottom)
+            }
+        }
+        ir(ultimo)
         Task { @MainActor in
             for espera in [40, 160, 400] {
                 try? await Task.sleep(for: .milliseconds(espera))
-                scroll.scrollTo(store.messages.last?.id ?? ultimo, anchor: .bottom)
+                ir(store.messages.last?.id ?? ultimo)
             }
         }
     }

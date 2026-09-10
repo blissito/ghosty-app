@@ -214,8 +214,18 @@ struct EasyBitsClient: Sendable {
     /// Diagnóstico del transporte. Va a `os_log` para poder leerlo con
     /// `simctl spawn … log show`, que es la única forma de ver qué pasa dentro
     /// del simulador sin depurador.
-    static let diagnosticoEncendido =
-        ProcessInfo.processInfo.environment["GHOSTY_DIAG"] == "1"
+    /// ⚠️ Encendido SIEMPRE en las builds de desarrollo. Estaba detrás de `GHOSTY_DIAG`,
+    /// que sólo se puede pasar al LANZAR la app desde el Mac: en cuanto la persona la
+    /// mandaba al fondo y la volvía a abrir desde el icono, el proceso nuevo salía sin la
+    /// variable y no se registraba nada. Se perdieron dos reproducciones así. En Release
+    /// sigue apagado.
+    static let diagnosticoEncendido: Bool = {
+        #if DEBUG
+        return true
+        #else
+        return ProcessInfo.processInfo.environment["GHOSTY_DIAG"] == "1"
+        #endif
+    }()
 
     static func diag(_ mensaje: String) {
         guard diagnosticoEncendido else { return }
