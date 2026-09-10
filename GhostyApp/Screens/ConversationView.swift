@@ -19,6 +19,8 @@ struct ConversationView: View {
     @State private var abrirFotos = false
     @State private var abrirArchivos = false
     @State private var abrirCamara = false
+    /// ¿Está abierta la fila de tres tarjetas del `+`?
+    @State private var adjuntando = false
     @State private var subiendo = false
     @State private var grabador = GrabadorDeVoz()
     /// Cuánto se ha arrastrado desde el micrófono. Izquierda cancela, arriba bloquea.
@@ -67,7 +69,14 @@ struct ConversationView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .simultaneousGesture(
-                    TapGesture().onEnded { escribiendo = false }
+                    TapGesture().onEnded {
+                        escribiendo = false
+                        if adjuntando {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                                adjuntando = false
+                            }
+                        }
+                    }
                 )
                 .onChange(of: store.messages.count) { _, _ in
                     withAnimation(.easeOut(duration: 0.25)) { scroll.scrollTo("fondo", anchor: .bottom) }
@@ -218,6 +227,7 @@ struct ConversationView: View {
         VStack(spacing: 8) {
             if !adjuntos.isEmpty || fallo != nil { antesDeMandar }
             capsula
+            if adjuntando { tarjetasDeAdjuntar }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 6)
@@ -250,6 +260,45 @@ struct ConversationView: View {
             }
             .ignoresSafeArea()
         }
+    }
+
+    /// De dónde sacar lo que se manda.
+    ///
+    /// ⚠️ Era un `Menu` nativo de iOS: tres renglones grises con iconos diminutos, que
+    /// aparecían flotando encima del compositor tapándolo. Tres tarjetas grandes debajo
+    /// son un blanco de dedo de verdad, se leen de un vistazo y no esconden lo que estabas
+    /// escribiendo. Son las mismas tres puertas de siempre — los pickers no se tocaron.
+    private var tarjetasDeAdjuntar: some View {
+        HStack(spacing: 10) {
+            tarjeta("Cámara", "camera") { abrirCamara = true }
+            tarjeta("Foto", "photo") { abrirFotos = true }
+            tarjeta("Documento", "paperclip") { abrirArchivos = true }
+        }
+        .transition(.asymmetric(
+            insertion: .move(edge: .bottom).combined(with: .opacity),
+            removal: .opacity))
+    }
+
+    private func tarjeta(_ nombre: String, _ icono: String, _ accion: @escaping () -> Void) -> some View {
+        Button {
+            // Se cierra al elegir: la fila ya cumplió y dejarla abierta detrás del picker
+            // significa encontrarla puesta al volver, sin que nadie la haya pedido.
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { adjuntando = false }
+            accion()
+        } label: {
+            VStack(spacing: 7) {
+                Image(systemName: icono)
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(Color.gInk)
+                Text(nombre)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.gInk)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(Color.gCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     /// Los adjuntos que esperan, y el aviso si algo falló.
@@ -424,17 +473,22 @@ struct ConversationView: View {
     /// El control de la derecha lo pone `capsula`, porque es el que cambia de identidad.
     private var campoInterior: some View {
         HStack(spacing: 10) {
-            Menu {
-                Button { abrirFotos = true } label: { Label("Foto", systemImage: "photo") }
-                Button { abrirCamara = true } label: { Label("Cámara", systemImage: "camera") }
-                Button { abrirArchivos = true } label: { Label("Archivo", systemImage: "doc") }
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                    adjuntando.toggle()
+                }
+                if adjuntando { escribiendo = false }
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color.gInk3)
+                    .foregroundStyle(adjuntando ? Color.gInk : Color.gInk3)
+                    // Gira a `×`: el mismo botón que abrió cierra, y el giro lo dice sin
+                    // cambiar de icono ni mover nada de sitio.
+                    .rotationEffect(.degrees(adjuntando ? 45 : 0))
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
             TextField("Mensaje", text: $borrador, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -463,7 +517,10 @@ struct ConversationView: View {
         let texto = borrador
         let envio = adjuntos
         borrador = ""
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { adjuntos = [] }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            adjuntos = []
+            adjuntando = false
+        }
         fallo = nil
         // ⚠️ `subiendo` gatea el botón mientras los archivos viajan a la máquina del
         // agente. Sin esto se pueden encolar dos turnos con el mismo adjunto.
