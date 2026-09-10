@@ -144,7 +144,20 @@ enum BloqueDeAdjuntos {
             }
         }
 
-        // 2. El bloque de adjuntos entero fuera. Los NOMBRES salen aparte, como DATO: que
+        // 2. El bloque de CONVERSACIÓN PREVIA fuera.
+        //
+        // ⚠️ `session/load` devuelve el prompt TAL CUAL se envió, así que al reabrir un
+        // hilo la burbuja de la persona saldría con toda la conversación anterior dentro
+        // —el mismo fallo que ya tuvo con la fontanería de los adjuntos, y por el que
+        // existe esta función—. Ver `BloqueDeHistorial`.
+        if let ini = t.range(of: "[CONVERSACIÓN PREVIA DE ESTE MISMO HILO") {
+            let cierre = "AHORA.]"
+            let fin = t.range(of: cierre, range: ini.upperBound..<t.endIndex)
+            let hasta = fin?.upperBound ?? t.endIndex
+            t = t.replacingCharacters(in: ini.lowerBound..<hasta, with: "")
+        }
+
+        // 3. El bloque de adjuntos entero fuera. Los NOMBRES salen aparte, como DATO: que
         //    se mandó un archivo es información de la persona, y con el nombre se vuelve a
         //    encontrar el archivo en la cuenta para rehidratar su reproductor. Coserlos al
         //    texto obligaba a volver a parsearlos, que es lo que esto evita.

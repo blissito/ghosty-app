@@ -619,18 +619,19 @@ final class LiveAgentStore: AgentStoring {
             // `session/load` por socket lo devuelve a la vida — y es best-effort: si
             // falla, mejor mandar el turno sin contexto que perderlo.
             let cliente = try await asegurarSocket(canal)
-            let cual = ObjectIdentifier(cliente)
-            if hilo.cargadaEn != cual {
-                do {
+            // ⚠️ ANTES DE CADA TURNO, no una vez por socket. El relé puede mantener el
+            // socket vivo mientras la caja de detrás se recicla —el janitor la recoge a
+            // las horas— y entonces la sesión se pierde sin que el socket se entere: la
+            // app creía tenerla rehidratada y el agente empezaba en blanco. Cuesta una
+            // ida y vuelta por turno; la memoria de la conversación vale más que eso.
+            do {
                     let r = try await cliente.cargar(sid, cwd: "/data/work")
                     EasyBitsClient.diag("[hilo] rehidratada \(sid): \(r?.count ?? -1) eventos")
-                    hilo.cargadaEn = cual
                 } catch {
                     // ⚠️ NO se traga. Si la caja no puede devolvernos la sesión, el turno
                     // que sigue va SIN contexto y el agente contesta "no sé de qué me
                     // hablas" — que es un fallo mudo con cara de agente tonto.
                     EasyBitsClient.diag("[hilo] ⚠️ NO pude rehidratar \(sid): \(error)")
-                }
             }
             EasyBitsClient.diag("[hilo] turno a sesión \(sid)")
             return sid
@@ -943,7 +944,14 @@ final class LiveAgentStore: AgentStoring {
                     .joined(separator: "\n\n")
                 let conVoz = dicho.isEmpty ? limpio
                     : (limpio.isEmpty ? dicho : "\(dicho)\n\n\(limpio)")
-                await self.porSocket(canal, hilo, sid: sid, texto: conVoz,
+                // ⚠️ La conversación previa viaja EN el turno. Ver `BloqueDeHistorial`:
+                // está medido que la caja reemite el transcript al cliente pero no
+                // reconstruye el contexto del modelo, así que si no se la mandamos
+                // nosotros, el agente empieza en blanco en cada mensaje. Es un parche con
+                // coste en tokens y se borra el día que la caja lo haga bien.
+                let conHistoria = BloqueDeHistorial.texto(hilo.mensajes)
+                    .map { "\($0)\n\n\(conVoz)" } ?? conVoz
+                await self.porSocket(canal, hilo, sid: sid, texto: conHistoria,
                                      adjuntos: conArchivos,
                                      respuesta: idRespuesta)
             } catch {

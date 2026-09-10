@@ -233,9 +233,12 @@ actor ACPClient {
         guard enVivo[id] == nil else { return nil }
         replayEnCurso[id] = []
         defer { replayEnCurso[id] = nil }
-        _ = try await pedir("session/load",
-                            ["sessionId": id, "cwd": cwd, "mcpServers": []],
-                            timeout: 90)
+        let r = try await pedir("session/load",
+                                ["sessionId": id, "cwd": cwd, "mcpServers": []],
+                                timeout: 90)
+        // Lo que contesta la caja, tal cual: es la única forma de saber si de verdad
+        // reconstruyó la sesión o sólo nos reemitió el transcript.
+        EasyBitsClient.diag("[load] \(id) → \(r)")
         return replayEnCurso[id] ?? []
     }
 
