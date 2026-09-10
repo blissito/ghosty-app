@@ -948,6 +948,15 @@ final class LiveAgentStore: AgentStoring {
                 self?.recibirPermiso(p, en: canal)
             }
         }
+        // Y cuando el pedido deja de esperar —lo contestaste tú desde otro sitio, o se
+        // acabó el plazo— la tarjeta se retira sola. Una que sigue pidiendo permiso por
+        // algo ya resuelto no se puede quitar de ninguna manera.
+        await c.alResolverPermiso { [weak self, weak canal] id in
+            Task { @MainActor in
+                guard let canal else { return }
+                self?.retirarPermiso(id, en: canal)
+            }
+        }
         // Si el socket se cae, el canal deja de darlo por bueno. Sin esto un corte de red
         // mataba todas las conversaciones del agente y ninguna se recuperaba sola.
         await c.alPerderse { [weak canal] in
@@ -1008,7 +1017,31 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// El agente pidió permiso. El turno está detenido hasta que se conteste.
+    /// Quita la tarjeta de un permiso que ya no espera respuesta.
+    private func retirarPermiso(_ id: String, en canal: Canal) {
+        for hilo in canal.hilos where hilo.permisoACP?.id == id || hilo.permisoPendiente?.id == id {
+            hilo.permisoACP = nil
+            hilo.permisoPendiente = nil
+        }
+        refrescarEstado(canal)
+    }
+
     private func recibirPermiso(_ p: ACPClient.Permiso, en canal: Canal) {
+        // Gancho de desarrollo: contesta solo. El simulador no acepta toques por script,
+        // así que sin esto el camino de RESPUESTA del permiso —que es donde el turno se
+        // reanuda o se queda detenido diez minutos— no se puede ejercitar sin una persona.
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["GHOSTY_AUTO_PERMISO"] == "1" {
+            EasyBitsClient.diag("[permiso] llegó \(p.titulo); contesto solo (gancho de dev)")
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let cliente = canal.acp else { return }
+                let opcion = Self.elegirOpcion(.allowOnce, entre: p.opciones)
+                try? await cliente.responderPermiso(p.id, opcion: opcion)
+                EasyBitsClient.diag("[permiso] contestado con \(opcion)")
+            }
+        }
+        #endif
         // ⚠️ Al hilo que lo pidió. `Permiso` trae su `sessionID` desde siempre y se
         // ignoraba: con dos turnos a la vez, el segundo permiso pisaba al primero y ese
         // turno se quedaba detenido en la caja para siempre, sin nada en pantalla.

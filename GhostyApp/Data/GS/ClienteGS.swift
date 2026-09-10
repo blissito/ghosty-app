@@ -178,6 +178,18 @@ actor ClienteGS: TransporteDeAgente {
         permisoPendiente = handler
     }
 
+    private var permisoResuelto: (@Sendable (String) -> Void)?
+    func alResolverPermiso(_ handler: @escaping @Sendable (String) -> Void) {
+        permisoResuelto = handler
+    }
+
+    /// Permisos ya avisados, para no pedir dos veces lo mismo.
+    ///
+    /// ⚠️ El SSE reenvía los permisos ABIERTOS cada vez que alguien se suscribe —es lo que
+    /// hace que reconectar te devuelva el agente detenido y no una pantalla muda— así que
+    /// sin esta memoria, cada reenganche pintaba otra tarjeta del mismo pedido.
+    private var permisosAvisados: Set<String> = []
+
     private var alCaerse: (@Sendable () -> Void)?
     func alPerderse(_ handler: @escaping @Sendable () -> Void) { alCaerse = handler }
 
@@ -332,7 +344,8 @@ actor ClienteGS: TransporteDeAgente {
                 cont.yield(.usage(input: i, output: o))
             }
         case "permission":
-            if let id = p["id"] as? String {
+            if let id = p["id"] as? String, !permisosAvisados.contains(id) {
+                permisosAvisados.insert(id)
                 conversacionDelPermiso[id] = sesion
                 let opciones = (p["options"] as? [[String: Any]] ?? []).compactMap { o -> (String, String, String)? in
                     guard let oid = o["optionId"] as? String else { return nil }
@@ -345,7 +358,11 @@ actor ClienteGS: TransporteDeAgente {
                     opciones: opciones))
             }
         case "permission-resolved":
-            if let id = p["id"] as? String { conversacionDelPermiso[id] = nil }
+            if let id = p["id"] as? String {
+                conversacionDelPermiso[id] = nil
+                permisosAvisados.remove(id)
+                permisoResuelto?(id)
+            }
         case "error":
             cont.finish(throwing: ACPClient.Fallo.remoto(p["message"] as? String ?? "Falló el turno."))
             return true

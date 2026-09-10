@@ -357,6 +357,10 @@ actor ACPClient: TransporteDeAgente {
         }
     }
 
+    /// Por el socket el permiso se resuelve contestando su petición JSON-RPC, y nadie más
+    /// puede resolverlo: no hay aviso que dar.
+    func alResolverPermiso(_ handler: @escaping @Sendable (String) -> Void) {}
+
     /// Por el socket no hay nada a lo que engancharse: el turno murió con la conexión.
     /// Ver el aviso de `TransporteDeAgente`.
     nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<Replay, Error>? { nil }

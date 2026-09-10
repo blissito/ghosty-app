@@ -46,6 +46,13 @@ protocol TransporteDeAgente: Actor {
 
     func alPedirPermiso(_ handler: @escaping @Sendable (ACPClient.Permiso) -> Void)
 
+    /// Ese permiso ya no espera a nadie: alguien decidió, o se acabó el plazo.
+    ///
+    /// ⚠️ Hace falta porque quien decide puede no ser este teléfono —el mismo agente se
+    /// atiende desde la web— y una tarjeta que sigue pidiendo permiso por algo ya resuelto
+    /// es una pantalla que miente y que además no se puede quitar.
+    func alResolverPermiso(_ handler: @escaping @Sendable (String) -> Void)
+
     /// Aviso de que este transporte ya no sirve y hay que pedir otro.
     func alPerderse(_ handler: @escaping @Sendable () -> Void)
 
