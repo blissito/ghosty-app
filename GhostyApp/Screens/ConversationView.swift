@@ -541,19 +541,9 @@ struct ConversationView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("adjuntar")
 
-            // ⚠️ Su propio icono, no un menú. Lo dejó dicho el comentario de arriba: con
-            // varias conversaciones a la vez, empezar otra es una acción de todos los
-            // días y esconderla en la hoja del agente la hacía invisible.
-            if store.messages.count > 1 {
-                Button { store.nuevaConversacion() } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color.gInk3)
-                        .frame(width: 26, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
+            // ⚠️ Aquí NO va "nueva conversación". Estuvo, y eran dos entradas para lo
+            // mismo: la barra de conversaciones de justo encima ya la lista todas y
+            // termina en su «+», que es donde uno la busca — al final de la lista.
 
             TextField("Mensaje", text: $borrador, axis: .vertical)
                 .textFieldStyle(.plain)

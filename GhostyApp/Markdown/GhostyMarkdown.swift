@@ -22,6 +22,12 @@ struct GhostyMarkdown: View {
             // se pintaba a 1200 px y desbordaba la burbuja y la pantalla. Se acotan al
             // ancho disponible y a un alto razonable, y con las esquinas del resto.
             .markdownImageProvider(.acotada)
+            // ⚠️ Y el INLINE, que es el que faltaba. MarkdownUI tiene DOS proveedores: el
+            // de bloque, para una imagen sola en su párrafo, y éste, para una imagen
+            // dentro de texto o de una lista —que es justo como las escribe el agente
+            // cuando te devuelve resultados de búsqueda—. Con sólo el de bloque, las
+            // imágenes de una lista seguían saliendo a tamaño real y desbordando.
+            .markdownInlineImageProvider(.acotada)
     }
 }
 
@@ -175,7 +181,7 @@ struct ImagenAcotada: ImageProvider {
             case .success(let img):
                 img.resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: 260)
+                    .frame(maxWidth: 250, maxHeight: 250)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
             case .failure:
                 // No se calla: una imagen que no cargó y no se dice parece un hueco del
@@ -197,4 +203,40 @@ struct ImagenAcotada: ImageProvider {
 
 extension ImageProvider where Self == ImagenAcotada {
     static var acotada: ImagenAcotada { ImagenAcotada() }
+}
+
+
+/// Las imágenes que van DENTRO de un texto o de una lista.
+///
+/// ⚠️ Aquí no se puede envolver en una vista, porque el resultado se compone dentro de un
+/// `Text`: el tamaño hay que arreglarlo en los PÍXELES. Se baja la imagen y se redibuja a
+/// un ancho máximo, que es lo que la vuelve a meter dentro de la burbuja.
+struct ImagenInlineAcotada: InlineImageProvider {
+    /// ⚠️ En PUNTOS y del tamaño de la burbuja, no el doble. Con 620 la imagen seguía
+    /// saliéndose: una inline se compone dentro del texto con el tamaño que traiga, y si
+    /// ese tamaño es mayor que la burbuja, lo que se desborda es la burbuja. También se
+    /// acota el ALTO, o una foto vertical ocupa la pantalla entera.
+    private static let lado: CGFloat = 250
+
+    func image(with url: URL, label: String) async throws -> Image {
+        let (datos, _) = try await URLSession.shared.data(from: url)
+        guard let original = UIImage(data: datos) else { throw URLError(.cannotDecodeContentData) }
+        let escala = min(Self.lado / original.size.width, Self.lado / original.size.height, 1)
+        guard escala < 1 else { return Image(uiImage: original) }
+
+        let destino = CGSize(width: original.size.width * escala,
+                             height: original.size.height * escala)
+        let render = UIGraphicsImageRenderer(size: destino, format: {
+            let f = UIGraphicsImageRendererFormat.default()
+            // Escala 1: el tamaño en PUNTOS es el que manda para el ancho de la burbuja.
+            f.scale = 1
+            return f
+        }())
+        let chica = render.image { _ in original.draw(in: CGRect(origin: .zero, size: destino)) }
+        return Image(uiImage: chica)
+    }
+}
+
+extension InlineImageProvider where Self == ImagenInlineAcotada {
+    static var acotada: ImagenInlineAcotada { ImagenInlineAcotada() }
 }

@@ -27,19 +27,44 @@ struct OtrosTrabajando: View {
     }
 
     var body: some View {
-        // Con una sola conversación no hay entre qué elegir: la fila no aparece.
-        if abiertas.count > 1 {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(abiertas, id: \.hilo.clave) { par in
-                        chip(par.canal, par.hilo)
+        // ⚠️ La fila se enseña SIEMPRE que haya algo que enseñar, aunque sólo haya una
+        // conversación: es la barra de conversaciones, y aquí es donde vive el «+». Con
+        // el «+» escondido en el compositor había dos entradas para lo mismo y ninguna
+        // decía que las conversaciones son una lista.
+        if !abiertas.isEmpty {
+            HStack(spacing: 7) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(abiertas, id: \.hilo.clave) { par in
+                            chip(par.canal, par.hilo)
+                        }
                     }
+                    .padding(.leading, Theme.Space.cardH)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, Theme.Space.cardH)
-                .padding(.vertical, 4)
+                // ⚠️ FUERA del scroll y clavado a la derecha. Puesto al final de la fila
+                // se iba de la pantalla en cuanto había tres conversaciones, que es justo
+                // cuando más falta hace empezar otra.
+                nueva
+                    .padding(.trailing, Theme.Space.cardH)
             }
             .padding(.bottom, 4)
         }
+    }
+
+    /// Empezar otra. Va al FINAL de la fila, que es donde acaba la lista de lo que hay.
+    private var nueva: some View {
+        Button {
+            store.nuevaConversacion()
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.gPrimary)
+                .frame(width: 32, height: 32)
+                .background(Color.gPrimaryTint, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("nueva-conversacion")
     }
 
     private func fondo(_ permiso: Bool, _ contesto: Bool, _ activa: Bool) -> Color {

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// La app llena de datos falsos, **sin red y sin sesión**.
 ///
@@ -41,6 +42,24 @@ enum DemoData {
         return m
     }
 
+    /// Una imagen GRANDE de verdad, en disco, para comprobar que la burbuja la acota.
+    /// Sin red: el simulador no siempre la tiene y una prueba que depende de internet no
+    /// prueba nada.
+    static func imagenGrande() -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "grande.png")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            let tamano = CGSize(width: 2000, height: 1200)
+            let img = UIGraphicsImageRenderer(size: tamano).image { ctx in
+                UIColor.systemTeal.setFill()
+                ctx.fill(CGRect(origin: .zero, size: tamano))
+                UIColor.white.setFill()
+                ctx.fill(CGRect(x: 100, y: 100, width: 400, height: 400))
+            }
+            try? img.pngData()?.write(to: url)
+        }
+        return url
+    }
+
     /// La conversación con una foto mandada y una entrega recibida.
     static func conFoto() -> [Message] {
         var foto = Adjunto(nombre: "bukowski.png", mime: "image/png", datos: png)
@@ -52,8 +71,10 @@ enum DemoData {
         return [
             Message(id: "df1", kind: .user("solo me interesa la foto", adjuntos: [foto])),
             Message(id: "df2", kind: .agent(
+                // La imagen va DENTRO de una lista a propósito: así se escribe cuando el
+                // agente devuelve resultados, y es el caso que se salía de la pantalla.
                 text: "Ya está, recortada. Te la entrego.\n\n"
-                    + "![gatito](https://images.pexels.com/photos/45201/kitty-cat-kitten-pet-45201.jpeg)",
+                    + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n",
                 tools: nil, trailing: nil)),
             Message(id: "entrega-demo-entrega", kind: .entrega(entrega)),
         ]
