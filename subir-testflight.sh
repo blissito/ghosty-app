@@ -78,6 +78,9 @@ echo "paquete válido ✓"
 xcrun altool --upload-app -f build/ipa/GhostyApp.ipa -t ios \
   --apiKey "$KEY" --apiIssuer "$ISS"
 
+# A quién le llega. Se puede pasar por delante: DESTINO="Beta" ./subir-testflight.sh
+DESTINO="${DESTINO:-Alpha Version}"
+
 # ⚠️ SUBIR NO ES REPARTIR. Una build recién procesada queda VALID en App Store Connect y
 # NO la ve ni un tester: sin grupo asignado, TestFlight sigue enseñando la anterior. Y no
 # hay señal de nada — `asc.py builds` la lista igual que a las repartidas.
@@ -85,8 +88,11 @@ xcrun altool --upload-app -f build/ipa/GhostyApp.ipa -t ios \
 # Por eso se espera a que Apple la procese (VALID; 5-15 min) y se asigna al grupo aquí
 # mismo. Dejarlo "para después" es exactamente cómo se pierde media hora buscando un fallo
 # de la app que no existe.
-GRUPO=$(python3 scripts/asc.py groups | awk '$1=="Taller"{print $NF}' | cut -d= -f2)
-[ -n "$GRUPO" ] || { echo "✗ no encuentro el grupo Taller; asigna a mano con: asc.py asignar <buildId> <grupoId>" >&2; exit 1; }
+# ⚠️ El nombre lleva espacio, así que se busca por PRINCIPIO DE LÍNEA y no por el primer
+# campo: con `$1=="..."` el grupo no aparecía y la build se quedaba subida sin repartir —
+# el fallo mudo de arriba, otra vez. Antes decía "Taller", un grupo que ya no existe.
+GRUPO=$(python3 scripts/asc.py groups | awk -v g="$DESTINO" 'index($0, g)==1{print $NF}' | cut -d= -f2)
+[ -n "$GRUPO" ] || { echo "✗ no encuentro el grupo «$DESTINO»; los que hay:" >&2; python3 scripts/asc.py groups >&2; exit 1; }
 
 echo "esperando a que Apple procese la build $SIGUIENTE…"
 for _ in $(seq 1 60); do   # hasta 20 min
@@ -97,7 +103,7 @@ done
 
 if [ -n "$ID" ]; then
   python3 scripts/asc.py asignar "$ID" "$GRUPO"
-  echo "listo: build $SIGUIENTE repartida al grupo Taller."
+  echo "listo: build $SIGUIENTE repartida al grupo $DESTINO."
 else
   echo "⚠ la build $SIGUIENTE sigue procesando. Cuando esté VALID, repártela:" >&2
   echo "   python3 scripts/asc.py builds   # copia su id" >&2
