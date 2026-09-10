@@ -168,6 +168,7 @@ actor ACPClient {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 30
 
+        EasyBitsClient.diag("[socket] abriendo \(url.host ?? "?")")
         let t = sesion.webSocketTask(with: req)
         tarea = t
         t.resume()
@@ -194,6 +195,7 @@ actor ACPClient {
     }
 
     func cerrar() {
+        EasyBitsClient.diag("[socket] cerrando a propósito — turnos vivos: \(enVivo.keys.joined(separator: ","))")
         lector?.cancel(); lector = nil
         tarea?.cancel(with: .goingAway, reason: nil); tarea = nil
         for (_, c) in pendientes { c.resume(throwing: Fallo.noConectado) }
@@ -623,6 +625,10 @@ actor ACPClient {
     /// conversaciones de ese agente y ninguna se recuperaba sola: había que pasar por el
     /// historial, que era el único sitio que lo limpiaba.
     private func romper(_ error: Error) {
+        // ⚠️ Esto se hacía en SILENCIO, y es el sitio donde mueren los turnos: el registro
+        // decía «murió: noConectado» sin decir quién ni por qué. Un socket que se cae sin
+        // dejar rastro es el fallo mudo de siempre.
+        EasyBitsClient.diag("[socket] ROTO: \(error) — turnos vivos: \(enVivo.keys.joined(separator: ","))")
         for (_, c) in pendientes { c.resume(throwing: error) }
         pendientes.removeAll()
         buzon.removeAll()

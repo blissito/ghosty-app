@@ -502,9 +502,22 @@ final class LiveAgentStore: AgentStoring {
             if hayQueGuardar { guardarHilos(canal) }
             // Y el registro: irse al fondo es justo cuando hay que poder mirarlo después.
             Bitacora.volcar()
-            Task { [acp = canal.acp] in await acp?.cerrar() }
-            canal.acp = nil
-            canal.infoDeLaCaja = nil
+            // ⚠️ El socket se cierra SÓLO si no hay nada corriendo, y esto es lo contrario
+            // de lo que puse ayer. Cerrarlo «a propósito para que iOS no lo mate a media
+            // trama» MATA EL TURNO: bloquear el teléfono tres segundos después de mandar
+            // un mensaje lo tumbaba, y como el corte se lee como suspensión, la respuesta
+            // no llegaba nunca y la conversación se quedaba con el cartel puesto. Medido
+            // en el teléfono: «cerrando a propósito — turnos vivos: 20260909_40», y el
+            // turno muerto dos milisegundos después.
+            //
+            // Con un turno vivo se deja abierto: los ~30 s de gracia que da iOS pueden
+            // bastar para que termine, y si no, lo mata el sistema — que es exactamente
+            // lo que la recogida sabe recuperar.
+            if canal.enCurso.isEmpty {
+                Task { [acp = canal.acp] in await acp?.cerrar() }
+                canal.acp = nil
+                canal.infoDeLaCaja = nil
+            }
         }
     }
 
@@ -892,6 +905,7 @@ final class LiveAgentStore: AgentStoring {
             // `session/load` por socket lo devuelve a la vida — y es best-effort: si
             // falla, mejor mandar el turno sin contexto que perderlo.
             let cliente = try await asegurarSocket(canal)
+            EasyBitsClient.diag("[hilo] rehidratando \(sid) en cliente \(ObjectIdentifier(cliente).debugDescription.suffix(8))")
             // ⚠️ ANTES DE CADA TURNO, no una vez por socket. El relé puede mantener el
             // socket vivo mientras la caja de detrás se recicla —el janitor la recoge a
             // las horas— y entonces la sesión se pierde sin que el socket se entere: la
@@ -1308,6 +1322,7 @@ final class LiveAgentStore: AgentStoring {
     private func porSocket(_ canal: Canal, _ hilo: Hilo, sid: String,
                            texto: String, adjuntos: [Adjunto] = [],
                            respuesta: String) async {
+        EasyBitsClient.diag("[turno] arrancando \(sid) en cliente \(canal.acp.map { ObjectIdentifier($0).debugDescription.suffix(8) } ?? "NINGUNO")")
         guard let cliente = canal.acp else {
             pintarRespuesta(hilo, id: respuesta, texto: "⚠️ Se perdió la conexión con tu agente.")
             cerrarTurno(canal, hilo)
