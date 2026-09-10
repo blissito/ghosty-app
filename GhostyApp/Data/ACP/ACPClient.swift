@@ -276,6 +276,8 @@ actor ACPClient {
                 let (flujo, sink) = AsyncStream<Replay>.makeStream()
                 await self.abrirEnVivo(sink, hilo: sessionID)
                 let bombeo = Task { for await e in flujo { cont.yield(e) } }
+                let vigilante = Task { await self.vigilarSilencio(sessionID) }
+                defer { vigilante.cancel() }
                 do {
                     // El orden es el de Teams y no es casual: primero las imágenes (que
                     // el modelo VE), después el bloque que dice cómo abrir los archivos, y
@@ -310,7 +312,10 @@ actor ACPClient {
                     let fin = try await self.pedir("session/prompt", [
                         "sessionId": sessionID,
                         "prompt": bloques,
-                    ], timeout: 900)
+                    ], timeout: 900,
+                       alEnviar: { [weak self] id in
+                           Task { await self?.anotarTurno(id, de: sessionID) }
+                       })
                     // El cierre trae el gasto. Se emite ANTES de terminar el flujo para
                     // que el store lo tenga cuando anote el turno.
                     if let u = fin["usage"] as? [String: Any] {
@@ -484,11 +489,53 @@ actor ACPClient {
 
     private func abrirEnVivo(_ sink: AsyncStream<Replay>.Continuation, hilo: String) {
         enVivo[hilo] = sink
+        latido[hilo] = Date()
     }
 
     private func cerrarEnVivo(_ hilo: String) {
         enVivo[hilo]?.finish()
         enVivo[hilo] = nil
+        latido[hilo] = nil
+        peticionDelTurno[hilo] = nil
+    }
+
+    private func anotarTurno(_ id: Int, de sesion: String) {
+        peticionDelTurno[sesion] = id
+    }
+
+    /// Cuándo dio señales de vida cada turno. Ver `vigilarSilencio`.
+    private var latido: [String: Date] = [:]
+    /// Qué petición JSON-RPC es el turno de cada sesión, para poder rendirse por ella.
+    private var peticionDelTurno: [String: Int] = [:]
+
+    /// Cuánto silencio se aguanta antes de dar el turno por perdido.
+    ///
+    /// ⚠️ El reloj de `session/prompt` son 15 minutos, y ésa era toda la protección: si la
+    /// caja se moría a media respuesta —o el relé dejaba de mandar `session/update`— la
+    /// conversación se quedaba diciendo «Trabajando» un cuarto de hora, muda, sin poder
+    /// hacer nada. Ocho minutos SIN UN SOLO EVENTO ya no es un agente pensando: un turno
+    /// vivo manda herramientas y texto continuamente.
+    ///
+    /// No es destructivo: se trata como un corte de transporte, así que la conversación
+    /// queda pendiente y la recogida del fondo va a buscar la respuesta. Si el agente
+    /// seguía trabajando, aparece igual.
+    /// `GHOSTY_SILENCIO=20` lo baja a 20 s para poder verlo sin esperar ocho minutos.
+    private static let silencioMaximo: TimeInterval =
+        ProcessInfo.processInfo.environment["GHOSTY_SILENCIO"].flatMap(TimeInterval.init) ?? 8 * 60
+
+    /// Da por muerto el turno que lleva demasiado tiempo callado.
+    private func vigilarSilencio(_ sessionID: String) async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(30))
+            guard let visto = latido[sessionID], enVivo[sessionID] != nil else { return }
+            guard Date().timeIntervalSince(visto) > Self.silencioMaximo else { continue }
+            EasyBitsClient.diag("[acp] \(sessionID) lleva \(Int(Date().timeIntervalSince(visto)))s sin decir nada; lo doy por cortado")
+            // El mismo error que deja un socket muerto: así el store lo trata como lo que
+            // es —algo que no llegó— y no como un fallo del agente.
+            if let id = peticionDelTurno[sessionID] { expirar(id, "session/prompt") }
+            cerrarEnVivo(sessionID)
+            return
+        }
     }
 
     /// ¿Cuántos turnos hay corriendo ahora mismo en esta caja?
@@ -508,10 +555,13 @@ actor ACPClient {
 
     private func pedir(_ metodo: String,
                        _ params: [String: Any],
-                       timeout: TimeInterval = 30) async throws -> [String: Any] {
+                       timeout: TimeInterval = 30,
+                       alEnviar: ((Int) -> Void)? = nil) async throws -> [String: Any] {
         guard let t = tarea else { throw Fallo.noConectado }
         siguienteID += 1
         let id = siguienteID
+        // Quién preguntó, para poder rendirse por él. Ver `vigilarSilencio`.
+        alEnviar?(id)
 
         let sobre: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": metodo, "params": params]
         let datos = try JSONSerialization.data(withJSONObject: sobre)
@@ -681,6 +731,7 @@ actor ACPClient {
             return
         }
         if replayEnCurso[hilo] != nil { replayEnCurso[hilo]?.append(evento) }
+        latido[hilo] = Date()
         enVivo[hilo]?.yield(evento)
     }
 }

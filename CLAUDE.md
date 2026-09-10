@@ -57,6 +57,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_CORTAR=8` | mata el socket a los 8 s, como hace iOS al suspender la app |
 | `GHOSTY_DEMO_INTERRUMPIDO=1` | pinta un hilo cortado por la suspensión (con el cartel) |
 | `GHOSTY_PUSH=1` | se registra en APNs sin esperar al diálogo del permiso |
+| `GHOSTY_SILENCIO=20` | da el turno por cortado tras 20 s sin eventos (por defecto, 8 min) |
 
 ⚠️ **El simulador NO entrega push silenciosos.** El visible sí (`xcrun simctl push` con
 `alert` saca el banner), así que la ausencia de reacción a un `content-available` ahí no
