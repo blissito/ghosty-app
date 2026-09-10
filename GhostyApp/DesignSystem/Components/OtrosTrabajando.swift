@@ -27,9 +27,9 @@ struct OtrosTrabajando: View {
                         chip(canal)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, Theme.Space.cardH)
             }
-            .padding(.bottom, 10)
+            .padding(.bottom, Theme.Space.row - 3)
         }
     }
 
@@ -40,20 +40,29 @@ struct OtrosTrabajando: View {
                 if esperaPermiso {
                     Image(systemName: "hand.raised.fill")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.gPrimary)
+                        .foregroundStyle(Color.gDanger)
                 } else {
                     ProgressView().controlSize(.mini)
                 }
                 Text(canal.cuenta.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .gChip()
                     .foregroundStyle(Color.gInk)
+                // El reloj en cifras de ancho fijo: si no, el chip se ensancha cada
+                // segundo y la fila entera tiembla.
                 Text(esperaPermiso ? "espera permiso" : canal.transcurrido)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.gInk3)
+                    .gMono(size: 12.5, weight: .regular)
+                    .foregroundStyle(esperaPermiso ? Color.gDangerInk : Color.gInk3)
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Theme.Space.cardH - 4)
             .padding(.vertical, 7)
-            .background(esperaPermiso ? Color.gPrimaryTint : Color.gCard, in: Capsule())
+            // ⚠️ El que espera permiso va en rojo, no en el primario: es lo mismo que
+            // dice `StatusLine` para este estado, y su turno está DETENIDO — no es una
+            // notita, es lo único de la pantalla que te está esperando a ti.
+            .background(esperaPermiso ? Color.gDangerTint : Color.gCard, in: Capsule())
+            // La misma elevación que el resto de superficies blancas sobre el fondo. Sin
+            // ella el chip se lee pegado, y es la única tarjeta plana de la app.
+            .shadow(color: .black.opacity(0.055), radius: 1, y: 1)
+            .shadow(color: .black.opacity(0.05), radius: 7, y: 4)
         }
         .buttonStyle(.plain)
     }

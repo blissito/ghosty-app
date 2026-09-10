@@ -269,7 +269,7 @@ struct ConversationView: View {
     /// son un blanco de dedo de verdad, se leen de un vistazo y no esconden lo que estabas
     /// escribiendo. Son las mismas tres puertas de siempre — los pickers no se tocaron.
     private var tarjetasDeAdjuntar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             tarjeta("Cámara", "camera") { abrirCamara = true }
             tarjeta("Foto", "photo") { abrirFotos = true }
             tarjeta("Documento", "paperclip") { abrirArchivos = true }
@@ -291,12 +291,17 @@ struct ConversationView: View {
                     .font(.system(size: 20, weight: .regular))
                     .foregroundStyle(Color.gInk)
                 Text(nombre)
-                    .font(.system(size: 13, weight: .medium))
+                    .gChip()
                     .foregroundStyle(Color.gInk)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(Color.gCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.vertical, Theme.Space.cardH)
+            // ⚠️ El MISMO radio y la MISMA sombra que la cápsula que tienen encima. Con un
+            // 16 inventado convivían tres radios distintos en cuatro dedos de pantalla
+            // —16, 18 y el 19 del tab bar—, y sin sombra parecían recortes de papel
+            // debajo de una cápsula que sí flota.
+            .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
         }
         .buttonStyle(.plain)
     }

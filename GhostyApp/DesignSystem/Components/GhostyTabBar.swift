@@ -56,10 +56,14 @@ struct GhostyTabBar: View {
                             .foregroundStyle(selection == tab ? Color.gInk : Color.gInk4)
                             .overlay(alignment: .topTrailing) {
                                 if puntos.contains(tab) {
+                                    // El aro del color de la píldora lo despega del trazo
+                                    // del icono: sin él, encima de una línea el punto se
+                                    // lee como parte del dibujo.
                                     Circle()
                                         .fill(Color.gPrimary)
                                         .frame(width: 7, height: 7)
-                                        .offset(x: 5, y: -3)
+                                        .overlay(Circle().stroke(Color.gCard, lineWidth: 1.5))
+                                        .offset(x: 4, y: -2)
                                 }
                             }
                     }
