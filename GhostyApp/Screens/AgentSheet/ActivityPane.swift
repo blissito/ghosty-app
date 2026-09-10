@@ -29,7 +29,18 @@ struct ActivityPane: View {
 
             if resumen.turnos > 0 {
                 Text("Hoy").gSectionTitle().padding(.bottom, 12)
-                resumenDeHoy.padding(.bottom, 18)
+                resumenDeHoy.padding(.bottom, 8)
+                // ⚠️ Sin esta línea el número parece un fallo de medición. No lo es: cada
+                // turno le manda al modelo la conversación ENTERA otra vez, así que la
+                // entrada crece con la conversación y es lo que domina el total. Es
+                // también lo que se paga, así que sumarlo es correcto — lo que faltaba era
+                // decir de qué está hecho.
+                Text("La entrada incluye releer la conversación completa en cada turno, "
+                     + "que es lo que de verdad se cobra. Por eso sube rápido.")
+                    .gCaption()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 18)
+                    .padding(.horizontal, 4)
             }
 
             if resumen.turnos == 0 && store.currentTurn == nil {
@@ -154,8 +165,13 @@ struct ActivityPane: View {
         }
     }
 
+    /// ⚠️ Llegaba hasta `k` y nada más, así que un día normal se leía **«1424.5k»**: un
+    /// número que hay que dividir a mano para entenderlo, y que por eso parece un error de
+    /// medición cuando no lo es.
     private func formatearTokens(_ n: Int) -> String {
-        n >= 1000 ? String(format: "%.1fk", Double(n)/1000) : "\(n)"
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
+        return "\(n)"
     }
 
     private func formatearTiempo(_ s: Int) -> String {

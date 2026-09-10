@@ -134,7 +134,13 @@ struct RootView: View {
         // Artefactos aparece con el almacén de la cuenta o en cuanto el agente entrega
         // algo. Que la pestaña nazca cuando hay contenido es a propósito: vacía sólo servía
         // para explicar por qué estaba vacía.
-        var lista: [GhostyTab] = [.chat, .conversations]
+        // ⚠️ **Chat va en MEDIO, no primero.** El centro de la barra es lo más cómodo del
+        // pulgar y Chat es a donde más se vuelve; en el borde izquierdo estaba en la
+        // esquina peor. Lo que NO se hace es rellenar hasta cinco para tener un centro
+        // exacto: eso obligaría a inventar dos destinos, y una pestaña con "todavía no
+        // está" detrás no se lee como beta, se lee como rota — es justo por lo que se
+        // quitaron Ideas y Metas.
+        var lista: [GhostyTab] = [.conversations, .chat]
         if store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty {
             lista.append(.artifacts)
         }
