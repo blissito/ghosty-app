@@ -45,34 +45,34 @@ extension UserBubble {
     /// van en dos columnas para que no crezca la burbuja sin control.
     @ViewBuilder
     fileprivate var loMandado: some View {
-        let imagenes = adjuntos.compactMap { a -> (Adjunto, UIImage)? in
-            guard a.esImagen, let i = UIImage(data: a.datos) else { return nil }
-            return (a, i)
-        }
+        let imagenes = adjuntos.filter(\.esImagen)
         let voces = adjuntos.filter(\.esVoz)
         let otros = adjuntos.filter { !$0.esImagen && !$0.esVoz }
 
         VStack(alignment: .leading, spacing: 6) {
             if imagenes.count == 1 {
-                let img = imagenes[0].1
-                Image(uiImage: img)
-                    .resizable().scaledToFit()
-                    // ⚠️ Se acota tanto por arriba COMO por el tamaño real: `resizable` a
-                    // secas agranda lo que sea hasta llenar el ancho, y una imagen chica
-                    // acababa como un bloque gigante y pixelado. Que se vea pequeña si es
-                    // pequeña es la verdad.
-                    .frame(maxWidth: min(238, img.size.width),
-                           maxHeight: min(180, img.size.height))
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                ImagenDeAdjunto(adjunto: imagenes[0], alto: 140) { img in
+                    Image(uiImage: img)
+                        .resizable().scaledToFit()
+                        // ⚠️ Se acota tanto por arriba COMO por el tamaño real: `resizable` a
+                        // secas agranda lo que sea hasta llenar el ancho, y una imagen chica
+                        // acababa como un bloque gigante y pixelado. Que se vea pequeña si es
+                        // pequeña es la verdad.
+                        .frame(maxWidth: min(238, img.size.width),
+                               maxHeight: min(180, img.size.height))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                }
             } else if imagenes.count > 1 {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 6),
                                     GridItem(.flexible(), spacing: 6)], spacing: 6) {
-                    ForEach(imagenes, id: \.0.id) { _, img in
-                        Image(uiImage: img)
-                            .resizable().scaledToFill()
-                            .frame(height: 86)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                    ForEach(imagenes) { a in
+                        ImagenDeAdjunto(adjunto: a, alto: 86) { img in
+                            Image(uiImage: img)
+                                .resizable().scaledToFill()
+                                .frame(height: 86)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
+                        }
                     }
                 }
             }

@@ -26,9 +26,7 @@ struct FleetView: View {
                 }
                 .padding(.bottom, 6)
 
-                Text(store.agents.count == 1
-                     ? "Un agente conectado"
-                     : "\(store.agents.count) agentes conectados")
+                Text(resumen)
                     .gMeta()
                     .padding(.bottom, 16)
 
@@ -51,15 +49,50 @@ struct FleetView: View {
         }
     }
 
+    /// Cuántos hay y cuántos están ocupados. Lo segundo es la información nueva: con
+    /// trabajo en paralelo, "3 agentes conectados" ya no dice lo que pasa.
+    private var resumen: String {
+        let n = store.agents.count
+        let ocupados = store.trabajando.count
+        let base = n == 1 ? "Un agente conectado" : "\(n) agentes conectados"
+        guard ocupados > 0 else { return base }
+        return base + (ocupados == 1 ? " · 1 trabajando" : " · \(ocupados) trabajando")
+    }
+
     private func fila(_ agente: Agent, ultima: Bool) -> some View {
-        HStack(spacing: 13) {
+        let canal = store.canales[agente.id]
+        return HStack(spacing: 13) {
             GhostyMascot(tone: agente.tone, height: 48)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(agente.name).gRowTitle()
-                Text(agente.engine).gMeta()
+                // ⚠️ Lo que está HACIENDO manda sobre el motor: el motor es lo mismo
+                // siempre y la tarea es lo único que cambia mientras esperas.
+                if let turno = canal?.turno {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.mini)
+                        Text("\(turno.detail) · \(turno.elapsed)")
+                            .gMeta()
+                            .lineLimit(1)
+                    }
+                } else if canal?.permisoPendiente != nil {
+                    Text("Espera tu permiso")
+                        .gMeta()
+                        .foregroundStyle(Color.gPrimary)
+                } else {
+                    Text(agente.engine).gMeta()
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Detener sin ir a su conversación: si lo dejaste trabajando, pararlo no
+            // debería obligarte a volver a donde estabas.
+            if canal?.trabajando == true {
+                Button { store.detener(canal) } label: {
+                    TintedIcon(systemName: "stop.fill", tint: .gInk2, background: .gFill, size: 30)
+                }
+                .buttonStyle(.plain)
+            }
 
             if agente.id == store.selectedAgentID {
                 Image(systemName: "checkmark")

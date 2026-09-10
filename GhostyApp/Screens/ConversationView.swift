@@ -35,6 +35,13 @@ struct ConversationView: View {
                     .padding(.bottom, 14)
             }
 
+            // Quién más sigue trabajando. Va ARRIBA, pegado a la cabecera del agente:
+            // es información sobre la flota, no sobre este hilo.
+            OtrosTrabajando(store: store) { id in
+                escribiendo = false
+                store.seleccionar(id)
+            }
+
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(spacing: 14) {
@@ -70,6 +77,14 @@ struct ConversationView: View {
                 .onChange(of: textoDelUltimo) { _, _ in
                     withAnimation(.easeOut(duration: 0.18)) { scroll.scrollTo("fondo", anchor: .bottom) }
                 }
+                // ⚠️ Cargar un hilo entero NO es lo mismo que recibir un mensaje. El
+                // `LazyVStack` todavía no ha medido las filas cuando `messages` cambia de
+                // golpe, así que un solo `scrollTo` aterriza sobre una altura que aún no
+                // existe y el hilo se queda arriba, con los últimos mensajes escondidos.
+                // Por eso se repite tras el layout, y SIN animación: al abrir un hilo no
+                // hay nada que animar, sólo un sitio donde empezar a leer.
+                .onChange(of: hiloVisible) { _, _ in alFondo(scroll) }
+                .onAppear { alFondo(scroll) }
             }
 
             compositor
@@ -141,6 +156,25 @@ struct ConversationView: View {
     /// llegó algo), no de la pantalla, y el teléfono tiene una forma nativa de decirlo.
     private var entregasEnElHilo: Int {
         store.messages.reduce(0) { $0 + (esEntrega($1) ? 1 : 0) }
+    }
+
+    /// Qué conversación se está mirando. Cambia al abrir un hilo de la caja, al
+    /// empezar una nueva y al cambiar de agente — los tres casos en los que el hilo
+    /// se repuebla entero y hay que volver a poner el ojo abajo.
+    private var hiloVisible: String {
+        "\(store.selectedAgentID)/\(store.hiloAbierto ?? "")"
+    }
+
+    /// Al fondo de verdad: ahora y otra vez cuando las filas ya se midieron.
+    private func alFondo(_ scroll: ScrollViewProxy) {
+        guard !store.messages.isEmpty else { return }
+        scroll.scrollTo("fondo", anchor: .bottom)
+        Task { @MainActor in
+            for espera in [40, 160, 400] {
+                try? await Task.sleep(for: .milliseconds(espera))
+                scroll.scrollTo("fondo", anchor: .bottom)
+            }
+        }
     }
 
     private var textoDelUltimo: Int {
