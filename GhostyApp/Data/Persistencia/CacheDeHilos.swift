@@ -23,15 +23,21 @@ final class CacheDeHilos {
     /// El mismo número que la bitácora de turnos. Un hilo más largo se recorta por el
     /// principio: lo que importa al volver es el final.
     private static let tope = 200
-
-    private struct Guardado: Codable {
-        var sesionID: String
-        var mensajes: [MensajeGuardado]
-    }
+    /// Cuántas conversaciones por agente se guardan. Son las que retomas, no un archivo:
+    /// el archivo es la caja.
+    private static let topeDeHilos = 5
 
     private struct Disco: Codable {
+        /// ⚠️ La versión existe por un fallo concreto: hasta la v1, un turno vivo podía
+        /// escribir sus mensajes bajo el `sessionId` de OTRA conversación, así que lo
+        /// guardado puede estar cruzado. Al no coincidir, las conversaciones guardadas se
+        /// marcan **sospechosas**: se siguen pintando —no se le quita nada a nadie sin
+        /// red— pero se recargan de la caja en cuanto se abren, y la caja sí tiene la
+        /// verdad. La lista de hilos se conserva tal cual: es inofensiva.
+        var version = 2
         var lista: [String: [SesionGuardada]] = [:]
-        var abierto: [String: Guardado] = [:]
+        var abiertos: [String: [String: [MensajeGuardado]]] = [:]
+        var sospechosos: [String] = []
     }
 
     private var disco = Disco()
@@ -43,10 +49,27 @@ final class CacheDeHilos {
     }
 
     init() {
-        if let d = try? Data(contentsOf: archivo),
-           let leido = try? JSONDecoder().decode(Disco.self, from: d) {
+        guard let d = try? Data(contentsOf: archivo) else { return }
+        if let leido = try? JSONDecoder().decode(Disco.self, from: d), leido.version == 2 {
             disco = leido
+            return
         }
+        // Formato viejo: se rescata lo que se puede y se marca lo dudoso.
+        if let viejo = try? JSONDecoder().decode(DiscoV1.self, from: d) {
+            disco.lista = viejo.lista
+            for (agente, g) in viejo.abierto {
+                disco.abiertos[agente] = [g.sesionID: g.mensajes]
+                disco.sospechosos.append(g.sesionID)
+            }
+            guardar()
+        }
+    }
+
+    /// El formato anterior, sólo para leerlo una vez.
+    private struct DiscoV1: Codable {
+        struct Guardado: Codable { var sesionID: String; var mensajes: [MensajeGuardado] }
+        var lista: [String: [SesionGuardada]] = [:]
+        var abierto: [String: Guardado] = [:]
     }
 
     // MARK: - La lista
@@ -62,18 +85,29 @@ final class CacheDeHilos {
 
     // MARK: - El hilo abierto
 
-    func abierto(_ agentID: String) -> (sesionID: String, mensajes: [Message])? {
-        guard let g = disco.abierto[agentID] else { return nil }
-        return (g.sesionID, g.mensajes.compactMap(\.mensaje))
+    /// Todas las conversaciones guardadas de un agente.
+    func abiertos(_ agentID: String) -> [(sesionID: String, mensajes: [Message], sospechoso: Bool)] {
+        (disco.abiertos[agentID] ?? [:]).map { sid, guardados in
+            (sid, guardados.compactMap(\.mensaje), disco.sospechosos.contains(sid))
+        }
     }
 
-    func guardarAbierto(_ mensajes: [Message], hilo sesionID: String?, de agentID: String) {
-        // Sin hilo no hay nada que retomar: un turno sin `sessionId` no se puede continuar.
-        guard let sesionID else { disco.abierto[agentID] = nil; guardar(); return }
-        let guardables = mensajes.compactMap(MensajeGuardado.init)
-        guard !guardables.isEmpty else { disco.abierto[agentID] = nil; guardar(); return }
-        disco.abierto[agentID] = Guardado(sesionID: sesionID,
-                                          mensajes: Array(guardables.suffix(Self.tope)))
+    /// Una conversación concreta.
+    func abierto(_ agentID: String, sesion: String) -> [Message]? {
+        disco.abiertos[agentID]?[sesion]?.compactMap(\.mensaje)
+    }
+
+    func guardarAbiertos(_ hilos: [(sesionID: String, mensajes: [Message])], de agentID: String) {
+        var mapa: [String: [MensajeGuardado]] = [:]
+        // Las más recientes primero: si hay más de las que caben, sobran las viejas.
+        for h in hilos.suffix(Self.topeDeHilos) {
+            let guardables = h.mensajes.compactMap(MensajeGuardado.init)
+            guard !guardables.isEmpty else { continue }
+            mapa[h.sesionID] = Array(guardables.suffix(Self.tope))
+        }
+        disco.abiertos[agentID] = mapa
+        // Lo que se acaba de escribir ya no es sospechoso: salió del ruteo por hilo.
+        disco.sospechosos.removeAll { mapa.keys.contains($0) }
         guardar()
     }
 
@@ -81,7 +115,7 @@ final class CacheDeHilos {
 
     func olvidar(_ agentID: String) {
         disco.lista[agentID] = nil
-        disco.abierto[agentID] = nil
+        disco.abiertos[agentID] = nil
         guardar()
     }
 

@@ -39,10 +39,7 @@ struct ConversationView: View {
 
             // Quién más sigue trabajando. Va ARRIBA, pegado a la cabecera del agente:
             // es información sobre la flota, no sobre este hilo.
-            OtrosTrabajando(store: store) { id in
-                escribiendo = false
-                store.seleccionar(id)
-            }
+            OtrosTrabajando(store: store)
 
             ScrollViewReader { scroll in
                 ScrollView {
@@ -171,7 +168,10 @@ struct ConversationView: View {
     /// empezar una nueva y al cambiar de agente — los tres casos en los que el hilo
     /// se repuebla entero y hay que volver a poner el ojo abajo.
     private var hiloVisible: String {
-        "\(store.selectedAgentID)/\(store.hiloAbierto ?? "")"
+        // ⚠️ La clave LOCAL, no el `sessionId`: dos conversaciones nuevas del mismo
+        // agente no lo tienen todavía y serían indistinguibles — cambiar entre ellas
+        // dejaría el scroll a media altura, que se lee como "se colgó".
+        "\(store.selectedAgentID)/\(store.claveDelHilo)"
     }
 
     /// Al fondo de verdad: ahora y otra vez cuando las filas ya se midieron.
@@ -494,6 +494,20 @@ struct ConversationView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            // ⚠️ Su propio icono, no un menú. Lo dejó dicho el comentario de arriba: con
+            // varias conversaciones a la vez, empezar otra es una acción de todos los
+            // días y esconderla en la hoja del agente la hacía invisible.
+            if store.messages.count > 1 {
+                Button { store.nuevaConversacion() } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color.gInk3)
+                        .frame(width: 26, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
 
             TextField("Mensaje", text: $borrador, axis: .vertical)
                 .textFieldStyle(.plain)

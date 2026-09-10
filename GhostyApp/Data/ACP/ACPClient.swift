@@ -89,15 +89,34 @@ actor ACPClient {
     private var lector: Task<Void, Never>?
     private var siguienteID = 0
     private var pendientes: [Int: CheckedContinuation<[String: Any], Error>] = [:]
-    /// Las notificaciones del replay se acumulan aquí mientras `session/load` corre.
-    private var replayEnCurso: [Replay] = []
-    private var capturandoReplay = false
-    /// Por dónde salen los eventos del turno en vuelo.
-    private var enVivo: AsyncStream<Replay>.Continuation?
+    /// Respuestas que llegaron ANTES de que su continuación existiera.
+    ///
+    /// ⚠️ Con una petición a la vez esto no se notaba; con varias es un cuelgue seguro.
+    /// `pedir` manda y sólo DESPUÉS registra su continuación —entre las dos cosas hay un
+    /// `await`, así que el actor puede atender al lector—, y una caja rápida contesta en
+    /// ese hueco. La respuesta no encontraba a nadie y se tiraba: la petición esperaba al
+    /// reloj para morir de timeout, con la caja habiendo contestado bien.
+    private var buzon: [Int: Result<[String: Any], Error>] = [:]
+    /// Las notificaciones del replay, POR HILO: se puede estar cargando uno mientras
+    /// otro contesta.
+    private var replayEnCurso: [String: [Replay]] = [:]
+    /// Por dónde salen los eventos de cada turno en vuelo, POR HILO.
+    ///
+    /// ⚠️ Esto era **una sola** continuación y un solo flag de replay, y ahí estaba el
+    /// fallo más grave que ha tenido la app: `session/update` trae `sessionId` y se
+    /// **ignoraba**, así que todo evento que llegaba se volcaba en el flujo que hubiera
+    /// abierto. Cargar un hilo mientras otro contestaba metía la respuesta del segundo
+    /// dentro del primero — dos conversaciones distintas cosidas en pantalla, sin que
+    /// nada lo dijera.
+    private var enVivo: [String: AsyncStream<Replay>.Continuation] = [:]
     /// Los permisos que el agente pidió y nadie ha contestado.
     private var permisoPendiente: ((Permiso) -> Void)?
 
-    private let sesion: URLSession = {
+    /// ⚠️ COMPARTIDA por todos los clientes. Era una por instancia y **nadie la
+    /// invalidaba**: una `URLSession` viva retiene sus tareas, así que cada reconexión
+    /// dejaba una sesión colgada. Compartida no hay nada que invalidar, y la configuración
+    /// es idéntica para todos.
+    private static let sesion: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 60
         cfg.waitsForConnectivity = true
@@ -146,7 +165,7 @@ actor ACPClient {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 30
 
-        let t = sesion.webSocketTask(with: req)
+        let t = Self.sesion.webSocketTask(with: req)
         tarea = t
         t.resume()
         arrancarLector()
@@ -166,6 +185,12 @@ actor ACPClient {
         tarea?.cancel(with: .goingAway, reason: nil); tarea = nil
         for (_, c) in pendientes { c.resume(throwing: Fallo.noConectado) }
         pendientes.removeAll()
+        buzon.removeAll()
+        // ⚠️ Los turnos en vuelo TAMBIÉN se cierran. Sin esto, cerrar el socket dejaba
+        // sus flujos colgados y quien los estuviera leyendo esperaba para siempre.
+        for (_, c) in enVivo { c.finish() }
+        enVivo.removeAll()
+        replayEnCurso.removeAll()
     }
 
     // MARK: - Sesiones
@@ -195,14 +220,18 @@ actor ACPClient {
     /// Carga un hilo y devuelve su replay. La caja lo manda como notificaciones
     /// `session/update` **antes** de contestar la petición, así que hay que
     /// capturarlas mientras la llamada está en vuelo.
-    func cargar(_ id: String, cwd: String) async throws -> [Replay] {
-        replayEnCurso = []
-        capturandoReplay = true
-        defer { capturandoReplay = false }
+    /// ⚠️ `nil` si ese hilo está contestando AHORA. El replay llega por el mismo
+    /// `session/update` que el streaming, así que recargar el hilo vivo le inyectaría la
+    /// conversación entera dentro del turno en curso. Quien llama ya tiene sus mensajes en
+    /// memoria: lo correcto es cambiar de hilo sin recargar.
+    func cargar(_ id: String, cwd: String) async throws -> [Replay]? {
+        guard enVivo[id] == nil else { return nil }
+        replayEnCurso[id] = []
+        defer { replayEnCurso[id] = nil }
         _ = try await pedir("session/load",
                             ["sessionId": id, "cwd": cwd, "mcpServers": []],
                             timeout: 90)
-        return replayEnCurso
+        return replayEnCurso[id] ?? []
     }
 
     // MARK: - Turno
@@ -227,7 +256,7 @@ actor ACPClient {
         AsyncThrowingStream { cont in
             let tarea = Task {
                 let (flujo, sink) = AsyncStream<Replay>.makeStream()
-                await self.abrirEnVivo(sink)
+                await self.abrirEnVivo(sink, hilo: sessionID)
                 let bombeo = Task { for await e in flujo { cont.yield(e) } }
                 do {
                     // El orden es el de Teams y no es casual: primero las imágenes (que
@@ -274,22 +303,39 @@ actor ACPClient {
                         let total = (u["totalTokens"] as? Int) ?? 0
                         cont.yield(.usage(input: entrada > 0 ? entrada : total, output: salida))
                     }
-                    await self.cerrarEnVivo()
+                    await self.cerrarEnVivo(sessionID)
                     bombeo.cancel()
                     cont.finish()
                 } catch {
-                    await self.cerrarEnVivo()
+                    await self.cerrarEnVivo(sessionID)
                     bombeo.cancel()
                     cont.finish(throwing: error)
                 }
             }
-            cont.onTermination = { _ in tarea.cancel() }
+            cont.onTermination = { _ in
+                tarea.cancel()
+                // Y que la caja lo sepa: cancelar aquí sin decírselo la deja trabajando.
+                Task { await self.cancelar(sessionID) }
+            }
         }
     }
 
     /// Se avisa por aquí cuando el agente pide permiso.
     func alPedirPermiso(_ handler: @escaping (Permiso) -> Void) {
         permisoPendiente = handler
+    }
+
+    /// Le dice a la caja que **pare** el turno de ese hilo.
+    ///
+    /// ⚠️ Esto no existía, y por eso "Detener" era cosmético: se cancelaba la `Task` del
+    /// teléfono y el agente seguía trabajando —y cobrando— hasta terminar, con su hueco
+    /// ocupado. Va como notificación (sin `id`): el protocolo no contesta a esto.
+    func cancelar(_ sessionID: String) async {
+        guard let t = tarea else { return }
+        let sobre: [String: Any] = ["jsonrpc": "2.0", "method": "session/cancel",
+                                    "params": ["sessionId": sessionID]]
+        guard let d = try? JSONSerialization.data(withJSONObject: sobre) else { return }
+        try? await t.send(.string(String(decoding: d, as: UTF8.self)))
     }
 
     /// Contesta una petición de permiso. El turno está detenido hasta esto.
@@ -353,7 +399,16 @@ actor ACPClient {
     /// entrega porque el nombre de su forma es nuevo la haría desaparecer sin dejar
     /// rastro, y el agente ya le dijo al usuario que se la entregó.
     nonisolated static func entregaDesde(_ p: [String: Any], agentID: String) -> Entrega? {
-        let id = UUID().uuidString
+        // ⚠️ El id es DETERMINISTA, no un `UUID()` nuevo. La entrega del relé no trae
+        // `sessionId`, así que con varios turnos vivos se reparte a todos los flujos, y
+        // cada uno la registraba: la misma entrega tres veces en Artefactos, y en disco.
+        // Con un id derivado de su contenido, registrarla dos veces es la misma fila.
+        let huella = [p["tipo"] as? String, p["subtipo"] as? String, p["nombre"] as? String,
+                      p["titulo"] as? String,
+                      (p["contenido"] as? String).map { String($0.prefix(200)) },
+                      (p["contenidoBase64"] as? String).map { String($0.prefix(200)) }]
+            .compactMap { $0 }.joined(separator: "|")
+        let id = "e\(abs(huella.hashValue))"
         switch p["tipo"] as? String {
         case "archivo":
             let nombre = (p["nombre"] as? String) ?? "Archivo"
@@ -376,8 +431,17 @@ actor ACPClient {
         }
     }
 
-    private func abrirEnVivo(_ sink: AsyncStream<Replay>.Continuation) { enVivo = sink }
-    private func cerrarEnVivo() { enVivo?.finish(); enVivo = nil }
+    private func abrirEnVivo(_ sink: AsyncStream<Replay>.Continuation, hilo: String) {
+        enVivo[hilo] = sink
+    }
+
+    private func cerrarEnVivo(_ hilo: String) {
+        enVivo[hilo]?.finish()
+        enVivo[hilo] = nil
+    }
+
+    /// ¿Cuántos turnos hay corriendo ahora mismo en esta caja?
+    var turnosVivos: Int { enVivo.count }
 
     private func leerModos(_ crudo: Any?) -> Modos? {
         guard let m = crudo as? [String: Any],
@@ -411,11 +475,14 @@ actor ACPClient {
         defer { reloj.cancel() }
 
         return try await withCheckedThrowingContinuation { c in
+            // Si ya contestó mientras íbamos de camino, está en el buzón.
+            if let ya = buzon.removeValue(forKey: id) { c.resume(with: ya); return }
             pendientes[id] = c
         }
     }
 
     private func expirar(_ id: Int, _ metodo: String) {
+        buzon[id] = nil
         guard let c = pendientes.removeValue(forKey: id) else { return }
         c.resume(throwing: Fallo.timeout(metodo))
     }
@@ -439,23 +506,44 @@ actor ACPClient {
         }
     }
 
+    /// El socket se cayó. Deja el cliente **declaradamente muerto**.
+    ///
+    /// ⚠️ Antes sólo resolvía `pendientes` y dejaba `tarea` puesta. Como el store da por
+    /// bueno el cliente mientras tenga `infoDeLaCaja`, un corte de red mataba TODAS las
+    /// conversaciones de ese agente y ninguna se recuperaba sola: había que pasar por el
+    /// historial, que era el único sitio que lo limpiaba.
     private func romper(_ error: Error) {
         for (_, c) in pendientes { c.resume(throwing: error) }
         pendientes.removeAll()
+        buzon.removeAll()
+        for (_, c) in enVivo { c.finish() }
+        enVivo.removeAll()
+        replayEnCurso.removeAll()
+        tarea = nil
+        alCaerse?()
     }
+
+    /// Aviso hacia arriba de que este cliente ya no sirve.
+    private var alCaerse: (() -> Void)?
+    func alPerderse(_ handler: @escaping () -> Void) { alCaerse = handler }
 
     private func recibir(_ texto: String) {
         guard let d = texto.data(using: .utf8),
               let m = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
         else { return }
 
-        // Respuesta a algo que pedimos
-        if let id = m["id"] as? Int, let c = pendientes.removeValue(forKey: id) {
+        // Respuesta a algo que pedimos. Puede llegar antes de que su continuación esté
+        // registrada, así que si no hay a quién dársela se guarda en el buzón — pero sólo
+        // si es un id NUESTRO, o guardaríamos las peticiones que nos hace el agente.
+        if let id = m["id"] as? Int, m["method"] == nil {
+            let salida: Result<[String: Any], Error>
             if let e = m["error"] as? [String: Any] {
-                c.resume(throwing: Fallo.remoto(e["message"] as? String ?? "\(e)"))
+                salida = .failure(Fallo.remoto(e["message"] as? String ?? "\(e)"))
             } else {
-                c.resume(returning: m["result"] as? [String: Any] ?? [:])
+                salida = .success(m["result"] as? [String: Any] ?? [:])
             }
+            if let c = pendientes.removeValue(forKey: id) { c.resume(with: salida) }
+            else if id <= siguienteID { buzon[id] = salida }
             return
         }
 
@@ -483,7 +571,19 @@ actor ACPClient {
         // romperse (que es lo que le pasa a Zed). Ver `relay.ts` → `entregar()`.
         if m["method"] as? String == "ghosty/artifact",
            let p = m["params"] as? [String: Any] {
-            if let e = Self.entregaDesde(p, agentID: agentID) { enVivo?.yield(.entrega(e)) }
+            if let e = Self.entregaDesde(p, agentID: agentID) {
+                // ⚠️ La entrega del relé NO trae `sessionId` (ver `relay.ts` → `entregar()`),
+                // así que no hay a quién dirigirla. Con un solo turno vivo es obvio; con
+                // varios se manda al hilo que la pidió sólo si lo podemos saber, y si no,
+                // a todos: una entrega repetida se ve, una perdida no.
+                if enVivo.count == 1, let solo = enVivo.first?.value {
+                    solo.yield(.entrega(e))
+                } else {
+                    // A todos: perderla es peor que verla dos veces, y su id determinista
+                    // hace que registrarla N veces sea una sola fila en Artefactos.
+                    for (_, c) in enVivo { c.yield(.entrega(e)) }
+                }
+            }
             return
         }
 
@@ -493,6 +593,9 @@ actor ACPClient {
               let u = params["update"] as? [String: Any],
               let tipo = u["sessionUpdate"] as? String
         else { return }
+
+        // A QUÉ hilo pertenece. Venía en el sobre desde siempre y se ignoraba.
+        let hilo = params["sessionId"] as? String
 
         let texto = (u["content"] as? [String: Any])?["text"] as? String ?? ""
         let evento: Replay?
@@ -507,8 +610,16 @@ actor ACPClient {
         guard let evento else { return }
 
         // El mismo evento sirve para el replay de `session/load` y para el turno en
-        // vivo: la caja usa `session/update` para los dos.
-        if capturandoReplay { replayEnCurso.append(evento) }
-        enVivo?.yield(evento)
+        // vivo: la caja usa `session/update` para los dos. Lo que los separa es el hilo.
+        guard let hilo else {
+            // Sin `sessionId` no se puede dirigir. Antes esto caía en el único flujo
+            // abierto; ahora se descarta, porque adivinar es justo lo que mezclaba
+            // conversaciones. Pero se DICE: si una versión de la caja dejara de mandarlo,
+            // el síntoma sería "el agente no contesta nunca" sin un solo rastro.
+            EasyBitsClient.diag("⚠️ session/update sin sessionId — evento descartado (\(tipo))")
+            return
+        }
+        if replayEnCurso[hilo] != nil { replayEnCurso[hilo]?.append(evento) }
+        enVivo[hilo]?.yield(evento)
     }
 }

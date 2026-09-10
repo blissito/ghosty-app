@@ -126,6 +126,10 @@ final class EntregasStore {
     init() { cargar() }
 
     func registrar(_ e: Entrega) {
+        // ⚠️ La entrega del relé no dice a qué hilo pertenece, así que con varios turnos
+        // vivos llega por todos a la vez. Su id es determinista (ver `entregaDesde`), y
+        // aquí es donde eso sirve: la misma entrega registrada N veces es UNA fila.
+        guard !entregas.contains(where: { $0.id == e.id }) else { return }
         entregas.insert(e, at: 0)
         if entregas.count > tope { entregas = Array(entregas.prefix(tope)) }
         guardar()

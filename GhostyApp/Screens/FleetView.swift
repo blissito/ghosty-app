@@ -101,8 +101,12 @@ struct FleetView: View {
                 HStack(spacing: 6) {
                     StatusLine(status: agente.status)
                     // El reloj sí es de aquí: es lo único que `AgentStatus` no lleva.
-                    if let turno = canal?.turno {
-                        Text(turno.elapsed)
+                    // Con varias conversaciones a la vez, el reloj solo no basta: hay
+                    // que decir CUÁNTAS. "2 en curso · 1:04" es la información nueva.
+                    if let canal, let vivo = canal.enCurso.last {
+                        Text(canal.enCurso.count > 1
+                             ? "\(canal.enCurso.count) en curso · \(vivo.transcurrido)"
+                             : vivo.transcurrido)
                             .gMono()
                             .foregroundStyle(Color.gInk4)
                     }
@@ -115,8 +119,8 @@ struct FleetView: View {
             // debería obligarte a volver a donde estabas.
             // El mismo botón de detener que dibuja `AgentRow`: cuadrado oscuro con el
             // stop blanco. Un icono distinto para la misma acción se lee como otra cosa.
-            if canal?.trabajando == true {
-                Button { store.detener(canal) } label: {
+            if let canal, canal.trabajando {
+                Button { store.detenerTodo(canal) } label: {
                     RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
                         .fill(Color.gInk)
                         .frame(width: 34, height: 34)
@@ -149,7 +153,7 @@ struct FleetView: View {
 
     /// Lo último que dijo el agente en su conversación, recortado.
     private func ultimoDicho(_ canal: Canal?) -> String? {
-        guard let m = canal?.mensajes.last(where: {
+        guard let m = canal?.hilos.last?.mensajes.last(where: {
             if case .agent = $0.kind { return true } else { return false }
         }), case .agent(let t, _, _) = m.kind else { return nil }
         let limpio = t.trimmingCharacters(in: .whitespacesAndNewlines)

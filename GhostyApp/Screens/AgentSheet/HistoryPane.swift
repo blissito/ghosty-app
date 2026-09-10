@@ -50,8 +50,71 @@ struct HistoryPane: View {
         .task { await store.cargarHilos() }
     }
 
+    /// Las conversaciones que tienes abiertas EN LA APP, con su estado vivo.
+    ///
+    /// ⚠️ Van arriba y separadas de las guardadas porque no son lo mismo: éstas están
+    /// aquí, algunas contestando ahora, y tocarlas no cuesta un `session/load` — sólo
+    /// cambia de conversación. Antes no existían: había una por agente.
+    @ViewBuilder
+    private var abiertas: some View {
+        if let canal = store.canalActivo, canal.hilos.count > 1 || canal.trabajando {
+            Text("Abiertas").gSectionTitle().padding(.bottom, 12)
+            VStack(spacing: 0) {
+                ForEach(Array(canal.hilos.enumerated()), id: \.element.clave) { i, h in
+                    Button {
+                        store.mirar(h)
+                        onAbrir?()
+                    } label: {
+                        filaAbierta(h, activa: h.clave == canal.activa)
+                    }
+                    .buttonStyle(.plain)
+                    .ghostySeparator(inset: i == canal.hilos.count - 1 ? .infinity : 44)
+                }
+            }
+            .padding(.bottom, 22)
+        }
+    }
+
+    private func filaAbierta(_ h: Hilo, activa: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            if h.trabajando {
+                ProgressView().frame(width: 32, height: 32)
+            } else {
+                TintedIcon(systemName: activa ? "checkmark" : "bubble.left.and.bubble.right",
+                           tint: activa ? .gPrimary : .gInk2,
+                           background: activa ? .gPrimaryTint : .gFill)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(h.titulo).font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.gInk).lineLimit(1)
+                if h.permisoPendiente != nil {
+                    Text("Espera tu visto bueno").gMeta().foregroundStyle(Color.gDangerInk)
+                } else if h.trabajando {
+                    Text("Trabajando · \(h.transcurrido)").gMeta()
+                } else {
+                    Text(h.mensajes.isEmpty ? "Sin mensajes todavía"
+                         : "\(h.mensajes.count) mensajes").gMeta()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Cerrar la conversación de la app. No la borra de la caja.
+            if !h.trabajando, store.canalActivo?.hilos.count ?? 0 > 1 {
+                Button { store.cerrarHilo(h) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.gInk4)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, Theme.Space.row)
+    }
+
     private var lista: some View {
         VStack(alignment: .leading, spacing: 0) {
+            abiertas
             HStack {
                 Text("Guardadas").gSectionTitle()
                 Spacer()
@@ -62,24 +125,6 @@ struct HistoryPane: View {
             .padding(.bottom, 12)
 
             VStack(spacing: 0) {
-                // El hilo recién creado no está en `session/list` —la caja no lo
-                // guarda hasta que tiene mensajes— pero existe. Si no se enseña,
-                // tocar "Nueva conversación" parece no hacer nada.
-                if let actual = store.hiloAbierto,
-                   !store.hilosRemotos.contains(where: { $0.id == actual }) {
-                    HStack(alignment: .top, spacing: 12) {
-                        TintedIcon(systemName: "checkmark", tint: .gPrimary, background: .gPrimaryTint)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Conversación nueva").font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color.gInk)
-                            Text("Sin mensajes todavía").gMeta()
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(.vertical, Theme.Space.row)
-                    .ghostySeparator(inset: store.hilosRemotos.isEmpty ? .infinity : 44)
-                }
-
                 ForEach(Array(store.hilosRemotos.enumerated()), id: \.element.id) { i, h in
                     Button {
                         abriendo = h.id
