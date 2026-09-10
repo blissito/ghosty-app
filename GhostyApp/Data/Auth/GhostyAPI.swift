@@ -396,9 +396,15 @@ enum GhostyAPI {
         for a in lista {
             guard let id = a["id"] as? String else { continue }
             let nombre = (a["nombre"] as? String) ?? "Ghosty"
-            guard let cx = a["conexion"] as? [String: Any], let tipo = cx["tipo"] as? String,
-                  let token = cx["token"] as? String
-            else {
+            let cx = a["conexion"] as? [String: Any]
+            let tipo = cx?["tipo"] as? String
+            let token = cx?["token"] as? String
+            // ⚠️ El token y el host de la caja SÓLO hacen falta para hablarle por el
+            // WebSocket. Cuando el turno va por gs, el que conoce a la caja es el
+            // servidor: exigirlos aquí escondía agentes perfectamente utilizables —el de
+            // pruebas no aparecía y la app se quedaba «sin agentes» contra una cuenta que
+            // tenía catorce—.
+            if token == nil, !LiveAgentStore.porGS {
                 // Sin material de conexión no se puede conversar con él. Se cuenta para
                 // poder decirlo, y no se mete a la lista: un agente en pantalla que no
                 // contesta es peor que uno que no aparece.
@@ -407,11 +413,11 @@ enum GhostyAPI {
             }
             cuentas.append(AgentAccount(
                 id: id,
-                token: token,
+                token: token ?? "",
                 name: nombre,
                 // El host lo manda el servidor: cablearlo aquí ataría la app a UN
                 // dominio de cajas, y ya hay dos fierros.
-                host: tipo == "acp" ? cx["host"] as? String : nil
+                host: tipo == "acp" ? cx?["host"] as? String : nil
             ))
         }
 

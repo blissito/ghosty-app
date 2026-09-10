@@ -57,7 +57,12 @@ enum Session {
         Keychain.escribir(.sesion, json)
     }
 
-    static var haySesion: Bool { leer() != nil }
+    static var haySesion: Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["GHOSTY_TOKEN"]?.isEmpty == false { return true }
+        #endif
+        return leer() != nil
+    }
 
     static func guardar(access: String, refresh: String, duraSegundos: Int) {
         escribir(Guardada(access: access, refresh: refresh,
@@ -84,6 +89,17 @@ enum Session {
     /// la comprobación y caduca a mitad del viaje, y el fallo aparece como un error de
     /// red cualquiera.
     static func accessToken() async throws -> String {
+        // ⚠️ Gancho de DESARROLLO, sólo en Debug. El simulador no puede pasar por el login
+        // —hay que teclear credenciales de una persona— y sin sesión no se puede verificar
+        // NADA de lo que habla con el servidor. Con `GHOSTY_TOKEN` se le presta uno de
+        // corta vida y la app se comporta igual que con sesión de verdad.
+        //
+        // No se guarda en el llavero a propósito: vive en el proceso y se va con él.
+        #if DEBUG
+        if let prestado = ProcessInfo.processInfo.environment["GHOSTY_TOKEN"], !prestado.isEmpty {
+            return prestado
+        }
+        #endif
         guard let g = leer() else { throw Fallo.sinSesion }
         if Date().timeIntervalSince1970 < g.expira - 60 { return g.access }
         return try await refrescar(g.refresh)

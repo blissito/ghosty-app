@@ -262,6 +262,17 @@ final class LiveAgentStore: AgentStoring {
 
         correo = flota.correo
         cuentas = flota.agentes
+        // ⚠️ Gancho de desarrollo: con `GHOSTY_SOLO_AGENTE` la app sólo ve ESE agente.
+        // Existe porque verificar contra el servidor de verdad se hace con un token de la
+        // cuenta real, y ese token alcanza a TODOS sus agentes — incluida la caja que
+        // alguien está usando en su teléfono ahora mismo. Un filtro es más fiable que
+        // acordarse de no tocarla.
+        #if DEBUG
+        if let solo = ProcessInfo.processInfo.environment["GHOSTY_SOLO_AGENTE"], !solo.isEmpty {
+            cuentas = cuentas.filter { $0.id == solo }
+            EasyBitsClient.diag("[dev] sólo el agente \(solo): quedan \(cuentas.count)")
+        }
+        #endif
         Credentials.guardar(cuentas)
 
         guard !cuentas.isEmpty else {
@@ -827,20 +838,29 @@ final class LiveAgentStore: AgentStoring {
     /// Asegura socket abierto. Si la caja está dormida el WebSocket falla, así que se
     /// la despierta con un turno HTTP mínimo —lo único que sabe despertarla— y se
     /// reintenta.
-    private func asegurarSocket(_ canal: Canal) async throws -> ACPClient {
+    private func asegurarSocket(_ canal: Canal) async throws -> any TransporteDeAgente {
         if let c = canal.acp, canal.infoDeLaCaja != nil { return c }
         // ⚠️ COALESCIDO. Con varias conversaciones, dos hilos arrancando a la vez entraban
         // aquí a la vez y creaban DOS `ACPClient` para el mismo agente: el segundo pisaba
         // al primero y el primero se quedaba con su socket abierto y sin dueño. Ésa es la
         // acumulación de sockets, y es la razón por la que esto se comparte.
         if let enVuelo = canal.abriendoSocket { return try await enVuelo.value }
-        let tarea = Task<ACPClient, Error> { try await self.abrirSocket(canal) }
+        let tarea = Task<any TransporteDeAgente, Error> { try await self.abrirSocket(canal) }
         canal.abriendoSocket = tarea
         defer { canal.abriendoSocket = nil }
         return try await tarea.value
     }
 
-    private func abrirSocket(_ canal: Canal) async throws -> ACPClient {
+    /// Por dónde se habla con los agentes.
+    ///
+    /// ⚠️ Se elige en el ARRANQUE y no cambia en caliente: un canal a medio turno con el
+    /// transporte cambiado debajo es un turno perdido. `GHOSTY_TRANSPORTE=gs` enciende el
+    /// camino nuevo; sin ella, el de siempre. Vive detrás de una bandera hasta que la
+    /// verificación completa pase en el teléfono, para que una build a medias no deje a
+    /// nadie sin agente.
+    static let porGS: Bool = ProcessInfo.processInfo.environment["GHOSTY_TRANSPORTE"] == "gs"
+
+    private func abrirSocket(_ canal: Canal) async throws -> any TransporteDeAgente {
         let cuenta = canal.cuenta
         // El anterior se cierra: reemplazarlo a secas dejaba su socket y su lector vivos.
         //
@@ -859,10 +879,12 @@ final class LiveAgentStore: AgentStoring {
         // Levantar una caja dormida tarda segundos. Sin decirlo, la app se siente colgada.
         canal.despertando = true
         defer { canal.despertando = false }
-        let c = ACPClient(agentID: cuenta.id, token: cuenta.token, host: cuenta.host)
+        let c: any TransporteDeAgente = Self.porGS
+            ? ClienteGS(agentID: cuenta.id)
+            : ACPClient(agentID: cuenta.id, token: cuenta.token, host: cuenta.host)
         do {
             canal.infoDeLaCaja = try await c.conectar()
-        } catch {
+        } catch where !Self.porGS {
             // ⚠️ El rescate por `/revive` es de EasyBits y SÓLO sirve para sus agentes:
             // con un agente nativo se le manda un cuid de gs y un token `gat_` que no
             // conoce, así que falla siempre — y su error TAPA al de verdad, que es lo que
@@ -935,7 +957,7 @@ final class LiveAgentStore: AgentStoring {
 
         let tarea = Task<String, Error> {
             let cliente = try await asegurarSocket(canal)
-            let (id, modos) = try await cliente.nuevaSesion()
+            let (id, modos) = try await cliente.nuevaSesion(cwd: "/data/work")
             EasyBitsClient.diag("[hilo] sesión NUEVA \(id)")
             hilo.sesionID = id
             hilo.cargadaEn = ObjectIdentifier(cliente)

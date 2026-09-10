@@ -180,10 +180,12 @@ final class Canal {
     /// levantar una caja dormida tarda segundos y no había nada que lo dijera.
     var despertando = false
 
-    var acp: ACPClient?
+    /// Por dónde se habla con este agente. Puede ser el WebSocket a la caja o gs; el
+    /// store no distingue, y ésa es la idea. Ver `TransporteDeAgente`.
+    var acp: (any TransporteDeAgente)?
     /// La apertura de socket en vuelo, COMPARTIDA. Sin esto, dos conversaciones
     /// arrancando a la vez abrían dos sockets contra la misma caja.
-    var abriendoSocket: Task<ACPClient, Error>?
+    var abriendoSocket: Task<any TransporteDeAgente, Error>?
     /// Cronómetro heredado; el de verdad vive en cada `Hilo`.
     var cronometro: Task<Void, Never>?
 

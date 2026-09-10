@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Verificado contra la caja real (`ghosty-lite 1.48.0`): declara
 /// `loadSession: true` y `sessionCapabilities: { list, delete, close }`.
-actor ACPClient {
+actor ACPClient: TransporteDeAgente {
 
     struct Session: Identifiable, Sendable, Equatable {
         let id: String            // sessionId
@@ -36,7 +36,12 @@ actor ACPClient {
     /// Una petición de permiso del agente AL cliente. Hay que contestarla o el turno
     /// se queda esperando.
     struct Permiso: Sendable, Identifiable {
-        let id: Int              // el id JSON-RPC con el que hay que responder
+        /// ⚠️ TEXTO, no el entero JSON-RPC que era antes. Por el socket el id es el de la
+        /// petición y sirve para responderla; contra gs es un id del servidor. Que el
+        /// modelo hable en texto es lo que permite tener los dos transportes sin que la
+        /// pantalla de permisos sepa por dónde llegó. `ACPClient` guarda su propio mapa
+        /// para volver al entero cuando toca contestar.
+        let id: String
         let sessionID: String
         let titulo: String
         let herramienta: String
@@ -258,7 +263,7 @@ actor ACPClient {
 
     /// Crea un hilo nuevo. **Por HTTP esto no se puede**: EasyBits siempre usa la
     /// única sesión ACP del agente, así que "nueva conversación" apendaba a la misma.
-    func nuevaSesion(cwd: String = "/data/work") async throws -> (id: String, modos: Modos?) {
+    func nuevaSesion(cwd: String) async throws -> (id: String, modos: Modos?) {
         let r = try await pedir("session/new", ["cwd": cwd, "mcpServers": []], timeout: 60)
         guard let id = r["sessionId"] as? String else { throw Fallo.handshake("sin sessionId") }
         return (id, leerModos(r["modes"]))
@@ -353,7 +358,7 @@ actor ACPClient {
     }
 
     /// Se avisa por aquí cuando el agente pide permiso.
-    func alPedirPermiso(_ handler: @escaping (Permiso) -> Void) {
+    func alPedirPermiso(_ handler: @escaping @Sendable (Permiso) -> Void) {
         permisoPendiente = handler
     }
 
@@ -381,10 +386,18 @@ actor ACPClient {
         try? await t.send(.string(String(decoding: d, as: UTF8.self)))
     }
 
+    /// De qué petición JSON-RPC salió cada permiso, para poder contestarla.
+    private var pedidoJSONRPC: [String: Int] = [:]
+
     /// Contesta una petición de permiso. El turno está detenido hasta esto.
-    func responderPermiso(_ id: Int, opcion: String) async throws {
+    func responderPermiso(_ id: String, opcion: String) async throws {
         guard let t = tarea else { throw Fallo.noConectado }
-        let sobre: [String: Any] = ["jsonrpc": "2.0", "id": id,
+        guard let numero = pedidoJSONRPC.removeValue(forKey: id) else {
+            // No se calla: sin el id original no hay a quién contestar, y el turno se
+            // queda detenido para siempre esperando a alguien que ya no sabe quién era.
+            throw Fallo.remoto("Ese permiso ya no está esperando respuesta.")
+        }
+        let sobre: [String: Any] = ["jsonrpc": "2.0", "id": numero,
                                     "result": ["outcome": ["outcome": "selected", "optionId": opcion]]]
         let d = try JSONSerialization.data(withJSONObject: sobre)
         try await t.send(.string(String(decoding: d, as: UTF8.self)))
@@ -641,7 +654,7 @@ actor ACPClient {
 
     /// Aviso hacia arriba de que este cliente ya no sirve.
     private var alCaerse: (() -> Void)?
-    func alPerderse(_ handler: @escaping () -> Void) { alCaerse = handler }
+    func alPerderse(_ handler: @escaping @Sendable () -> Void) { alCaerse = handler }
 
     private func recibir(_ texto: String) {
         guard let d = texto.data(using: .utf8),
@@ -672,8 +685,9 @@ actor ACPClient {
                     guard let oid = o["optionId"] as? String else { return nil }
                     return (oid, o["name"] as? String ?? oid, o["kind"] as? String ?? "")
                 }
+                pedidoJSONRPC["\(id)"] = id
                 permisoPendiente?(Permiso(
-                    id: id,
+                    id: "\(id)",
                     sessionID: p["sessionId"] as? String ?? "",
                     titulo: tc?["title"] as? String ?? "una herramienta",
                     herramienta: tc?["kind"] as? String ?? "",
