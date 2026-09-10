@@ -416,14 +416,23 @@ final class LiveAgentStore: AgentStoring {
     /// guardado (`MensajeGuardado.entrega`), así que borrarla sólo del almacén la haría
     /// reaparecer en cuanto se recargara el hilo.
     func borrarEntrega(_ id: String) {
-        entregas.olvidar(id)
-        for canal in canales.values {
-            for hilo in canal.hilos {
-                hilo.mensajes.removeAll { $0.id == "entrega-\(id)" }
+        // ⚠️ Dentro de `withAnimation`, como el resto de los borrados. Una fila que
+        // desaparece de golpe no se lee como "se borró": se lee como un parpadeo, y deja
+        // dudando de si el toque hizo lo que pedías. La transición la ponen las vistas.
+        withAnimation(Self.alBorrar) {
+            entregas.olvidar(id)
+            for canal in canales.values {
+                for hilo in canal.hilos {
+                    hilo.mensajes.removeAll { $0.id == "entrega-\(id)" }
+                }
             }
-            guardarHilos(canal)
         }
+        for canal in canales.values { guardarHilos(canal) }
     }
+
+    /// Cómo se va lo que se borra. Un poco más lento que un toque normal: es una acción
+    /// irreversible y merece verse salir.
+    static let alBorrar: Animation = .spring(response: 0.34, dampingFraction: 0.86)
 
     /// Borra un archivo del almacenamiento de la cuenta.
     ///
@@ -434,7 +443,7 @@ final class LiveAgentStore: AgentStoring {
     func borrarArchivo(_ id: String) async -> Bool {
         switch await GhostyAPI.borrarArchivo(id) {
         case .hecho:
-            archivos.removeAll { $0.id == id }
+            withAnimation(Self.alBorrar) { archivos.removeAll { $0.id == id } }
             CacheDeImagenes.olvidar(id)
             await cargarAlmacenamiento()
             falloAlBorrar = nil
@@ -453,7 +462,11 @@ final class LiveAgentStore: AgentStoring {
     /// Si la caja no puede, se cierra en la app igual pero se dice que allá sigue: callarlo
     /// haría creer que se borró de todas partes.
     func borrarConversacion(_ hilo: Hilo) async {
-        guard let canal = canalActivo else { return }
+        // ⚠️ El canal DUEÑO de esta conversación, no el que esté seleccionado. Con
+        // `canalActivo` bastaba con estar mirando a otro agente para que borrar una fila
+        // de la lista no hiciera nada —o peor, tocara el canal equivocado—. La lista
+        // enseña a todos los agentes a la vez, así que el activo no dice nada de la fila.
+        guard let canal = canalDe(hilo) else { return }
         let sid = hilo.sesionID
         if let sid {
             do {
@@ -464,7 +477,7 @@ final class LiveAgentStore: AgentStoring {
                 falloAlBorrar = "La cerré aquí, pero sigue guardada en tu agente."
             }
             titulos.olvidar(sid)
-            canal.hilosRemotos.removeAll { $0.id == sid }
+            withAnimation(Self.alBorrar) { canal.hilosRemotos.removeAll { $0.id == sid } }
             cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
         }
         cerrarHilo(hilo)
@@ -482,16 +495,23 @@ final class LiveAgentStore: AgentStoring {
             return
         }
         titulos.olvidar(sesion.id)
-        canal.hilosRemotos.removeAll { $0.id == sesion.id }
+        withAnimation(Self.alBorrar) { canal.hilosRemotos.removeAll { $0.id == sesion.id } }
         cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
     }
 
     /// Cierra una conversación de la app. No la borra de la caja.
+    /// De qué agente es esta conversación. Ver el aviso de `borrarConversacion`.
+    private func canalDe(_ hilo: Hilo) -> Canal? {
+        canales.values.first { c in c.hilos.contains { $0.clave == hilo.clave } }
+    }
+
     func cerrarHilo(_ hilo: Hilo) {
-        guard let canal = canalActivo else { return }
+        guard let canal = canalDe(hilo) else { return }
         if let sid = hilo.sesionID { Task { await canal.acp?.cancelar(sid) } }
-        canal.cerrar(hilo)
-        if canal.hilos.isEmpty { canal.abrir() }
+        withAnimation(Self.alBorrar) {
+            canal.cerrar(hilo)
+            if canal.hilos.isEmpty { canal.abrir() }
+        }
         guardarHilos(canal)
     }
 

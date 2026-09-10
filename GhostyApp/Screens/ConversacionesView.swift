@@ -79,6 +79,9 @@ struct ConversacionesView: View {
                 filaDeHilo(h, canal: canal, agente: agente)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("conversacion-\(agente.id)-\(i)")
+                    // Se encoge y se desvanece al irse: la fila SALE en vez de dejar de
+                    // estar, que es lo que hace que el borrado se sienta hecho.
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
                     .ghostySeparator(inset: 0)
             }
 
@@ -283,6 +286,7 @@ struct ConversacionesView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .transition(.scale(scale: 0.94).combined(with: .opacity))
                         .borrarConToqueLargo("¿Borrar esta conversación?",
                                              consecuencia: "Se borra de tu agente. No se puede deshacer.") {
                             Task { await store.borrarGuardada(s, de: agente.id) }

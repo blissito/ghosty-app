@@ -109,10 +109,16 @@ final class RecorridoUITests: XCTestCase {
             XCTAssertTrue(borrar.waitForExistence(timeout: 3), "el toque largo no ofreció borrar")
             borrar.tap()
             foto("12-confirmar-borrado")
-            // ⚠️ Se cancela tocando FUERA, no con un botón: desde un menú contextual iOS
-            // presenta la confirmación como popover, y en esa forma no pinta «Cancelar».
-            // La captura es de la pregunta, no del destrozo.
-            app.tap()
+            // Y se borra de verdad: la captura inmediata tiene que pillar la fila A MEDIO
+            // IRSE. Si sale entera o ya no sale, es que no hay animación — que es
+            // justamente lo que faltaba.
+            app.buttons.matching(NSPredicate(format: "label == 'Borrar'")).firstMatch.tap()
+            foto("13-borrando")
+            // Y de verdad tiene que haberse ido: sin esto el test pasaba con la fila
+            // intacta, que fue justo lo que ocultó que se borraba el canal equivocado.
+            XCTAssertFalse(app.staticTexts["Conversación nueva"].waitForExistence(timeout: 2),
+                           "la conversación no se borró")
+            foto("14-borrado")
         }
 
         // 7. Y que «Guardadas» se despliegue sólo cuando se toca.

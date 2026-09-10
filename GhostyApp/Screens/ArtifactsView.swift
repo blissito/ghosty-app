@@ -80,6 +80,7 @@ struct ArtifactsView: View {
                 VStack(spacing: 10) {
                     ForEach(lista) { e in
                         EntregaCard(entrega: e)
+                            .transition(.scale(scale: 0.94).combined(with: .opacity))
                             .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
                                                  consecuencia: "Se quita de aquí y de la conversación donde te la entregó. Vive sólo en este teléfono.") {
                                 store.borrarEntrega(e.id)
@@ -209,6 +210,7 @@ struct ArtifactsView: View {
                     // ⚠️ Éste es el borrado que de verdad quita bytes del almacenamiento
                     // de la cuenta, y el único que puede dejar cojas las conversaciones
                     // que nombran el archivo. Se dice antes de hacerlo.
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
                     .borrarConToqueLargo("¿Borrar «\(f.name ?? f.id)»?",
                                          consecuencia: "Se borra del almacenamiento de tu cuenta. Las conversaciones que lo mencionen dejarán de poder abrirlo.") {
                         Task { await store.borrarArchivo(f.id) }
