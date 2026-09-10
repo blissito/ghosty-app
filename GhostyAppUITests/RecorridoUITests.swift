@@ -63,7 +63,7 @@ final class RecorridoUITests: XCTestCase {
         foto("22-interrumpido")
         // Y en la lista tiene que verse igual de tranquilo: gris, no rojo de fallo.
         app.buttons["tab-conversations"].tap()
-        XCTAssertTrue(app.staticTexts["Sigue en tu agente · al volver lo traigo"]
+        XCTAssertTrue(app.staticTexts["Sigue trabajando · te aviso"]
                         .waitForExistence(timeout: 5),
                       "la lista no dice que el hilo sigue en el agente")
         foto("23-interrumpido-lista")

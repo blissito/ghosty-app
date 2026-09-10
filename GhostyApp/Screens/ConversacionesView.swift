@@ -174,7 +174,10 @@ struct ConversacionesView: View {
                 // ya había contestado alguna vez: un hilo cortado a media respuesta se
                 // pintaba con la misma marca que uno terminado. Sigue trabajando allá, y
                 // el icono lo dice sin alarmar.
-                TintedIcon(systemName: "wifi.slash", tint: .gInk3,
+                // ⚠️ Un reloj de arena, NO `wifi.slash`: ese decía «te quedaste sin
+                // internet», que es lo contrario de lo que pasa —el agente sigue
+                // trabajando, sólo que allá—. Y salía dos veces, aquí y en el texto.
+                TintedIcon(systemName: "hourglass", tint: .gInk3,
                            background: .gFill, size: 28)
             } else if h.fallo != nil {
                 TintedIcon(systemName: "exclamationmark.triangle.fill", tint: .gDangerInk,

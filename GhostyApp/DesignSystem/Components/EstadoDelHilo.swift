@@ -36,12 +36,10 @@ struct EstadoDelHilo: View {
                     // ⚠️ NO es un fallo, y por eso no va en rojo: se cayó la conexión
                     // —normalmente porque bloqueaste el teléfono— pero el agente sigue
                     // trabajando en su caja. Al volver se recoge lo que hizo.
-                    HStack(spacing: 5) {
-                        Image(systemName: "wifi.slash")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.gInk3)
-                        Text("Sigue en tu agente · al volver lo traigo").gMeta().lineLimit(1)
-                    }
+                    // Sin símbolo: el de la izquierda ya lo dice, y repetirlo dentro de
+                    // la frase comía la mitad del ancho de una fila que se corta.
+                    Text("Sigue trabajando · te aviso")
+                        .gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
                 case .fallo(let motivo):
                     // En rojo y con su triángulo: es la única fila de la lista que pide
                     // que vuelvas a entrar.
