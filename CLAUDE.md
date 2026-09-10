@@ -58,6 +58,21 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_DEMO_INTERRUMPIDO=1` | pinta un hilo cortado por la suspensión (con el cartel) |
 | `GHOSTY_PUSH=1` | se registra en APNs sin esperar al diálogo del permiso |
 | `GHOSTY_SILENCIO=20` | da el turno por cortado tras 20 s sin eventos (por defecto, 8 min) |
+| `GHOSTY_TRANSPORTE=gs` | habla por HTTP+SSE contra gs en vez del WebSocket a la caja |
+| `GHOSTY_TOKEN=<bearer>` | presta una sesión sin pasar por el login (sólo Debug) |
+| `GHOSTY_SOLO_AGENTE=<id>` | la app sólo ve ESE agente |
+| `GHOSTY_AUTO_PERMISO=1` | contesta los permisos solo, para poder probar el camino entero |
+
+⚠️ **Los cuatro últimos juntos son lo que permite verificar la app contra el servidor de
+verdad sin la sesión de nadie.** Un token de la cuenta real alcanza a TODOS sus agentes,
+incluida la caja que alguien esté usando en su teléfono: `GHOSTY_SOLO_AGENTE` es más fiable
+que acordarse de no tocarla.
+
+```bash
+SIMCTL_CHILD_GHOSTY_TOKEN=… SIMCTL_CHILD_GHOSTY_SOLO_AGENTE=… \
+SIMCTL_CHILD_GHOSTY_TRANSPORTE=gs SIMCTL_CHILD_GHOSTY_PROBE="hola" \
+  xcrun simctl launch <sim> com.fixtergeek.ghostyapp
+```
 
 ⚠️ **El simulador NO entrega push silenciosos.** El visible sí (`xcrun simctl push` con
 `alert` saca el banner), así que la ausencia de reacción a un `content-available` ahí no
