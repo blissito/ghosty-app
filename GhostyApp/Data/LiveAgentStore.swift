@@ -31,6 +31,15 @@ final class LiveAgentStore: AgentStoring {
 
     var canalActivo: Canal? { canales[selectedAgentID] }
 
+    /// Agentes con algo que no has visto: terminaron o piden permiso mientras mirabas
+    /// otra cosa. Es lo que enciende el punto de la pestaña Flota.
+    private(set) var sinVer: Set<String> = []
+
+    var hayPendientes: Bool { !sinVer.isEmpty }
+
+    func visto(_ id: String) { sinVer.remove(id) }
+    func vistoTodo() { sinVer.removeAll() }
+
     /// Los que están trabajando ahora mismo, en el orden de la flota. Es lo que pinta
     /// la barra de "trabajando en segundo plano".
     var trabajando: [Canal] { agents.compactMap { canales[$0.id] }.filter(\.trabajando) }
@@ -313,9 +322,13 @@ final class LiveAgentStore: AgentStoring {
     /// pantalla no enseñaba ningún error, simplemente no volvía la respuesta.
     func seleccionar(_ id: String) {
         guard id != selectedAgentID, let cuenta = cuentas.first(where: { $0.id == id }) else { return }
+        // El momento con contexto para pedir el permiso de notificaciones: acabas de
+        // dejar a alguien trabajando y te vas. Al arrancar no significa nada y se rechaza.
+        if canalActivo?.trabajando == true { Avisos.pedirPermisoSiHaceFalta() }
         if canales[id] == nil { canales[id] = Canal(cuenta: cuenta) }
         Credentials.activar(id)
         selectedAgentID = id
+        sinVer.remove(id)
     }
 
     /// Empieza de cero con este agente. Suelta el `sessionId`, así que la caja abre
@@ -435,6 +448,14 @@ final class LiveAgentStore: AgentStoring {
     /// El agente pidió permiso. El turno está detenido hasta que se conteste.
     private func recibirPermiso(_ p: ACPClient.Permiso, en canal: Canal) {
         canal.permisoACP = p
+        // El más urgente de los dos avisos: este turno está DETENIDO hasta que contestes,
+        // así que no enterarte cuesta el trabajo entero.
+        if canal.cuenta.id != selectedAgentID || Avisos.enElFondo {
+            Avisos.avisar(titulo: "\(canal.cuenta.name) espera tu permiso",
+                          cuerpo: "¿Dejas que use \(p.titulo)?",
+                          agentID: canal.cuenta.id)
+            sinVer.insert(canal.cuenta.id)
+        }
         canal.permisoPendiente = PermissionRequest(
             id: "\(p.id)",
             kind: .publish,
@@ -822,6 +843,14 @@ final class LiveAgentStore: AgentStoring {
         // pena escribirla. Guardar en cada trozo del streaming sería escribir el archivo
         // decenas de veces por respuesta.
         cache.guardarAbierto(canal.mensajes, hilo: canal.sesionID, de: canal.cuenta.id)
+        // Sólo si NO lo estabas mirando. Avisar de algo que acabas de ver aparecer en
+        // pantalla es ruido.
+        if canal.cuenta.id != selectedAgentID || Avisos.enElFondo {
+            Avisos.avisar(titulo: "\(canal.cuenta.name) terminó",
+                          cuerpo: canal.prompt.isEmpty ? "Tu agente acabó el turno." : canal.prompt,
+                          agentID: canal.cuenta.id)
+            sinVer.insert(canal.cuenta.id)
+        }
         if let i = agents.firstIndex(where: { $0.id == canal.cuenta.id }) {
             agents[i].status = .idle(since: "ahora")
         }

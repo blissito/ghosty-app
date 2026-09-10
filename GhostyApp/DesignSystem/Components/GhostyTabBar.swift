@@ -31,6 +31,10 @@ struct GhostyTabBar: View {
     /// "está roto". Quien decide la lista es `RootView`, que es quien sabe con qué cuenta
     /// se entró.
     var tabs: [GhostyTab] = GhostyTab.allCases
+    /// Pestañas con algo que no has visto. Un punto, no un número: cuántos agentes
+    /// terminaron no cambia lo que vas a hacer —ir a mirar—, y un contador en una barra
+    /// de cinco iconos es ruido que hay que descifrar.
+    var puntos: Set<GhostyTab> = []
     @Namespace private var resaltado
 
     var body: some View {
@@ -50,6 +54,14 @@ struct GhostyTabBar: View {
                         Image(systemName: tab.icon)
                             .font(.system(size: 19, weight: .regular))
                             .foregroundStyle(selection == tab ? Color.gInk : Color.gInk4)
+                            .overlay(alignment: .topTrailing) {
+                                if puntos.contains(tab) {
+                                    Circle()
+                                        .fill(Color.gPrimary)
+                                        .frame(width: 7, height: 7)
+                                        .offset(x: 5, y: -3)
+                                }
+                            }
                     }
                     // 44 pt de alto mínimo: es el tamaño de toque, no una decisión estética
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

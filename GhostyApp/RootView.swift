@@ -42,7 +42,8 @@ struct RootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if case .lista = store.conexion {
-                GhostyTabBar(selection: $tab, tabs: pestanas)
+                GhostyTabBar(selection: $tab, tabs: pestanas,
+                             puntos: store.hayPendientes ? [.fleet] : [])
                     .padding(.bottom, 4)
                     // ⚠️ Si la pestaña activa deja de estar en la lista, hay que caer a
                     // Chat: sin esto la pantalla se queda en una vista sin destino y la
@@ -54,6 +55,13 @@ struct RootView: View {
                     }
                     .onAppear { if !pestanas.contains(tab) { tab = .chat } }
             }
+        }
+        // Tocar un aviso abre a ese agente. Es la mitad que hace útil la notificación:
+        // sin esto te enteras de que alguien terminó y sigues teniendo que buscarlo.
+        .onReceive(NotificationCenter.default.publisher(for: Avisos.alTocar)) { aviso in
+            guard let id = aviso.object as? String else { return }
+            store.seleccionar(id)
+            tab = .chat
         }
         .task {
             // Lo primero, y barato: tirar las imágenes viejas del caché de disco.

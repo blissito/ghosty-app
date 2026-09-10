@@ -47,6 +47,9 @@ struct FleetView: View {
             .padding(.horizontal, Theme.Space.screenH)
             .padding(.top, 8)
         }
+        // Entrar a la flota ES verlo: el punto de la pestaña se apaga aquí, no al tocar
+        // cada agente. Lo que anunciaba —que alguien terminó— ya está en pantalla.
+        .onAppear { store.vistoTodo() }
     }
 
     /// Cuántos hay y cuántos están ocupados. Lo segundo es la información nueva: con
