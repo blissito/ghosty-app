@@ -1316,6 +1316,16 @@ final class LiveAgentStore: AgentStoring {
 
         do {
             for try await evento in cliente.prompt(sessionID: sid, texto: texto, adjuntos: adjuntos) {
+                // ⚠️ Que llegue UN evento es la prueba de que la caja está ahí: se apaga
+                // la marca de interrumpido. Sin esto, un hilo que se cortó una vez se
+                // quedaba con el cartel de «tu agente sigue con esto» y la cabecera
+                // diciendo «Sigue trabajando…» PARA SIEMPRE, aunque la respuesta ya
+                // hubiera llegado y estuviera pintada debajo.
+                if hilo.interrumpido {
+                    hilo.interrumpido = false
+                    cache.saldarDeuda(sesion: sid, de: canal.cuenta.id)
+                    refrescarEstado(canal)
+                }
                 switch evento {
                 case .agent(let t):
                     acumulado += t
@@ -1405,6 +1415,11 @@ final class LiveAgentStore: AgentStoring {
             if acumulado.isEmpty && herramientas.isEmpty {
                 pintarRespuesta(hilo, id: respuesta, texto: "_El turno cerró sin texto._")
             }
+            // Terminó de verdad: nada de esto sigue pendiente.
+            hilo.interrumpido = false
+            hilo.huboFondo = false
+            hilo.recogiendo?.cancel(); hilo.recogiendo = nil
+            cache.saldarDeuda(sesion: sid, de: canal.cuenta.id)
             anotar(canal, hilo, chars: acumulado.count, como: .done)
         } catch {
             // ⚠️ Un corte de TRANSPORTE no es un fallo del agente: la caja sigue
