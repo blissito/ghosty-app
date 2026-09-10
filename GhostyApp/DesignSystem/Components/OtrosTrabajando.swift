@@ -71,5 +71,6 @@ struct OtrosTrabajando: View {
             .shadow(color: .black.opacity(0.05), radius: 7, y: 4)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("chip-\(hilo.clave)")
     }
 }

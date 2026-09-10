@@ -34,7 +34,8 @@ struct ConversationView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let agente = store.selectedAgent {
-                AgentHeader(agent: agente, onTap: { escribiendo = false; onOpenSheet() })
+                AgentHeader(agent: agente, estado: store.estado(de: agente.id),
+                            onTap: { escribiendo = false; onOpenSheet() })
                     .padding(.top, 8)
                     .padding(.bottom, 14)
             }
@@ -98,6 +99,7 @@ struct ConversationView: View {
                                 .shadow(color: .black.opacity(0.10), radius: 8, y: 4)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("ir-abajo")
                         .padding(.bottom, 8)
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                     }
@@ -344,6 +346,7 @@ struct ConversationView: View {
             .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("adjuntar-\(nombre)")
     }
 
     /// Los adjuntos que esperan, y el aviso si algo falló.
@@ -534,6 +537,7 @@ struct ConversationView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("adjuntar")
 
             // ⚠️ Su propio icono, no un menú. Lo dejó dicho el comentario de arriba: con
             // varias conversaciones a la vez, empezar otra es una acción de todos los

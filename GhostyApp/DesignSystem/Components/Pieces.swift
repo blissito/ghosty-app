@@ -168,13 +168,15 @@ struct ArtifactRow: View {
 /// Muse y lo que hace que el agente "exista" aunque no le escribas.
 struct AgentHeader: View {
     let agent: Agent
+    /// El estado se PREGUNTA al store: guardado en el `Agent` se desincroniza del turno.
+    var estado: AgentStatus?
     var onTap: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 5) {
             GhostyMascot(tone: agent.tone, height: 46)
             Text(agent.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk)
-            StatusLine(status: agent.status)
+            StatusLine(status: estado ?? agent.status)
                 .font(.system(size: 12.5))
                 .lineLimit(1)
                 .padding(.horizontal, Theme.Space.screenH)

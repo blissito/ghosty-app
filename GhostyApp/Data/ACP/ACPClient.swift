@@ -586,6 +586,7 @@ actor ACPClient {
         // romperse (que es lo que le pasa a Zed). Ver `relay.ts` → `entregar()`.
         if m["method"] as? String == "ghosty/artifact",
            let p = m["params"] as? [String: Any] {
+            EasyBitsClient.diag("[entrega] llegó ghosty/artifact, flujos vivos: \(enVivo.count)")
             if let e = Self.entregaDesde(p, agentID: agentID) {
                 // ⚠️ La entrega del relé NO trae `sessionId` (ver `relay.ts` → `entregar()`),
                 // así que no hay a quién dirigirla. Con un solo turno vivo es obvio; con

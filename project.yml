@@ -88,3 +88,30 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: primary
         TARGETED_DEVICE_FAMILY: "1"
+
+  # ⚠️ Existe para poder TOCAR la pantalla. Se enviaron cinco builds seguidas con fallos
+  # de interacción —una fila que no responde, un botón que no hace nada— porque lo único
+  # que se verificaba era que compilara. Corre contra el modo demo (`GHOSTY_DEMO=1`), que
+  # es lo que deja abrir la app sin sesión.
+  GhostyAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: GhostyAppUITests
+    dependencies:
+      - target: GhostyApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostyapp.uitests
+        TEST_TARGET_NAME: GhostyApp
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  GhostyApp:
+    build:
+      targets:
+        GhostyApp: all
+        GhostyAppUITests: [test]
+    test:
+      targets:
+        - GhostyAppUITests

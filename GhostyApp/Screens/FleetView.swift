@@ -99,7 +99,7 @@ struct FleetView: View {
                 // suyos, así que el mismo agente se veía distinto aquí y en la cabecera del
                 // chat.
                 HStack(spacing: 6) {
-                    StatusLine(status: agente.status)
+                    StatusLine(status: store.estado(de: agente.id))
                     // El reloj sí es de aquí: es lo único que `AgentStatus` no lleva.
                     // Con varias conversaciones a la vez, el reloj solo no basta: hay
                     // que decir CUÁNTAS. "2 en curso · 1:04" es la información nueva.
@@ -153,11 +153,22 @@ struct FleetView: View {
 
     /// Lo último que dijo el agente en su conversación, recortado.
     private func ultimoDicho(_ canal: Canal?) -> String? {
-        guard let m = canal?.hilos.last?.mensajes.last(where: {
+        // ⚠️ El hilo que se MIRA, no el último de la lista: el último suele ser la
+        // conversación nueva y vacía, así que la tarjeta salía sin la línea que sirve
+        // para decidir a quién volver.
+        guard let m = (canal?.hilo ?? canal?.hilos.last)?.mensajes.last(where: {
             if case .agent = $0.kind { return true } else { return false }
         }), case .agent(let t, _, _) = m.kind else { return nil }
-        let limpio = t.trimmingCharacters(in: .whitespacesAndNewlines)
+        // ⚠️ Sin la sintaxis de markdown. Esta línea es un `Text` PLANO —no una burbuja—,
+        // así que los asteriscos y los backticks salían literales: «Respuesta 12. Esto es
+        // un párrafo con **markdown**». Es el mismo fallo que ya tuvo la burbuja del
+        // usuario con los nombres de archivo.
+        var limpio = t.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
+        for marca in ["**", "__", "`", "*", "#", ">"] {
+            limpio = limpio.replacingOccurrences(of: marca, with: "")
+        }
+        limpio = limpio.trimmingCharacters(in: .whitespaces)
         return limpio.isEmpty ? nil : limpio
     }
 
@@ -177,6 +188,7 @@ struct FleetView: View {
                     set: { borradores[agente.id] = $0 }))
                     .gBody()
                     .textFieldStyle(.plain)
+                    .accessibilityIdentifier("pedir-\(agente.id)")
                     .submitLabel(.send)
                     .onSubmit { mandar(a: agente.id) }
 

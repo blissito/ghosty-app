@@ -80,6 +80,7 @@ struct HistoryPane: View {
                             store.mirar(h)
                             onAbrir?()
                         }
+                        .accessibilityIdentifier("hilo-abierto-\(i)")
                         .ghostySeparator(inset: i == canal.hilos.count - 1 ? .infinity : 44)
                 }
             }

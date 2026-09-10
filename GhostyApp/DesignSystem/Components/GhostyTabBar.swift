@@ -72,6 +72,7 @@ struct GhostyTabBar: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("tab-\(tab.rawValue)")
             }
         }
         .padding(6)

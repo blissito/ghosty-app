@@ -58,3 +58,31 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 ⚠️ Un dato de prueba sintético **se comprueba contra el consumidor real**: un PNG que `file`
 y PIL daban por bueno el modelo lo rechazaba por dañado, y casi doy por rota la ruta de
 imágenes por culpa de mi propio dato.
+
+## Ver la app: `./scripts/capturas.sh`
+
+⚠️ **Un agente NO puede verificar esta app sólo compilando.** Se enviaron cinco builds
+seguidas con fallos de interacción —una fila que no respondía al toque, un botón que no
+hacía nada, una conversación duplicada, un hilo que se vaciaba— porque lo único que se
+comprobaba era que el compilador estuviera contento. Ninguno lo habría cazado un test
+unitario: eran de tocar.
+
+```bash
+./scripts/capturas.sh          # recorrido de UI tests + capturas en build-sim/capturas/
+```
+
+Corre `GhostyAppUITests/RecorridoUITests.swift` contra el **modo demo** y deja una captura
+por paso. El modo demo (`GHOSTY_DEMO=1`, ver `Data/DemoData.swift`) llena el store REAL con
+datos falsos y sin red: es lo que deja abrir la app en el simulador sin tener sesión, y
+prueba `Canal`/`Hilo`/el caché, que es donde han estado los fallos.
+
+**Antes de instalar en el teléfono, mira las capturas.** Si tocas UI, añade el paso al
+recorrido: un toque que no hace nada tiene que salir como test rojo, no como mensaje de
+Héctor.
+
+Para lo que sólo pasa con la caja de verdad (contexto entre turnos, entregas), los logs del
+teléfono:
+
+```bash
+xcrun devicectl device process launch --device $DEV --console com.fixtergeek.ghostyapp
+```

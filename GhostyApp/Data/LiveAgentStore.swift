@@ -27,6 +27,11 @@ final class LiveAgentStore: AgentStoring {
     /// Un canal por agente: su socket, su hilo y su turno. Cambiar de agente cambia
     /// de canal, no cancela nada. Ver `Canal.swift`.
     private(set) var canales: [String: Canal] = [:]
+
+    /// Puertas para el modo demo. `cuentas` y `canales` son privados a propósito —nadie de
+    /// fuera debe montarlos— y la demo vive en otro archivo.
+    func ponerCanalesDeDemo(_ nuevos: [String: Canal]) { canales = nuevos }
+    func ponerCuentasDeDemo(_ nuevas: [AgentAccount]) { cuentas = nuevas }
     private var cuentas: [AgentAccount] = []
 
     var canalActivo: Canal? { canales[selectedAgentID] }
@@ -151,6 +156,7 @@ final class LiveAgentStore: AgentStoring {
     private(set) var falloDeConectores: String?
 
     func cargarConectores() async {
+        guard !DemoData.encendido else { conectores = Self.catalogo; hayConectores = false; return }
         switch await GhostyAPI.conectores() {
         case .servidos(let lista):
             conectores = lista
@@ -195,6 +201,7 @@ final class LiveAgentStore: AgentStoring {
     }
 
     func cargarAlmacenamiento() async {
+        guard !DemoData.encendido else { return }
         almacenamiento = try? await GhostyAPI.almacenamiento()
     }
     let titulos = TitleStore()
@@ -220,6 +227,10 @@ final class LiveAgentStore: AgentStoring {
 
     func cargar() async {
         conexion = .cargando
+
+        // Datos falsos y ni un byte de red. Ver `DemoData.swift`: es lo que permite abrir
+        // la app en el simulador y TOCARLA sin tener una sesión.
+        if DemoData.encendido { cargarDemo(); return }
 
         // Sin sesión no hay nada que pedir: la app arranca en el login.
         guard Session.haySesion else { conexion = .sinLlave; return }
@@ -322,6 +333,7 @@ final class LiveAgentStore: AgentStoring {
     }
 
     func cargarArchivos() async {
+        guard !DemoData.encendido else { estadoArchivos = .listo; return }
         guard let cuenta = cuentas.first(where: { $0.id == selectedAgentID }) else { return }
         guard cuenta.esLlaveDeCuenta else { estadoArchivos = .noPermitido; return }
         guard estadoArchivos != .cargando else { return }
@@ -507,9 +519,18 @@ final class LiveAgentStore: AgentStoring {
             let cliente = try await asegurarSocket(canal)
             let cual = ObjectIdentifier(cliente)
             if hilo.cargadaEn != cual {
-                _ = try? await cliente.cargar(sid, cwd: "/data/work")
-                hilo.cargadaEn = cual
+                do {
+                    let r = try await cliente.cargar(sid, cwd: "/data/work")
+                    EasyBitsClient.diag("[hilo] rehidratada \(sid): \(r?.count ?? -1) eventos")
+                    hilo.cargadaEn = cual
+                } catch {
+                    // ⚠️ NO se traga. Si la caja no puede devolvernos la sesión, el turno
+                    // que sigue va SIN contexto y el agente contesta "no sé de qué me
+                    // hablas" — que es un fallo mudo con cara de agente tonto.
+                    EasyBitsClient.diag("[hilo] ⚠️ NO pude rehidratar \(sid): \(error)")
+                }
             }
+            EasyBitsClient.diag("[hilo] turno a sesión \(sid)")
             return sid
         }
         if let enVuelo = hilo.creando { return try await enVuelo.value }
@@ -517,6 +538,7 @@ final class LiveAgentStore: AgentStoring {
         let tarea = Task<String, Error> {
             let cliente = try await asegurarSocket(canal)
             let (id, modos) = try await cliente.nuevaSesion()
+            EasyBitsClient.diag("[hilo] sesión NUEVA \(id)")
             hilo.sesionID = id
             hilo.cargadaEn = ObjectIdentifier(cliente)
             hilo.modo = modos?.actual ?? "auto"
@@ -562,6 +584,7 @@ final class LiveAgentStore: AgentStoring {
     }
 
     func cargarHilos() async {
+        guard !DemoData.encendido else { return }
         guard let canal = canalActivo, canal.estadoHilos != .cargando else { return }
         // ⚠️ Con lista cacheada NO se enseña el spinner: ya hay algo bueno en pantalla y
         // taparlo con "preguntándole a tu agente…" es empeorarlo a propósito. Se refresca
@@ -591,6 +614,9 @@ final class LiveAgentStore: AgentStoring {
     /// manda `session/load`, no algo guardado aquí.
     func abrirHilo(_ sesion: ACPClient.Session) async {
         guard let canal = canalActivo else { return }
+        // En demo no hay caja: se abre el hilo y ya. Sin esto la pantalla se llenaba de
+        // "bad response from the server" y no se podía revisar nada.
+        if DemoData.encendido { _ = canal.abrir(sesion.id); return }
         // ⚠️ Lo primero: si ese hilo YA está abierto en la app, sólo se mira. No se
         // recarga y no se toca nada. Aquí estaba el fallo grave: se pisaba la
         // conversación activa aunque estuviera contestando, y su respuesta seguía
@@ -671,6 +697,20 @@ final class LiveAgentStore: AgentStoring {
     /// en memoria hasta que el agente terminara. Cualquier tropiezo entre medias —y hubo
     /// uno que vaciaba el hilo— se llevaba tu mensaje sin dejar copia.
     private func guardarYa(_ canal: Canal) { guardarHilos(canal) }
+
+    /// El estado de un agente, calculado de sus conversaciones.
+    ///
+    /// ⚠️ Se pregunta AQUÍ y no se lee de `agents[i].status`, porque un valor guardado se
+    /// desincroniza: en la demo la mascota decía "En reposo" con un turno corriendo
+    /// delante. Lo que no se guarda no puede contradecir a lo que pasa.
+    func estado(de agentID: String) -> AgentStatus {
+        guard let canal = canales[agentID] else { return .idle(since: "listo") }
+        if !canal.esperandoPermiso.isEmpty { return .awaitingApproval }
+        if let vivo = canal.enCurso.last {
+            return .working(task: vivo.turno?.detail ?? "Trabajando…")
+        }
+        return .idle(since: "listo")
+    }
 
     /// El estado del agente SALE de sus hilos, nunca se asigna a mano.
     ///
