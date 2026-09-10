@@ -54,6 +54,15 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_TAB=chat\|conversations\|artifacts\|connectors` | abre esa pestaña (`fleet` ya no existe) |
 | `GHOSTY_SHEET=1` + `GHOSTY_PANE=activity\|permissions` | abre la hoja del agente en ese panel |
 | `GHOSTY_CONECTORES=demo` | llena Integraciones para poder mirarla |
+| `GHOSTY_CORTAR=8` | mata el socket a los 8 s, como hace iOS al suspender la app |
+| `GHOSTY_DEMO_INTERRUMPIDO=1` | pinta un hilo cortado por la suspensión (con el cartel) |
+| `GHOSTY_PUSH=1` | se registra en APNs sin esperar al diálogo del permiso |
+
+⚠️ **El simulador NO entrega push silenciosos.** El visible sí (`xcrun simctl push` con
+`alert` saca el banner), así que la ausencia de reacción a un `content-available` ahí no
+prueba nada: eso se comprueba en el teléfono, mirando el renglón `[push] silencioso` por
+cable. Y el simulador tampoco suspende la app como el teléfono — la recuperación del fondo
+sólo se verifica de verdad bloqueando el iPhone unos minutos.
 
 ⚠️ Un dato de prueba sintético **se comprueba contra el consumidor real**: un PNG que `file`
 y PIL daban por bueno el modelo lo rechazaba por dañado, y casi doy por rota la ruta de
