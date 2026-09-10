@@ -683,11 +683,13 @@ actor ACPClient {
            let p = m["params"] as? [String: Any] {
             EasyBitsClient.diag("[entrega] llegó ghosty/artifact, flujos vivos: \(enVivo.count)")
             if let e = Self.entregaDesde(p, agentID: agentID) {
-                // ⚠️ La entrega del relé NO trae `sessionId` (ver `relay.ts` → `entregar()`),
-                // así que no hay a quién dirigirla. Con un solo turno vivo es obvio; con
-                // varios se manda al hilo que la pidió sólo si lo podemos saber, y si no,
-                // a todos: una entrega repetida se ve, una perdida no.
-                if enVivo.count == 1, let solo = enVivo.first?.value {
+                // El relé dice a qué hilo pertenece desde el rebake de 2026-09-10: se
+                // acuña un token de herramientas por conversación, no por socket.
+                if let sesion = p["sessionId"] as? String, let suyo = enVivo[sesion] {
+                    suyo.yield(.entrega(e))
+                } else if enVivo.count == 1, let solo = enVivo.first?.value {
+                    // ⚠️ Respaldo para una caja con el relé VIEJO, que la manda sin
+                    // `sessionId`. Con un solo turno vivo no hay ambigüedad.
                     solo.yield(.entrega(e))
                 } else {
                     // A todos: perderla es peor que verla dos veces, y su id determinista
