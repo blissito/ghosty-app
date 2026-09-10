@@ -48,6 +48,27 @@ final class RecorridoUITests: XCTestCase {
         foto("21-detenido")
     }
 
+    /// El hilo que dejaste trabajando cuando iOS suspendió la app.
+    ///
+    /// ⚠️ Esto es lo que NO se veía nunca: el corte se clasificaba como fallo del agente y
+    /// la conversación quedaba diciendo «vuelve a intentarlo» para siempre. La prueba mira
+    /// que salga el cartel de que sigue trabajando, no un error.
+    func testInterrumpido() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_INTERRUMPIDO"] = "1"
+        app.launch()
+        let cartel = app.staticTexts["Tu agente sigue con esto. Te aviso en cuanto termine."]
+        XCTAssertTrue(cartel.waitForExistence(timeout: 10),
+                      "no salió el cartel del turno interrumpido")
+        foto("22-interrumpido")
+        // Y en la lista tiene que verse igual de tranquilo: gris, no rojo de fallo.
+        app.buttons["tab-conversations"].tap()
+        XCTAssertTrue(app.staticTexts["Sigue en tu agente · al volver lo traigo"]
+                        .waitForExistence(timeout: 5),
+                      "la lista no dice que el hilo sigue en el agente")
+        foto("23-interrumpido-lista")
+    }
+
     func testRecorrido() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10), "la app no arrancó en la demo")
         foto("01-chat")

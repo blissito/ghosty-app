@@ -1,7 +1,9 @@
 import SwiftUI
 
 struct RootView: View {
-    @State private var store = LiveAgentStore()
+    // ⚠️ El COMPARTIDO, no uno nuevo: el delegado de push necesita hablar con este mismo
+    // store para recoger la respuesta cuando nos despiertan en el fondo.
+    @State private var store = LiveAgentStore.compartido
     // GHOSTY_TAB / GHOSTY_SHEET son ganchos de desarrollo: dejan abrir una pantalla
     // concreta desde la línea de comandos para poder verificarlas sin tocar la
     // pantalla del simulador, que no acepta toques por script.
@@ -62,12 +64,19 @@ struct RootView: View {
                     .onAppear { if !pestanas.contains(tab) { tab = .chat } }
             }
         }
+        // ⚠️ Las TRES fases, no sólo la de volver. `.inactive` llega ANTES de que iOS mate
+        // el socket y es la única ventana para dejar anotado que lo que venga después es
+        // una suspensión y no un fallo del agente; en `.background` ya casi no hay tiempo.
+        .onChange(of: fase) { _, nueva in
+            switch nueva {
+            case .inactive:   store.marcarFondo()
+            case .background: store.irseAlFondo()
+            case .active:     Task { await store.volverDelFondo() }
+            @unknown default: break
+            }
+        }
         // Tocar un aviso abre a ese agente. Es la mitad que hace útil la notificación:
         // sin esto te enteras de que alguien terminó y sigues teniendo que buscarlo.
-        .onChange(of: fase) { _, nueva in
-            guard nueva == .active else { return }
-            Task { await store.volverDelFondo() }
-        }
         .onReceive(NotificationCenter.default.publisher(for: Avisos.alTocar)) { aviso in
             guard let id = aviso.object as? String else { return }
             store.seleccionar(id)

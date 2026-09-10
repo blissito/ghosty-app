@@ -45,6 +45,32 @@ enum Avisos {
         }
     }
 
+    /// Al arrancar: si ya diste permiso, volver a registrarse.
+    ///
+    /// ⚠️ Hace falta en CADA arranque, no sólo la vez que concedes el permiso. El token de
+    /// APNs cambia al reinstalar o al restaurar el teléfono, y un token viejo es un aviso
+    /// que se pierde en silencio: el servidor cree que avisó y tú no ves nada. Y sin
+    /// `registerForRemoteNotifications` iOS **no entrega** ningún push, ni siquiera el
+    /// silencioso — que es justo lo que hace que no se pueda probar sin darse cuenta.
+    static func registrarSiYaHayPermiso() {
+        #if canImport(UIKit)
+        // Gancho de desarrollo: en el simulador no se puede tocar el diálogo del permiso.
+        if ProcessInfo.processInfo.environment["GHOSTY_PUSH"] == "1" {
+            UNUserNotificationCenter.current().delegate = delegado
+            UIApplication.shared.registerForRemoteNotifications()
+            return
+        }
+        UNUserNotificationCenter.current().getNotificationSettings { ajustes in
+            guard ajustes.authorizationStatus == .authorized else { return }
+            Task { @MainActor in
+                pedido = true
+                UNUserNotificationCenter.current().delegate = delegado
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+        #endif
+    }
+
     /// El teléfono ya tiene su ficha en el servidor.
     private static var tokenEnviado: String?
 

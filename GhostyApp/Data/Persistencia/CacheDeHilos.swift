@@ -38,6 +38,28 @@ final class CacheDeHilos {
         var lista: [String: [SesionGuardada]] = [:]
         var abiertos: [String: [String: [MensajeGuardado]]] = [:]
         var sospechosos: [String] = []
+        /// Conversaciones que se quedaron a medias cuando iOS suspendió la app.
+        ///
+        /// ⚠️ **Opcional a propósito**: un archivo escrito por una versión anterior no
+        /// trae esta clave, y con un campo no opcional el decodificador sintetizado
+        /// LANZA — se descartaría el archivo entero y con él todas las conversaciones
+        /// guardadas. Subir el número de versión habría hecho lo mismo.
+        var pendientes: [String: [Deuda]]?
+    }
+
+    /// Un turno que la caja seguía trabajando cuando el teléfono se durmió.
+    ///
+    /// ⚠️ Vive en DISCO porque iOS mata el proceso a los pocos minutos de irte: al
+    /// relanzar no queda ningún hilo marcado en memoria, y sin esto la respuesta que el
+    /// agente sí produjo no la reclamaba nadie. Es la mitad del arreglo que el simulador
+    /// no puede probar, porque ahí la app no se suspende de verdad.
+    struct Deuda: Codable, Equatable {
+        var sesionID: String
+        var desde: Date
+        var intentos: Int = 0
+        /// Cuántos mensajes tenía el hilo al cortarse. Sirve para saber si lo que trae la
+        /// caja es NUEVO o es lo mismo que ya teníamos.
+        var mensajesAlCortar: Int = 0
     }
 
     private var disco = Disco()
@@ -70,6 +92,42 @@ final class CacheDeHilos {
         struct Guardado: Codable { var sesionID: String; var mensajes: [MensajeGuardado] }
         var lista: [String: [SesionGuardada]] = [:]
         var abierto: [String: Guardado] = [:]
+    }
+
+    // MARK: - Deudas del fondo
+
+    func deudas(_ agentID: String) -> [Deuda] {
+        disco.pendientes?[agentID] ?? []
+    }
+
+    var hayDeudas: Bool { !(disco.pendientes?.isEmpty ?? true) }
+
+    /// Todas, con su agente. Al arrancar en frío es lo único que dice qué hay que recoger.
+    var todasLasDeudas: [(agentID: String, deuda: Deuda)] {
+        (disco.pendientes ?? [:]).flatMap { agente, ds in ds.map { (agente, $0) } }
+    }
+
+    func anotarDeuda(_ deuda: Deuda, de agentID: String) {
+        var ds = disco.pendientes?[agentID] ?? []
+        // Una por conversación: si ya estaba, se conserva su `desde` —lo que importa es
+        // cuánto lleva esperando, no cuántas veces la hemos vuelto a apuntar.
+        if let i = ds.firstIndex(where: { $0.sesionID == deuda.sesionID }) {
+            ds[i].intentos = deuda.intentos
+            ds[i].mensajesAlCortar = deuda.mensajesAlCortar
+        } else {
+            ds.append(deuda)
+        }
+        disco.pendientes = (disco.pendientes ?? [:]).merging([agentID: ds]) { _, n in n }
+        guardar()
+    }
+
+    func saldarDeuda(sesion: String, de agentID: String) {
+        guard var ds = disco.pendientes?[agentID] else { return }
+        ds.removeAll { $0.sesionID == sesion }
+        var todas = disco.pendientes ?? [:]
+        if ds.isEmpty { todas.removeValue(forKey: agentID) } else { todas[agentID] = ds }
+        disco.pendientes = todas
+        guardar()
     }
 
     // MARK: - La lista

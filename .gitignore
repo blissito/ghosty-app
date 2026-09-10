@@ -4,6 +4,9 @@
 
 # Xcode
 build/
+# Salida del simulador y de las capturas: pesa cientos de megas y se regenera.
+build-sim/
+.spm/
 DerivedData/
 xcuserdata/
 *.xcuserstate

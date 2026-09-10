@@ -169,6 +169,15 @@ extension LiveAgentStore {
             larga.turno = TurnActivity(id: "t2", title: "el informe", detail: "Leyendo",
                                        step: 1, totalSteps: 4, elapsed: "0:12")
         }
+        // `GHOSTY_DEMO_INTERRUMPIDO=1`: el hilo que dejaste trabajando y iOS suspendió.
+        // Es el estado que hay que poder MIRAR — el cartel de «sigue con esto» y la fila
+        // gris de la lista— sin tener que bloquear un teléfono de verdad.
+        if ProcessInfo.processInfo.environment["GHOSTY_DEMO_INTERRUMPIDO"] == "1" {
+            larga.fallo = nil
+            larga.turno = nil
+            larga.interrumpido = true
+            larga.huboFondo = true
+        }
         larga.tocado = Date()
         foto.tocado = Date().addingTimeInterval(-120)
         vacia.tocado = Date().addingTimeInterval(-300)

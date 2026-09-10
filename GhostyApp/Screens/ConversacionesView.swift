@@ -169,6 +169,13 @@ struct ConversacionesView: View {
         Group {
             if h.trabajando {
                 ProgressView().frame(width: 28, height: 28)
+            } else if h.interrumpido {
+                // ⚠️ Antes de esta rama caía en la palomita de «listo» si la conversación
+                // ya había contestado alguna vez: un hilo cortado a media respuesta se
+                // pintaba con la misma marca que uno terminado. Sigue trabajando allá, y
+                // el icono lo dice sin alarmar.
+                TintedIcon(systemName: "wifi.slash", tint: .gInk3,
+                           background: .gFill, size: 28)
             } else if h.fallo != nil {
                 TintedIcon(systemName: "exclamationmark.triangle.fill", tint: .gDangerInk,
                            background: .gDangerTint, size: 28)

@@ -69,6 +69,15 @@ final class Hilo {
     /// —«5 mensajes»— así que había que entrar a cada una para descubrir cuál había
     /// fallado. Y con varias a la vez, eso es justo lo que no puedes hacer.
     var fallo: String?
+    /// ¿La app pasó por el fondo durante este turno?
+    ///
+    /// ⚠️ Es la evidencia que decide si un corte se lee como «iOS me suspendió» o como «el
+    /// agente falló». Se pone en `.inactive` —antes de que iOS mate el socket— porque
+    /// después ya no da tiempo a nada.
+    var huboFondo = false
+    /// La recogida en curso de lo que pasó mientras no mirábamos. Se cancela al volver al
+    /// fondo y al escribirle al hilo.
+    @ObservationIgnored var recogiendo: Task<Void, Never>?
     /// El turno murió porque se cayó el transporte —casi siempre, porque el teléfono se
     /// fue al fondo—. No es un fallo: el agente sigue, y al volver hay que ir a recogerlo.
     var interrumpido = false
@@ -92,6 +101,9 @@ final class Hilo {
         if let turno { return .trabajando(turno.elapsed.isEmpty ? "…" : turno.elapsed) }
         // Gana sobre «contestó»: si el turno se rompió, eso es lo que hay que saber.
         if poniendoseAlDia { return .alDia }
+        // ⚠️ Gana sobre «contestó». Un hilo cortado por la suspensión conserva su `termino`
+        // de antes, y sin esta línea se pintaba «Contestó hace 2 min» cuando lo que había
+        // era una respuesta a medias esperando a que la recogiéramos.
         if interrumpido { return .interrumpido }
         if let fallo { return .fallo(fallo) }
         if let termino, !visto { return .listo(Self.hace(termino)) }

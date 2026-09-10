@@ -84,6 +84,13 @@ targets:
         NSPhotoLibraryUsageDescription: Para que puedas mandarle una foto a tu agente.
         NSCameraUsageDescription: Para tomar una foto y mandársela a tu agente.
         NSMicrophoneUsageDescription: Para grabar notas de voz y mandárselas a tu agente.
+        # Despertar en el fondo cuando el servidor manda un push silencioso, para traerte
+        # la respuesta ANTES de que abras la app. Es oportunista a propósito: iOS lo limita
+        # a unos pocos por hora entre todas las apps del teléfono y no lo entrega si mataste
+        # la app desde el conmutador — por eso el aviso de «terminó» va como push VISIBLE y
+        # esto es sólo un adelanto.
+        UIBackgroundModes:
+          - remote-notification
         UILaunchScreen:
           UIColorName: bg
         UISupportedInterfaceOrientations:

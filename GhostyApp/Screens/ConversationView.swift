@@ -165,6 +165,23 @@ struct ConversationView: View {
                 .onAppear { traerAlFinal(scroll) }
             }
 
+            // ⚠️ Un CARTEL, no un mensaje. Que el aviso viva dentro de la respuesta lo
+            // convertía en historia: quedaba «se cortó la conexión» pegado para siempre en
+            // una conversación que acabó bien. Éste está atado al estado del hilo, así que
+            // se va solo en cuanto la recogida trae la respuesta.
+            if let hilo = store.hiloActivo, hilo.interrumpido {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Text("Tu agente sigue con esto. Te aviso en cuanto termine.")
+                        .gMeta().foregroundStyle(Color.gInk2)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(Color.gCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 16).padding(.bottom, 6)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             // ⚠️ El conmutador de conversaciones va ABAJO, pegado al compositor. Estuvo
             // arriba —bajo la cabecera— y era donde no llega el pulgar: para cambiarte de
             // conversación había que estirar el dedo hasta la cabeza del agente y abrir un
@@ -183,6 +200,8 @@ struct ConversationView: View {
                     if store.pedirTeclado { escribiendo = true; store.pedirTeclado = false }
                 }
         }
+        .animation(.spring(response: 0.32, dampingFraction: 0.85),
+                   value: store.hiloActivo?.interrumpido)
         .sensoryFeedback(.success, trigger: entregasEnElHilo)
         .sensoryFeedback(.impact(weight: .light), trigger: adjuntos.count)
         .sensoryFeedback(.start, trigger: grabador.grabando)

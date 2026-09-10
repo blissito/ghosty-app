@@ -172,6 +172,16 @@ actor ACPClient {
         tarea = t
         t.resume()
         arrancarLector()
+        // Gancho de desarrollo: `GHOSTY_CORTAR=8` mata el socket a los 8 segundos, como
+        // hace iOS al suspender la app. Es la ÚNICA forma de reproducir eso en el
+        // simulador —el ciclo de vida real no se puede guionar— y sin ello la recuperación
+        // del fondo sólo se podía probar bloqueando el teléfono a mano.
+        if let seg = ProcessInfo.processInfo.environment["GHOSTY_CORTAR"].flatMap(Double.init) {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(seg))
+                await self?.simularCorte()
+            }
+        }
 
         let r = try await pedir("initialize", [
             "protocolVersion": 1,
@@ -545,6 +555,15 @@ actor ACPClient {
                 }
             }
         }
+    }
+
+    /// Como si iOS nos hubiera suspendido: el mismo error que llega en el teléfono.
+    private func simularCorte() {
+        guard tarea != nil else { return }
+        lector?.cancel(); lector = nil
+        tarea?.cancel(with: .abnormalClosure, reason: nil)
+        romper(NSError(domain: NSPOSIXErrorDomain, code: 53,
+                       userInfo: [NSLocalizedDescriptionKey: "Software caused connection abort"]))
     }
 
     /// El socket se cayó. Deja el cliente **declaradamente muerto**.
