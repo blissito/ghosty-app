@@ -195,21 +195,22 @@ actor ClienteGS: TransporteDeAgente {
 
     /// Manda el turno y escucha lo que gs vaya emitiendo.
     ///
-    /// ⚠️ Son DOS operaciones y el ORDEN importa: primero se encarga el turno y **después**
-    /// se escucha. Lo hice al revés —para no perderme nada— y el turno salía «cerró sin
-    /// texto» siempre: quien se suscribe a una conversación en reposo recibe un `done` de
-    /// entrada, porque eso es justo lo que necesita saber un cliente que llega nuevo. Ese
-    /// `done` no era el mío, pero cerraba mi flujo antes de empezar.
+    /// ⚠️ Se escucha ANTES de encargar, y así no hay ninguna ventana en la que el turno
+    /// esté corriendo sin nadie mirando.
     ///
-    /// Escuchar después no pierde nada: el SSE es re-suscribible y entrega primero todo lo
-    /// que el turno ya emitió. Ésa es la propiedad por la que se hizo esta mudanza.
+    /// Ese orden —el natural— fallaba: quien se suscribe a una conversación en reposo
+    /// recibe un `done` de entrada, que es lo que un cliente recién llegado necesita
+    /// saber, y me cerraba el flujo antes de empezar; todos los turnos salían «cerró sin
+    /// texto». Se arregló en el servidor: ese `done` ahora viene con `reposo: true` y se
+    /// distingue del que cierra un turno de verdad. Mientras no existía, esto iba al revés
+    /// —encargar y luego escuchar— apoyándose en que el backlog tapara el hueco.
     nonisolated func prompt(sessionID: String, texto: String,
                             adjuntos: [Adjunto]) -> AsyncThrowingStream<ACPClient.Replay, Error> {
         AsyncThrowingStream { cont in
             let tarea = Task {
                 do {
+                    try await self.escuchar(sessionID, cont, esperandoTurno: true)
                     try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos)
-                    try await self.escuchar(sessionID, cont)
                 } catch {
                     cont.finish(throwing: error)
                 }
@@ -270,7 +271,9 @@ actor ClienteGS: TransporteDeAgente {
     }
 
     /// Abre el SSE y traduce lo que llega.
-    private func escuchar(_ sesion: String, _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation) async throws {
+    private func escuchar(_ sesion: String,
+                          _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation,
+                          esperandoTurno: Bool = false) async throws {
         dejarDeEscuchar(sesion)
         let req = try await peticion(base("/conversations/\(sesion)/events"), sse: true)
         let listo = Semaforo()
@@ -291,7 +294,8 @@ actor ClienteGS: TransporteDeAgente {
                     if linea.hasPrefix("event: ") { evento = String(linea.dropFirst(7)); continue }
                     guard linea.hasPrefix("data: ") else { continue }
                     let crudo = String(linea.dropFirst(6))
-                    if await self.traducir(evento, crudo, sesion: sesion, cont) { break }
+                    if await self.traducir(evento, crudo, sesion: sesion, cont,
+                                           esperandoTurno: esperandoTurno) { break }
                 }
                 cont.finish()
                 await self.soltar(sesion)
@@ -310,7 +314,8 @@ actor ClienteGS: TransporteDeAgente {
 
     /// Traduce un evento de gs. Devuelve `true` si el turno terminó.
     private func traducir(_ evento: String, _ crudo: String, sesion: String,
-                          _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation) -> Bool {
+                          _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation,
+                          esperandoTurno: Bool = false) -> Bool {
         let p = (try? JSONSerialization.jsonObject(with: Data(crudo.utf8))) as? [String: Any] ?? [:]
         switch evento {
         case "chunk":
@@ -367,6 +372,10 @@ actor ClienteGS: TransporteDeAgente {
             cont.finish(throwing: ACPClient.Fallo.remoto(p["message"] as? String ?? "Falló el turno."))
             return true
         case "done":
+            // ⚠️ `reposo: true` es «aquí no está pasando nada», no «tu turno acabó». Se
+            // manda a quien se suscribe a una conversación quieta, y si se confunde con el
+            // otro, el turno que estás a punto de encargar muere antes de nacer.
+            if esperandoTurno, p["reposo"] as? Bool == true { return false }
             return true
         default:
             // `title`, `caps`, `status`, `models`… todavía no se usan. No se tiran a la
