@@ -51,8 +51,8 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 |---|---|
 | `GHOSTY_PROBE="texto"` | manda ese mensaje al arrancar |
 | `GHOSTY_ADJUNTOS=imagen\|archivo\|ambos` | lo manda CON adjuntos sintéticos |
-| `GHOSTY_TAB=chat\|fleet\|artifacts\|connectors` | abre esa pestaña |
-| `GHOSTY_SHEET=1` + `GHOSTY_PANE=activity\|permissions\|history\|memory` | abre la hoja del agente en ese panel |
+| `GHOSTY_TAB=chat\|conversations\|artifacts\|connectors` | abre esa pestaña (`fleet` ya no existe) |
+| `GHOSTY_SHEET=1` + `GHOSTY_PANE=activity\|permissions` | abre la hoja del agente en ese panel |
 | `GHOSTY_CONECTORES=demo` | llena Integraciones para poder mirarla |
 
 ⚠️ Un dato de prueba sintético **se comprueba contra el consumidor real**: un PNG que `file`

@@ -43,7 +43,7 @@ struct RootView: View {
 
             if case .lista = store.conexion {
                 GhostyTabBar(selection: $tab, tabs: pestanas,
-                             puntos: store.hayPendientes ? [.fleet] : [])
+                             puntos: store.hayPendientes ? [.conversations] : [])
                     .padding(.bottom, 4)
                     // ⚠️ Si la pestaña activa deja de estar en la lista, hay que caer a
                     // Chat: sin esto la pantalla se queda en una vista sin destino y la
@@ -134,7 +134,7 @@ struct RootView: View {
         // Artefactos aparece con el almacén de la cuenta o en cuanto el agente entrega
         // algo. Que la pestaña nazca cuando hay contenido es a propósito: vacía sólo servía
         // para explicar por qué estaba vacía.
-        var lista: [GhostyTab] = [.chat, .fleet]
+        var lista: [GhostyTab] = [.chat, .conversations]
         if store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty {
             lista.append(.artifacts)
         }
@@ -177,19 +177,11 @@ struct RootView: View {
         case .chat:
             ConversationView(store: store, onOpenSheet: abrirHoja)
                 .padding(.bottom, Theme.Space.composerClearance)
-        case .fleet:
-            FleetView(store: store,
-                      onConectar: { ajustes = true },
-                      onEditar: { _ in ajustes = true })
+        case .conversations:
+            ConversacionesView(store: store,
+                               onCuenta: { ajustes = true },
+                               onAbrir: { tab = .chat })
                 .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
-        case .ideas:
-            EmptyState(icon: "lightbulb", title: "Ideas",
-                       detail: "Lo que el agente propone sin que se lo pidas. Todavía no está.")
-                .padding(.bottom, Theme.Space.tabBarClearance)
-        case .goals:
-            EmptyState(icon: "checkmark.square", title: "Metas",
-                       detail: "Lo que persigue y su plan para llegar. Todavía no está.")
-                .padding(.bottom, Theme.Space.tabBarClearance)
         case .connectors:
             ConectoresPane(store: store)
                 .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)

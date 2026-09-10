@@ -5,7 +5,10 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
     // agente. La tabla es `gc_user_connectors` con clave `(sub, provider)` y el agente usa
     // la conexión de quien lo invoca. Dentro del panel del agente parecería que cada uno
     // tiene las suyas. Viven en su propia pestaña.
-    case activity, permissions, history, memory
+    // ⚠️ Eran cuatro. `history` se fue a su propia PESTAÑA —donde una lista de
+    // conversaciones se lee de un vistazo en vez de a dos toques— y `memory` era un
+    // cascarón que decía "todavía no está", igual que Ideas y Metas antes de quitarlas.
+    case activity, permissions
     var id: String { rawValue }
 
     /// El nombre del panel. Se usa para VoiceOver: el segmentado es sólo iconos.
@@ -13,8 +16,6 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .activity:    return "Actividad"
         case .permissions: return "Permisos"
-        case .history:     return "Historial"
-        case .memory:      return "Memoria"
         }
     }
 
@@ -22,8 +23,6 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .activity:    return "waveform.path.ecg"
         case .permissions: return "checkmark.shield"
-        case .history:     return "clock.arrow.circlepath"
-        case .memory:      return "brain"
         }
     }
 }
@@ -82,6 +81,7 @@ struct AgentSheetView: View {
                     TintedIcon(systemName: "xmark", tint: .gInk, background: .gSeparator, size: 34)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("cerrar-hoja")
                 Spacer()
                 Button(action: onAjustes) {
                     TintedIcon(systemName: "gearshape", tint: .gInk, background: .gSeparator, size: 34)
@@ -127,12 +127,6 @@ struct AgentSheetView: View {
                     switch pane.wrappedValue {
                     case .activity:    ActivityPane(store: store)
                     case .permissions: PermissionsPane(store: store)
-                    case .history:     HistoryPane(store: store, onAbrir: { dismiss() })
-                    case .memory:
-                        EmptyState(icon: "brain",
-                                   title: "Memoria",
-                                   detail: "Lo que el agente recuerda de ti. Todavía no se puede leer ni corregir desde aquí.")
-                            .padding(.top, 60)
                     }
                 }
                 // El contenido de la hoja no debe quedar pegado al borde inferior:

@@ -1,15 +1,16 @@
 import SwiftUI
 
 enum GhostyTab: String, CaseIterable, Identifiable {
-    case chat, fleet, ideas, goals, artifacts, connectors
+    // ⚠️ `fleet` era una lista de AGENTES y pasó a ser una de CONVERSACIONES, que es la
+    // unidad real de la app. `ideas` y `goals` se van: llevaban meses en el enum con una
+    // pantalla que decía "todavía no está" y a la que no se podía llegar.
+    case chat, conversations, artifacts, connectors
     var id: String { rawValue }
 
     var icon: String {
         switch self {
-        case .chat:      return "bubble.left"
-        case .fleet:     return "square.split.2x1"
-        case .ideas:     return "lightbulb"
-        case .goals:     return "checkmark.square"
+        case .chat:          return "bubble.left"
+        case .conversations: return "list.bullet.rectangle"
         case .artifacts: return "circle.grid.2x2"
         case .connectors: return "puzzlepiece.extension"
         }

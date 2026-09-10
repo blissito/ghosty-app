@@ -197,6 +197,7 @@ struct SheetHeader: View {
             Button(action: onClose) {
                 TintedIcon(systemName: "xmark", tint: .gInk, background: .gSeparator, size: 34)
             }
+            .accessibilityIdentifier("cerrar-hoja")
             .buttonStyle(.plain)
             Spacer()
             TintedIcon(systemName: "square.and.arrow.up", tint: .gInk, background: .gSeparator, size: 34)

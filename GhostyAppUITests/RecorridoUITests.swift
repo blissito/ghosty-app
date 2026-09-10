@@ -44,25 +44,25 @@ final class RecorridoUITests: XCTestCase {
         chip.tap()
         foto("02-chip-otro-agente")
 
-        // 2. La hoja del agente y su historial.
+        // 2. La hoja del agente y sus paneles.
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Ghosty' OR label CONTAINS 'Nube'"))
             .firstMatch.tap()
         foto("03-hoja")
 
-        let historial = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Historial'")).firstMatch
-        if historial.waitForExistence(timeout: 3) { historial.tap() }
-        foto("04-historial")
+        app.buttons["cerrar-hoja"].firstMatch.tap()
 
-        // 3. Una conversación abierta: tocarla tiene que hacer algo. Éste es el toque que
-        //    no funcionaba por tener un botón dentro de otro.
-        // Se toca por su TEXTO, como lo haría una persona: un identificador puesto en un
-        // contenedor de SwiftUI no siempre se expone como elemento.
-        let fila = app.descendants(matching: .any)["hilo-abierto-0"]
-        XCTAssertTrue(fila.waitForExistence(timeout: 3), "no se pintaron las conversaciones abiertas")
+        // 3. La pestaña de conversaciones: la lista de verdad. Tocar una tiene que
+        //    llevarme a ella — es el toque que antes no funcionaba.
+        app.buttons["tab-conversations"].tap()
+        foto("04-conversaciones")
+
+        let fila = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).firstMatch
+        XCTAssertTrue(fila.waitForExistence(timeout: 3), "no se pintó la lista de conversaciones")
         fila.tap()
-        foto("05-tras-tocar-abierta")
-        // Tocar una conversación tiene que cerrar la hoja y llevarme a ella.
-        XCTAssertFalse(app.staticTexts["Abiertas"].exists, "la hoja no se cerró al tocar la conversación")
+        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
+                      "tocar una conversación no llevó al chat")
+        foto("05-tras-tocar-conversacion")
 
         // 4. El botón de ir abajo: subir en el hilo y comprobar que aparece y que baja.
         app.swipeDown(); app.swipeDown()
@@ -88,15 +88,18 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["adjuntar-Cámara"].exists, "no salieron las tres tarjetas")
         mas.tap()
 
-        // 6. La flota, con su campo de pedir.
-        app.buttons["tab-fleet"].tap()
-        foto("09-flota")
-
-        // 7. Y que el campo de "pídele algo" acepte texto.
+        // 6. Pedirle algo sin entrar a la conversación.
+        app.buttons["tab-conversations"].tap()
         let pedir = app.textFields.matching(NSPredicate(format: "identifier BEGINSWITH 'pedir-'")).firstMatch
-        XCTAssertTrue(pedir.waitForExistence(timeout: 3), "no salió el campo de pedir en la flota")
+        XCTAssertTrue(pedir.waitForExistence(timeout: 3), "no salió el campo de pedir")
         pedir.tap()
         pedir.typeText("hola")
-        foto("10-flota-escribiendo")
+        foto("09-pidele-algo")
+
+        // 7. Y que «Guardadas» se despliegue sólo cuando se toca.
+        let guardadas = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'guardadas-'")).firstMatch
+        XCTAssertTrue(guardadas.exists, "no salió el plegable de guardadas")
+        guardadas.tap()
+        foto("10-guardadas")
     }
 }

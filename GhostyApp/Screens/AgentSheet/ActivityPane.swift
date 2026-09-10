@@ -9,7 +9,13 @@ import SwiftUI
 struct ActivityPane: View {
     let store: LiveAgentStore
 
-    private var deHoy: [TurnRecord] { store.bitacora.deHoy(agentID: store.selectedAgentID) }
+    /// ⚠️ **Sólo lo que NO terminó bien.** Este panel listaba todos los turnos del día, y
+    /// el prompt de un turno es el mismo texto que titula su conversación: era la lista de
+    /// conversaciones otra vez, y encima sin poder tocarla para ir a ninguna. Lo que aquí
+    /// no se puede ver en otro sitio es lo que costó y lo que se rompió.
+    private var problemas: [TurnRecord] {
+        store.bitacora.deHoy(agentID: store.selectedAgentID).filter { $0.outcome != .done }
+    }
     private var resumen: (turnos: Int, tokens: Int, segundos: Int) {
         store.bitacora.resumen(agentID: store.selectedAgentID)
     }
@@ -26,19 +32,22 @@ struct ActivityPane: View {
                 resumenDeHoy.padding(.bottom, 18)
             }
 
-            if deHoy.isEmpty && store.currentTurn == nil {
+            if resumen.turnos == 0 && store.currentTurn == nil {
                 EmptyState(icon: "waveform.path.ecg",
                            title: "Sin actividad todavía",
-                           detail: "Cuando le escribas, aquí queda cada turno con lo que tardó y lo que costó.")
+                           detail: "Cuando le escribas, aquí queda lo que tardó y lo que costó.")
                     .padding(.top, 50)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(deHoy.enumerated()), id: \.element.id) { i, r in
-                        fila(r).ghostySeparator(inset: i == deHoy.count - 1 ? .infinity : 44)
+                if !problemas.isEmpty {
+                    Text("No salieron").gSectionTitle().padding(.bottom, 12)
+                    VStack(spacing: 0) {
+                        ForEach(Array(problemas.enumerated()), id: \.element.id) { i, r in
+                            fila(r).ghostySeparator(inset: i == problemas.count - 1 ? .infinity : 44)
+                        }
                     }
                 }
 
-                Text("Sólo los turnos que pasaron por este teléfono. Lo que el agente haga desde otro cliente no se ve aquí.")
+                Text("Sólo los turnos que pasaron por este teléfono. Lo que el agente haga desde otro cliente no se ve aquí. Las conversaciones están en su pestaña.")
                     .gCaption()
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 16)

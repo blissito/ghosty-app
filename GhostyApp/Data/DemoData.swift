@@ -130,7 +130,12 @@ extension LiveAgentStore {
         vivo.turno = TurnActivity(id: "t", title: "resume el trimestre",
                                   detail: "Leyendo el CSV", step: 1, totalSteps: 3,
                                   elapsed: "0:42")
+        let dormida = dos.abrir("s-vieja-2")
+        dormida.mensajes = [Message(id: "dd1", kind: .user("cotización de abril")),
+                            Message(id: "dd2", kind: .agent(text: "Ahí va.", tools: nil, trailing: nil))]
+        dormida.termino = Date().addingTimeInterval(-7200)
         dos.activa = vivo.clave
+        dos.hilosRemotos = DemoData.sesiones
         dos.estadoHilos = .listo
 
         ponerCanalesDeDemo([DemoData.cuentas[0].id: uno, DemoData.cuentas[1].id: dos])
