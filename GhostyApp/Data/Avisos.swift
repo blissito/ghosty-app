@@ -71,24 +71,59 @@ enum Avisos {
         #endif
     }
 
+    /// Los dos sonidos de la casa. Son archivos propios y no tonos del sistema porque los
+    /// del sistema son de "te ha llegado un mensaje", y aquí lo que pasa es otra cosa:
+    /// algo que llevaba rato trabajando terminó.
+    ///
+    /// - `burbuja`: terminó un turno. Un pop corto que sube de tono al apagarse.
+    /// - `gota`: te necesita. Dos golpes, para que se distinga del anterior sin mirar —
+    ///   que es el punto: uno puede esperar, el otro tiene el trabajo detenido.
+    enum Sonido: String {
+        case burbuja, gota
+    }
+
+    /// ⚠️ El id se guarda. `AudioServicesCreateSystemSoundID` en cada aviso filtra memoria
+    /// y, con varias conversaciones terminando seguidas, mete un retraso audible entre el
+    /// hecho y su sonido.
+    private static var sonidos: [Sonido: SystemSoundID] = [:]
+
+    static func sonar(_ cual: Sonido) {
+        let id: SystemSoundID
+        if let ya = sonidos[cual] {
+            id = ya
+        } else {
+            guard let url = Bundle.main.url(forResource: cual.rawValue, withExtension: "caf") else {
+                // No se calla: quedarse sin sonido sin enterarse es el fallo mudo de siempre.
+                EasyBitsClient.diag("[avisos] ⚠️ falta \(cual.rawValue).caf en el bundle")
+                return
+            }
+            var nuevo: SystemSoundID = 0
+            AudioServicesCreateSystemSoundID(url as CFURL, &nuevo)
+            sonidos[cual] = nuevo
+            id = nuevo
+        }
+        AudioServicesPlaySystemSound(id)
+    }
+
     /// El sonido de "ya acabó".
     ///
     /// ⚠️ Suena SÓLO cuando no estabas mirando esa conversación: un sonido por cada turno
-    /// que ves terminar delante de ti se vuelve ruido en dos minutos. Es un sonido del
-    /// sistema y no un archivo propio a propósito — encaja con el resto del teléfono y no
-    /// añade un asset que mantener.
+    /// que ves terminar delante de ti se vuelve ruido en dos minutos.
     static func sonarFin() {
-        AudioServicesPlaySystemSound(1057)
+        sonar(.burbuja)
         #if canImport(UIKit)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
     }
 
-    static func avisar(titulo: String, cuerpo: String, agentID: String) {
+    static func avisar(titulo: String, cuerpo: String, agentID: String,
+                       sonido: Sonido = .burbuja) {
         let c = UNMutableNotificationContent()
         c.title = titulo
         c.body = cuerpo
-        c.sound = .default
+        // El mismo sonido que suena con la app delante: que el aviso suene distinto según
+        // por dónde llegue enseña a no fiarse de lo que se oye.
+        c.sound = UNNotificationSound(named: UNNotificationSoundName("\(sonido.rawValue).caf"))
         c.userInfo = ["agentID": agentID]
         // Agrupa por conversación, igual que hará el push del servidor: con tres
         // conversaciones a la vez, sin esto son tres avisos sueltos sin relación.

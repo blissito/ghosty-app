@@ -734,7 +734,7 @@ final class LiveAgentStore: AgentStoring {
         if hilo.clave != hiloActivo?.clave, !(Avisos.hayPush && Avisos.enElFondo) {
             Avisos.avisar(titulo: "\(canal.cuenta.name) espera tu permiso",
                           cuerpo: "¿Dejas que use \(p.titulo)?",
-                          agentID: canal.cuenta.id)
+                          agentID: canal.cuenta.id, sonido: .gota)
             sinVer.insert(canal.cuenta.id)
         }
         hilo.permisoPendiente = PermissionRequest(
