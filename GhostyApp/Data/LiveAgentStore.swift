@@ -550,6 +550,9 @@ final class LiveAgentStore: AgentStoring {
         hilo.recogiendo?.cancel()
         let limite = Date().addingTimeInterval(10 * 60)
         hilo.recogiendo = Task { [weak self, weak canal] in
+            // Un respiro antes del primer intento: el turno acaba de cortarse y la caja
+            // puede estar todavía escribiendo la respuesta.
+            try? await Task.sleep(for: .seconds(8))
             var intento = 0
             while !Task.isCancelled, Date() < limite {
                 guard let self, let canal else { return }
@@ -574,7 +577,12 @@ final class LiveAgentStore: AgentStoring {
                     hilo.recogiendo = nil
                     return
                 }
-                let tope = min(30.0, pow(2.0, Double(intento)))
+                // ⚠️ Se empieza ESPERANDO, y espaciado. El primer intento salía a los
+                // 1,5 s del corte y luego cada dos o tres: si la caja seguía trabajando,
+                // eso era martillearla con `session/load` sobre una sesión viva — y el
+                // relé no tiene ninguna defensa contra eso (confirmado con quien lo
+                // mantiene). Recoger no puede costar más que esperar.
+                let tope = min(60.0, 10.0 * pow(1.8, Double(intento)))
                 intento += 1
                 EasyBitsClient.diag("[fondo] \(hilo.sesionID ?? "?") sigue trabajando; intento \(intento)")
                 try? await Task.sleep(for: .seconds(Double.random(in: 0...tope)))
@@ -1158,6 +1166,7 @@ final class LiveAgentStore: AgentStoring {
         // que estuviéramos rescatando ya no es lo que estás esperando.
         hilo.recogiendo?.cancel(); hilo.recogiendo = nil
         hilo.interrumpido = false
+        hilo.paraReintentar = nil
         hilo.huboFondo = false
         if let sid = hilo.sesionID { cache.saldarDeuda(sesion: sid, de: cuenta.id) }
         // ⚠️ AQUÍ y sólo aquí: escribirle es lo que revive una conversación y la manda al
@@ -1439,22 +1448,32 @@ final class LiveAgentStore: AgentStoring {
             cache.saldarDeuda(sesion: sid, de: canal.cuenta.id)
             anotar(canal, hilo, chars: acumulado.count, como: .done)
         } catch {
-            // ⚠️ Un corte de TRANSPORTE no es un fallo del agente: la caja sigue
-            // trabajando y su sesión está intacta. Marcarlo como roto —y decir «se cayó la
-            // conexión» a secas— hacía creer que se perdía el trabajo cuando bloqueabas el
-            // teléfono. Queda INTERRUMPIDO, y al volver se va a recoger lo que hizo.
-            // ⚠️ Un corte con la app DELANTE y a los pocos segundos de mandar no es «iOS
-            // me suspendió»: es que no se llegó a la caja. Tratarlo como interrumpido
-            // dejaba el mensaje sin respuesta y sin explicación —tres «reintenta»
-            // seguidos contra el vacío— porque el aviso del corte ya no se escribe en el
-            // hilo. Si no te fuiste, se te dice.
+            // ⚠️⚠️ AQUÍ SE DECÍA UNA MENTIRA, y estuvo dicha varios días: que la caja
+            // seguía trabajando y que al volver recogeríamos la respuesta. **No es
+            // verdad con este transporte.** Medido contra la caja de verdad el
+            // 2026-09-10: se manda un turno, se corta el socket a los 3 s, se espera 25 s
+            // y `session/load` devuelve CERO caracteres del agente.
+            //
+            // La razón está en el relé: la caída del socket del cliente cierra también el
+            // socket hacia goose, y en Rust soltar la conexión cancela el futuro que
+            // atiende el `session/prompt`. Un turno **es** su socket; cuando el socket
+            // muere no queda trabajo huérfano al que volver.
+            //
+            // Así que el turno se da por PERDIDO y se dice. Una app que promete recuperar
+            // algo que ya no existe es peor que una que admite que lo perdió: enseña a no
+            // creerle. Esto cambia el día que el turno sea del servidor —ahí sí sobrevive
+            // sin nosotros—, y ese día vuelve el texto de «sigue trabajando».
             EasyBitsClient.diag("[turno] \(sid) murió: \(error)")
-            let deInmediato = !hilo.huboFondo
-                && Date().timeIntervalSince(hilo.inicio ?? Date()) < 20
-            let corte = !Task.isCancelled && !deInmediato
+            let corte = !Task.isCancelled
                 && Self.esCorteDeTransporte(error, seFueAlFondo: hilo.huboFondo)
-            hilo.interrumpido = corte
-            hilo.fallo = (Task.isCancelled || corte) ? nil : "Se cortó a media respuesta"
+            hilo.interrumpido = false
+            hilo.fallo = Task.isCancelled ? nil
+                : corte ? "Se cortó la conexión y el turno se perdió. Vuelve a pedírselo."
+                        : "Se cortó a media respuesta"
+            // Lo que escribiste se guarda para poder reintentarlo de un toque: volver a
+            // teclearlo es trabajo que la app puede ahorrarte, y en una nota de voz ni
+            // siquiera se puede.
+            if corte { hilo.paraReintentar = texto }
             // ⚠️ En el camino del corte NO se escribe el aviso DENTRO del mensaje. Ese
             // texto se guardaba en el hilo y sobrevivía a la recogida: quedaba un «se
             // cortó la conexión» pegado para siempre en mitad de una conversación que
@@ -1472,6 +1491,15 @@ final class LiveAgentStore: AgentStoring {
             anotar(canal, hilo, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
         }
         cerrarTurno(canal, hilo)
+    }
+
+    /// Vuelve a mandar el turno que se perdió al cortarse la conexión.
+    func reintentar() async {
+        guard let canal = canalActivo, let hilo = canal.hilo,
+              let texto = hilo.paraReintentar else { return }
+        hilo.paraReintentar = nil
+        hilo.fallo = nil
+        await send(texto, a: canal.cuenta.id)
     }
 
     func stopTurn() async {

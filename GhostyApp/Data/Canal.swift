@@ -81,6 +81,9 @@ final class Hilo {
     /// El turno murió porque se cayó el transporte —casi siempre, porque el teléfono se
     /// fue al fondo—. No es un fallo: el agente sigue, y al volver hay que ir a recogerlo.
     var interrumpido = false
+    /// Lo que escribiste en el turno que se perdió, para poder reintentarlo sin volver a
+    /// teclearlo. Se limpia en cuanto sale otro turno.
+    var paraReintentar: String?
     /// Ahora mismo se está recogiendo lo que pasó mientras no mirábamos.
     var poniendoseAlDia = false
     /// Cuándo se le ESCRIBIÓ por última vez.
