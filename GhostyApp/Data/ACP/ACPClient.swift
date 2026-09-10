@@ -317,9 +317,16 @@ actor ACPClient {
                     cont.finish(throwing: error)
                 }
             }
-            cont.onTermination = { _ in
+            cont.onTermination = { motivo in
                 tarea.cancel()
-                // Y que la caja lo sepa: cancelar aquí sin decírselo la deja trabajando.
+                // ⚠️⚠️ SÓLO si de verdad se canceló. `onTermination` se dispara cuando el
+                // flujo termina por CUALQUIER motivo, y eso incluye el `finish()` de un
+                // turno que salió bien: la app le estaba mandando a la caja
+                // `session/cancel` **después de cada respuesta correcta**. «Cancela esta
+                // sesión» justo después de contestar explica exactamente la falta de
+                // memoria que se veía —unas veces la sesión sobrevivía y otras quedaba
+                // abortada, y el turno siguiente empezaba en blanco—.
+                guard case .cancelled = motivo else { return }
                 Task { await self.cancelar(sessionID) }
             }
         }
@@ -346,6 +353,7 @@ actor ACPClient {
     /// teléfono y el agente seguía trabajando —y cobrando— hasta terminar, con su hueco
     /// ocupado. Va como notificación (sin `id`): el protocolo no contesta a esto.
     func cancelar(_ sessionID: String) async {
+        EasyBitsClient.diag("[cancel] sesión \(sessionID)")
         guard let t = tarea else { return }
         let sobre: [String: Any] = ["jsonrpc": "2.0", "method": "session/cancel",
                                     "params": ["sessionId": sessionID]]

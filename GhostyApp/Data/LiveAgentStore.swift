@@ -885,7 +885,14 @@ final class LiveAgentStore: AgentStoring {
 
         // ⚠️ Sólo se cancela el turno de ESTE hilo. Cancelar el del canal cortaba las
         // otras conversaciones del mismo agente.
-        hilo.enVuelo?.cancel()
+        //
+        // ⚠️ Y se GUARDA para esperarlo: ACP admite un `session/prompt` por sesión a la
+        // vez, y su `session/cancel` viaja por el mismo socket en otra tarea. Encadenar el
+        // turno nuevo sin esperar dejaba la cancelación del viejo llegando DESPUÉS de que
+        // el nuevo empezara — cancelándolo a él. Es lo que pasaba al mandar dos seguidos
+        // sin esperar respuesta: el segundo contestaba «no tengo ningún encargo previo».
+        let anterior = hilo.enVuelo
+        anterior?.cancel()
         hilo.mensajes.removeAll { $0.kind == .typing }
         // ⚠️ Envuelto en `withAnimation` cuando hay voz: es lo que deja que la barra de
         // grabación y la burbuja se emparejen con `matchedGeometryEffect`. Sin transacción
@@ -917,6 +924,8 @@ final class LiveAgentStore: AgentStoring {
 
         hilo.enVuelo = Task { [weak self] in
             guard let self else { return }
+            // El turno anterior tiene que estar MUERTO antes de hablarle a la misma sesión.
+            await anterior?.value
             do {
                 // El turno va SIEMPRE por el socket: es el único que respeta el hilo.
                 // Por HTTP EasyBits habla con la única sesión ACP del agente, así que
