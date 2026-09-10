@@ -18,7 +18,10 @@ struct OtrosTrabajando: View {
     /// compositor**, que es donde está el pulgar.
     private var abiertas: [(canal: Canal, hilo: Hilo)] {
         var lista: [(Canal, Hilo)] = []
-        if let c = store.canalActivo { lista += c.hilos.map { (c, $0) } }
+        // ⚠️ Por USO RECIENTE, no por orden de creación. Antes el orden no cambiaba nunca
+        // por mucho que interactuaras: la conversación que acababas de revivir se quedaba
+        // enterrada al final de la fila, y había que arrastrar para encontrarla.
+        if let c = store.canalActivo { lista += c.recientes.map { (c, $0) } }
         // De los otros agentes sólo lo que está vivo: sus conversaciones dormidas son de
         // otra pantalla.
         lista += store.enCurso.filter { $0.canal.cuenta.id != store.selectedAgentID }
@@ -33,14 +36,23 @@ struct OtrosTrabajando: View {
         // decía que las conversaciones son una lista.
         if !abiertas.isEmpty {
             HStack(spacing: 7) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 7) {
-                        ForEach(abiertas, id: \.hilo.clave) { par in
-                            chip(par.canal, par.hilo)
+                ScrollViewReader { fila in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(abiertas, id: \.hilo.clave) { par in
+                                chip(par.canal, par.hilo).id(par.hilo.clave)
+                            }
                         }
+                        .padding(.leading, Theme.Space.cardH)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.leading, Theme.Space.cardH)
-                    .padding(.vertical, 4)
+                    // ⚠️ La que miras se trae a la vista. Con cinco conversaciones el chip
+                    // activo se quedaba fuera de la pantalla y no había forma de saber
+                    // cuál era la abierta sin arrastrar la fila.
+                    .onChange(of: store.claveDelHilo) { _, nueva in
+                        withAnimation(.easeOut(duration: 0.25)) { fila.scrollTo(nueva, anchor: .center) }
+                    }
+                    .onAppear { fila.scrollTo(store.claveDelHilo, anchor: .center) }
                 }
                 // ⚠️ FUERA del scroll y clavado a la derecha. Puesto al final de la fila
                 // se iba de la pantalla en cuanto había tres conversaciones, que es justo

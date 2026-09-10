@@ -83,6 +83,7 @@ struct ImagenDeAdjunto<Contenido: View>: View {
     var alto: CGFloat = 120
     @ViewBuilder var contenido: (UIImage) -> Contenido
 
+    @Environment(Visor.self) private var visor: Visor?
     @State private var imagen: UIImage?
     @State private var fallo = false
 
@@ -90,6 +91,10 @@ struct ImagenDeAdjunto<Contenido: View>: View {
         Group {
             if let imagen {
                 contenido(imagen)
+                    // La foto que mandaste también se abre: se ve a 238 puntos y a veces
+                    // lo que quieres es mirarla.
+                    .contentShape(Rectangle())
+                    .onTapGesture { visor?.abrir(imagen, titulo: adjunto.nombre) }
             } else {
                 RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
                     .fill(Color.gFill)

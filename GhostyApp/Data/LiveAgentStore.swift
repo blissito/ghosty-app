@@ -403,6 +403,7 @@ final class LiveAgentStore: AgentStoring {
         if id != selectedAgentID { seleccionar(id) }
         canales[id]?.activa = hilo.clave
         hilo.visto = true
+        hilo.tocado = Date()
     }
 
     // MARK: - Borrar
@@ -855,6 +856,8 @@ final class LiveAgentStore: AgentStoring {
         // hacía que un mensaje acabara en una conversación en blanco.
         let hilo = canal.hilo ?? canal.abrir()
         canal.activa = hilo.clave
+        // Escribirle la revive: pasa al principio de la barra.
+        hilo.tocado = Date()
         // Mandarle a OTRO agente es dejarlo trabajando sin mirarlo: es justo el caso que
         // necesita el aviso, y el momento con contexto para pedirlo.
         if cuenta.id != selectedAgentID { Avisos.pedirPermisoSiHaceFalta() }

@@ -75,7 +75,8 @@ struct ConversacionesView: View {
                 .padding(.vertical, Theme.Space.row)
                 .ghostySeparator(inset: 0)
 
-            ForEach(Array(canal.hilos.enumerated()), id: \.element.clave) { i, h in
+            // El mismo orden que la barra de abajo: lo más reciente primero.
+            ForEach(Array(canal.recientes.enumerated()), id: \.element.clave) { i, h in
                 filaDeHilo(h, canal: canal, agente: agente)
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("conversacion-\(agente.id)-\(i)")

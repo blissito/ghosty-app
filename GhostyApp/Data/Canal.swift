@@ -60,6 +60,12 @@ final class Hilo {
     /// decidir a cuál volver.
     var termino: Date?
     var visto = true
+    /// Cuándo se usó por última vez: al abrirla, al mirarla o al escribirle.
+    ///
+    /// ⚠️ Es lo que ordena la barra de conversaciones. Sin esto el orden era el de
+    /// creación y no cambiaba nunca por mucho que interactuaras, así que la que acabas de
+    /// revivir se quedaba enterrada al final de la fila.
+    var tocado = Date()
 
     /// En qué anda, en una línea, para una lista.
     enum Estado: Equatable { case trabajando(String), listo(String), sinEstrenar, enReposo(String) }
@@ -166,9 +172,16 @@ final class Canal {
     func hilo(sesion: String) -> Hilo? { hilos.first { $0.sesionID == sesion } }
 
     /// Uno nuevo, vacío, y pasa a ser el que se mira.
+    /// Las conversaciones por uso reciente. La lista y la barra las pintan así.
+    var recientes: [Hilo] { hilos.sorted { $0.tocado > $1.tocado } }
+
     @discardableResult
     func abrir(_ sesionID: String? = nil) -> Hilo {
-        if let sesionID, let ya = hilo(sesion: sesionID) { activa = ya.clave; return ya }
+        if let sesionID, let ya = hilo(sesion: sesionID) {
+            activa = ya.clave
+            ya.tocado = Date()
+            return ya
+        }
         let h = Hilo()
         h.sesionID = sesionID
         hilos.append(h)

@@ -39,9 +39,16 @@ final class RecorridoUITests: XCTestCase {
         foto("01-chat")
 
         // 1. El chip de otra conversación tiene que llevarme a ella.
-        let chip = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chip-'")).firstMatch
-        XCTAssertTrue(chip.waitForExistence(timeout: 3), "no salió ningún chip de conversación viva")
-        chip.tap()
+        // ⚠️ El primero que se pueda TOCAR, no el primero de la lista: la barra centra la
+        // conversación activa, así que los chips de su izquierda quedan fuera de pantalla.
+        let chips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chip-'"))
+        XCTAssertTrue(chips.firstMatch.waitForExistence(timeout: 3), "no salió ningún chip de conversación")
+        // `isHittable` revienta con un elemento fuera de pantalla, así que se mira el marco.
+        let ancho = app.frame.width
+        let chip = (0..<chips.count).map { chips.element(boundBy: $0) }
+            .first { $0.frame.minX >= 0 && $0.frame.maxX <= ancho }
+        XCTAssertNotNil(chip, "ningún chip quedó a la vista")
+        chip?.tap()
         foto("02-chip-otro-agente")
 
         // 2. La hoja del agente y sus paneles.
@@ -78,6 +85,18 @@ final class RecorridoUITests: XCTestCase {
         if conFoto.waitForExistence(timeout: 3) {
             conFoto.tap()
             foto("07b-conversacion-con-imagen")
+
+            // Tocar una imagen de la respuesta tiene que abrirla a pantalla completa.
+            // La imagen grande de la respuesta: la más alta de la pantalla.
+            let todas = app.images
+            let imagen = (0..<todas.count).map { todas.element(boundBy: $0) }
+                .filter { $0.frame.height > 100 }
+                .max { $0.frame.height < $1.frame.height }
+            if let imagen, imagen.exists, imagen.isHittable {
+                imagen.tap()
+                foto("07c-imagen-abierta")
+                app.buttons["cerrar-visor"].firstMatch.tap()
+            }
         }
 
         // 5. El adjuntador de tres tarjetas.

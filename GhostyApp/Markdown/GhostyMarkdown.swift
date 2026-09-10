@@ -11,8 +11,35 @@ import MarkdownUI
 struct GhostyMarkdown: View {
     let markdown: String
 
+    /// Saca cada imagen a su PROPIO párrafo.
+    ///
+    /// ⚠️ No es cosmético: MarkdownUI tiene dos caminos, y una imagen que va dentro de un
+    /// párrafo con texto —«1. **Gatito naranja** ![…](…)», que es justo como las escribe el
+    /// agente— se compone dentro de un `Text`. Ahí **no se puede tocar una imagen sola**:
+    /// tocarla no hacía nada, y no había forma de arreglarlo sin sacarla del texto. Sola en
+    /// su párrafo la pinta una vista de verdad, que sí se puede tocar y abrir.
+    static func imagenesAparte(_ texto: String) -> String {
+        guard texto.contains("![") else { return texto }
+        var salida = ""
+        var resto = Substring(texto)
+        while let abre = resto.range(of: "![") {
+            // El cierre del enlace de la imagen: `](…)`.
+            guard let medio = resto.range(of: "](", range: abre.upperBound..<resto.endIndex),
+                  let cierra = resto.range(of: ")", range: medio.upperBound..<resto.endIndex)
+            else { break }
+            let antes = resto[resto.startIndex..<abre.lowerBound]
+            let imagen = resto[abre.lowerBound..<cierra.upperBound]
+            salida += antes.trimmingCharacters(in: .whitespaces)
+            if !antes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { salida += "\n\n" }
+            salida += imagen + "\n\n"
+            resto = resto[cierra.upperBound...]
+        }
+        salida += resto
+        return salida
+    }
+
     var body: some View {
-        Markdown(markdown)
+        Markdown(Self.imagenesAparte(markdown))
             .markdownTheme(MarkdownUI.Theme.ghosty)
             .markdownTextStyle {
                 FontSize(16)
@@ -175,15 +202,33 @@ extension MarkdownUI.Theme {
 /// foto de verdad —las que devuelve una búsqueda— eso es un bloque que se sale de la
 /// burbuja y empuja el hilo a lo ancho.
 struct ImagenAcotada: ImageProvider {
-    func makeImage(url: URL?) -> some View {
-        AsyncImage(url: url) { fase in
-            switch fase {
-            case .success(let img):
-                img.resizable()
+    func makeImage(url: URL?) -> some View { ImagenDeRespuesta(url: url) }
+}
+
+/// Una imagen de una respuesta: acotada y **que se puede tocar**.
+///
+/// ⚠️ Se carga con `CargadorDeImagen` y no con `AsyncImage` porque el visor necesita el
+/// `UIImage`, y `AsyncImage` sólo da un `Image` de SwiftUI que ya no se puede reabrir.
+/// Tocar una imagen y que no pase nada es de las cosas que más se sienten rotas: en un
+/// teléfono, una imagen que se ve pequeña SIEMPRE se puede abrir.
+private struct ImagenDeRespuesta: View {
+    let url: URL?
+    @Environment(Visor.self) private var visor: Visor?
+
+    @State private var imagen: UIImage?
+    @State private var fallo = false
+
+    var body: some View {
+        Group {
+            if let imagen {
+                Image(uiImage: imagen)
+                    .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: 250, maxHeight: 250)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
-            case .failure:
+                    .contentShape(Rectangle())
+                    .onTapGesture { visor?.abrir(imagen) }
+            } else if fallo {
                 // No se calla: una imagen que no cargó y no se dice parece un hueco del
                 // diseño. Ver la regla de la casa sobre fallos mudos.
                 HStack(spacing: 6) {
@@ -191,12 +236,18 @@ struct ImagenAcotada: ImageProvider {
                     Text("No pude cargar la imagen").gCaption()
                 }
                 .foregroundStyle(Color.gInk4)
-            default:
+            } else {
                 RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
                     .fill(Color.gFill)
                     .frame(height: 140)
                     .overlay { ProgressView().controlSize(.small) }
             }
+        }
+        .task(id: url) {
+            guard let url, imagen == nil else { return }
+            let i = await CargadorDeImagen.imagen(url)
+            imagen = i
+            fallo = i == nil
         }
     }
 }

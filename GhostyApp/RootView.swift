@@ -9,6 +9,9 @@ struct RootView: View {
         GhostyTab(rawValue: ProcessInfo.processInfo.environment["GHOSTY_TAB"] ?? "") ?? .chat
     @State private var hoja: Agent?
     @State private var ajustes = false
+    /// La imagen que se está mirando a pantalla completa. Vive aquí porque quien pide
+    /// abrirla está muy adentro —el proveedor de imágenes de una respuesta—. Ver `Visor`.
+    @State private var visor = Visor()
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -100,6 +103,10 @@ struct RootView: View {
                 // que son justo los dos que fallan distinto.
                 await store.send(sonda, adjuntos: Self.adjuntosDePrueba())
             }
+        }
+        .environment(visor)
+        .fullScreenCover(item: Binding(get: { visor.imagen }, set: { visor.imagen = $0 })) { img in
+            VisorDeImagen(imagen: img, titulo: visor.titulo)
         }
         .sheet(isPresented: $ajustes) {
             SettingsView(store: store)

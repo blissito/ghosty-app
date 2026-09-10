@@ -58,6 +58,7 @@ struct VisorDeImagen: View {
                             .frame(width: 34, height: 34)
                             .background(.white.opacity(0.18), in: Circle())
                     }
+                    .accessibilityIdentifier("cerrar-visor")
                     Spacer()
                     if let archivo {
                         ShareLink(item: archivo) {
