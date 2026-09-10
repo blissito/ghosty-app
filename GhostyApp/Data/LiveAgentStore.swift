@@ -1034,9 +1034,16 @@ final class LiveAgentStore: AgentStoring {
                         herramientas.append(h)
                     }
                     // Lo que está haciendo AHORA, donde el ojo ya está mirando.
-                    hilo.sinHerramientas = false
+                    // ⚠️ Manda la que está CORRIENDO ahora, no «hubo alguna alguna vez».
+                    // Con lo segundo, la primera herramienta apagaba la rotación para
+                    // siempre y el estado se congelaba en su nombre —o en «Trabajando…»—
+                    // durante todo lo que quedara del turno, que suele ser lo más largo.
                     if let viva = herramientas.last(where: \.esperando) {
+                        hilo.sinHerramientas = false
                         hilo.turno?.detail = viva.titulo
+                    } else {
+                        // Ninguna corriendo: vuelve a mandar el reloj.
+                        hilo.sinHerramientas = true
                     }
                     hilo.turno?.step = herramientas.filter { !$0.esperando }.count
                     hilo.turno?.totalSteps = herramientas.count
@@ -1299,10 +1306,12 @@ final class LiveAgentStore: AgentStoring {
     /// Qué decir de un turno del que sólo sabemos cuánto lleva.
     static func comoVa(_ segundos: Int) -> String {
         switch segundos {
-        case ..<8:   return "Pensando…"
-        case ..<30:  return "Trabajando…"
-        case ..<90:  return "Sigue trabajando…"
-        case ..<240: return "Lleva un rato en esto…"
+        case ..<6:   return "Pensando…"
+        case ..<15:  return "Trabajando…"
+        case ..<30:  return "Sigue en ello…"
+        case ..<60:  return "Esto lleva un poco…"
+        case ..<120: return "Sigue trabajando…"
+        case ..<300: return "Lleva un buen rato…"
         default:     return "Muy largo — puedes detenerlo"
         }
     }

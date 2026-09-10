@@ -65,6 +65,65 @@
 			<key>uniqueIdentifier</key>
 			<string>CE262177-1681-4363-BD18-8DD4DD6CAF89</string>
 		</dict>
+		<key>F4E88981-23D4-4E10-B853-A56B1E90C21C</key>
+		<dict>
+			<key>auxiliaryLogUniqueIdentifier</key>
+			<string>2762CC2C-5E31-4C95-80FA-C50A7E84A158</string>
+			<key>auxiliaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>className</key>
+			<string>IDESchemeActionsInvocationRecord</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>com.apple.dt.unit.cocoaUnitTest</string>
+			<key>fileName</key>
+			<string>Test-GhostyApp-2026.09.10_10-53-06--0600.xcresult</string>
+			<key>hasAuxiliaryLog</key>
+			<true/>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>GhostyApp project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>GhostyApp</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Test GhostyApp</string>
+			<key>timeStartedRecording</key>
+			<real>810751986.31082106</real>
+			<key>timeStoppedRecording</key>
+			<real>810752046.05924499</real>
+			<key>title</key>
+			<string>Test GhostyApp</string>
+			<key>uniqueIdentifier</key>
+			<string>F4E88981-23D4-4E10-B853-A56B1E90C21C</string>
+		</dict>
 	</dict>
 </dict>
 </plist>

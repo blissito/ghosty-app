@@ -13,12 +13,12 @@
 				<key>testDetener</key>
 				<dict>
 					<key>mrnet</key>
-					<real>9.2860089540481567</real>
+					<real>9.4403229951858521</real>
 				</dict>
 				<key>testRecorrido</key>
 				<dict>
 					<key>mrnet</key>
-					<real>114.33746802806854</real>
+					<real>35.405285000801086</real>
 				</dict>
 			</dict>
 		</dict>

@@ -42,6 +42,7 @@ struct ConversationView: View {
 
             ScrollViewReader { scroll in
                 ScrollView {
+                    VStack(spacing: 0) {
                     LazyVStack(spacing: 14) {
                         if mensajesÚnicos.isEmpty {
                             primeraVez
@@ -75,10 +76,14 @@ struct ConversationView: View {
                                             ? .scale(scale: 0.94).combined(with: .opacity)
                                             : .identity)
                         }
-                        // ⚠️ El centinela del final. `onScrollGeometryChange` sería más
-                        // directo pero es de iOS 18 y aquí el mínimo es 17.4, así que se
-                        // mide con lo que hay: si esta última fila se ve, estás abajo.
-                        Color.clear.frame(height: 1).id("fondo")
+                    }
+                    // ⚠️ El centinela va FUERA del `LazyVStack`. Dentro no se crea hasta
+                    // que asoma, así que `scrollTo("fondo")` no hacía nada y hubo que
+                    // apuntar al último mensaje y REINTENTAR — y los reintentos, con el
+                    // streaming cambiando el último id, se peleaban entre ellos: el hilo
+                    // subía, bajaba y acababa en ninguna parte. Fuera existe siempre y
+                    // basta un `scrollTo`.
+                    Color.clear.frame(height: 1).id("fondo")
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
@@ -119,13 +124,18 @@ struct ConversationView: View {
                         }
                     }
                 )
+                // ⚠️ Sólo se arrastra si YA estabas al final. Si has subido a releer
+                // algo, que la respuesta te tire hacia abajo es lo más molesto que puede
+                // hacer un chat — y era la mitad del «sube y baja».
                 .onChange(of: store.messages.count) { _, _ in
-                    withAnimation(.easeOut(duration: 0.25)) { scroll.scrollTo("fondo", anchor: .bottom) }
+                    guard alFinal else { return }
+                    alFondo(scroll, animado: true)
                 }
                 // También al crecer el ÚLTIMO mensaje: la respuesta llega en trozos y
                 // sin esto el texto nuevo queda fuera de vista mientras se escribe.
                 .onChange(of: textoDelUltimo) { _, _ in
-                    withAnimation(.easeOut(duration: 0.18)) { scroll.scrollTo("fondo", anchor: .bottom) }
+                    guard alFinal else { return }
+                    scroll.scrollTo("fondo", anchor: .bottom)
                 }
                 // ⚠️ Cargar un hilo entero NO es lo mismo que recibir un mensaje. El
                 // `LazyVStack` todavía no ha medido las filas cuando `messages` cambia de
@@ -133,8 +143,10 @@ struct ConversationView: View {
                 // existe y el hilo se queda arriba, con los últimos mensajes escondidos.
                 // Por eso se repite tras el layout, y SIN animación: al abrir un hilo no
                 // hay nada que animar, sólo un sitio donde empezar a leer.
-                .onChange(of: hiloVisible) { _, _ in alFondo(scroll) }
-                .onAppear { alFondo(scroll) }
+                // Cambiar de conversación SÍ manda al final: es una pantalla nueva.
+                // Un reintento tras el layout, porque el alto todavía no es el definitivo.
+                .onChange(of: hiloVisible) { _, _ in traerAlFinal(scroll) }
+                .onAppear { traerAlFinal(scroll) }
             }
 
             // ⚠️ El conmutador de conversaciones va ABAJO, pegado al compositor. Estuvo
@@ -242,21 +254,23 @@ struct ConversationView: View {
     /// ⚠️ Los reintentos no son paranoia: dentro de un `LazyVStack` una fila que está
     /// fuera de pantalla **no se ha creado todavía**, y `scrollTo` a algo que no existe no
     /// hace nada. Por eso el botón de bajar no bajaba.
+    /// Al final del hilo. Un solo `scrollTo`, al centinela que vive fuera del
+    /// `LazyVStack` y por tanto existe siempre.
     private func alFondo(_ scroll: ScrollViewProxy, animado: Bool = false) {
-        guard let ultimo = store.messages.last?.id else { return }
-        func ir(_ id: String) {
-            if animado {
-                withAnimation(.easeOut(duration: 0.28)) { scroll.scrollTo(id, anchor: .bottom) }
-            } else {
-                scroll.scrollTo(id, anchor: .bottom)
-            }
+        guard !store.messages.isEmpty else { return }
+        if animado {
+            withAnimation(.easeOut(duration: 0.28)) { scroll.scrollTo("fondo", anchor: .bottom) }
+        } else {
+            scroll.scrollTo("fondo", anchor: .bottom)
         }
-        ir(ultimo)
+    }
+
+    /// Al abrir una conversación: al final, y otra vez cuando ya se midió el alto.
+    private func traerAlFinal(_ scroll: ScrollViewProxy) {
+        alFondo(scroll)
         Task { @MainActor in
-            for espera in [40, 160, 400] {
-                try? await Task.sleep(for: .milliseconds(espera))
-                ir(store.messages.last?.id ?? ultimo)
-            }
+            try? await Task.sleep(for: .milliseconds(120))
+            alFondo(scroll)
         }
     }
 
