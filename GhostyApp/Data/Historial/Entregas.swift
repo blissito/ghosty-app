@@ -99,6 +99,62 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         return nil
     }
 
+    /// Deja la entrega en un archivo temporal, con su nombre y su extensión.
+    ///
+    /// ⚠️ La EXTENSIÓN no es cosmética: es con lo que el sistema decide cómo abrirlo y
+    /// cómo compartirlo. Un MP3 sin ella se ofrecía como texto. Vive en el modelo porque
+    /// lo necesitan la tarjeta, el visor de imagen y el reproductor — cuando cada uno se
+    /// lo montaba por su cuenta, acertaba o fallaba por su cuenta.
+    func aDisco() -> URL? {
+        let base = FileManager.default.temporaryDirectory
+        let limpio = titulo.replacingOccurrences(of: "/", with: "-")
+        let ext = tipo ?? ""
+        let nombre = ext.isEmpty || limpio.lowercased().hasSuffix(".\(ext)")
+            ? limpio : "\(limpio).\(ext)"
+        let url = base.appending(path: nombre)
+        do {
+            if let datos { try datos.write(to: url, options: .atomic) }
+            else { try (contenido ?? "").write(to: url, atomically: true, encoding: .utf8) }
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    /// En qué cajón cae, para poder filtrar.
+    ///
+    /// ⚠️ Sale del TIPO real —que ya se deduce de los bytes cuando el título no ayuda— y
+    /// no del nombre: un agente entrega «SFX cómic 08» sin extensión y eso no dice nada.
+    enum Categoria: String, CaseIterable, Identifiable {
+        case imagen, audio, documento, otro
+        var id: String { rawValue }
+        var nombre: String {
+            switch self {
+            case .imagen:    return "Imágenes"
+            case .audio:     return "Audio"
+            case .documento: return "Documentos"
+            case .otro:      return "Otros"
+            }
+        }
+        var icono: String {
+            switch self {
+            case .imagen:    return "photo"
+            case .audio:     return "waveform"
+            case .documento: return "doc.text"
+            case .otro:      return "paperclip"
+            }
+        }
+    }
+
+    var categoria: Categoria {
+        if esAudio { return .audio }
+        switch tipo {
+        case "png", "jpg", "jpeg", "heic", "gif", "webp": return .imagen
+        case "pdf", "md", "csv", "html", "txt", "json", "doc", "docx", "xlsx": return .documento
+        default: return forma == .archivo ? .otro : .documento
+        }
+    }
+
     /// ¿Suena? Entonces no se abre con el visor del sistema: se reproduce aquí.
     var esAudio: Bool {
         guard let t = tipo else { return false }

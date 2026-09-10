@@ -1059,8 +1059,18 @@ final class LiveAgentStore: AgentStoring {
                     // estado ocurre dentro de una transacción animada. Este repo no usa
                     // `.animation(` implícito en ningún sitio, y mezclarlo haría saltar
                     // cosas sin que nada lo explique.
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        hilo.mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
+                    // ⚠️ NUNCA dos mensajes con el mismo id en un hilo. Desde que el id
+                    // de la entrega es determinista, la misma entrega puede llegar dos
+                    // veces al mismo hilo —el relé no dice a qué conversación va, así que
+                    // con varios turnos vivos se reparte a todos—. Y un `ForEach` con ids
+                    // repetidos no pinta "de más": deja de pintar, y el hilo se queda EN
+                    // BLANCO con los mensajes ahí. Es el fallo que se veía como
+                    // "escribo y desaparece el historial".
+                    let idEntrega = "entrega-\(e.id)"
+                    if !hilo.mensajes.contains(where: { $0.id == idEntrega }) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            hilo.mensajes.append(Message(id: idEntrega, kind: .entrega(e)))
+                        }
                     }
                 case .user, .thought:
                     break

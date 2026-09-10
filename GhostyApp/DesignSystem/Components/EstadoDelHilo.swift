@@ -17,8 +17,13 @@ struct EstadoDelHilo: View {
             } else {
                 switch hilo.estado {
                 case .trabajando(let reloj):
+                    // ⚠️ Lo que está HACIENDO, no la palabra «Trabajando». El detalle ya
+                    // rota con el tiempo y lo sustituye el nombre de la herramienta en
+                    // cuanto la caja manda una; poner aquí una palabra fija tiraba todo
+                    // eso y tres conversaciones a la vez decían lo mismo durante minutos.
                     HStack(spacing: 5) {
-                        Text("Trabajando").gMeta().foregroundStyle(Color.gPrimary)
+                        Text(hilo.turno?.detail ?? "Trabajando")
+                            .gMeta().foregroundStyle(Color.gPrimary).lineLimit(1)
                         Text(reloj).gMono(size: 13, weight: .regular)
                             .foregroundStyle(Color.gInk4)
                     }

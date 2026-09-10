@@ -43,11 +43,21 @@ struct ConversationView: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(spacing: 14) {
-                        if store.messages.isEmpty {
+                        if mensajesÚnicos.isEmpty {
                             primeraVez
                                 .padding(.top, 90)
                         }
-                        ForEach(store.messages) { mensaje in
+                        // ⚠️ Sonda del bug «escribo y el hilo se queda en blanco»: dice
+                        // CUÁNTOS mensajes cree la vista que hay. Si aquí sale 2 y la
+                        // pantalla está vacía, el fallo es de pintado; si sale 0 mientras
+                        // el turno corre, el fallo es del modelo. Sin esto llevo tres
+                        // conjeturas y ninguna acertó.
+                        Color.clear.frame(height: 0)
+                            .onAppear { EasyBitsClient.diag("[vista] pintando \(store.messages.count) mensajes de \(store.claveDelHilo.prefix(8))") }
+                            .onChange(of: store.messages.count) { _, n in
+                                EasyBitsClient.diag("[vista] ahora \(n) mensajes de \(store.claveDelHilo.prefix(8))")
+                            }
+                        ForEach(mensajesÚnicos) { mensaje in
                             fila(mensaje).id(mensaje.id)
                                 // ⚠️ El indicador de "estoy abajo" cuelga del ÚLTIMO
                                 // mensaje y no de un centinela de 1pt: dentro de un
@@ -210,6 +220,18 @@ struct ConversationView: View {
     /// Qué conversación se está mirando. Cambia al abrir un hilo de la caja, al
     /// empezar una nueva y al cambiar de agente — los tres casos en los que el hilo
     /// se repuebla entero y hay que volver a poner el ojo abajo.
+    /// Los mensajes, sin ids repetidos.
+    ///
+    /// ⚠️ Red de seguridad, no maquillaje: un `ForEach` con dos ids iguales no pinta de
+    /// más — **deja de pintar**, y la conversación se queda en blanco con los mensajes
+    /// ahí. Pasó de verdad, tres veces reportado. La causa se arregla en el store (una
+    /// entrega que llegaba dos veces al mismo hilo), pero un hilo en blanco es tan malo
+    /// que no puede depender de que nadie se equivoque nunca más.
+    private var mensajesÚnicos: [Message] {
+        var vistos = Set<String>()
+        return store.messages.filter { vistos.insert($0.id).inserted }
+    }
+
     private var hiloVisible: String {
         // ⚠️ La clave LOCAL, no el `sessionId`: dos conversaciones nuevas del mismo
         // agente no lo tienen todavía y serían indistinguibles — cambiar entre ellas

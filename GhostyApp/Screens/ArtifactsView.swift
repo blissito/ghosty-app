@@ -11,6 +11,8 @@ struct ArtifactsView: View {
     var onOpenSheet: () -> Void
 
     @State private var pestana = 0
+    /// Por qué tipo se está filtrando lo entregado. `nil` = todo.
+    @State private var filtro: Entrega.Categoria?
     @Environment(\.openURL) private var abrir
 
     /// Lo último que falló al borrar. ⚠️ Se enseña: un borrado que no se hizo y no se dice

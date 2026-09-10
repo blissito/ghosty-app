@@ -53,6 +53,20 @@ struct ReproductorDeEntrega: View {
                     Text(peso).gCaption()
                 }
             }
+
+            // ⚠️ Compartir, que faltaba: un audio se podía oír y no sacar de la app. El
+            // archivo sale con su extensión de verdad (ver `Entrega.aDisco`), que es lo
+            // que hace que el sistema lo ofrezca como audio y no como texto.
+            if let archivo = entrega.aDisco() {
+                ShareLink(item: archivo) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.gInk2)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(12)
         .onDisappear { parar() }

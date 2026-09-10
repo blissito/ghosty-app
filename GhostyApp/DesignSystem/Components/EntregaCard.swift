@@ -49,7 +49,7 @@ struct EntregaCard: View {
             // tarjeta; lo demás va al visor del sistema.
             if let img = imagen { mirando = img }
             else if entrega.esAudio { return }
-            else { compartiendo = Self.aDisco(entrega) }
+            else { compartiendo = entrega.aDisco() }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 vistaPrevia
@@ -68,7 +68,7 @@ struct EntregaCard: View {
         .buttonStyle(.plain)
         .quickLookPreview($compartiendo)
         .fullScreenCover(item: $mirando) { img in
-            VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: Self.aDisco(entrega))
+            VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: entrega.aDisco())
         }
     }
 
@@ -157,29 +157,5 @@ struct EntregaCard: View {
             .joined(separator: "\n")
     }
 
-    /// Deja la entrega en un archivo temporal para poder enseñarla.
-    ///
-    /// ⚠️ El nombre lleva la EXTENSIÓN que toca, y no es cosmético: el visor del sistema
-    /// elige con qué abrirlo por el sufijo del archivo, así que un HTML llamado
-    /// "informe" se enseña como texto plano.
-    private static func aDisco(_ e: Entrega) -> URL? {
-        let base = FileManager.default.temporaryDirectory
-        let limpio = e.titulo.replacingOccurrences(of: "/", with: "-")
-        // La extensión sale de `Entrega.tipo`, que la deduce del nombre o de los bytes.
-        let ext = e.tipo ?? ""
-        let nombre = ext.isEmpty || limpio.lowercased().hasSuffix(".\(ext)")
-            ? limpio : "\(limpio).\(ext)"
-        let url = base.appending(path: nombre)
-        do {
-            if let datos = e.datos {
-                try datos.write(to: url, options: .atomic)
-            } else {
-                try (e.contenido ?? "").write(to: url, atomically: true, encoding: .utf8)
-            }
-            return url
-        } catch {
-            return nil
-        }
-    }
 
 }

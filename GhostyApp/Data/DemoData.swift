@@ -60,6 +60,21 @@ enum DemoData {
         return url
     }
 
+    /// Las entregas de la demo, para que Artefactos tenga qué enseñar y qué filtrar.
+    static func conFotoEntregas() -> [Entrega] {
+        let mp3 = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A]
+                       + [UInt8](repeating: 0, count: 200))
+        return [
+            Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto", forma: .archivo,
+                    titulo: "recorte.png", recibida: Date(), contenido: nil, datos: png),
+            Entrega(id: "demo-audio", agentID: "demo-1", sesionID: "s-foto", forma: .archivo,
+                    titulo: "SFX cómic 08", recibida: Date(), contenido: nil, datos: mp3),
+            Entrega(id: "demo-doc", agentID: "demo-1", sesionID: "s-foto", forma: .doc,
+                    titulo: "Resumen del trimestre", recibida: Date(),
+                    contenido: "# Resumen", datos: nil),
+        ]
+    }
+
     /// La conversación con una foto mandada y una entrega recibida.
     static func conFoto() -> [Message] {
         var foto = Adjunto(nombre: "bukowski.png", mime: "image/png", datos: png)
@@ -72,6 +87,9 @@ enum DemoData {
         let sonido = Entrega(id: "demo-audio", agentID: "demo-1", sesionID: "s-foto",
                              forma: .archivo, titulo: "SFX cómic 08", recibida: Date(),
                              contenido: nil, datos: mp3)
+        let doc = Entrega(id: "demo-doc", agentID: "demo-1", sesionID: "s-foto",
+                          forma: .doc, titulo: "Resumen del trimestre", recibida: Date(),
+                          contenido: "# Resumen\n\nTres cosas.", datos: nil)
         let entrega = Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto",
                               forma: .archivo, titulo: "recorte.png", recibida: Date(),
                               contenido: nil, datos: png)
@@ -85,6 +103,7 @@ enum DemoData {
                 tools: nil, trailing: nil)),
             Message(id: "entrega-demo-entrega", kind: .entrega(entrega)),
             Message(id: "entrega-demo-audio", kind: .entrega(sonido)),
+            Message(id: "entrega-demo-doc", kind: .entrega(doc)),
         ]
     }
 
@@ -165,6 +184,8 @@ extension LiveAgentStore {
         dos.hilosRemotos = DemoData.sesiones
         dos.estadoHilos = .listo
 
+        // Artefactos lee del almacén, no del hilo: sin esto la pestaña sale vacía.
+        for e in [DemoData.conFotoEntregas()].flatMap({ $0 }) { entregas.registrar(e) }
         ponerCanalesDeDemo([DemoData.cuentas[0].id: uno, DemoData.cuentas[1].id: dos])
         conexion = .lista
     }
