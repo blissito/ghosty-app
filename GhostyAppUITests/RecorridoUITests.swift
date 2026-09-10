@@ -69,6 +69,29 @@ final class RecorridoUITests: XCTestCase {
         foto("23-interrumpido-lista")
     }
 
+    /// El filtro por tipo de Artefactos.
+    ///
+    /// ⚠️ Esta pantalla se dio por hecha dos veces —el filtro se escribió, se perdió en un
+    /// script a medias, y se volvió a escribir— sin que nadie la mirara. Ahora se mira.
+    func testFiltroDeArtefactos() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_ENTREGAS"] = "1"
+        app.launchEnvironment["GHOSTY_TAB"] = "artifacts"
+        app.launch()
+        XCTAssertTrue(app.buttons["filtro-todo"].waitForExistence(timeout: 10),
+                      "no salió la barra de filtros en Artefactos")
+        foto("30-artefactos")
+        // Un cajón concreto: tiene que quedarse sólo con lo suyo.
+        let audio = app.buttons["filtro-audio"]
+        if audio.waitForExistence(timeout: 2) {
+            audio.tap()
+            // Con la animación TERMINADA: una foto tomada durante la transición enseña
+            // fantasmas que no son un fallo, y esconde los que sí lo son.
+            Thread.sleep(forTimeInterval: 1.2)
+            foto("31-artefactos-audio")
+        }
+    }
+
     func testRecorrido() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10), "la app no arrancó en la demo")
         foto("01-chat")
