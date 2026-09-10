@@ -123,6 +123,13 @@ extension LiveAgentStore {
         // que sirve para revisar el scroll— cae al final y las capturas no la enseñan.
         // Una que reventó: es el estado que la lista no sabía distinguir.
         larga.fallo = "Se cortó a media respuesta"
+        // Y `GHOSTY_DEMO_TRABAJANDO=1` deja el hilo activo contestando, que es la única
+        // forma de fotografiar el botón de detener del compositor.
+        if ProcessInfo.processInfo.environment["GHOSTY_DEMO_TRABAJANDO"] == "1" {
+            larga.fallo = nil
+            larga.turno = TurnActivity(id: "t2", title: "el informe", detail: "Leyendo",
+                                       step: 1, totalSteps: 4, elapsed: "0:12")
+        }
         larga.tocado = Date()
         foto.tocado = Date().addingTimeInterval(-120)
         vacia.tocado = Date().addingTimeInterval(-300)

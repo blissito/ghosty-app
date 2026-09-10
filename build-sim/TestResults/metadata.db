@@ -10,10 +10,15 @@
 		<dict>
 			<key>RecorridoUITests</key>
 			<dict>
+				<key>testDetener</key>
+				<dict>
+					<key>mrnet</key>
+					<real>8.5727680921554565</real>
+				</dict>
 				<key>testRecorrido</key>
 				<dict>
 					<key>mrnet</key>
-					<real>34.365424036979675</real>
+					<real>34.950825095176697</real>
 				</dict>
 			</dict>
 		</dict>

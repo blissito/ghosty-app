@@ -1193,6 +1193,11 @@ final class LiveAgentStore: AgentStoring {
             case .timedOut: detalle = "El turno tardó más de lo que aguanta la conexión."
             default: detalle = u.localizedDescription
             }
+        } else if error.localizedDescription.contains("connection abort") {
+            // ⚠️ ECONNABORTED. En este repo ya tiene dueño: el TRANSPORTE, no el agente
+            // —ver el aviso de HTTP/3 en `ACPClient`—. Decirlo tal cual, en inglés, hacía
+            // parecer que el agente había fallado.
+            detalle = "Se cayó la conexión con tu agente. Vuelve a intentarlo."
         } else if (error as NSError).code == 40 || error.localizedDescription.contains("Message too long") {
             // ⚠️ POSIX 40 = EMSGSIZE. Salía tal cual, en inglés y sin decir de qué mensaje
             // hablaba. Ver el tope del socket en `ACPClient.conectar`.

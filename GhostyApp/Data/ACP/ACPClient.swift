@@ -112,11 +112,14 @@ actor ACPClient {
     /// Los permisos que el agente pidió y nadie ha contestado.
     private var permisoPendiente: ((Permiso) -> Void)?
 
-    /// ⚠️ COMPARTIDA por todos los clientes. Era una por instancia y **nadie la
-    /// invalidaba**: una `URLSession` viva retiene sus tareas, así que cada reconexión
-    /// dejaba una sesión colgada. Compartida no hay nada que invalidar, y la configuración
-    /// es idéntica para todos.
-    private static let sesion: URLSession = {
+    /// ⚠️ UNA POR CLIENTE, y se invalida al cerrar.
+    ///
+    /// La compartí entre todos para no dejar sesiones colgadas, y fue peor: una
+    /// `URLSession` reutiliza conexiones, así que dos agentes distintos podían acabar
+    /// sobre una conexión negociada por el otro. El síntoma es «Software caused connection
+    /// abort», que en este repo ya tiene dueño conocido —el transporte, no el agente— y es
+    /// exactamente lo que empezó a salir. La fuga se arregla invalidando, no compartiendo.
+    private let sesion: URLSession = {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 60
         cfg.waitsForConnectivity = true
@@ -165,7 +168,7 @@ actor ACPClient {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 30
 
-        let t = Self.sesion.webSocketTask(with: req)
+        let t = sesion.webSocketTask(with: req)
         tarea = t
         t.resume()
         arrancarLector()
@@ -191,6 +194,8 @@ actor ACPClient {
         for (_, c) in enVivo { c.finish() }
         enVivo.removeAll()
         replayEnCurso.removeAll()
+        // Y la sesión se invalida: viva retiene sus tareas y su delegado.
+        sesion.invalidateAndCancel()
     }
 
     // MARK: - Sesiones

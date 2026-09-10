@@ -438,7 +438,24 @@ struct ConversationView: View {
     /// El control de la derecha: enviar, parar, o el micrófono que late con tu voz.
     @ViewBuilder
     private var control: some View {
-        if grabador.grabando && vozBloqueada {
+        // ⚠️ Mientras contesta, el control de la derecha es DETENER. No lo había en el
+        // compositor: había que ir a la lista de conversaciones o al panel de actividad
+        // para parar un turno, que es justo lo que no haces cuando quieres pararlo ya.
+        // Es lo mismo que hacen todos —el micrófono se convierte en cuadrado— y no ocupa
+        // sitio nuevo.
+        if store.currentTurn != nil && !grabador.grabando {
+            Button { Task { await store.stopTurn() } } label: {
+                RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
+                    .fill(Color.gInk)
+                    .frame(width: 30, height: 30)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 2.5).fill(Color.white)
+                            .frame(width: 9, height: 9)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("detener")
+        } else if grabador.grabando && vozBloqueada {
             Button(action: soltarVoz) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))

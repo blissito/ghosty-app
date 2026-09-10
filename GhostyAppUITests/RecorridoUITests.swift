@@ -34,6 +34,20 @@ final class RecorridoUITests: XCTestCase {
         try? img.pngRepresentation.write(to: carpeta.appending(path: "\(nombre).png"))
     }
 
+    /// El botón de detener del compositor. Va aparte porque necesita la app arrancada con
+    /// un turno vivo, y el recorrido normal no lo tiene.
+    func testDetener() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_TRABAJANDO"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["detener"].waitForExistence(timeout: 10),
+                      "no salió el botón de detener con un turno vivo")
+        foto("20-detener")
+        app.buttons["detener"].tap()
+        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3))
+        foto("21-detenido")
+    }
+
     func testRecorrido() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10), "la app no arrancó en la demo")
         foto("01-chat")
