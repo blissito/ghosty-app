@@ -498,13 +498,27 @@ final class LiveAgentStore: AgentStoring {
     /// sesión ACP del agente, o sea que caía en el hilo viejo. Sin sesión no se manda
     /// nada por HTTP.
     private func asegurarHilo(_ canal: Canal, _ hilo: Hilo) async throws -> String {
-        if let sid = hilo.sesionID { return sid }
+        if let sid = hilo.sesionID {
+            // ⚠️ Rehidratar antes de hablar. La caja no guarda la sesión entre conexiones:
+            // tras reconectar, un turno con el `sessionId` viejo cae en una sesión que
+            // para ella está vacía, y el agente contesta que no tiene contexto previo. Un
+            // `session/load` por socket lo devuelve a la vida — y es best-effort: si
+            // falla, mejor mandar el turno sin contexto que perderlo.
+            let cliente = try await asegurarSocket(canal)
+            let cual = ObjectIdentifier(cliente)
+            if hilo.cargadaEn != cual {
+                _ = try? await cliente.cargar(sid, cwd: "/data/work")
+                hilo.cargadaEn = cual
+            }
+            return sid
+        }
         if let enVuelo = hilo.creando { return try await enVuelo.value }
 
         let tarea = Task<String, Error> {
             let cliente = try await asegurarSocket(canal)
             let (id, modos) = try await cliente.nuevaSesion()
             hilo.sesionID = id
+            hilo.cargadaEn = ObjectIdentifier(cliente)
             hilo.modo = modos?.actual ?? "auto"
             return id
         }
@@ -595,9 +609,13 @@ final class LiveAgentStore: AgentStoring {
             hilo.mensajes = guardado
         }
         canal.podar()
+        // Con qué conversación empezamos. Si crece mientras carga es que la persona
+        // escribió, y entonces el replay ya no puede pisarla.
+        let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
             guard let replay = try await cliente.cargar(sesion.id, cwd: sesion.cwd) else { return }
+            hilo.cargadaEn = ObjectIdentifier(cliente)
             // Los archivos que se subieron EN esta conversación. Es lo que devuelve a la
             // vida sus adjuntos: el replay de ACP trae sólo texto. Best-effort — si no
             // contesta, el hilo se abre igual y los adjuntos salen nombrados.
@@ -610,10 +628,20 @@ final class LiveAgentStore: AgentStoring {
             for e in entregas.deSesion(sesion.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
-            // ⚠️ Sólo si el turno no arrancó mientras cargábamos: alguien pudo escribirle
-            // a este hilo en el segundo que tardó el replay, y pisarlo borraría su
-            // mensaje.
-            guard !hilo.trabajando else { return }
+            // ⚠️⚠️ Tres motivos para NO pisar lo que hay, y los tres pasaron:
+            //
+            // 1. El turno arrancó mientras cargábamos. Alguien escribió en el segundo que
+            //    tardó el replay y pisarlo le borraría su mensaje.
+            // 2. La conversación creció por cualquier otra vía.
+            // 3. **El replay volvió VACÍO.** Un `session/load` que no devuelve nada
+            //    significa que la caja no nos dio el hilo, NO que el hilo esté vacío.
+            //    Creerlo a ciegas borraba la conversación entera —memoria y disco— y te
+            //    dejaba mirando un chat en blanco. Es el peor fallo que ha tenido esto.
+            guard !hilo.trabajando, hilo.mensajes.count <= antes else { return }
+            guard !mensajes.isEmpty || hilo.mensajes.isEmpty else {
+                EasyBitsClient.diag("⚠️ session/load de \(sesion.id) volvió vacío — se conserva lo que había")
+                return
+            }
             hilo.mensajes = mensajes
             hilo.sospechoso = false
             // El título sale del primer mensaje del hilo, que es lo que hacen
@@ -636,6 +664,13 @@ final class LiveAgentStore: AgentStoring {
             return (sid, h.mensajes)
         }, de: canal.cuenta.id)
     }
+
+    /// Guarda YA la conversación que se está mirando.
+    ///
+    /// ⚠️ Antes sólo se guardaba al cerrar el turno, así que lo que escribías vivía sólo
+    /// en memoria hasta que el agente terminara. Cualquier tropiezo entre medias —y hubo
+    /// uno que vaciaba el hilo— se llevaba tu mensaje sin dejar copia.
+    private func guardarYa(_ canal: Canal) { guardarHilos(canal) }
 
     /// El estado del agente SALE de sus hilos, nunca se asigna a mano.
     ///
@@ -710,6 +745,8 @@ final class LiveAgentStore: AgentStoring {
         }
         let idRespuesta = UUID().uuidString
         hilo.mensajes.append(Message(id: "typing", kind: .typing))
+        // Lo que acabas de escribir va a disco YA, no al cerrar el turno.
+        guardarYa(canal)
 
         refrescarEstado(canal)
         arrancarCronometro(hilo, titulo: primeraFrase(limpio))

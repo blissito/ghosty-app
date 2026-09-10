@@ -32,6 +32,13 @@ final class Hilo {
     var enVuelo: Task<Void, Never>?
     var cronometro: Task<Void, Never>?
     var creando: Task<String, Error>?
+    /// En qué conexión se rehidrató esta sesión por última vez.
+    ///
+    /// ⚠️ La caja **no conserva la sesión entre conexiones**: al reconectar, mandarle un
+    /// turno con el `sessionId` viejo le llega a una sesión que para ella empieza en
+    /// blanco, y el agente contesta "no tengo contexto previo, esta conversación empieza
+    /// con tu mensaje". Hay que hacerle `session/load` una vez por socket.
+    var cargadaEn: ObjectIdentifier?
     var prompt = ""
     /// ¿Se cayó el último envío ANTES de llegar al agente? Vive en el HILO: con dos
     /// envíos a la vez, un fallo global le devolvía los adjuntos a la conversación

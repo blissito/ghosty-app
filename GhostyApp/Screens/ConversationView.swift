@@ -52,6 +52,13 @@ struct ConversationView: View {
                         }
                         ForEach(store.messages) { mensaje in
                             fila(mensaje).id(mensaje.id)
+                                // ⚠️ El indicador de "estoy abajo" cuelga del ÚLTIMO
+                                // mensaje y no de un centinela de 1pt: dentro de un
+                                // `LazyVStack` una vista vacía puede no realizarse nunca,
+                                // así que su `onAppear` no llegaba y el botón se quedaba
+                                // puesto (o no salía).
+                                .onAppear { if mensaje.id == store.messages.last?.id { alFinal = true } }
+                                .onDisappear { if mensaje.id == store.messages.last?.id { alFinal = false } }
                                 // Sólo la entrega se anima al entrar: llega a mitad del
                                 // turno, cuando la persona está mirando, y aparecer de
                                 // golpe se lee como un salto del texto. Las burbujas no
@@ -65,8 +72,6 @@ struct ConversationView: View {
                         // directo pero es de iOS 18 y aquí el mínimo es 17.4, así que se
                         // mide con lo que hay: si esta última fila se ve, estás abajo.
                         Color.clear.frame(height: 1).id("fondo")
-                            .onAppear { alFinal = true }
-                            .onDisappear { alFinal = false }
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
@@ -74,8 +79,14 @@ struct ConversationView: View {
                 .overlay(alignment: .bottom) {
                     if !alFinal && !store.messages.isEmpty {
                         Button {
-                            withAnimation(.easeOut(duration: 0.25)) {
-                                scroll.scrollTo("fondo", anchor: .bottom)
+                            // ⚠️ Al ÚLTIMO MENSAJE, no al centinela. "fondo" es una vista
+                            // de 1pt dentro de un `LazyVStack`: si está fuera de pantalla
+                            // no existe todavía, y `scrollTo` a algo que no se ha creado
+                            // no hace nada. Por eso el botón no servía.
+                            alFinal = true
+                            withAnimation(.easeOut(duration: 0.28)) {
+                                scroll.scrollTo(store.messages.last?.id ?? "fondo",
+                                                anchor: .bottom)
                             }
                         } label: {
                             Image(systemName: "arrow.down")
@@ -204,12 +215,13 @@ struct ConversationView: View {
 
     /// Al fondo de verdad: ahora y otra vez cuando las filas ya se midieron.
     private func alFondo(_ scroll: ScrollViewProxy) {
-        guard !store.messages.isEmpty else { return }
-        scroll.scrollTo("fondo", anchor: .bottom)
+        guard let ultimo = store.messages.last?.id else { return }
+        alFinal = true
+        scroll.scrollTo(ultimo, anchor: .bottom)
         Task { @MainActor in
             for espera in [40, 160, 400] {
                 try? await Task.sleep(for: .milliseconds(espera))
-                scroll.scrollTo("fondo", anchor: .bottom)
+                scroll.scrollTo(store.messages.last?.id ?? ultimo, anchor: .bottom)
             }
         }
     }

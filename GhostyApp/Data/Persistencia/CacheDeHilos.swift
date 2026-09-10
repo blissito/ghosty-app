@@ -105,7 +105,20 @@ final class CacheDeHilos {
             guard !guardables.isEmpty else { continue }
             mapa[h.sesionID] = Array(guardables.suffix(Self.tope))
         }
-        disco.abiertos[agentID] = mapa
+        // ⚠️ Se FUNDE con lo que ya había en vez de reemplazarlo. Reemplazando, una
+        // conversación que se quedara vacía en memoria por un tropiezo borraba también su
+        // copia de disco: el hilo desaparecía del todo y no había de dónde recuperarlo.
+        var previo = disco.abiertos[agentID] ?? [:]
+        for (sid, msgs) in mapa { previo[sid] = msgs }
+        // Sólo se recorta cuando de verdad sobran, y por lo más viejo de lo que hay.
+        if previo.count > Self.topeDeHilos {
+            let vivos = Set(mapa.keys)
+            for sid in previo.keys where !vivos.contains(sid) {
+                guard previo.count > Self.topeDeHilos else { break }
+                previo[sid] = nil
+            }
+        }
+        disco.abiertos[agentID] = previo
         // Lo que se acaba de escribir ya no es sospechoso: salió del ruteo por hilo.
         disco.sospechosos.removeAll { mapa.keys.contains($0) }
         guardar()
