@@ -36,6 +36,12 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// El texto del artefacto, o `nil` si lo entregado fue un archivo.
     var contenido: String?
     /// El archivo, ya decodificado. `nil` para un artefacto.
+    ///
+    /// ⚠️ **No viaja en el JSON.** Vivía dentro de `entregas.json` en base64: cada foto
+    /// engordaba el índice un tercio de su peso, el archivo entero se leía y se reescribía
+    /// en CADA entrega nueva, y por eso el tope tenía que ser ridículo —50— tirando las
+    /// viejas sin decirlo. Ahora los bytes van a su propio archivo y aquí queda sólo la
+    /// ficha. Ver `bytesEnDisco`.
     var datos: Data?
     /// Dónde vive, si el agente lo anunció por URL en vez de mandarnos los bytes.
     ///
@@ -45,6 +51,83 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     var url: String?
     /// Lo que dijo que pesaba, para poder decirlo sin bajarlo.
     var bytesRemotos: Int?
+
+    /// El de siempre. Se escribe a mano porque `init(from:)` propio quita el que Swift
+    /// generaba solo.
+    init(id: String, agentID: String, sesionID: String? = nil, forma: Forma, titulo: String,
+         recibida: Date, contenido: String? = nil, datos: Data? = nil,
+         url: String? = nil, bytesRemotos: Int? = nil) {
+        self.id = id; self.agentID = agentID; self.sesionID = sesionID
+        self.forma = forma; self.titulo = titulo; self.recibida = recibida
+        self.contenido = contenido; self.datos = datos
+        self.url = url; self.bytesRemotos = bytesRemotos
+    }
+
+    // MARK: - Los bytes, en disco
+
+    /// Dónde viven los bytes de las entregas.
+    static var almacen: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory,
+                                           in: .userDomainMask)[0]
+            .appending(path: "entregas")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func bytesEnDisco(_ id: String) -> URL {
+        // El id viene de una huella hexadecimal, pero se sanea igual: un id con "/" dentro
+        // escribiría fuera de la carpeta.
+        almacen.appending(path: id.replacingOccurrences(of: "/", with: "_") + ".bin")
+    }
+
+    /// ⚠️ Se codifica TODO menos los bytes, y al codificar se dejan escritos en su archivo.
+    /// Hacerlo aquí y no en quien guarda es lo que mantiene la regla en UN sitio: la
+    /// entrega se guarda desde el almacén de artefactos **y** desde dentro de cada
+    /// conversación (`MensajeGuardado.entrega`), y si sólo uno de los dos escribiera los
+    /// bytes, la foto volvería a desaparecer al recargar el hilo.
+    enum CodingKeys: String, CodingKey {
+        case id, agentID, sesionID, forma, titulo, recibida, contenido, url, bytesRemotos
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        agentID = try c.decode(String.self, forKey: .agentID)
+        sesionID = try c.decodeIfPresent(String.self, forKey: .sesionID)
+        forma = try c.decode(Forma.self, forKey: .forma)
+        titulo = try c.decode(String.self, forKey: .titulo)
+        recibida = try c.decode(Date.self, forKey: .recibida)
+        contenido = try c.decodeIfPresent(String.self, forKey: .contenido)
+        url = try c.decodeIfPresent(String.self, forKey: .url)
+        bytesRemotos = try c.decodeIfPresent(Int.self, forKey: .bytesRemotos)
+        // Los de siempre, más los del formato viejo: un `entregas.json` escrito antes de
+        // esto lleva los bytes dentro, y tirarlos sería perder artefactos que ya tenías.
+        if let viejos = try? decoder.container(keyedBy: ClaveVieja.self)
+            .decodeIfPresent(Data.self, forKey: .datos) {
+            datos = viejos
+            try? viejos.write(to: Self.bytesEnDisco(id), options: .atomic)
+        } else {
+            datos = try? Data(contentsOf: Self.bytesEnDisco(id))
+        }
+    }
+
+    private enum ClaveVieja: String, CodingKey { case datos }
+
+    func encode(to encoder: Encoder) throws {
+        if let datos, !datos.isEmpty {
+            try? datos.write(to: Self.bytesEnDisco(id), options: .atomic)
+        }
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(agentID, forKey: .agentID)
+        try c.encodeIfPresent(sesionID, forKey: .sesionID)
+        try c.encode(forma, forKey: .forma)
+        try c.encode(titulo, forKey: .titulo)
+        try c.encode(recibida, forKey: .recibida)
+        try c.encodeIfPresent(contenido, forKey: .contenido)
+        try c.encodeIfPresent(url, forKey: .url)
+        try c.encodeIfPresent(bytesRemotos, forKey: .bytesRemotos)
+    }
 
     var etiqueta: String {
         switch forma {
@@ -223,10 +306,12 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
 @MainActor
 final class EntregasStore {
     private(set) var entregas: [Entrega] = []
-    /// ⚠️ Más bajo que el de los turnos a propósito: aquí cada fila lleva el CONTENIDO,
-    /// no un puñado de contadores. Cincuenta artefactos de medio mega se leen enteros en
-    /// cada arranque.
-    private let tope = 50
+    /// ⚠️ Era 50 porque cada fila llevaba los bytes dentro del JSON. Ahora los bytes
+    /// viven en su propio archivo y el índice pesa lo que pesa una ficha, así que caben
+    /// muchos más — pero sigue habiendo tope: lo que se sale se BORRA, y borrar en
+    /// silencio lo que alguien creía guardado es de las peores cosas que puede hacer una
+    /// app. Por eso también se limpian sus bytes.
+    private let tope = 300
 
     private var archivo: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,
@@ -243,7 +328,12 @@ final class EntregasStore {
         // aquí es donde eso sirve: la misma entrega registrada N veces es UNA fila.
         guard !entregas.contains(where: { $0.id == e.id }) else { return }
         entregas.insert(e, at: 0)
-        if entregas.count > tope { entregas = Array(entregas.prefix(tope)) }
+        if entregas.count > tope {
+            for sobrante in entregas.dropFirst(tope) {
+                try? FileManager.default.removeItem(at: Entrega.bytesEnDisco(sobrante.id))
+            }
+            entregas = Array(entregas.prefix(tope))
+        }
         guardar()
     }
 
@@ -262,12 +352,14 @@ final class EntregasStore {
     /// ningún sitio — es el único borrado que hoy se puede hacer sin preguntarle a nadie.
     func olvidar(_ id: String) {
         entregas.removeAll { $0.id == id }
+        try? FileManager.default.removeItem(at: Entrega.bytesEnDisco(id))
         guardar()
     }
 
     func limpiar() {
         entregas = []
         try? FileManager.default.removeItem(at: archivo)
+        try? FileManager.default.removeItem(at: Entrega.almacen)
     }
 
     // MARK: - Disco
