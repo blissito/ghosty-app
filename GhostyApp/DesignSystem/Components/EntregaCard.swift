@@ -45,11 +45,20 @@ struct EntregaCard: View {
         Button {
             // Una imagen la enseñamos nosotros; lo demás va al visor del sistema. Ver
             // `VisorDeImagen`: QuickLook abre un PDF y se queda en negro con un PNG.
-            if let img = imagen { mirando = img } else { compartiendo = Self.aDisco(entrega) }
+            // Una imagen la enseñamos nosotros y un audio se reproduce en la propia
+            // tarjeta; lo demás va al visor del sistema.
+            if let img = imagen { mirando = img }
+            else if entrega.esAudio { return }
+            else { compartiendo = Self.aDisco(entrega) }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 vistaPrevia
-                fila
+                // Un audio se oye aquí; no hay «fila» que abrir nada.
+                if entrega.esAudio {
+                    ReproductorDeEntrega(entrega: entrega)
+                } else {
+                    fila
+                }
             }
             .frame(maxWidth: 300, alignment: .leading)
             .background(Color.gCard)

@@ -899,6 +899,10 @@ final class LiveAgentStore: AgentStoring {
         }
         let idRespuesta = UUID().uuidString
         hilo.mensajes.append(Message(id: "typing", kind: .typing))
+        hilo.sinHerramientas = true
+        EasyBitsClient.diag("[envío] hilo=\(hilo.clave.prefix(8)) sesión=\(hilo.sesionID?.prefix(8) ?? "nueva") "
+                            + "activa=\(canal.activa?.prefix(8) ?? "-") mensajes=\(hilo.mensajes.count) "
+                            + "hilos=\(canal.hilos.count)")
         // Lo que acabas de escribir va a disco YA, no al cerrar el turno.
         guardarYa(canal)
 
@@ -1030,6 +1034,7 @@ final class LiveAgentStore: AgentStoring {
                         herramientas.append(h)
                     }
                     // Lo que está haciendo AHORA, donde el ojo ya está mirando.
+                    hilo.sinHerramientas = false
                     if let viva = herramientas.last(where: \.esperando) {
                         hilo.turno?.detail = viva.titulo
                     }
@@ -1271,7 +1276,24 @@ final class LiveAgentStore: AgentStoring {
                 guard let hilo, let inicio = hilo.inicio else { return }
                 let s = Int(Date().timeIntervalSince(inicio))
                 hilo.turno?.elapsed = String(format: "%d:%02d", s / 60, s % 60)
+                // ⚠️ Sin esto el estado se queda congelado en «Pensando…» cuando la caja
+                // no manda herramientas, y un turno de tres minutos diciendo siempre lo
+                // mismo se lee como colgado. NO inventa progreso —no hay pasos que
+                // contar—: dice la única verdad que tenemos, cuánto lleva, y a partir de
+                // un rato que se puede detener.
+                if hilo.sinHerramientas { hilo.turno?.detail = Self.comoVa(s) }
             }
+        }
+    }
+
+    /// Qué decir de un turno del que sólo sabemos cuánto lleva.
+    static func comoVa(_ segundos: Int) -> String {
+        switch segundos {
+        case ..<8:   return "Pensando…"
+        case ..<30:  return "Trabajando…"
+        case ..<90:  return "Sigue trabajando…"
+        case ..<240: return "Lleva un rato en esto…"
+        default:     return "Muy largo — puedes detenerlo"
         }
     }
 

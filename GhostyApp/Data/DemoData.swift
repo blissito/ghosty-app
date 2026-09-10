@@ -65,6 +65,13 @@ enum DemoData {
         var foto = Adjunto(nombre: "bukowski.png", mime: "image/png", datos: png)
         foto.remoto = GhostyAPI.ArchivoRemoto(id: "demo-file", nombre: "bukowski.png",
                                               mime: "image/png", bytes: png.count, url: "")
+        // Un MP3 mínimo pero REAL: empieza por `ID3`, que es justo el caso que se
+        // guardaba como `.txt` y salía como un muro de basura en el visor del sistema.
+        let mp3 = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A]
+                       + [UInt8](repeating: 0, count: 200))
+        let sonido = Entrega(id: "demo-audio", agentID: "demo-1", sesionID: "s-foto",
+                             forma: .archivo, titulo: "SFX cómic 08", recibida: Date(),
+                             contenido: nil, datos: mp3)
         let entrega = Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto",
                               forma: .archivo, titulo: "recorte.png", recibida: Date(),
                               contenido: nil, datos: png)
@@ -77,6 +84,7 @@ enum DemoData {
                     + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n",
                 tools: nil, trailing: nil)),
             Message(id: "entrega-demo-entrega", kind: .entrega(entrega)),
+            Message(id: "entrega-demo-audio", kind: .entrega(sonido)),
         ]
     }
 
@@ -117,6 +125,10 @@ extension LiveAgentStore {
         foto.visto = false
         let vacia = uno.abrir()
         uno.activa = larga.clave
+        // Gancho para poder fotografiar la conversación con entregas sin tocar la pantalla.
+        if ProcessInfo.processInfo.environment["GHOSTY_DEMO_ENTREGAS"] == "1" {
+            uno.activa = foto.clave
+        }
         larga.termino = Date().addingTimeInterval(-3600)
         // El orden de la barra es por ÚLTIMO MENSAJE ESCRITO, así que la demo lo fija a
         // mano en vez de dejarlo al orden de creación: si no, la conversación larga —la

@@ -60,6 +60,21 @@ struct VisorDeImagen: View {
                     }
                     .accessibilityIdentifier("cerrar-visor")
                     Spacer()
+                    // ⚠️ Compartir SIEMPRE. Sólo salía cuando la imagen venía de una
+                    // entrega, que es la única que tiene archivo en disco; una imagen de
+                    // una respuesta se abría a pantalla completa y no se podía sacar de
+                    // ahí — ni guardar en el carrete ni mandarla a nadie.
+                    if archivo == nil {
+                        ShareLink(item: Image(uiImage: imagen),
+                                  preview: SharePreview(titulo.isEmpty ? "Imagen" : titulo,
+                                                        image: Image(uiImage: imagen))) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                                .background(.white.opacity(0.18), in: Circle())
+                        }
+                    }
                     if let archivo {
                         ShareLink(item: archivo) {
                             Image(systemName: "square.and.arrow.up")

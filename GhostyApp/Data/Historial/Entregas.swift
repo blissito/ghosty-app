@@ -65,15 +65,44 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         case .artifact: return "html"
         case .archivo: break
         }
-        guard let d = datos, d.count >= 4 else { return nil }
-        let b = [UInt8](d.prefix(4))
+        guard let d = datos, d.count >= 12 else { return nil }
+        let b = [UInt8](d.prefix(12))
         if b[0] == 0x25, b[1] == 0x50, b[2] == 0x44, b[3] == 0x46 { return "pdf" }
         if b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47 { return "png" }
         if b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF { return "jpg" }
         if b[0] == 0x47, b[1] == 0x49, b[2] == 0x46 { return "gif" }
+        // ⚠️ El AUDIO iba ANTES de aquí y no estaba. Un MP3 empieza por `ID3`, que
+        // decodifica como UTF-8, así que caía en el último recurso y se guardaba con
+        // extensión `.txt`: el visor del sistema hacía lo correcto con lo que le dimos
+        // —enseñarlo como texto— y salía un muro de `ID3nTLEN0.96COMM…`. La firma va
+        // SIEMPRE antes del recurso de texto, porque el recurso de texto acierta con
+        // cualquier cosa que empiece por letras.
+        if b[0] == 0x49, b[1] == 0x44, b[2] == 0x33 { return "mp3" }          // ID3
+        if b[0] == 0xFF, b[1] & 0xE0 == 0xE0 { return "mp3" }                // frame MPEG
+        if b[0] == 0x4F, b[1] == 0x67, b[2] == 0x67, b[3] == 0x53 { return "ogg" }
+        if b[0] == 0x66, b[1] == 0x4C, b[2] == 0x61, b[3] == 0x43 { return "flac" }
+        if b[0] == 0x52, b[1] == 0x49, b[2] == 0x46, b[3] == 0x46 {          // RIFF
+            return b[8] == 0x57 && b[9] == 0x41 ? "wav" : "avi"               // WAVE
+        }
+        // Contenedor ISO: el `ftyp` va en el offset 4 y su marca dice si es audio o vídeo.
+        if b[4] == 0x66, b[5] == 0x74, b[6] == 0x79, b[7] == 0x70 {
+            let marca = String(decoding: d[8..<12], as: UTF8.self)
+            return marca.hasPrefix("M4A") ? "m4a" : "mp4"
+        }
         if b[0] == 0x50, b[1] == 0x4B, b[2] == 0x03, b[3] == 0x04 { return "zip" }
-        if String(data: d.prefix(512), encoding: .utf8) != nil { return "txt" }
+        // ⚠️ Y el último recurso, más estricto: que decodifique NO basta —medio binario
+        // decodifica—. Se exige que lo que se lea sea de verdad texto imprimible.
+        if let t = String(data: d.prefix(512), encoding: .utf8),
+           t.unicodeScalars.allSatisfy({ $0 == "\n" || $0 == "\r" || $0 == "\t" || ($0.value >= 32 && $0.value != 127) }) {
+            return "txt"
+        }
         return nil
+    }
+
+    /// ¿Suena? Entonces no se abre con el visor del sistema: se reproduce aquí.
+    var esAudio: Bool {
+        guard let t = tipo else { return false }
+        return ["mp3", "m4a", "wav", "aac", "ogg", "flac", "caf", "aiff"].contains(t)
     }
 
     /// ¿Se puede enseñar su contenido como texto en la tarjeta?
@@ -99,6 +128,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
             case "csv", "xlsx", "numbers": return "tablecells"
             case "zip", "tar", "gz": return "shippingbox"
             case "txt", "md", "json", "log": return "doc.plaintext"
+            case "mp3", "m4a", "wav", "aac", "ogg", "flac": return "waveform"
             default: return "paperclip"
             }
         }

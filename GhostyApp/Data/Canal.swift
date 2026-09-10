@@ -51,6 +51,9 @@ final class Hilo {
     var inicio: Date?
 
     var trabajando: Bool { turno != nil }
+    /// ¿La caja no ha mandado ninguna herramienta en este turno? Entonces lo único que
+    /// sabemos es cuánto lleva, y el estado lo pone el cronómetro.
+    var sinHerramientas = true
     var transcurrido: String { turno?.elapsed ?? "" }
 
     /// Cuándo cerró su último turno, y si ya lo viste.
