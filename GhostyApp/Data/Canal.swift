@@ -86,6 +86,9 @@ final class Hilo {
     var interrumpido = false
     /// Estamos preguntando qué pasó mientras no mirábamos.
     var poniendoseAlDia = false
+    /// Cuántas veces seguidas se ha caído la escucha sin que llegara nada. Marca la
+    /// espera antes de volver a intentarlo; se pone a cero con el primer evento.
+    var reenganches = 0
     /// Cuándo se le ESCRIBIÓ por última vez.
     ///
     /// ⚠️ Sólo al escribir, no al mirar. Es lo que ordena la barra de conversaciones, y

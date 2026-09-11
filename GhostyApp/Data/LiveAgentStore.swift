@@ -727,14 +727,8 @@ final class LiveAgentStore: AgentStoring {
         return try await tarea.value
     }
 
-    /// Por dónde se habla con los agentes.
-    ///
-    /// ⚠️ Se elige en el ARRANQUE y no cambia en caliente: un canal a medio turno con el
-    /// transporte cambiado debajo es un turno perdido. `GHOSTY_TRANSPORTE=gs` enciende el
-    /// camino nuevo; sin ella, el de siempre. Vive detrás de una bandera hasta que la
-    /// verificación completa pase en el teléfono, para que una build a medias no deje a
-    /// nadie sin agente.
-
+    /// Por dónde se habla con los agentes: SIEMPRE gs (HTTP+SSE). El WebSocket directo
+    /// a la caja ya no se elige nunca; ver CLAUDE.md, «el turno es del servidor».
     private func abrirSocket(_ canal: Canal) async throws -> any TransporteDeAgente {
         let cuenta = canal.cuenta
         // El anterior se cierra: reemplazarlo a secas dejaba su socket y su lector vivos.
@@ -1316,6 +1310,15 @@ final class LiveAgentStore: AgentStoring {
         hilo.enVuelo?.cancel()
         hilo.enVuelo = Task { [weak self] in
             guard let self else { return }
+            // Espera creciente: 1, 2, 4 … 30 s. Sin esto, con gs caído (un deploy, por
+            // ejemplo) la app reenganchaba en bucle cerrado —502, reenganche, 502— y
+            // medido en el simulador: decenas de intentos por minuto contra un servidor
+            // que está volviendo a levantarse.
+            if hilo.reenganches > 0 {
+                let espera = min(30, 1 << min(hilo.reenganches - 1, 5))
+                try? await Task.sleep(for: .seconds(espera))
+                if Task.isCancelled { return }
+            }
             // ⚠️ Primero el hilo, después el directo. El backlog del SSE dura unos minutos
             // y vive en la memoria del servidor: para «me fui un rato» lo que hay que
             // hacer es PEDIR la conversación, no confiar en que el backlog siga ahí.
@@ -1346,6 +1349,7 @@ final class LiveAgentStore: AgentStoring {
                 // quedaba con el cartel de «tu agente sigue con esto» y la cabecera
                 // diciendo «Sigue trabajando…» PARA SIEMPRE, aunque la respuesta ya
                 // hubiera llegado y estuviera pintada debajo.
+                hilo.reenganches = 0
                 if hilo.interrumpido {
                     hilo.interrumpido = false
                     refrescarEstado(canal)
@@ -1488,6 +1492,7 @@ final class LiveAgentStore: AgentStoring {
             } else {
                 hilo.interrumpido = true
                 hilo.fallo = nil
+                hilo.reenganches += 1
                 if acumulado.isEmpty { hilo.mensajes.removeAll { $0.kind == .typing } }
                 else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
                 engancharse(hilo, de: canal, ponerseAlDia: true)

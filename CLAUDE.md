@@ -88,7 +88,7 @@ que acordarse de no tocarla.
 
 ```bash
 SIMCTL_CHILD_GHOSTY_TOKEN=… SIMCTL_CHILD_GHOSTY_SOLO_AGENTE=… \
-SIMCTL_CHILD_GHOSTY_TRANSPORTE=gs SIMCTL_CHILD_GHOSTY_PROBE="hola" \
+SIMCTL_CHILD_GHOSTY_PROBE="hola" \
   xcrun simctl launch <sim> com.fixtergeek.ghostyapp
 ```
 
