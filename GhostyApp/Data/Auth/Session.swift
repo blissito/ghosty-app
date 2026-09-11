@@ -102,7 +102,27 @@ enum Session {
         #endif
         guard let g = leer() else { throw Fallo.sinSesion }
         if Date().timeIntervalSince1970 < g.expira - 60 { return g.access }
-        return try await refrescar(g.refresh)
+        return try await refrescarUnaVez(g.refresh)
+    }
+
+    /// UN refresh en vuelo, compartido por todas las peticiones.
+    ///
+    /// ⚠️ El refresh ROTA: el servidor emite un par nuevo y, si el refresh viejo se vuelve
+    /// a usar, lo toma por robo y revoca la familia entera. Cada canal pide token por su
+    /// cuenta al arrancar, así que cuando el access caducaba (cada hora) salían dos o
+    /// tres refrescos a la vez con el MISMO refresh: el segundo era «reuso» y la sesión
+    /// se cerraba sola. Se veía como «la sesión se cierra muy seguido».
+    @MainActor private static var refrescando: Task<String, Error>?
+
+    @MainActor
+    private static func refrescarUnaVez(_ refresh: String) async throws -> String {
+        if let t = refrescando { return try await t.value }
+        // Otro pudo haber refrescado mientras esperábamos el actor: se relee.
+        if let g = leer(), Date().timeIntervalSince1970 < g.expira - 60 { return g.access }
+        let t = Task { try await refrescar(refresh) }
+        refrescando = t
+        defer { refrescando = nil }
+        return try await t.value
     }
 
     private static func refrescar(_ refresh: String) async throws -> String {

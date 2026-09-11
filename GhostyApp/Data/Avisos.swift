@@ -136,7 +136,7 @@ enum Avisos {
         #endif
     }
 
-    static func avisar(titulo: String, cuerpo: String, agentID: String,
+    static func avisar(titulo: String, cuerpo: String, agentID: String, sesion: String? = nil,
                        sonido: Sonido = .burbuja) {
         let c = UNMutableNotificationContent()
         c.title = titulo
@@ -144,10 +144,12 @@ enum Avisos {
         // El mismo sonido que suena con la app delante: que el aviso suene distinto según
         // por dónde llegue enseña a no fiarse de lo que se oye.
         c.sound = UNNotificationSound(named: UNNotificationSoundName("\(sonido.rawValue).caf"))
-        c.userInfo = ["agentID": agentID]
-        // Agrupa por conversación, igual que hará el push del servidor: con tres
+        // ⚠️ CON la conversación. Sin `sesion`, tocar el aviso llevaba a «la activa» del
+        // agente, que con varias a la vez es la equivocada la mitad de las veces.
+        c.userInfo = ["agentID": agentID, "sesion": sesion as Any]
+        // Agrupa por conversación, igual que hace el push del servidor: con tres
         // conversaciones a la vez, sin esto son tres avisos sueltos sin relación.
-        c.threadIdentifier = agentID
+        c.threadIdentifier = sesion ?? agentID
         // Sin disparador: se entrega ya.
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil)
         UNUserNotificationCenter.current().add(req)

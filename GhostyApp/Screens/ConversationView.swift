@@ -65,7 +65,12 @@ struct ConversationView: View {
             // `anclaje` es el ÚLTIMO mensaje visible. Si es el último del hilo, estás
             // abajo; si no, se enseña el botón. Bajar es asignarlo.
             ScrollView {
-                LazyVStack(spacing: 14) {
+                // ⚠️ VStack, NO LazyVStack. Con el perezoso, al plegar una tarjeta de
+                // herramientas el contenido encogía, el offset quedaba más allá del final
+                // y no se pintaba NADA: el hilo entero en blanco con los mensajes dentro
+                // (medido: «pintando 2 mensajes» y pantalla vacía). El hilo trae como
+                // mucho `tail` mensajes; no hay nada que virtualizar.
+                VStack(spacing: 14) {
                     if mensajesÚnicos.isEmpty {
                         primeraVez.padding(.top, 90)
                     }

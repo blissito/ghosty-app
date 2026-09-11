@@ -466,7 +466,12 @@ final class LiveAgentStore: AgentStoring {
         let hilo = canal.hilo(sesion: sid) ?? canal.abrir(sid)
         let antes = hilo.mensajes.count
         await traerLaConversacion(hilo, de: canal)
-        return hilo.mensajes.count != antes
+        let hubo = hilo.mensajes.count != antes
+        // El push ES el servidor diciendo «contestó»: sin esto la lista no enseñaba la
+        // palomita de una respuesta que llegó con la app cerrada, porque `termino` sólo
+        // lo ponía el cierre de un turno mirado desde aquí.
+        if hubo, hilo.turno == nil { hilo.termino = Date(); hilo.visto = false; sinVer.insert(agentID) }
+        return hubo
     }
 
     /// Un aviso pide ir a una conversación. Es la ÚNICA entrada: el destino se guarda
@@ -493,6 +498,9 @@ final class LiveAgentStore: AgentStoring {
               let canal = canales[agentID] else { return }
         avisoPendiente = nil
         let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
+        EasyBitsClient.diag("[push] abro \(sesion) de \(agentID.prefix(9)) (\(hilo.mensajes.count) mensajes en caché)")
+        // Un aviso tocado es un turno que cerró: se marca, aunque se vea ahora mismo.
+        if hilo.turno == nil, hilo.termino == nil { hilo.termino = Date() }
         mirar(hilo, de: agentID)
         pestanaPedida = .chat
         guard !DemoData.encendido else { return }
@@ -568,6 +576,7 @@ final class LiveAgentStore: AgentStoring {
                 mensajes.removeLast()
             }
             mensajes.append(contentsOf: vivas)
+            EasyBitsClient.diag("[hilo] \(sid): el servidor trae \(mensajes.count) mensajes (había \(hilo.mensajes.count))")
             hilo.mensajes = mensajes
             hilo.fallo = nil
             guardarHilos(canal)
@@ -895,10 +904,14 @@ final class LiveAgentStore: AgentStoring {
         // que estás mirando, dos podían pedirte permiso y no avisarte de ninguna.
         // Misma regla que el aviso de fin: con push registrado, el local sólo con la app
         // delante — si no, llegarían dos por lo mismo.
-        if hilo.clave != hiloActivo?.clave, !(Avisos.hayPush && Avisos.enElFondo) {
+        // ⚠️ Y si el servidor puede avisar, el local NO sale nunca: el push del servidor
+        // también llega con la app delante (`willPresent` lo deja pasar como banner si
+        // no es la conversación que miras), así que «local con la app delante» era la
+        // receta exacta para ver dos avisos por el mismo hecho.
+        if hilo.clave != hiloActivo?.clave, !Avisos.hayPush {
             Avisos.avisar(titulo: "\(canal.cuenta.name) espera tu permiso",
                           cuerpo: "¿Dejas que use \(p.titulo)?",
-                          agentID: canal.cuenta.id, sonido: .gota)
+                          agentID: canal.cuenta.id, sesion: hilo.sesionID, sonido: .gota)
             sinVer.insert(canal.cuenta.id)
         }
         hilo.permisoPendiente = PermissionRequest(
@@ -1683,10 +1696,12 @@ final class LiveAgentStore: AgentStoring {
         // sabe de verdad cuándo terminó el turno, porque es suyo.
         //
         // Sin esta condición salían los dos: el local al volver y el push por detrás.
-        if avisar, hubo, hilo.clave != hiloActivo?.clave, !Avisos.enElFondo {
+        // ⚠️ Y con push registrado, NUNCA: el del servidor también llega con la app
+        // delante. Se veía como «manda doble push, cuando responde y cuando termina».
+        if avisar, hubo, hilo.clave != hiloActivo?.clave, !Avisos.enElFondo, !Avisos.hayPush {
             Avisos.avisar(titulo: "\(canal.cuenta.name) terminó",
                           cuerpo: hilo.prompt.isEmpty ? "Tu agente acabó el turno." : hilo.prompt,
-                          agentID: canal.cuenta.id)
+                          agentID: canal.cuenta.id, sesion: hilo.sesionID)
         }
         if hubo, hilo.clave != hiloActivo?.clave { sinVer.insert(canal.cuenta.id) }
         // ⚠️ La caja NO guarda un hilo hasta que tiene mensajes: `session/new` no
