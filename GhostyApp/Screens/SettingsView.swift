@@ -6,6 +6,7 @@ import SwiftUI
 /// ghosty.studio y el servidor dice qué agentes hay; teclear un id de agente en un
 /// teléfono era justo lo que hacía que la app no sirviera para nadie más que nosotros.
 struct SettingsView: View {
+    @State private var turnosEnElServidor = Transporte.elegido
     var store: LiveAgentStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var abrir
@@ -131,6 +132,28 @@ struct SettingsView: View {
                             Text(a.texto).gMeta()
                         }
                     }
+
+                    // ⚠️ Un interruptor, no una build aparte. Con el transporte viejo el
+                    // turno es del teléfono: bloqueas la pantalla y el trabajo se pierde
+                    // —medido, cero caracteres—. Con éste el turno vive en el servidor y
+                    // sigue sin ti. Está apagado por defecto porque todavía no se ha
+                    // probado en un teléfono de verdad, y quien lo encienda tiene que
+                    // estar eligiéndolo; apagarlo devuelve al camino de siempre sin
+                    // reinstalar nada.
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle(isOn: $turnosEnElServidor) {
+                            Text("Turnos en el servidor").gBody()
+                        }
+                        .tint(Color.gPrimary)
+                        .onChange(of: turnosEnElServidor) { _, nuevo in
+                            Transporte.elegido = nuevo
+                        }
+                        Text(turnosEnElServidor
+                             ? "Puedes bloquear el teléfono: el trabajo sigue allá y te aviso al terminar."
+                             : "Apagado: el turno lo sostiene el teléfono, así que bloquear la pantalla a media respuesta lo pierde.")
+                            .gMeta().foregroundStyle(Color.gInk3)
+                    }
+                    .padding(.top, 4)
 
                     Text(Self.version).gMeta()
 

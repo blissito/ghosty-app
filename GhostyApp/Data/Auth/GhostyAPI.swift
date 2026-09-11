@@ -404,7 +404,7 @@ enum GhostyAPI {
             // servidor: exigirlos aquí escondía agentes perfectamente utilizables —el de
             // pruebas no aparecía y la app se quedaba «sin agentes» contra una cuenta que
             // tenía catorce—.
-            if token == nil, !LiveAgentStore.porGS {
+            if token == nil, !Transporte.porGS {
                 // Sin material de conexión no se puede conversar con él. Se cuenta para
                 // poder decirlo, y no se mete a la lista: un agente en pantalla que no
                 // contesta es peor que uno que no aparece.

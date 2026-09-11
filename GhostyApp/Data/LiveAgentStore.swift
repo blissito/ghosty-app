@@ -896,7 +896,7 @@ final class LiveAgentStore: AgentStoring {
     /// camino nuevo; sin ella, el de siempre. Vive detrás de una bandera hasta que la
     /// verificación completa pase en el teléfono, para que una build a medias no deje a
     /// nadie sin agente.
-    static let porGS: Bool = ProcessInfo.processInfo.environment["GHOSTY_TRANSPORTE"] == "gs"
+    static var porGS: Bool { Transporte.porGS }
 
     private func abrirSocket(_ canal: Canal) async throws -> any TransporteDeAgente {
         let cuenta = canal.cuenta
