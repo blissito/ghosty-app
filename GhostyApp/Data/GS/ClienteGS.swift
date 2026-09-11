@@ -143,8 +143,18 @@ actor ClienteGS: TransporteDeAgente {
             // persona sale con un muro de texto que ella nunca escribió — se vio tal cual
             // en el teléfono.
             let limpio = BloqueDeAdjuntos.limpiarParaMostrar(t).texto
-            return .user(limpio.isEmpty ? t : limpio)
+            // Un turno programado lleva pegadas las instrucciones al agente («nadie está
+            // mirando… contesta OK»). Son para él; a la persona se le enseña lo que pidió.
+            let visible = Self.sinReglasDeAgenda(limpio.isEmpty ? t : limpio)
+            return .user(visible)
         }
+    }
+
+    /// Mismo prefijo que pone gs (`SCHEDULED_MARK` en `scheduled-turns.server.ts`).
+    static func sinReglasDeAgenda(_ t: String) -> String {
+        guard t.hasPrefix("⏰ Turno programado"),
+              let corte = t.range(of: "\n\nNadie está mirando ahora") else { return t }
+        return String(t[..<corte.lowerBound])
     }
 
     /// Cuántos mensajes quedaron atrás en el último `cargar`. Es lo que permite ofrecer
@@ -266,6 +276,10 @@ actor ClienteGS: TransporteDeAgente {
         }
     }
 
+    #if DEBUG
+    nonisolated(unsafe) private static var yaCorto = false
+    #endif
+
     private func dejarDeEscuchar(_ sesion: String) {
         escuchas[sesion]?.cancel()
         escuchas[sesion] = nil
@@ -316,6 +330,21 @@ actor ClienteGS: TransporteDeAgente {
                     return
                 }
                 await listo.abrir()
+                // Gancho de desarrollo: `GHOSTY_CORTAR=8` tira la PRIMERA escucha a los
+                // 8 s, como hace iOS al suspender la app. Es lo que deja probar el
+                // reenganche sin bloquear un teléfono.
+                #if DEBUG
+                if let s = ProcessInfo.processInfo.environment["GHOSTY_CORTAR"], let seg = Int(s),
+                   !Self.yaCorto {
+                    Self.yaCorto = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(seg))
+                        EasyBitsClient.diag("[gs] CORTAR: tiro la escucha de \(sesion) (gancho de dev)")
+                        cont.finish(throwing: URLError(.networkConnectionLost))
+                        await self.dejarDeEscuchar(sesion)
+                    }
+                }
+                #endif
                 var evento = ""
                 for try await linea in bytes.lines {
                     if Task.isCancelled { break }

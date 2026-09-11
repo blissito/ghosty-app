@@ -40,6 +40,11 @@ struct ConversationView: View {
     /// un reintento a los 120 ms, y el scroll seguía siendo intermitente.
     @State private var pegadoAbajo = true
 
+    /// La agenda de la conversación que se mira. Se rehace al cambiar de hilo: es por
+    /// `(agente, sesión)`, y una conversación nueva sin `sessionId` no tiene agenda aún.
+    @State private var agenda: Agenda?
+    @State private var abrirAgenda = false
+
     var body: some View {
         VStack(spacing: 0) {
             if let agente = store.selectedAgent {
@@ -133,6 +138,15 @@ struct ConversationView: View {
             .onChange(of: textoDelUltimo) { _, _ in seguir() }
             // Cambiar de conversación es una pantalla nueva: empieza por el final.
             .onChange(of: hiloVisible) { _, _ in irAbajo() }
+            .task(id: "\(hiloVisible)/\(store.hiloActivo?.sesionID ?? "")") {
+                guard let sid = store.hiloActivo?.sesionID else { agenda = nil; return }
+                let a = Agenda(agentID: store.selectedAgentID, sessionID: sid)
+                agenda = a
+                await a.recargar()
+            }
+            .sheet(isPresented: $abrirAgenda) {
+                if let agenda { AgendaSheet(agenda: agenda) }
+            }
 
             // ⚠️ Un CARTEL, no un mensaje. Que el aviso viva dentro de la respuesta lo
             // convertía en historia: quedaba «se cortó la conexión» pegado para siempre en
@@ -163,6 +177,10 @@ struct ConversationView: View {
             // arriba —bajo la cabecera— y era donde no llega el pulgar: para cambiarte de
             // conversación había que estirar el dedo hasta la cabeza del agente y abrir un
             // panel. Aquí es un toque, en la zona donde ya tienes la mano.
+            // Lo que el agente hará solo, si hay algo: es lo que convierte «trabaja en
+            // esto por días» en algo que se ve sin abrir ninguna hoja.
+            if let agenda { AgendaStrip(agenda: agenda) { abrirAgenda = true } }
+
             OtrosTrabajando(store: store)
 
             compositor
@@ -384,6 +402,10 @@ struct ConversationView: View {
             tarjeta("Cámara", "camera") { abrirCamara = true }
             tarjeta("Foto", "photo") { abrirFotos = true }
             tarjeta("Documento", "paperclip") { abrirArchivos = true }
+            // Programar sólo tiene sentido con una conversación que ya existe en gs.
+            if agenda != nil {
+                tarjeta("Programar", "clock.badge.checkmark") { abrirAgenda = true }
+            }
         }
         .transition(.asymmetric(
             insertion: .move(edge: .bottom).combined(with: .opacity),
