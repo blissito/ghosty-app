@@ -615,6 +615,8 @@ final class LiveAgentStore: AgentStoring {
     func cerrarHilo(_ hilo: Hilo) {
         guard let canal = canalDe(hilo) else { return }
         if let sid = hilo.sesionID { Task { await canal.acp?.cancelar(sid) } }
+        // Y se olvida del disco: sin esto vuelve sola la próxima vez que se lea el caché.
+        if let sid = hilo.sesionID { cache.olvidarAbierta(sid, de: canal.cuenta.id) }
         withAnimation(Self.alBorrar) {
             canal.cerrar(hilo)
             if canal.hilos.isEmpty { canal.abrir() }

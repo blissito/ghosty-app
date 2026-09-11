@@ -93,6 +93,17 @@ final class CacheDeHilos {
     }
 
     /// Una conversación concreta.
+    /// Olvida UNA conversación abierta. Es lo que hace que cerrarla sea de verdad.
+    ///
+    /// ⚠️ Hace falta un borrado explícito porque `guardarAbiertos` FUNDE con lo que había
+    /// —para que un hilo vaciado por un tropiezo no se lleve por delante su copia— y con
+    /// esa regla, cerrar una conversación nunca ganaba: desaparecía de la pantalla y
+    /// volvía en cuanto se leía el disco otra vez.
+    func olvidarAbierta(_ sesion: String, de agentID: String) {
+        guard disco.abiertos[agentID]?.removeValue(forKey: sesion) != nil else { return }
+        guardar()
+    }
+
     func abierto(_ agentID: String, sesion: String) -> [Message]? {
         disco.abiertos[agentID]?[sesion]?.compactMap(\.mensaje)
     }
