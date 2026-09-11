@@ -10,25 +10,30 @@
 		<dict>
 			<key>RecorridoUITests</key>
 			<dict>
+				<key>testAvisoEnFrio</key>
+				<dict>
+					<key>mrnet</key>
+					<real>9.8514879941940308</real>
+				</dict>
 				<key>testDetener</key>
 				<dict>
 					<key>mrnet</key>
-					<real>8.9933980703353882</real>
+					<real>9.0446000099182129</real>
 				</dict>
 				<key>testFiltroDeArtefactos</key>
 				<dict>
 					<key>mrnet</key>
-					<real>10.509907007217407</real>
+					<real>10.205124974250793</real>
 				</dict>
 				<key>testInterrumpido</key>
 				<dict>
 					<key>mrnet</key>
-					<real>9.4845490455627441</real>
+					<real>9.1200579404830933</real>
 				</dict>
 				<key>testRecorrido</key>
 				<dict>
 					<key>mrnet</key>
-					<real>34.010151982307434</real>
+					<real>33.640174031257629</real>
 				</dict>
 			</dict>
 		</dict>

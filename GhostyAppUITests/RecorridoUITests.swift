@@ -73,6 +73,19 @@ final class RecorridoUITests: XCTestCase {
     ///
     /// ⚠️ Esta pantalla se dio por hecha dos veces —el filtro se escribió, se perdió en un
     /// script a medias, y se volvió a escribir— sin que nadie la mirara. Ahora se mira.
+    /// Tocar un aviso con la app CERRADA: el destino llega antes de que exista nada y
+    /// tiene que aplicarse igual, en la pestaña de chat y en ESA conversación.
+    func testAvisoEnFrio() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_TAB"] = "artifacts"
+        app.launchEnvironment["GHOSTY_AVISO"] = "demo-2/s-vivo"
+        app.launch()
+        XCTAssertTrue(app.staticTexts["resume el trimestre"].waitForExistence(timeout: 10),
+                      "el aviso no llevó a la conversación de Nube")
+        XCTAssertTrue(app.staticTexts["Nube"].exists, "el aviso no cambió de agente")
+        foto("40-aviso-en-frio")
+    }
+
     func testFiltroDeArtefactos() {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO_ENTREGAS"] = "1"

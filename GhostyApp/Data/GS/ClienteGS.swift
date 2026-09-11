@@ -283,9 +283,11 @@ actor ClienteGS: TransporteDeAgente {
         }
         var cuerpo: [String: Any] = ["content": texto]
         if !archivos.isEmpty { cuerpo["images"] = archivos }
-        // Se pide `preguntar` porque esta app SÍ sabe pintar la tarjeta y contestarla. Un
-        // cliente que lo pida sin poder contestar deja el turno detenido diez minutos.
-        cuerpo["permisos"] = "preguntar"
+        // ⚠️ NO se pide `preguntar`. Detenía el turno por CADA herramienta esperando una
+        // tarjeta que la app pinta a medias, y un permiso que caía en otro hilo dejaba la
+        // conversación «trabajando» sin fin. Los chats grandes no preguntan por
+        // herramienta; gs decide en su modo por defecto (auto). La tarjeta sigue existiendo
+        // por si un día el servidor pregunta por su cuenta.
         let r = try await pedir(base("/conversations/\(sesion)/messages"), metodo: "POST", cuerpo: cuerpo)
         let enCola = r["enCola"] as? Int ?? 0
         EasyBitsClient.diag("[gs] turno encargado \(sesion): \(r["turnId"] as? String ?? "?") estado=\(r["estado"] as? String ?? "?") enCola=\(enCola)")
@@ -345,6 +347,7 @@ actor ClienteGS: TransporteDeAgente {
         let p = (try? JSONSerialization.jsonObject(with: Data(crudo.utf8))) as? [String: Any] ?? [:]
         switch evento {
         case "chunk":
+            if let id = p["turnId"] as? String { cont.yield(.turno(id)) }
             if let t = p["text"] as? String, !t.isEmpty { cont.yield(.agent(t)) }
         case "thought":
             if let t = p["text"] as? String, !t.isEmpty { cont.yield(.thought(t)) }
@@ -405,6 +408,7 @@ actor ClienteGS: TransporteDeAgente {
             cont.finish(throwing: ACPClient.Fallo.remoto(p["message"] as? String ?? "Falló el turno."))
             return true
         case "done":
+            if let id = p["turnId"] as? String { cont.yield(.turno(id)) }
             // ⚠️ «Está en reposo» sólo cuando venimos a MIRAR. Si estamos mandando, este
             // `done` es el de bienvenida —llega antes de que el turno arranque— y aplicarlo
             // apagaba el turno recién encargado: la conversación decía «En reposo · listo»

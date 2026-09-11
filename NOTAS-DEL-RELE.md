@@ -71,13 +71,11 @@ distinguir «cero» de «no lo sé».
 
 ## Abierto en la app (2026-09-11, madrugada)
 
-- **El botón de «ir hasta abajo»**. Lleva tres intentos y sigue mal: por geometría devolvía
-  cero, por gesto se queda pegado o baja a medias. El patrón correcto es la API de Apple
-  —`scrollPosition(id:)` + `defaultScrollAnchor(.bottom)`, iOS 17+— y no el apaño actual con
-  `ScrollViewReader` y un centinela. Rehacer, no parchear.
-- **El push lleva a la conversación equivocada**. Se aceptan `sessionId`, `sesion` y el
-  `thread-id` de APNs, y si la conversación no está abierta se abre. Falta el caso de tocar
-  el aviso **con la app cerrada**: el aviso llega antes de que existan los canales, así que
-  no hay a dónde ir. Hay que guardarlo y aplicarlo cuando la lista esté montada.
+- ~~El botón de «ir hasta abajo»~~ y ~~el push a la conversación equivocada~~: cerrados
+  el 2026-09-11 por la tarde. El scroll tiene UNA regla (`pegadoAbajo`); el push es
+  estado pendiente (`irA` → `aplicarAvisoPendiente`), no un evento. Y gs manda `turnId`
+  en `chunk`/`done`: la burbuja se llama `turno-<id>` y el historial del servidor
+  SUSTITUYE al local (ya no hay «no piso si viene con menos» ni dedupe por texto).
+- **Ya no se pide `permisos: preguntar`** por turno. Detenía cada herramienta.
 - **Conversaciones que quedan «trabajando» para siempre**. Ya hay un botón «Detener» en el
   cartel, pero la causa está en el servidor: sin lease por turno, un turno mudo no se muere.

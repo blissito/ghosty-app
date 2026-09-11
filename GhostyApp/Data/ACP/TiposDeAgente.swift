@@ -46,6 +46,9 @@ enum ACPClient {
     /// Lo que trae el replay de `session/load`. Los `*_chunk` llegan **partidos**, así
     /// que hay que pegarlos por turno antes de mostrarlos.
     enum Replay: Sendable {
+        /// De QUÉ turno es lo que sigue. Lo pone gs en cada `chunk`/`done`; es lo que
+        /// deja colgar el texto de la MISMA burbuja aunque se llegue por enganche.
+        case turno(String)
         case user(String)
         case agent(String)
         case thought(String)

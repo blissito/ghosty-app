@@ -24,6 +24,15 @@ final class Hilo {
     var sesionID: String?
 
     var mensajes: [Message] = []
+
+    /// Pone un mensaje por su id: si ya está, lo sustituye en su sitio; si no, al final.
+    /// Es la ÚNICA forma sana de añadir: dos mensajes con el mismo id dejan el `ForEach`
+    /// en blanco con el hilo entero dentro.
+    func poner(_ m: Message) {
+        if let i = mensajes.firstIndex(where: { $0.id == m.id }) { mensajes[i] = m }
+        else { mensajes.append(m) }
+    }
+
     var turno: TurnActivity?
     var permisoACP: ACPClient.Permiso?
     var permisoPendiente: PermissionRequest?

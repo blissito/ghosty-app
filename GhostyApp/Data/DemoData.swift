@@ -204,5 +204,6 @@ extension LiveAgentStore {
         for e in [DemoData.conFotoEntregas()].flatMap({ $0 }) { entregas.registrar(e) }
         ponerCanalesDeDemo([DemoData.cuentas[0].id: uno, DemoData.cuentas[1].id: dos])
         conexion = .lista
+        aplicarAvisoPendiente()
     }
 }

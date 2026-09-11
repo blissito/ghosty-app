@@ -17,12 +17,6 @@ import UIKit
 /// la app cerrada necesita push desde el servidor.
 @MainActor
 enum Avisos {
-    /// A quién hay que abrir cuando se toca un aviso. `RootView` lo escucha.
-    ///
-    /// El objeto es el `agentID` y el `userInfo` lleva `sesion` cuando se sabe: con varias
-    /// conversaciones por agente, abrir «el agente» ya no dice a cuál ir.
-    static let alTocar = Notification.Name("ghosty.avisoTocado")
-
     private static var pedido = false
     private static let delegado = Delegado()
 
@@ -214,8 +208,8 @@ enum Avisos {
             let hilo = (info["aps"] as? [String: Any])?["thread-id"] as? String
             let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String) ?? hilo
             await MainActor.run {
-                NotificationCenter.default.post(name: Avisos.alTocar, object: id,
-                                                userInfo: sesion.map { ["sesion": $0] })
+                if let sesion { LiveAgentStore.compartido.irA(agente: id, sesion: sesion) }
+                else { LiveAgentStore.compartido.seleccionar(id) }
             }
         }
     }

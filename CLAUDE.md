@@ -79,6 +79,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_TOKEN=<bearer>` | presta una sesión sin pasar por el login (sólo Debug) |
 | `GHOSTY_SOLO_AGENTE=<id>` | la app sólo ve ESE agente |
 | `GHOSTY_AUTO_PERMISO=1` | contesta los permisos solo, para poder probar el camino entero |
+| `GHOSTY_AVISO=<agente>/<sesion>` | simula tocar un push con la app CERRADA (el push del simulador arranca sin variables) |
 
 ⚠️ **Los cuatro últimos juntos son lo que permite verificar la app contra el servidor de
 verdad sin la sesión de nadie.** Un token de la cuenta real alcanza a TODOS sus agentes,

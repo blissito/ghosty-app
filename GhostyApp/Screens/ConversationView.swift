@@ -28,17 +28,17 @@ struct ConversationView: View {
     /// Manos libres: se soltó el dedo y la grabación sigue.
     @State private var vozBloqueada = false
     @State private var fallo: String?
-    /// ¿Está el hilo al final? Decide si se enseña el botón de bajar.
-    /// Se incrementa al enviar: es la señal para bajar del todo.
-    @State private var bajarYa = 0
-    /// Hasta cuándo hay que seguir bajando pase lo que pase.
-    ///
-    /// ⚠️ El mensaje se añade DESPUÉS de pedir la bajada —el envío es asíncrono, y con una
-    /// nota de voz encima hay que subirla primero—, así que un solo `scrollTo` al pulsar
-    /// enviar apuntaba a un final que todavía no existía y te dejaba a media conversación.
-    @State private var bajandoHasta = Date.distantPast
     /// El último mensaje visible, según el propio `ScrollView`.
     @State private var anclaje: String?
+    /// ¿Sigues el final del hilo? UNA regla, la de todos los chats: sólo lo cambia el
+    /// dedo (subir a releer lo apaga, volver abajo lo enciende), enviar o cambiar de
+    /// conversación. Lo que llega hace scroll si y sólo si esto es verdad.
+    ///
+    /// ⚠️ Antes se deducía de «¿el ancla es el último id?», y al añadirse un mensaje el
+    /// ancla apuntaba al ANTERIOR: la deducción decía «no estás abajo» justo cuando había
+    /// que bajar. De ahí salieron un plazo de cuatro segundos, un contador de envíos y
+    /// un reintento a los 120 ms, y el scroll seguía siendo intermitente.
+    @State private var pegadoAbajo = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,22 +120,19 @@ struct ConversationView: View {
                     }
                 }
             )
-            // ⚠️ Sólo se arrastra si YA estabas al final. Si has subido a releer algo, que
-            // la respuesta te tire hacia abajo es lo más molesto que puede hacer un chat.
-            .onChange(of: store.messages.count) { _, _ in
-                guard alFinal || Date() < bajandoHasta else { return }
-                irAbajo(animado: true)
+            // El dedo manda: el ancla la mueve el sistema al hacer scroll, y de ahí sale
+            // si sigues el final o subiste a releer.
+            .onChange(of: anclaje) { _, a in
+                guard let a, let ultimo = mensajesÚnicos.last?.id else { return }
+                pegadoAbajo = a == ultimo
             }
-            // Y al crecer el último mensaje: la respuesta llega en trozos, y sin esto el
-            // texto nuevo se escribe fuera de la vista.
-            .onChange(of: textoDelUltimo) { _, _ in
-                guard alFinal || Date() < bajandoHasta else { return }
-                irAbajo()
-            }
-            // Al enviar se baja siempre, aunque estuvieras arriba: acabas de escribir.
-            .onChange(of: bajarYa) { _, _ in irAbajo() }
+            // Llega un mensaje o crece el último (la respuesta viene en trozos): se baja
+            // sólo si seguías el final. Que la respuesta te tire hacia abajo cuando has
+            // subido a releer es lo más molesto que puede hacer un chat.
+            .onChange(of: store.messages.count) { _, _ in seguir(animado: true) }
+            .onChange(of: textoDelUltimo) { _, _ in seguir() }
             // Cambiar de conversación es una pantalla nueva: empieza por el final.
-            .onChange(of: hiloVisible) { _, _ in anclaje = mensajesÚnicos.last?.id }
+            .onChange(of: hiloVisible) { _, _ in irAbajo() }
 
             // ⚠️ Un CARTEL, no un mensaje. Que el aviso viva dentro de la respuesta lo
             // convertía en historia: quedaba «se cortó la conexión» pegado para siempre en
@@ -266,26 +263,19 @@ struct ConversationView: View {
         return store.messages.filter { vistos.insert($0.id).inserted }
     }
 
-    /// ¿Estás mirando el final del hilo? Lo dice el sistema, no una cuenta nuestra.
-    private var alFinal: Bool {
-        anclaje == nil || anclaje == mensajesÚnicos.last?.id
+    private var alFinal: Bool { pegadoAbajo }
+
+    /// Si sigues el final, quédate en él.
+    private func seguir(animado: Bool = false) {
+        guard pegadoAbajo, let ultimo = mensajesÚnicos.last?.id else { return }
+        if animado { withAnimation(.easeOut(duration: 0.28)) { anclaje = ultimo } }
+        else { anclaje = ultimo }
     }
 
-    /// Al final del hilo. Una asignación, no un `scrollTo` con reintentos.
+    /// Al final del hilo, pase lo que pase: enviar, tocar el botón, cambiar de hilo.
     private func irAbajo(animado: Bool = false) {
-        guard let ultimo = mensajesÚnicos.last?.id else { return }
-        if animado {
-            withAnimation(.easeOut(duration: 0.28)) { anclaje = ultimo }
-        } else {
-            anclaje = ultimo
-        }
-        // ⚠️ Y otra vez tras el layout. Con el último mensaje creciendo —la respuesta
-        // llega en trozos— el ancla se fija sobre un alto que aún no es el definitivo y
-        // la última línea queda mordida por la barra de abajo.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(120))
-            if mensajesÚnicos.last?.id == ultimo { anclaje = ultimo }
-        }
+        pegadoAbajo = true
+        seguir(animado: animado)
     }
 
     private var hiloVisible: String {
@@ -681,9 +671,9 @@ struct ConversationView: View {
         // El teclado se va y el hilo baja: escribiste, ya está mandado, lo que toca es
         // mirar. Dejarlo abierto tapaba media conversación justo cuando llega la respuesta.
         escribiendo = false
-        bajarYa += 1
-        // Y se sigue bajando unos segundos, hasta que el mensaje esté puesto de verdad.
-        bajandoHasta = Date().addingTimeInterval(4)
+        // Acabas de escribir: se sigue el final aunque estuvieras arriba. El mensaje se
+        // añade después (el envío es asíncrono) y `seguir` lo baja al llegar.
+        pegadoAbajo = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             adjuntos = []
             adjuntando = false
@@ -739,9 +729,9 @@ struct ConversationView: View {
         borrador = ""
         // Igual que al enviar escrito: teclado fuera y al final del hilo.
         escribiendo = false
-        bajarYa += 1
-        // Y se sigue bajando unos segundos, hasta que el mensaje esté puesto de verdad.
-        bajandoHasta = Date().addingTimeInterval(4)
+        // Acabas de escribir: se sigue el final aunque estuvieras arriba. El mensaje se
+        // añade después (el envío es asíncrono) y `seguir` lo baja al llegar.
+        pegadoAbajo = true
         fallo = nil
         subiendo = true
         Task {

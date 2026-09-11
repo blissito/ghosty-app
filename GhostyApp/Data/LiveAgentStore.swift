@@ -238,6 +238,15 @@ final class LiveAgentStore: AgentStoring {
 
     func cargar() async {
         conexion = .cargando
+        // Gancho de desarrollo: «se tocó un aviso ANTES de que existiera nada», que es el
+        // arranque en frío por push. Un push del simulador arranca la app sin variables,
+        // así que este camino sólo se puede ejercitar desde aquí.
+        #if DEBUG
+        if let aviso = ProcessInfo.processInfo.environment["GHOSTY_AVISO"],
+           let barra = aviso.firstIndex(of: "/") {
+            irA(agente: String(aviso[..<barra]), sesion: String(aviso[aviso.index(after: barra)...]))
+        }
+        #endif
 
         // Datos falsos y ni un byte de red. Ver `DemoData.swift`: es lo que permite abrir
         // la app en el simulador y TOCARLA sin tener una sesión.
@@ -256,12 +265,6 @@ final class LiveAgentStore: AgentStoring {
         if !guardadas.isEmpty, conexion != .lista {
             cuentas = guardadas
             montarCanales()
-        // El aviso que se tocó con la app cerrada, ahora que ya hay dónde llevarlo.
-        if let pendiente = avisoPendiente {
-            avisoPendiente = nil
-            seleccionar(pendiente.agente)
-            abrirDesdeAviso(sesion: pendiente.sesion, de: pendiente.agente)
-        }
         // Gancho de desarrollo: arrancar en una conversación NUEVA, que es el camino que
         // más se rompe —crear sesión y mandar el primer turno— y el que no se puede
         // provocar desde un script sin tocar la pantalla.
@@ -456,22 +459,33 @@ final class LiveAgentStore: AgentStoring {
         return hilo.mensajes.count != antes
     }
 
-    /// Abrir la conversación de un aviso: llevar allí, traer lo que se dijo y escuchar.
+    /// Un aviso pide ir a una conversación. Es la ÚNICA entrada: el destino se guarda
+    /// como ESTADO y se aplica en cuanto haya a dónde ir.
+    ///
+    /// ⚠️ Antes viajaba como evento (`NotificationCenter`) y se perdía en arranque en
+    /// frío: el aviso se tocaba antes de que la vista se hubiera suscrito, y
+    /// `seleccionar` fallaba en silencio si las cuentas no habían cargado. Resultado:
+    /// tocar un aviso abría la app en la conversación de siempre, como si fuera de ésa.
+    func irA(agente: String, sesion: String) {
+        avisoPendiente = (agente, sesion)
+        aplicarAvisoPendiente()
+    }
+
+    /// Si hay destino y ya existen las cuentas y el canal, se va. Si no, se queda
+    /// guardado y `montarCanales` lo vuelve a intentar.
     ///
     /// ⚠️ Se pide ESTA conversación por su id, no «la activa». Pedir la activa justo
     /// después de cambiarla es una carrera que se pierde: el aviso te llevaba al sitio
     /// correcto y el hilo aparecía vacío.
-    func abrirDesdeAviso(sesion: String, de agentID: String) {
-        // ⚠️ Con la app CERRADA, el aviso llega antes de que existan los canales: se
-        // guarda y se aplica en cuanto la lista esté montada. Sin esto, tocar un aviso
-        // arrancaba la app y te dejaba en la conversación de siempre — como si el aviso
-        // hubiera sido de ésa.
-        guard let canal = canales[agentID] else {
-            avisoPendiente = (agentID, sesion)
-            return
-        }
+    func aplicarAvisoPendiente() {
+        guard let (agentID, sesion) = avisoPendiente,
+              cuentas.contains(where: { $0.id == agentID }),
+              let canal = canales[agentID] else { return }
+        avisoPendiente = nil
         let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
         mirar(hilo, de: agentID)
+        pestanaPedida = .chat
+        guard !DemoData.encendido else { return }
         Task { [weak self, weak canal] in
             guard let self, let canal else { return }
             await self.traerLaConversacion(hilo, de: canal)
@@ -481,6 +495,8 @@ final class LiveAgentStore: AgentStoring {
 
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
     private var avisoPendiente: (agente: String, sesion: String)?
+    /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
+    var pestanaPedida: GhostyTab?
 
     /// Qué conversaciones hay, qué se dijo en la que miras, y volver a escucharla.
     func ponerseAlDia(_ canal: Canal) {
@@ -529,16 +545,19 @@ final class LiveAgentStore: AgentStoring {
             for e in entregas.deSesion(sid) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
-            // ⚠️⚠️ NUNCA se pisa con MENOS de lo que ya hay. El servidor devuelve la cola
-            // del hilo (`tail`), y además junta mensajes seguidos del mismo hablante: lo
-            // que vuelve puede ser más corto que lo que tienes delante, y sustituirlo sin
-            // más borra respuestas que estaban bien. Si viene con menos, se deja lo local
-            // y se prefiere quedarse corto de frescura que perder una conversación.
-            guard !mensajes.isEmpty, hilo.mensajes.count <= antes,
-                  mensajes.count >= hilo.mensajes.count else {
-                EasyBitsClient.diag("[hilo] \(sid): el servidor trae \(mensajes.count) y aquí hay \(hilo.mensajes.count); no lo piso")
-                return
+            // El servidor es la verdad del hilo: se SUSTITUYE, no se compara. Aquí hubo
+            // un «no piso si viene con menos» que dejaba conversaciones sin refrescar y
+            // un dedupe por texto que borró historial de verdad. Lo único que se
+            // conserva es la burbuja del turno EN CURSO (`turno-<id>`), que el servidor
+            // todavía no ha cerrado; si el historial ya trae su texto parcial como último
+            // mensaje del agente, se quita esa copia y gana la que sigue creciendo.
+            guard !mensajes.isEmpty else { return }
+            let vivas = hilo.mensajes.filter { $0.id.hasPrefix("turno-") && hilo.turno != nil }
+            if !vivas.isEmpty, mensajes.last?.esDelAgente == true,
+               case .agent = mensajes.last!.kind {
+                mensajes.removeLast()
             }
+            mensajes.append(contentsOf: vivas)
             hilo.mensajes = mensajes
             hilo.fallo = nil
             guardarHilos(canal)
@@ -1316,6 +1335,7 @@ final class LiveAgentStore: AgentStoring {
                           _ canal: Canal, _ hilo: Hilo, sid: String,
                           texto: String, respuesta: String,
                           enganchado: Bool = false) async {
+        var respuesta = respuesta
         var acumulado = ""
         var herramientas: [Herramienta] = []
 
@@ -1347,6 +1367,15 @@ final class LiveAgentStore: AgentStoring {
                     refrescarEstado(canal)
                 }
                 switch evento {
+                case .turno(let id):
+                    // La burbuja se llama como el TURNO del servidor. Así el envío, el
+                    // enganche tras dormirse y el backlog escriben las tres en la misma,
+                    // y no hay nada que deduplicar después.
+                    let nueva = "turno-\(id)"
+                    if respuesta != nueva {
+                        hilo.mensajes.removeAll { $0.id == respuesta }
+                        respuesta = nueva
+                    }
                 case .agent(let t):
                     acumulado += t
                     // ⚠️ Un ` ```eb-file ` deja de ser texto y pasa a ser tarjeta. Ver
@@ -1438,16 +1467,6 @@ final class LiveAgentStore: AgentStoring {
             // Una frase inventada en mitad de una conversación es peor que un hueco.
             if acumulado.isEmpty && herramientas.isEmpty {
                 hilo.mensajes.removeAll { $0.kind == .typing }
-            }
-            // El backlog nos hizo repetir lo que ya estaba en el hilo: se quita la copia
-            // vieja, comparando el texto ENTERO y sólo al final, cuando ya no crece.
-            if enganchado, !acumulado.isEmpty {
-                var visto = false
-                hilo.mensajes.removeAll { m in
-                    guard case .agent(let viejo, _, _) = m.kind, viejo == acumulado else { return false }
-                    defer { visto = true }
-                    return visto   // conserva el primero, quita los repetidos
-                }
             }
             // Terminó de verdad: nada de esto sigue pendiente.
             hilo.interrumpido = false
@@ -1607,9 +1626,7 @@ final class LiveAgentStore: AgentStoring {
                                  herramientas: [Herramienta] = []) {
         hilo.mensajes.removeAll { $0.kind == .typing }
         let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)
-        let nuevo = Message(id: id, kind: .agent(text: texto, tools: tools, trailing: nil))
-        if let i = hilo.mensajes.firstIndex(where: { $0.id == id }) { hilo.mensajes[i] = nuevo }
-        else { hilo.mensajes.append(nuevo) }
+        hilo.poner(Message(id: id, kind: .agent(text: texto, tools: tools, trailing: nil)))
     }
 
     /// `avisar` es lo que distingue un turno que ACABÓ de uno que paraste tú o que
@@ -1759,8 +1776,7 @@ final class LiveAgentStore: AgentStoring {
         for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
             canales[id]?.soltar(); canales[id] = nil
         }
-        for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
-            canales[id]?.soltar(); canales[id] = nil
-        }
+        // El aviso que se tocó con la app cerrada, ahora que ya hay dónde llevarlo.
+        aplicarAvisoPendiente()
     }
 }

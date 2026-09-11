@@ -72,21 +72,12 @@ struct RootView: View {
             guard nueva == .active else { return }
             Task { await store.volverDelFondo() }
         }
-        // Tocar un aviso abre a ese agente. Es la mitad que hace útil la notificación:
-        // sin esto te enteras de que alguien terminó y sigues teniendo que buscarlo.
-        .onReceive(NotificationCenter.default.publisher(for: Avisos.alTocar)) { aviso in
-            guard let id = aviso.object as? String else { return }
-            store.seleccionar(id)
-            // Si el aviso dice de QUÉ conversación habla, se abre ésa: con varias por
-            // agente, abrir «el agente» ya no dice a cuál ir.
-            // ⚠️ Si esa conversación no está abierta en la app, se ABRE. Antes el `guard`
-            // fallaba en silencio y te dejaba donde estuvieras: tocabas un aviso de una
-            // conversación y aterrizabas en otra, que es peor que no llevarte a ninguna
-            // —te hace creer que el aviso era de ésta—.
-            if let sesion = aviso.userInfo?["sesion"] as? String {
-                store.abrirDesdeAviso(sesion: sesion, de: id)
-            }
-            tab = .chat
+        // Tocar un aviso lleva al chat. El destino lo resuelve el store (`irA`); aquí
+        // sólo se cambia de pestaña cuando lo pide.
+        .onChange(of: store.pestanaPedida) { _, pedida in
+            guard let pedida else { return }
+            tab = pedida
+            store.pestanaPedida = nil
         }
         .task {
             // Lo primero, y barato: tirar las imágenes viejas del caché de disco.

@@ -97,7 +97,7 @@ enum ReplayToMessages {
                 if quien != .agente { cerrar(); quien = .agente }
                 texto += t
 
-            case .thought:
+            case .thought, .turno:
                 // El razonamiento del agente no va al hilo: es ruido para quien lee,
                 // y en la caja son párrafos enteros por turno.
                 break
