@@ -77,5 +77,12 @@ distinguir «cero» de «no lo sé».
   en `chunk`/`done`: la burbuja se llama `turno-<id>` y el historial del servidor
   SUSTITUYE al local (ya no hay «no piso si viene con menos» ni dedupe por texto).
 - **Ya no se pide `permisos: preguntar`** por turno. Detenía cada herramienta.
+- **Ronda 4 (tarde del 11):** `POST /messages` lleva `turnId` del teléfono y gs lo usa
+  como clave de idempotencia (`repetido: true` al reintentar); el POST reintenta solo
+  ante red caída o 502/503/504 (1, 2, 4, 8 s). gs **drena** al SIGTERM del deploy: 503 +
+  `Retry-After` a los turnos nuevos y espera hasta 4 min a los que corren (drop-in
+  `TimeoutStopSec=300`). El push silencioso en frío monta los canales del caché y abre
+  la conversación del aviso antes de pedirla. Pendiente de verificar contra la caja
+  real: el agente de pruebas quedó topado por `app_tier_exhausted`.
 - **Conversaciones que quedan «trabajando» para siempre**. Ya hay un botón «Detener» en el
   cartel, pero la causa está en el servidor: sin lease por turno, un turno mudo no se muere.

@@ -72,10 +72,13 @@ enum ACPClient {
         case timeout(String)
         case remoto(String)
         case handshake(String)
+        /// El servidor pide volver a intentarlo (502/503/504): no es un «no», es un «ahora no».
+        case transitorio(Int)
 
         var errorDescription: String? {
             switch self {
             case .noConectado:      return "No hay conexión con tu agente."
+            case .transitorio(let c): return "El servidor no está disponible ahora mismo (\(c))."
             case .timeout(let m):   return "Tu agente no contestó a \(m)."
             case .remoto(let m):    return m
             case .handshake(let m): return "No pude abrir la sesión: \(m)"

@@ -65,6 +65,7 @@ actor ClienteGS: TransporteDeAgente {
                        cuerpo: [String: Any]? = nil) async throws -> [String: Any] {
         let (d, resp) = try await Self.sesion.data(for: try await peticion(url, metodo: metodo, cuerpo: cuerpo))
         let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        if [502, 503, 504].contains(codigo) { throw ACPClient.Fallo.transitorio(codigo) }
         guard (200..<300).contains(codigo) else {
             throw ACPClient.Fallo.remoto(mensajeDeError(d, codigo))
         }
@@ -238,7 +239,9 @@ actor ClienteGS: TransporteDeAgente {
             let tarea = Task {
                 do {
                     try await self.escuchar(sessionID, cont, esperandoTurno: true)
-                    try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos)
+                    let turnId = try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos)
+                    // La burbuja se llama como el turno desde el primer momento.
+                    cont.yield(.turno(turnId))
                 } catch {
                     cont.finish(throwing: error)
                 }
@@ -285,7 +288,28 @@ actor ClienteGS: TransporteDeAgente {
         escuchas[sesion] = nil
     }
 
-    private func encargar(_ sesion: String, texto: String, adjuntos: [Adjunto]) async throws {
+    /// Reintenta ante red caída o 502/503/504 (gs reiniciándose por un deploy): 1, 2, 4,
+    /// 8 s. Un 4xx no se reintenta: eso es un «no», no un «ahora no». Es seguro porque el
+    /// cuerpo lleva `turnId` y el servidor no arranca dos veces el mismo.
+    private func conReintentos(_ op: () async throws -> [String: Any]) async throws -> [String: Any] {
+        var espera: UInt64 = 1
+        for intento in 1...5 {
+            do { return try await op() }
+            catch let e as ACPClient.Fallo {
+                guard case .transitorio = e, intento < 5 else { throw e }
+            } catch let e as URLError {
+                guard [.networkConnectionLost, .timedOut, .cannotConnectToHost, .notConnectedToInternet,
+                       .cannotFindHost, .dnsLookupFailed].contains(e.code), intento < 5 else { throw e }
+            }
+            EasyBitsClient.diag("[gs] encargar: reintento \(intento) en \(espera) s")
+            try await Task.sleep(for: .seconds(espera))
+            espera *= 2
+        }
+        throw ACPClient.Fallo.noConectado
+    }
+
+    @discardableResult
+    private func encargar(_ sesion: String, texto: String, adjuntos: [Adjunto]) async throws -> String {
         // ⚠️ Los adjuntos van en base64 y gs decide qué entra inline y qué se le entrega
         // al agente como URL con su comando (`attachments.server.ts`). Es lo mismo que
         // hacía `BloqueDeAdjuntos` en el teléfono, pero del lado que conoce a la caja.
@@ -297,12 +321,19 @@ actor ClienteGS: TransporteDeAgente {
         }
         var cuerpo: [String: Any] = ["content": texto]
         if !archivos.isEmpty { cuerpo["images"] = archivos }
+        // Clave de idempotencia: la pone el TELÉFONO. Un POST que se corta después de
+        // llegar se reintenta con el mismo id y gs devuelve el turno que ya corre en vez
+        // de arrancar otro. Sin esto, «reintentar» duplicaba el turno.
+        let turnId = UUID().uuidString.lowercased()
+        cuerpo["turnId"] = turnId
         // ⚠️ NO se pide `preguntar`. Detenía el turno por CADA herramienta esperando una
         // tarjeta que la app pinta a medias, y un permiso que caía en otro hilo dejaba la
         // conversación «trabajando» sin fin. Los chats grandes no preguntan por
         // herramienta; gs decide en su modo por defecto (auto). La tarjeta sigue existiendo
         // por si un día el servidor pregunta por su cuenta.
-        let r = try await pedir(base("/conversations/\(sesion)/messages"), metodo: "POST", cuerpo: cuerpo)
+        let r = try await conReintentos {
+            try await self.pedir(self.base("/conversations/\(sesion)/messages"), metodo: "POST", cuerpo: cuerpo)
+        }
         let enCola = r["enCola"] as? Int ?? 0
         EasyBitsClient.diag("[gs] turno encargado \(sesion): \(r["turnId"] as? String ?? "?") estado=\(r["estado"] as? String ?? "?") enCola=\(enCola)")
         // ⚠️ Un agente atiende un número limitado de conversaciones a la vez. Si las
@@ -310,6 +341,7 @@ actor ClienteGS: TransporteDeAgente {
         // espera se lee como «se colgó». Medido en la caja de alguien: cinco turnos en
         // cola detrás de dos que se quedaron atascados, y la app enseñando «Trabajando…».
         if enCola > 0 { alEsperar?(enCola) }
+        return (r["turnId"] as? String) ?? turnId
     }
 
     /// Abre el SSE y traduce lo que llega.

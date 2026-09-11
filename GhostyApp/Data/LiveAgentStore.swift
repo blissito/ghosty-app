@@ -451,9 +451,19 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Con presupuesto corto por fuera (lo pone quien llama): iOS da unos segundos a
     /// una app despertada en el fondo y castiga —en silencio— a la que se pasa.
     func recogerYa(agente agentID: String, sesion sid: String) async -> Bool {
-        guard !DemoData.encendido, Session.haySesion,
-              let canal = canales[agentID],
-              let hilo = canal.hilos.first(where: { $0.sesionID == sid }) else { return false }
+        guard !DemoData.encendido, Session.haySesion else { return false }
+        // ⚠️ En FRÍO no hay canales: iOS arrancó la app en el fondo sólo para esto. Se
+        // montan del caché (sin red) y se abre la conversación del aviso si no estaba;
+        // antes este `guard` devolvía `false` y el push silencioso no traía nada justo
+        // cuando la app llevaba horas cerrada, que es cuando más hacía falta.
+        if canales.isEmpty {
+            let guardadas = Credentials.accounts
+            guard !guardadas.isEmpty else { return false }
+            cuentas = guardadas
+            montarCanales()
+        }
+        guard let canal = canales[agentID] else { return false }
+        let hilo = canal.hilo(sesion: sid) ?? canal.abrir(sid)
         let antes = hilo.mensajes.count
         await traerLaConversacion(hilo, de: canal)
         return hilo.mensajes.count != antes
