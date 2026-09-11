@@ -82,7 +82,8 @@ distinguir «cero» de «no lo sé».
   ante red caída o 502/503/504 (1, 2, 4, 8 s). gs **drena** al SIGTERM del deploy: 503 +
   `Retry-After` a los turnos nuevos y espera hasta 4 min a los que corren (drop-in
   `TimeoutStopSec=300`). El push silencioso en frío monta los canales del caché y abre
-  la conversación del aviso antes de pedirla. Pendiente de verificar contra la caja
-  real: el agente de pruebas quedó topado por `app_tier_exhausted`.
+  la conversación del aviso antes de pedirla. **Verificado en producción** (15:05):
+  POST doble con el mismo `turnId` → `repetido: true`; restart con un turno en vuelo →
+  `[drain] SIGTERM con 1 turno(s)`, el turno cerró con push y sólo entonces reinició.
 - **Conversaciones que quedan «trabajando» para siempre**. Ya hay un botón «Detener» en el
   cartel, pero la causa está en el servidor: sin lease por turno, un turno mudo no se muere.
