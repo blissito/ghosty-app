@@ -463,9 +463,15 @@ final class LiveAgentStore: AgentStoring {
                 canal.hilosRemotos = frescas
                 canal.estadoHilos = .listo
                 self.cache.guardarLista(frescas, de: canal.cuenta.id)
-                if canal.hilo == nil || (canal.hilo?.mensajes.isEmpty ?? true) {
-                    let hilo = canal.hilo(sesion: frescas[0].id) ?? canal.abrir(frescas[0].id)
-                    canal.activa = hilo.clave
+                // ⚠️⚠️ NUNCA se cambia de conversación por debajo. Esto llevaba a la
+                // persona a otra conversación mientras escribía —«se borró el historial al
+                // enviar»: no se borraba, es que le cambiábamos el hilo delante y el suyo
+                // se quedaba atrás con su mensaje dentro—. Cambiar de conversación lo hace
+                // quien toca la pantalla, nunca una respuesta de red que llega tarde.
+                //
+                // Sólo se abre una si NO hay ninguna, que es el arranque en frío.
+                if canal.hilos.isEmpty {
+                    canal.activa = canal.abrir(frescas[0].id).clave
                 }
             }
             guard let hilo = canal.hilo else { return }
@@ -701,6 +707,30 @@ final class LiveAgentStore: AgentStoring {
         // Y cuando el pedido deja de esperar —lo contestaste tú desde otro sitio, o se
         // acabó el plazo— la tarjeta se retira sola. Una que sigue pidiendo permiso por
         // algo ya resuelto no se puede quitar de ninguna manera.
+        // ⚠️ El estado de una conversación lo dice el SERVIDOR, no lo deducimos. Que la
+        // app lo infiriera —de si quedaba un turno local, de si el hilo estaba marcado
+        // como interrumpido— es lo que ponía «Sigue trabajando…» encima de una
+        // conversación en reposo y sin respuesta.
+        await c.alCambiarEstado { [weak self, weak canal] sesion, fase in
+            Task { @MainActor in
+                guard let self, let canal, let hilo = canal.hilo(sesion: sesion) else { return }
+                switch fase {
+                case "reposo":
+                    hilo.interrumpido = false
+                    hilo.turno = nil
+                    hilo.cronometro?.cancel(); hilo.cronometro = nil
+                    hilo.inicio = nil
+                case "waking":
+                    hilo.turno?.detail = "Despertando a tu agente…"
+                default:
+                    hilo.interrumpido = false
+                    if hilo.turno == nil {
+                        self.arrancarCronometro(hilo, titulo: hilo.prompt.isEmpty ? "lo de antes" : hilo.prompt)
+                    }
+                }
+                self.refrescarEstado(canal)
+            }
+        }
         // Que la espera se DIGA. Un reloj corriendo sin explicar a qué espera se lee como
         // que la app se colgó, y es justo cuando más falta hace entender qué pasa.
         await c.alHacerCola { [weak canal] cuantas in

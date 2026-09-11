@@ -37,6 +37,10 @@ protocol TransporteDeAgente: Actor {
     /// WebSocket no puede: allí el turno murió con el socket—.
     nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<ACPClient.Replay, Error>?
 
+    /// Qué está pasando en una conversación, dicho por quien es dueño del turno:
+    /// `"waking"` (despertando la caja), `"session"` (el agente trabaja) o `"reposo"`.
+    func alCambiarEstado(_ handler: @escaping @Sendable (String, String) -> Void)
+
     /// Cuántas conversaciones hay por delante cuando el turno tiene que esperar ranura.
     func alHacerCola(_ handler: @escaping @Sendable (Int) -> Void)
 

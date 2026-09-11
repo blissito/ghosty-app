@@ -185,6 +185,12 @@ actor ClienteGS: TransporteDeAgente {
         permisoPendiente = handler
     }
 
+    /// Qué está pasando de verdad en esa conversación, según el servidor.
+    private var alCambiarEstado: (@Sendable (String, String) -> Void)?
+    func alCambiarEstado(_ handler: @escaping @Sendable (String, String) -> Void) {
+        alCambiarEstado = handler
+    }
+
     /// Aviso de que este turno está haciendo cola detrás de otros.
     private var alEsperar: (@Sendable (Int) -> Void)?
     func alHacerCola(_ handler: @escaping @Sendable (Int) -> Void) { alEsperar = handler }
@@ -387,10 +393,20 @@ actor ClienteGS: TransporteDeAgente {
                 permisosAvisados.remove(id)
                 permisoResuelto?(id)
             }
+        case "status":
+            // ⚠️ Lo dice el SERVIDOR, que es el dueño del turno. La app llevaba toda la
+            // noche INFIRIENDO si había trabajo en marcha —por si quedaba un turno local,
+            // por si el hilo estaba marcado como interrumpido— y por eso enseñaba
+            // «Sigue trabajando…» encima de una conversación en reposo. Este evento
+            // existe justo para no adivinar.
+            alCambiarEstado?(sesion, p["phase"] as? String ?? "session")
         case "error":
             cont.finish(throwing: ACPClient.Fallo.remoto(p["message"] as? String ?? "Falló el turno."))
             return true
         case "done":
+            // Y si llega el `done` de reposo, esa conversación NO está trabajando. Decirlo
+            // es lo que apaga un «trabajando» que se quedó puesto de un turno anterior.
+            if p["reposo"] as? Bool == true { alCambiarEstado?(sesion, "reposo") }
             // ⚠️ `reposo: true` es «aquí no está pasando nada», no «tu turno acabó». Se
             // manda a quien se suscribe a una conversación quieta, y si se confunde con el
             // otro, el turno que estás a punto de encargar muere antes de nacer.

@@ -79,9 +79,16 @@ struct RootView: View {
             store.seleccionar(id)
             // Si el aviso dice de QUÉ conversación habla, se abre ésa: con varias por
             // agente, abrir «el agente» ya no dice a cuál ir.
-            if let sesion = aviso.userInfo?["sesion"] as? String,
-               let hilo = store.canales[id]?.hilo(sesion: sesion) {
+            // ⚠️ Si esa conversación no está abierta en la app, se ABRE. Antes el `guard`
+            // fallaba en silencio y te dejaba donde estuvieras: tocabas un aviso de una
+            // conversación y aterrizabas en otra, que es peor que no llevarte a ninguna
+            // —te hace creer que el aviso era de ésta—.
+            if let sesion = aviso.userInfo?["sesion"] as? String, let canal = store.canales[id] {
+                let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
                 store.mirar(hilo, de: id)
+                // Y se pide su contenido: una conversación recién abierta está vacía, y el
+                // aviso decía justamente que ahí había algo nuevo.
+                store.ponerseAlDia(canal)
             }
             tab = .chat
         }
