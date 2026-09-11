@@ -59,6 +59,12 @@ distinguir «cero» de «no lo sé».
 
 ## Lo que queda
 
+- **Turno mudo de 10 min en la caja del teléfono (2026-09-11 15:22–15:32 UTC).** gs lo
+  cortó por el lease y avisó. Medido en sandbox-host (box-b): la caja `sb_c575155c…`
+  estaba DESPIERTA (resume 15:16:58, sin suspend en la ventana), así que el silencio fue
+  dentro del agente (ghosty-lite): un comando o una llamada al modelo que no volvió.
+  Falta un tope por herramienta del lado ghosty-lite; aquí la red es el lease.
+
 - **Lease con vencimiento por turno** (`PROMPT_TIMEOUT_MS` existe y no se usa). Un turno
   vivo pero mudo no tiene tope; es lo que llenó las ranuras de zombis.
 - **Un cursor de verdad** en el hilo (`?since=`), en vez de `tail`.
