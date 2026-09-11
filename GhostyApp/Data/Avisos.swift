@@ -168,6 +168,12 @@ enum Avisos {
         #endif
     }
 
+    /// ⚠️ `@MainActor` no es cosmética: las versiones `async` de estos métodos corren en
+    /// un hilo cualquiera, y UIKit, al cerrar el toque de un aviso con la app CERRADA,
+    /// guarda la restauración de estado desde la continuación — en el hilo principal o
+    /// revienta con «Call must be made on main thread». Medido el 2026-09-11: la app
+    /// moría al tocar el push en frío y se veía como «el push no abre la app».
+    @MainActor
     private final class Delegado: NSObject, UNUserNotificationCenterDelegate {
         /// Qué hacer con un aviso que llega con la app DELANTE.
         ///
