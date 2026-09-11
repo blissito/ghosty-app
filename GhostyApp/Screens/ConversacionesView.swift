@@ -315,6 +315,17 @@ struct ConversacionesView: View {
     }
 
     private func detalle(_ s: ACPClient.Session) -> String {
+        // Primero cómo acabó su último turno, que lo dice el servidor: es lo que hace de
+        // la lista un buzón aunque la respuesta llegara con la app cerrada.
+        if let u = s.ultimoTurno {
+            let cuando = u.terminado.map { " · " + Hilo.hace($0) } ?? ""
+            switch u.estado {
+            case "running", "queued": return "Trabajando…"
+            case "error":   return "Falló: \(u.error ?? "el turno se cortó")"
+            case "stopped": return "Detenido" + cuando
+            default:        return "Contestó" + cuando
+            }
+        }
         var partes: [String] = []
         if let n = s.messageCount { partes.append(n == 1 ? "1 mensaje" : "\(n) mensajes") }
         if let f = s.updatedAt { partes.append(Hilo.hace(f)) }

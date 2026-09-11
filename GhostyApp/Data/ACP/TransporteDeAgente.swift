@@ -20,6 +20,9 @@ protocol TransporteDeAgente: Actor {
 
     /// El hilo. `nil` si esa conversación tiene un turno vivo y no se puede pisar.
     func cargar(_ id: String, cwd: String) async throws -> [ACPClient.Replay]?
+    /// Cómo acabó el último turno de esa conversación según el servidor, tras `cargar`.
+    /// `nil` = el transporte no lo sabe (el WebSocket directo no lo sabe).
+    func ultimoTurno(de sesion: String) async -> ACPClient.UltimoTurno?
 
     func nuevaSesion(cwd: String) async throws -> (id: String, modos: ACPClient.Modos?)
 

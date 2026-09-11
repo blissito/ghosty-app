@@ -429,6 +429,7 @@ final class LiveAgentStore: AgentStoring {
         if id != selectedAgentID { seleccionar(id) }
         canales[id]?.activa = hilo.clave
         hilo.visto = true
+        if let sid = hilo.sesionID { VistoHasta.marcar(sid) }
     }
 
     // MARK: - Ponerse al día
@@ -466,12 +467,7 @@ final class LiveAgentStore: AgentStoring {
         let hilo = canal.hilo(sesion: sid) ?? canal.abrir(sid)
         let antes = hilo.mensajes.count
         await traerLaConversacion(hilo, de: canal)
-        let hubo = hilo.mensajes.count != antes
-        // El push ES el servidor diciendo «contestó»: sin esto la lista no enseñaba la
-        // palomita de una respuesta que llegó con la app cerrada, porque `termino` sólo
-        // lo ponía el cierre de un turno mirado desde aquí.
-        if hubo, hilo.turno == nil { hilo.termino = Date(); hilo.visto = false; sinVer.insert(agentID) }
-        return hubo
+        return hilo.mensajes.count != antes
     }
 
     /// Un aviso pide ir a una conversación. Es la ÚNICA entrada: el destino se guarda
@@ -499,8 +495,6 @@ final class LiveAgentStore: AgentStoring {
         avisoPendiente = nil
         let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
         EasyBitsClient.diag("[push] abro \(sesion) de \(agentID.prefix(9)) (\(hilo.mensajes.count) mensajes en caché)")
-        // Un aviso tocado es un turno que cerró: se marca, aunque se vea ahora mismo.
-        if hilo.turno == nil, hilo.termino == nil { hilo.termino = Date() }
         mirar(hilo, de: agentID)
         pestanaPedida = .chat
         guard !DemoData.encendido else { return }
@@ -529,6 +523,9 @@ final class LiveAgentStore: AgentStoring {
                 canal.hilosRemotos = frescas
                 canal.estadoHilos = .listo
                 self.cache.guardarLista(frescas, de: canal.cuenta.id)
+                for f in frescas {
+                    if let h = canal.hilo(sesion: f.id) { self.aplicarUltimoTurno(f.ultimoTurno, a: h, de: canal) }
+                }
                 // ⚠️⚠️ NUNCA se cambia de conversación por debajo. Esto llevaba a la
                 // persona a otra conversación mientras escribía —«se borró el historial al
                 // enviar»: no se borraba, es que le cambiábamos el hilo delante y el suyo
@@ -543,6 +540,37 @@ final class LiveAgentStore: AgentStoring {
             guard let hilo = canal.hilo else { return }
             await self.traerLaConversacion(hilo, de: canal)
             self.engancharse(hilo, de: canal)
+        }
+    }
+
+    /// Aplica al hilo lo que el SERVIDOR dice de su último turno: contestó, falló o sigue.
+    ///
+    /// ⚠️ Sólo si no hay turno local vivo: el local es más fresco que cualquier lista.
+    /// Es lo que hace de la lista un buzón aunque la respuesta llegara con la app cerrada
+    /// —y lo que pinta el cartel rojo cuando gs cortó un turno mudo, que el replay de la
+    /// caja (sólo texto) no sabe contar.
+    private func aplicarUltimoTurno(_ u: ACPClient.UltimoTurno?, a hilo: Hilo, de canal: Canal) {
+        guard let u, hilo.turno == nil, let sid = hilo.sesionID else { return }
+        switch u.estado {
+        case "running", "queued":
+            // Sigue allá y no lo estamos oyendo: a escuchar.
+            if hilo.enVuelo == nil { engancharse(hilo, de: canal) }
+        case "error":
+            hilo.fallo = u.error ?? "El turno falló."
+            hilo.interrumpido = false
+            hilo.termino = u.terminado
+        case "stopped":
+            hilo.fallo = nil
+            hilo.interrumpido = false
+            hilo.termino = u.terminado
+        default: // done
+            hilo.fallo = nil
+            hilo.interrumpido = false
+            hilo.termino = u.terminado
+            if let fin = u.terminado {
+                hilo.visto = (VistoHasta.de(sid) ?? .distantPast) >= fin
+                if !hilo.visto { sinVer.insert(canal.cuenta.id) }
+            }
         }
     }
 
@@ -579,6 +607,7 @@ final class LiveAgentStore: AgentStoring {
             EasyBitsClient.diag("[hilo] \(sid): el servidor trae \(mensajes.count) mensajes (había \(hilo.mensajes.count))")
             hilo.mensajes = mensajes
             hilo.fallo = nil
+            aplicarUltimoTurno(await cliente.ultimoTurno(de: sid), a: hilo, de: canal)
             guardarHilos(canal)
         } catch {
             EasyBitsClient.diag("[hilo] no pude traer \(sid): \(error)")

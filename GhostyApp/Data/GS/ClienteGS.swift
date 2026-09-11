@@ -111,7 +111,8 @@ actor ClienteGS: TransporteDeAgente {
             guard let id = c["id"] as? String else { return nil }
             let f = (c["actualizada"] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
             return ACPClient.Session(id: id, title: c["titulo"] as? String ?? "Conversación",
-                                     cwd: "/data/work", updatedAt: f, messageCount: nil)
+                                     cwd: "/data/work", updatedAt: f, messageCount: nil,
+                                     ultimoTurno: ACPClient.UltimoTurno.desde(c["ultimoTurno"]))
         }
     }
 
@@ -135,6 +136,7 @@ actor ClienteGS: TransporteDeAgente {
         c.queryItems = [URLQueryItem(name: "tail", value: "\(Self.cola)")]
         let r = try await pedir(c.url!)
         saltados[id] = r["saltados"] as? Int ?? 0
+        ultimos[id] = ACPClient.UltimoTurno.desde(r["ultimoTurno"])
         return (r["messages"] as? [[String: Any]] ?? []).compactMap { m in
             guard let t = m["text"] as? String, !t.isEmpty else { return nil }
             guard m["role"] as? String == "user" else { return .agent(t) }
@@ -157,6 +159,10 @@ actor ClienteGS: TransporteDeAgente {
               let corte = t.range(of: "\n\nNadie está mirando ahora") else { return t }
         return String(t[..<corte.lowerBound])
     }
+
+    /// Cómo acabó el último turno de cada conversación, según el último `cargar`.
+    private var ultimos: [String: ACPClient.UltimoTurno] = [:]
+    func ultimoTurno(de sesion: String) async -> ACPClient.UltimoTurno? { ultimos[sesion] }
 
     /// Cuántos mensajes quedaron atrás en el último `cargar`. Es lo que permite ofrecer
     /// «ver lo anterior» en vez de fingir que la conversación empieza ahí.

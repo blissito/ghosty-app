@@ -22,7 +22,7 @@ volver a los 40 → la respuesta está entera.
 | El hilo | `GET …/conversations/:sid?tail=N` → `{messages, saltados}` |
 | Permiso | `POST …/conversations/:sid/permission` `{id, optionId}` |
 | Detener | `POST …/conversations/:sid/cancel` |
-| Conversaciones | `GET`/`POST …/conversations`, `DELETE …/:sid` |
+| Conversaciones | `GET`/`POST …/conversations`, `DELETE …/:sid` — cada fila y el hilo llevan `ultimoTurno {turnId, state, error, startedAt, endedAt}` (persistido en `TurnRecord`) |
 
 Eventos: `chunk`, `thought`, `tool`, `artifact`, `usage`, `permission`,
 `permission-resolved`, `status`, `caps`, `title`, `done`, `error`.

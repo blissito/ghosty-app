@@ -13,6 +13,27 @@ enum ACPClient {
         var cwd: String
         var updatedAt: Date?
         var messageCount: Int?
+        /// Cómo acabó el último turno, según el SERVIDOR. Es lo que hace de la lista un
+        /// buzón aunque la respuesta llegara con la app cerrada.
+        var ultimoTurno: UltimoTurno?
+    }
+
+    struct UltimoTurno: Sendable, Equatable {
+        let turnId: String
+        /// "running" | "queued" | "done" | "stopped" | "error"
+        let estado: String
+        let error: String?
+        let terminado: Date?
+
+        static func desde(_ d: Any?) -> UltimoTurno? {
+            guard let d = d as? [String: Any], let id = d["turnId"] as? String,
+                  let estado = d["state"] as? String else { return nil }
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let iso2 = ISO8601DateFormatter()
+            let fin = (d["endedAt"] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
+            return UltimoTurno(turnId: id, estado: estado, error: d["error"] as? String, terminado: fin)
+        }
     }
 
     /// Modo de la sesión. `session/new` los devuelve: `auto` aprueba las herramientas
