@@ -97,7 +97,11 @@ struct ConversationView: View {
                             // desaparecía igual: «no sirve, pero desaparece». Ahora lo
                             // dice el último mensaje cuando de verdad aparece en pantalla,
                             // y el scroll insiste hasta que el `LazyVStack` lo ha creado.
-                            alFondo(scroll, animado: true)
+                            // ⚠️ Insiste, no una sola vez. Un `scrollTo` en un hilo largo
+                            // aterriza sobre un alto que el `LazyVStack` todavía no ha
+                            // medido: el botón se marcaba como «ya estás abajo» y
+                            // desaparecía sin haber bajado. Ver `traerAlFinal`.
+                            traerAlFinal(scroll, animado: true)
                         } label: {
                             Image(systemName: "arrow.down")
                                 .font(.system(size: 14, weight: .semibold))
@@ -182,29 +186,6 @@ struct ConversationView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            // ⚠️ Un toque para volver a mandarlo, con el texto ya puesto. El turno que se
-            // corta se PIERDE de verdad —lo mata el relé al caerse el socket—, así que lo
-            // único honesto es ofrecer repetirlo; y hacer que la persona vuelva a teclear
-            // lo que ya escribió (o a grabar otra vez una nota de voz) es cobrarle un
-            // fallo nuestro.
-            if let hilo = store.hiloActivo, hilo.paraReintentar != nil, !hilo.trabajando {
-                Button { Task { await store.reintentar() } } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("Volver a mandarlo").gMeta().fontWeight(.medium)
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(Color.gPrimary)
-                    .padding(.horizontal, 12).padding(.vertical, 10)
-                    .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("reintentar")
-                .padding(.horizontal, 16).padding(.bottom, 6)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
             // ⚠️ El conmutador de conversaciones va ABAJO, pegado al compositor. Estuvo
             // arriba —bajo la cabecera— y era donde no llega el pulgar: para cambiarte de
             // conversación había que estirar el dedo hasta la cabeza del agente y abrir un
@@ -225,8 +206,6 @@ struct ConversationView: View {
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.85),
                    value: store.hiloActivo?.interrumpido)
-        .animation(.spring(response: 0.32, dampingFraction: 0.85),
-                   value: store.hiloActivo?.paraReintentar)
         .sensoryFeedback(.success, trigger: entregasEnElHilo)
         .sensoryFeedback(.impact(weight: .light), trigger: adjuntos.count)
         .sensoryFeedback(.start, trigger: grabador.grabando)
@@ -340,10 +319,15 @@ struct ConversationView: View {
     }
 
     /// Al abrir una conversación: al final, y otra vez cuando ya se midió el alto.
-    private func traerAlFinal(_ scroll: ScrollViewProxy) {
-        alFondo(scroll)
+    private func traerAlFinal(_ scroll: ScrollViewProxy, animado: Bool = false) {
+        alFondo(scroll, animado: animado)
         Task { @MainActor in
+            // Dos reintentos, no uno: con un hilo largo el primero cae sobre filas que aún
+            // no existen —el `LazyVStack` las crea al acercarse— y el segundo llega antes
+            // de que haya terminado de crearlas.
             try? await Task.sleep(for: .milliseconds(120))
+            alFondo(scroll)
+            try? await Task.sleep(for: .milliseconds(260))
             alFondo(scroll)
         }
     }

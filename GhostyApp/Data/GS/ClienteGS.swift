@@ -135,7 +135,14 @@ actor ClienteGS: TransporteDeAgente {
         saltados[id] = r["saltados"] as? Int ?? 0
         return (r["messages"] as? [[String: Any]] ?? []).compactMap { m in
             guard let t = m["text"] as? String, !t.isEmpty else { return nil }
-            return m["role"] as? String == "user" ? .user(t) : .agent(t)
+            guard m["role"] as? String == "user" else { return .agent(t) }
+            // ⚠️ Lo que se guardó es lo que se MANDÓ, con toda la fontanería dentro: el
+            // bloque de conversación previa que ponía la app antes de esta mudanza, y los
+            // `curl` de los adjuntos. Sin limpiarlo, al recargar el hilo la burbuja de la
+            // persona sale con un muro de texto que ella nunca escribió — se vio tal cual
+            // en el teléfono.
+            let limpio = BloqueDeAdjuntos.limpiarParaMostrar(t).texto
+            return .user(limpio.isEmpty ? t : limpio)
         }
     }
 
@@ -215,13 +222,15 @@ actor ClienteGS: TransporteDeAgente {
                     cont.finish(throwing: error)
                 }
             }
-            cont.onTermination = { motivo in
+            cont.onTermination = { _ in
                 tarea.cancel()
+                // ⚠️ Dejar de escuchar y NADA MÁS. Aquí antes se cancelaba el turno cuando
+                // el flujo terminaba «cancelado», copiando lo que hace falta en el
+                // WebSocket. Con gs eso es justo lo contrario de lo que se busca: soltar
+                // el flujo pasa al reenganchar, al cambiar de pantalla o al suspenderse la
+                // app, y ninguna de esas cosas debe parar el trabajo. Detener lo pide una
+                // persona, y para eso está `cancelar(_:)`, que llama quien pulsa el botón.
                 Task { await self.dejarDeEscuchar(sessionID) }
-                // Cancelar de verdad: irse de la pantalla no para el turno, pero pulsar
-                // «detener» sí — y eso lo dice el motivo, no el que cierra el flujo.
-                guard case .cancelled = motivo else { return }
-                Task { await self.cancelar(sessionID) }
             }
         }
     }

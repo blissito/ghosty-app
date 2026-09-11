@@ -64,16 +64,13 @@ struct RootView: View {
                     .onAppear { if !pestanas.contains(tab) { tab = .chat } }
             }
         }
-        // ⚠️ Las TRES fases, no sólo la de volver. `.inactive` llega ANTES de que iOS mate
-        // el socket y es la única ventana para dejar anotado que lo que venga después es
-        // una suspensión y no un fallo del agente; en `.background` ya casi no hay tiempo.
+        // ⚠️ Sólo al VOLVER. Aquí hubo tres ramas —anotar el fondo, cerrar sockets con
+        // tiempo de gracia, marcar turnos como interrumpidos— porque el turno era del
+        // teléfono y había que salvarlo al dormirse. El turno es del servidor: irse no
+        // requiere hacer nada, y al volver sólo hay que preguntar qué pasó.
         .onChange(of: fase) { _, nueva in
-            switch nueva {
-            case .inactive:   store.marcarFondo()
-            case .background: store.irseAlFondo()
-            case .active:     Task { await store.volverDelFondo() }
-            @unknown default: break
-            }
+            guard nueva == .active else { return }
+            Task { await store.volverDelFondo() }
         }
         // Tocar un aviso abre a ese agente. Es la mitad que hace útil la notificación:
         // sin esto te enteras de que alguien terminó y sigues teniendo que buscarlo.

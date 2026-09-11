@@ -175,11 +175,26 @@ enum Avisos {
     }
 
     private final class Delegado: NSObject, UNUserNotificationCenterDelegate {
-        /// Con la app delante también se enseña: si estás en el hilo de otro agente, el
-        /// banner es justo la forma de enterarte sin cambiar de pantalla.
+        /// Qué hacer con un aviso que llega con la app DELANTE.
+        ///
+        /// ⚠️ El servidor manda el push siempre, y hace bien: no puede saber si estás
+        /// mirando —una conexión de un teléfono suspendido no se detecta muerta, así que
+        /// durante un tiempo creyó que había alguien delante y se calló justo en el único
+        /// caso que el push existe para cubrir—. **Quien sí lo sabe es el teléfono**, y
+        /// por eso la decisión vive aquí.
+        ///
+        /// Si el aviso es de la conversación que tienes abierta, se traga: ya lo estás
+        /// viendo aparecer. Si es de otra, se enseña — enterarte de que terminó lo del
+        /// otro hilo sin cambiar de pantalla es justo para lo que sirve.
         func userNotificationCenter(_ c: UNUserNotificationCenter,
                                     willPresent n: UNNotification) async
-        -> UNNotificationPresentationOptions { [.banner, .sound] }
+        -> UNNotificationPresentationOptions {
+            let info = n.request.content.userInfo
+            let sesion = (info["sessionId"] as? String) ?? (info["sesion"] as? String)
+            let mirando = await MainActor.run { LiveAgentStore.compartido.hiloActivo?.sesionID }
+            if let sesion, let mirando, sesion == mirando { return [] }
+            return [.banner, .sound]
+        }
 
         func userNotificationCenter(_ c: UNUserNotificationCenter,
                                     didReceive respuesta: UNNotificationResponse) async {

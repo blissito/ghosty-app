@@ -176,7 +176,6 @@ extension LiveAgentStore {
             larga.fallo = nil
             larga.turno = nil
             larga.interrumpido = true
-            larga.huboFondo = true
         }
         larga.tocado = Date()
         foto.tocado = Date().addingTimeInterval(-120)

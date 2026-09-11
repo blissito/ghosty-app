@@ -323,12 +323,11 @@ final class LiveAgentStore: AgentStoring {
             // mientras la app estaba cerrada —que es justo lo que se compró con este
             // transporte—, la conversación se abriría enseñando tu mensaje y ninguna
             // respuesta, y el agente escribiendo sin público.
-            // ⚠️ Con gs, quién tiene la verdad de qué conversaciones hay es el SERVIDOR,
-            // no el caché del teléfono. Medido: si la app muere de golpe —iOS matándola,
-            // o un `terminate`— el mensaje que acababas de mandar no llega ni a guardarse,
-            // y al abrir aparecía una conversación en blanco mientras el agente contestaba
-            // del otro lado. Pedir la lista y abrir la última cuesta una llamada.
-            if Self.porGS { retomarDesdeElServidor(canal) }
+            // ⚠️ Quién tiene la verdad de qué conversaciones hay es el SERVIDOR, no el
+            // caché del teléfono. Si la app muere de golpe, lo último que escribiste no
+            // llegó ni a guardarse, y al abrir aparecía una conversación en blanco
+            // mientras el agente contestaba del otro lado.
+            ponerseAlDia(canal)
         }
         for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
             canales[id]?.soltar(); canales[id] = nil
@@ -437,296 +436,81 @@ final class LiveAgentStore: AgentStoring {
         hilo.visto = true
     }
 
-    // MARK: - Volver del fondo
+    // MARK: - Ponerse al día
 
-    /// Al arrancar: qué conversaciones hay de verdad, y ponerse al día con la última.
-    private func retomarDesdeElServidor(_ canal: Canal) {
-        Task { [weak self, weak canal] in
-            guard let self, let canal else { return }
-            guard let cliente = try? await self.asegurarSocket(canal),
-                  let frescas = try? await cliente.sesiones(), !frescas.isEmpty else {
-                if let activo = canal.hilo { self.engancharse(activo, de: canal, ponerseAlDia: true) }
-                return
-            }
-            canal.hilosRemotos = frescas
-            canal.estadoHilos = .listo
-            self.cache.guardarLista(frescas, de: canal.cuenta.id)
-            // La última que se tocó es la que estabas mirando. Si ya está abierta, no se
-            // duplica: `abrir(_:)` la reutiliza por su `sessionId`.
-            let ultima = frescas[0]
-            let hilo = canal.hilo(sesion: ultima.id) ?? canal.abrir(ultima.id)
-            if canal.hilo?.mensajes.isEmpty ?? true { canal.activa = hilo.clave }
-            self.engancharse(hilo, de: canal, ponerseAlDia: true)
-        }
-    }
-
-    /// La app volvió a estar delante: volver a escuchar lo que siguió sin nosotros.
+    /// La app vuelve a estar delante.
     ///
-    /// ⚠️ iOS suspende la app a los pocos segundos de irte y se lleva el socket. La caja
-    /// **no** se entera: sigue trabajando y su sesión sigue ahí. Lo que fallaba es que al
-    /// volver nadie iba a preguntar, así que el turno se quedaba pintado como un fallo y
-    /// la respuesta que el agente sí produjo no aparecía nunca.
+    /// ⚠️ Aquí vivían trescientas líneas: recoger, reintentar con espera creciente, apuntar
+    /// deudas en disco, clasificar errores de red para adivinar si el trabajo seguía vivo.
+    /// Todo eso existía porque el turno era del TELÉFONO y había que rescatarlo. Ahora el
+    /// turno es del servidor: no hay nada que rescatar, sólo que preguntar.
+    ///
+    /// El reposo no es una excepción que reparar — es el estado normal de un teléfono.
     func volverDelFondo() async {
         guard !DemoData.encendido, Session.haySesion else { return }
-        for canal in canales.values {
-            // Las de memoria MÁS las apuntadas en disco: si iOS mató el proceso mientras
-            // no mirabas, en memoria no queda ni rastro de que había algo pendiente.
-            let deLaMemoria = canal.hilos.filter { $0.interrumpido || $0.trabajando }
-            let sesionesEnDeuda = Set(cache.deudas(canal.cuenta.id).map(\.sesionID))
-            let delDisco = canal.hilos.filter {
-                guard let sid = $0.sesionID else { return false }
-                return sesionesEnDeuda.contains(sid)
-            }
-            var pendientes: [Hilo] = []
-            for h in deLaMemoria + delDisco where !pendientes.contains(where: { $0 === h }) {
-                pendientes.append(h)
-            }
-            guard !pendientes.isEmpty else { continue }
-            // ⚠️ Sólo si NO hay nada corriendo. Soltarlo a ciegas era matar el turno que
-            // acababas de mandar: el siguiente `asegurarSocket` abre uno nuevo y, al
-            // hacerlo, CIERRA el viejo —y cerrar termina todos los turnos en vuelo—. Se
-            // veía como mensajes que no contestaban nunca.
-            if canal.enCurso.isEmpty {
-                canal.acp = nil
-                canal.infoDeLaCaja = nil
-            }
-            // ⚠️ Una tarea POR HILO, no un `await` en fila. Con tres conversaciones
-            // pendientes, la tercera esperaba a que las dos primeras acabaran de hablar
-            // con la caja — minutos mirando una pantalla que no cambia.
-            //
-            // Con el transporte nuevo no hay nada que «recoger»: el turno siguió y basta
-            // con volver a escucharlo. Recuperar a base de recargar el hilo era la
-            // consecuencia de que el trabajo muriera contigo.
-            for hilo in pendientes {
-                if Self.porGS { engancharse(hilo, de: canal, ponerseAlDia: true) } else { recoger(hilo, de: canal) }
-            }
-        }
+        for canal in canales.values { ponerseAlDia(canal) }
     }
 
-    /// La app se va al fondo. Se anota ANTES de que iOS mate nada.
+    /// Nos despertó un push: traer esa conversación y ya. Devuelve si trajo algo nuevo.
     ///
-    /// ⚠️ Se llama en `.inactive`, que llega mientras la app todavía está viva. En
-    /// `.background` el socket ya puede estar muerto, y entonces el error que llega no se
-    /// distingue de un fallo del agente: ésta es la única ventana para dejar dicho que lo
-    /// que venga después fue iOS.
-    func marcarFondo() {
-        for canal in canales.values {
-            for hilo in canal.hilos where hilo.trabajando { hilo.huboFondo = true }
-        }
-    }
-
-    /// Cerrar bien lo que quede antes de que nos suspendan.
-    ///
-    /// iOS da ~30 segundos de gracia si se piden. Se usan para dejar el turno marcado como
-    /// interrumpido, apuntar la deuda en disco y cerrar los sockets nosotros, en vez de que
-    /// los mate a media trama.
-    func irseAlFondo() {
-        #if canImport(UIKit)
-        // ⚠️ `endBackgroundTask` SIEMPRE, incluso si algo lanza: un identificador sin
-        // cerrar no es un aviso, es que iOS mata la app (`0x8badf00d`).
-        var gracia: UIBackgroundTaskIdentifier = .invalid
-        gracia = UIApplication.shared.beginBackgroundTask(withName: "guardar-el-trabajo") {
-            UIApplication.shared.endBackgroundTask(gracia)
-            gracia = .invalid
-        }
-        defer { if gracia != .invalid { UIApplication.shared.endBackgroundTask(gracia) } }
-        #endif
-
-        for canal in canales.values {
-            var hayQueGuardar = false
-            for hilo in canal.hilos {
-                // Una recogida a medias no sigue en el fondo: gastaría batería para que
-                // iOS la suspenda a media negociación. Se retoma al volver.
-                hilo.recogiendo?.cancel(); hilo.recogiendo = nil
-                guard hilo.trabajando, let sid = hilo.sesionID else { continue }
-                hilo.huboFondo = true
-                hilo.interrumpido = true
-                cache.anotarDeuda(.init(sesionID: sid, desde: Date(),
-                                        mensajesAlCortar: hilo.mensajes.count),
-                                  de: canal.cuenta.id)
-                hayQueGuardar = true
-            }
-            // El parcial de la respuesta también se guarda: es lo que vas a ver al abrir.
-            if hayQueGuardar { guardarHilos(canal) }
-            // Y el registro: irse al fondo es justo cuando hay que poder mirarlo después.
-            Bitacora.volcar()
-            // ⚠️ El socket se cierra SÓLO si no hay nada corriendo, y esto es lo contrario
-            // de lo que puse ayer. Cerrarlo «a propósito para que iOS no lo mate a media
-            // trama» MATA EL TURNO: bloquear el teléfono tres segundos después de mandar
-            // un mensaje lo tumbaba, y como el corte se lee como suspensión, la respuesta
-            // no llegaba nunca y la conversación se quedaba con el cartel puesto. Medido
-            // en el teléfono: «cerrando a propósito — turnos vivos: 20260909_40», y el
-            // turno muerto dos milisegundos después.
-            //
-            // Con un turno vivo se deja abierto: los ~30 s de gracia que da iOS pueden
-            // bastar para que termine, y si no, lo mata el sistema — que es exactamente
-            // lo que la recogida sabe recuperar.
-            if canal.enCurso.isEmpty {
-                Task { [acp = canal.acp] in await acp?.cerrar() }
-                canal.acp = nil
-                canal.infoDeLaCaja = nil
-            }
-        }
-    }
-
-    /// Una sola pasada por una conversación concreta, para cuando nos despierta un push.
-    ///
-    /// ⚠️ Con presupuesto DURO. iOS da ~30 s a una app despertada en el fondo y castiga —en
-    /// silencio, dejando de entregar los siguientes— a la que se pasa. Devuelve si trajo
-    /// algo nuevo, que es lo que hay que contestarle al sistema.
+    /// ⚠️ Con presupuesto corto por fuera (lo pone quien llama): iOS da unos segundos a
+    /// una app despertada en el fondo y castiga —en silencio— a la que se pasa.
     func recogerYa(agente agentID: String, sesion sid: String) async -> Bool {
         guard !DemoData.encendido, Session.haySesion,
               let canal = canales[agentID],
               let hilo = canal.hilos.first(where: { $0.sesionID == sid }) else { return false }
-        if canal.enCurso.isEmpty {
-            canal.acp = nil
-            canal.infoDeLaCaja = nil
-        }
         let antes = hilo.mensajes.count
-        let completo = await resincronizar(hilo, de: canal)
-        if completo { cache.saldarDeuda(sesion: sid, de: agentID) }
+        await traerLaConversacion(hilo, de: canal)
         return hilo.mensajes.count != antes
     }
 
-    /// Insiste hasta que la caja tenga la respuesta, o hasta rendirse.
-    ///
-    /// ⚠️ Una sola pasada no basta y ése era el fallo: si el agente sigue a media faena
-    /// cuando vuelves, `session/load` devuelve el hilo SIN la respuesta y nadie volvía a
-    /// preguntar. La espera crece y lleva azar (`random(0, min(30, 2^n))`): sin ese azar,
-    /// cuando vuelve la red todos los teléfonos entran a la vez.
-    private func recoger(_ hilo: Hilo, de canal: Canal) {
-        hilo.recogiendo?.cancel()
-        let limite = Date().addingTimeInterval(10 * 60)
-        hilo.recogiendo = Task { [weak self, weak canal] in
-            // Un respiro antes del primer intento: el turno acaba de cortarse y la caja
-            // puede estar todavía escribiendo la respuesta.
-            try? await Task.sleep(for: .seconds(8))
-            var intento = 0
-            while !Task.isCancelled, Date() < limite {
-                guard let self, let canal else { return }
-                // ⚠️ Por SESIÓN, no por este objeto. Puede haber dos `Hilo` apuntando a
-                // la misma conversación —uno abierto y otro de la lista guardada— y con
-                // `hilo.trabajando` a secas la recogida del segundo seguía viva mientras
-                // el primero contestaba: cada intento abría OTRO socket a la misma caja y
-                // hacía `session/load` sobre la sesión que estaba corriendo. Medido en el
-                // teléfono: turno a las 16:36:47 y `session/load` cada dos segundos
-                // encima, hasta el intento 6. Eso es el «le escribo y no contesta».
-                if hilo.trabajando || canal.enCurso.contains(where: {
-                    $0.sesionID != nil && $0.sesionID == hilo.sesionID
-                }) {
-                    hilo.recogiendo = nil
-                    return
+    /// Qué conversaciones hay, qué se dijo en la que miras, y volver a escucharla.
+    func ponerseAlDia(_ canal: Canal) {
+        guard !DemoData.encendido, Session.haySesion else { return }
+        Task { [weak self, weak canal] in
+            guard let self, let canal else { return }
+            // La lista la tiene el SERVIDOR. El caché del teléfono es para pintar algo
+            // mientras llega, no para decidir qué existe: si la app muere de golpe, lo
+            // último que escribiste no llegó ni a guardarse.
+            if let cliente = try? await self.asegurarSocket(canal),
+               let frescas = try? await cliente.sesiones(), !frescas.isEmpty {
+                canal.hilosRemotos = frescas
+                canal.estadoHilos = .listo
+                self.cache.guardarLista(frescas, de: canal.cuenta.id)
+                if canal.hilo == nil || (canal.hilo?.mensajes.isEmpty ?? true) {
+                    let hilo = canal.hilo(sesion: frescas[0].id) ?? canal.abrir(frescas[0].id)
+                    canal.activa = hilo.clave
                 }
-                let completo = await self.resincronizar(hilo, de: canal)
-                if completo {
-                    if let sid = hilo.sesionID {
-                        self.cache.saldarDeuda(sesion: sid, de: canal.cuenta.id)
-                    }
-                    hilo.recogiendo = nil
-                    return
-                }
-                // ⚠️ Se empieza ESPERANDO, y espaciado. El primer intento salía a los
-                // 1,5 s del corte y luego cada dos o tres: si la caja seguía trabajando,
-                // eso era martillearla con `session/load` sobre una sesión viva — y el
-                // relé no tiene ninguna defensa contra eso (confirmado con quien lo
-                // mantiene). Recoger no puede costar más que esperar.
-                let tope = min(60.0, 10.0 * pow(1.8, Double(intento)))
-                intento += 1
-                EasyBitsClient.diag("[fondo] \(hilo.sesionID ?? "?") sigue trabajando; intento \(intento)")
-                try? await Task.sleep(for: .seconds(Double.random(in: 0...tope)))
             }
-            guard !Task.isCancelled, let self, let canal else { return }
-            // Diez minutos sin respuesta: ya no es «espera un poco», es algo que hay que
-            // contarle a quien está mirando. Y se deja de gastar red.
-            hilo.interrumpido = false
-            hilo.fallo = "No pude recuperar la respuesta. Vuelve a preguntarle."
-            if let sid = hilo.sesionID { self.cache.saldarDeuda(sesion: sid, de: canal.cuenta.id) }
-            self.refrescarEstado(canal)
-            hilo.recogiendo = nil
+            guard let hilo = canal.hilo else { return }
+            await self.traerLaConversacion(hilo, de: canal)
+            self.engancharse(hilo, de: canal)
         }
     }
 
-    /// Vuelve a pedirle a la caja ESTA conversación y se queda con lo que diga.
+    /// Lo que se dijo en esta conversación, según el servidor.
     ///
-    /// Es la misma operación que hace `abrirHilo`, con las mismas guardas: no pisar un
-    /// hilo que está contestando, no pisar si creció, y **nunca** pisar con un replay
-    /// vacío —que es lo que una vez dejó una conversación en blanco—.
-    /// Devuelve si el turno YA está completo —o sea, si hay algo que enseñar y no hace
-    /// falta volver a preguntar—.
-    @discardableResult
-    private func resincronizar(_ hilo: Hilo, de canal: Canal) async -> Bool {
-        guard let sid = hilo.sesionID else { hilo.interrumpido = false; return true }
-        // La misma regla, en el sitio donde de verdad se habla con la caja: nadie se pone
-        // al día de una conversación que está contestando ahora mismo.
-        if canal.enCurso.contains(where: { $0.sesionID == sid }) { return false }
-        hilo.poniendoseAlDia = true
-        defer { hilo.poniendoseAlDia = false }
+    /// ⚠️ NO pisa lo que hay si viene vacío ni si el hilo creció mientras preguntábamos:
+    /// las dos cosas dejaron una conversación en blanco alguna vez.
+    private func traerLaConversacion(_ hilo: Hilo, de canal: Canal) async {
+        guard let sid = hilo.sesionID else { return }
         let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
-            guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else { return false }
-            defer { engancharse(hilo, de: canal) }
-            hilo.cargadaEn = ObjectIdentifier(cliente)
+            guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else { return }
             let archivos = await GhostyAPI.archivosDe(sesion: sid)
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
+            // Las entregas se cosen aquí: el hilo que devuelve el servidor es texto, y la
+            // foto que te entregó el agente vive en este teléfono.
             for e in entregas.deSesion(sid) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
-            guard !hilo.trabajando, hilo.mensajes.count <= antes, !mensajes.isEmpty else { return true }
-            // ⚠️ Que la caja conteste no quiere decir que el agente haya terminado: si
-            // sigue en ello, el replay acaba en TU mensaje. Sin esta comprobación
-            // dábamos la recogida por buena y enseñábamos una conversación a medias como
-            // si fuera la respuesta final.
-            guard Self.tieneRespuesta(mensajes) else {
-                EasyBitsClient.diag("[fondo] \(sid) todavía sin respuesta")
-                return false
-            }
+            guard !mensajes.isEmpty, hilo.mensajes.count <= antes else { return }
             hilo.mensajes = mensajes
-            hilo.interrumpido = false
             hilo.fallo = nil
-            // Es AHORA cuando de verdad contestó: por eso el aviso va aquí y no cuando se
-            // cortó el socket. Y sólo si no lo estás mirando, como en cualquier turno.
-            if hilo.clave != hiloActivo?.clave || Avisos.enElFondo {
-                hilo.visto = false
-                hilo.termino = Date()
-                Avisos.sonarFin()
-                if !(Avisos.hayPush && Avisos.enElFondo) {
-                    Avisos.avisar(titulo: "\(canal.cuenta.name) terminó",
-                                  cuerpo: hilo.prompt.isEmpty ? "Tu agente acabó el turno." : hilo.prompt,
-                                  agentID: canal.cuenta.id)
-                    sinVer.insert(canal.cuenta.id)
-                }
-            }
-            refrescarEstado(canal)
             guardarHilos(canal)
-            EasyBitsClient.diag("[fondo] \(sid) al día: \(mensajes.count) mensajes")
-            return true
         } catch {
-            EasyBitsClient.diag("[fondo] no pude ponerme al día con \(sid): \(error)")
-            // Una sesión caducada no se arregla insistiendo, y callarlo deja al hilo dando
-            // vueltas contra algo que ya no existe.
-            if Self.esDefinitivo(error) {
-                hilo.interrumpido = false
-                hilo.fallo = "Hay que volver a entrar a tu cuenta."
-                return true
-            }
-            return false
-        }
-    }
-
-    /// ¿Hay respuesta del agente DESPUÉS de lo último que escribiste?
-    ///
-    /// Es lo único que distingue «ya terminó» de «sigue en ello» sin poder preguntárselo a
-    /// la caja: el relé no tiene forma de decir si un turno sigue vivo.
-    private static func tieneRespuesta(_ mensajes: [Message]) -> Bool {
-        guard let ultimoTuyo = mensajes.lastIndex(where: {
-            if case .user = $0.kind { return true } else { return false }
-        }) else { return !mensajes.isEmpty }
-        return mensajes[(ultimoTuyo + 1)...].contains {
-            switch $0.kind {
-            case .agent, .entrega: return true
-            default: return false
-            }
+            EasyBitsClient.diag("[hilo] no pude traer \(sid): \(error)")
         }
     }
 
@@ -896,7 +680,6 @@ final class LiveAgentStore: AgentStoring {
     /// camino nuevo; sin ella, el de siempre. Vive detrás de una bandera hasta que la
     /// verificación completa pase en el teléfono, para que una build a medias no deje a
     /// nadie sin agente.
-    static var porGS: Bool { Transporte.porGS }
 
     private func abrirSocket(_ canal: Canal) async throws -> any TransporteDeAgente {
         let cuenta = canal.cuenta
@@ -917,30 +700,11 @@ final class LiveAgentStore: AgentStoring {
         // Levantar una caja dormida tarda segundos. Sin decirlo, la app se siente colgada.
         canal.despertando = true
         defer { canal.despertando = false }
-        let c: any TransporteDeAgente = Self.porGS
-            ? ClienteGS(agentID: cuenta.id)
-            : ACPClient(agentID: cuenta.id, token: cuenta.token, host: cuenta.host)
-        do {
-            canal.infoDeLaCaja = try await c.conectar()
-        } catch where !Self.porGS {
-            // ⚠️ El rescate por `/revive` es de EasyBits y SÓLO sirve para sus agentes:
-            // con un agente nativo se le manda un cuid de gs y un token `gat_` que no
-            // conoce, así que falla siempre — y su error TAPA al de verdad, que es lo que
-            // convertía cualquier tropiezo en un mensaje que no explica nada.
-            //
-            // Para un agente nativo se reintenta a secas: una caja que hiberna despierta
-            // con el propio upgrade del WebSocket, sólo tarda unos segundos.
-            EasyBitsClient.diag("socket falló: \(error)")
-            if cuenta.esAgenteNativo {
-                try await Task.sleep(for: .seconds(2))
-                canal.infoDeLaCaja = try await c.conectar()
-            } else {
-                // ⚠️ Despertar con un turno HTTP de "ping" APENDABA al hilo por defecto
-                // del agente. `/revive` levanta la caja sin tocar la conversación.
-                try await EasyBitsClient(apiKey: cuenta.token).revive(agentID: cuenta.id)
-                canal.infoDeLaCaja = try await c.conectar()
-            }
-        }
+        // ⚠️ Un solo transporte. Aquí se elegía entre el WebSocket a la caja y gs, con
+        // un rescate por `/revive` para despertar cajas dormidas. Todo eso era del camino
+        // viejo: gs aprovisiona y despierta la caja él mismo.
+        let c: any TransporteDeAgente = ClienteGS(agentID: cuenta.id)
+        canal.infoDeLaCaja = try await c.conectar()
         canal.acp = c
         await c.alPedirPermiso { [weak self, weak canal] p in
             Task { @MainActor in
@@ -974,32 +738,13 @@ final class LiveAgentStore: AgentStoring {
     /// primer turno se iba por HTTP — y por HTTP EasyBits siempre habla con la única
     /// sesión ACP del agente, o sea que caía en el hilo viejo. Sin sesión no se manda
     /// nada por HTTP.
+    /// La sesión de esta conversación, creándola si todavía no tiene.
+    ///
+    /// ⚠️ Aquí se rehidrataba con un `session/load` ANTES DE CADA TURNO, porque la caja
+    /// perdía la sesión al reconectar y el agente empezaba en blanco. La sesión ahora es
+    /// del servidor: sobra la ida y vuelta, y con ella el parche.
     private func asegurarHilo(_ canal: Canal, _ hilo: Hilo) async throws -> String {
-        if let sid = hilo.sesionID {
-            // ⚠️ Rehidratar antes de hablar. La caja no guarda la sesión entre conexiones:
-            // tras reconectar, un turno con el `sessionId` viejo cae en una sesión que
-            // para ella está vacía, y el agente contesta que no tiene contexto previo. Un
-            // `session/load` por socket lo devuelve a la vida — y es best-effort: si
-            // falla, mejor mandar el turno sin contexto que perderlo.
-            let cliente = try await asegurarSocket(canal)
-            EasyBitsClient.diag("[hilo] rehidratando \(sid) en cliente \(ObjectIdentifier(cliente).debugDescription.suffix(8))")
-            // ⚠️ ANTES DE CADA TURNO, no una vez por socket. El relé puede mantener el
-            // socket vivo mientras la caja de detrás se recicla —el janitor la recoge a
-            // las horas— y entonces la sesión se pierde sin que el socket se entere: la
-            // app creía tenerla rehidratada y el agente empezaba en blanco. Cuesta una
-            // ida y vuelta por turno; la memoria de la conversación vale más que eso.
-            do {
-                    let r = try await cliente.cargar(sid, cwd: "/data/work")
-                    EasyBitsClient.diag("[hilo] rehidratada \(sid): \(r?.count ?? -1) eventos")
-                } catch {
-                    // ⚠️ NO se traga. Si la caja no puede devolvernos la sesión, el turno
-                    // que sigue va SIN contexto y el agente contesta "no sé de qué me
-                    // hablas" — que es un fallo mudo con cara de agente tonto.
-                    EasyBitsClient.diag("[hilo] ⚠️ NO pude rehidratar \(sid): \(error)")
-            }
-            EasyBitsClient.diag("[hilo] turno a sesión \(sid)")
-            return sid
-        }
+        if let sid = hilo.sesionID { return sid }
         if let enVuelo = hilo.creando { return try await enVuelo.value }
 
         let tarea = Task<String, Error> {
@@ -1007,7 +752,6 @@ final class LiveAgentStore: AgentStoring {
             let (id, modos) = try await cliente.nuevaSesion(cwd: "/data/work")
             EasyBitsClient.diag("[hilo] sesión NUEVA \(id)")
             hilo.sesionID = id
-            hilo.cargadaEn = ObjectIdentifier(cliente)
             hilo.modo = modos?.actual ?? "auto"
             return id
         }
@@ -1134,7 +878,6 @@ final class LiveAgentStore: AgentStoring {
         do {
             let cliente = try await asegurarSocket(canal)
             guard let replay = try await cliente.cargar(sesion.id, cwd: sesion.cwd) else { return }
-            hilo.cargadaEn = ObjectIdentifier(cliente)
             // Y engancharse a lo que esté pasando ahí ahora mismo: abrir una conversación
             // con un turno vivo tiene que enseñar lo que el agente está escribiendo, no
             // sólo lo que había cuando te fuiste.
@@ -1261,11 +1004,7 @@ final class LiveAgentStore: AgentStoring {
         hilo.fallo = nil
         // Y manda sobre la recogida de lo anterior: si le vuelves a escribir, lo que sea
         // que estuviéramos rescatando ya no es lo que estás esperando.
-        hilo.recogiendo?.cancel(); hilo.recogiendo = nil
         hilo.interrumpido = false
-        hilo.paraReintentar = nil
-        hilo.huboFondo = false
-        if let sid = hilo.sesionID { cache.saldarDeuda(sesion: sid, de: cuenta.id) }
         // ⚠️ AQUÍ y sólo aquí: escribirle es lo que revive una conversación y la manda al
         // principio de la barra. Mirarla no la mueve — reordenar mientras eliges cambia
         // las fichas de sitio debajo del dedo.
@@ -1367,8 +1106,10 @@ final class LiveAgentStore: AgentStoring {
                 // dueño de la sesión. Mandarlo igual no es sólo pagar tokens de más —
                 // medido en la caja de pruebas, el agente se puso a comentar el propio
                 // bloque en vez de contestar la pregunta.
-                let conHistoria = Self.porGS ? conVoz
-                    : (BloqueDeHistorial.texto(hilo.mensajes).map { "\($0)\n\n\(conVoz)" } ?? conVoz)
+                // El contexto lo mantiene el servidor: mandarle la conversación dentro
+                // del turno era un parche del camino viejo, y además el agente acababa
+                // comentando el propio bloque en vez de contestar. Ver `BloqueDeHistorial`.
+                let conHistoria = conVoz
                 await self.porSocket(canal, hilo, sid: sid, texto: conHistoria,
                                      adjuntos: conArchivos,
                                      respuesta: idRespuesta)
@@ -1455,16 +1196,21 @@ final class LiveAgentStore: AgentStoring {
     /// agente estaba escribiendo y aquí no lo miraba nadie. Con el WebSocket no existía —
     /// allí no había turno al que volver—.
     func engancharse(_ hilo: Hilo, de canal: Canal, ponerseAlDia: Bool = false) {
-        guard Self.porGS, let sid = hilo.sesionID, !hilo.trabajando else { return }
+        guard let sid = hilo.sesionID else { return }
+        // ⚠️ Se engancha AUNQUE el hilo figure como trabajando. Antes no: y ése era el
+        // caso que dejaba la conversación colgada para siempre —el flujo se moría al
+        // bloquear el teléfono, el turno local seguía marcado como vivo, y el reenganche
+        // se negaba a actuar justo cuando hacía falta—. Mientras tanto el agente
+        // terminaba su trabajo del otro lado sin que nadie lo mirara.
+        //
+        // Es seguro porque soltar el flujo ya NO cancela el turno en el servidor.
         hilo.enVuelo?.cancel()
         hilo.enVuelo = Task { [weak self] in
             guard let self else { return }
             // ⚠️ Primero el hilo, después el directo. El backlog del SSE dura unos minutos
             // y vive en la memoria del servidor: para «me fui un rato» lo que hay que
             // hacer es PEDIR la conversación, no confiar en que el backlog siga ahí.
-            // Medido: la app volvía y enseñaba tu mensaje sin la respuesta, que estaba
-            // escrita y guardada del otro lado.
-            if ponerseAlDia { _ = await self.resincronizar(hilo, de: canal) }
+            if ponerseAlDia { await self.traerLaConversacion(hilo, de: canal) }
             guard let cliente = try? await self.asegurarSocket(canal),
                   let flujo = cliente.seguir(sessionID: sid) else { return }
             let respuesta = "resp-\(UUID().uuidString.prefix(8))"
@@ -1492,12 +1238,20 @@ final class LiveAgentStore: AgentStoring {
                 // hubiera llegado y estuviera pintada debajo.
                 if hilo.interrumpido {
                     hilo.interrumpido = false
-                    cache.saldarDeuda(sesion: sid, de: canal.cuenta.id)
                     refrescarEstado(canal)
                 }
                 // Al engancharnos no hay turno local: lo hay ALLÁ. En cuanto llega algo se
                 // enciende el reloj, o la conversación se vería quieta mientras el agente
                 // escribe.
+                // ⚠️⚠️ Aquí hubo un dedupe por PREFIJO y borró historial de verdad, en el
+                // teléfono de alguien: el backlog llega en trozos, y el primero puede ser
+                // de dos letras, así que «quita lo que empiece igual» se llevaba por
+                // delante cualquier respuesta anterior que empezara con esas letras.
+                //
+                // El duplicado que intentaba evitar es real —el hilo que pedimos y el
+                // backlog traen lo mismo— pero se arregla al CERRAR, comparando el texto
+                // completo. Una copia de más se ve fea; borrar una conversación no se
+                // arregla.
                 if enganchado, hilo.turno == nil {
                     arrancarCronometro(hilo, titulo: hilo.prompt.isEmpty ? "lo de antes" : hilo.prompt)
                     refrescarEstado(canal)
@@ -1597,79 +1351,43 @@ final class LiveAgentStore: AgentStoring {
             if enganchado && acumulado.isEmpty {
                 hilo.mensajes.removeAll { $0.kind == .typing }
             }
+            // El backlog nos hizo repetir lo que ya estaba en el hilo: se quita la copia
+            // vieja, comparando el texto ENTERO y sólo al final, cuando ya no crece.
+            if enganchado, !acumulado.isEmpty {
+                var visto = false
+                hilo.mensajes.removeAll { m in
+                    guard case .agent(let viejo, _, _) = m.kind, viejo == acumulado else { return false }
+                    defer { visto = true }
+                    return visto   // conserva el primero, quita los repetidos
+                }
+            }
             // Terminó de verdad: nada de esto sigue pendiente.
             hilo.interrumpido = false
-            hilo.huboFondo = false
-            hilo.recogiendo?.cancel(); hilo.recogiendo = nil
-            cache.saldarDeuda(sesion: sid, de: canal.cuenta.id)
             anotar(canal, hilo, chars: acumulado.count, como: .done)
         } catch {
-            // ⚠️⚠️ AQUÍ SE DECÍA UNA MENTIRA, y estuvo dicha varios días: que la caja
-            // seguía trabajando y que al volver recogeríamos la respuesta. **No es
-            // verdad con este transporte.** Medido contra la caja de verdad el
-            // 2026-09-10: se manda un turno, se corta el socket a los 3 s, se espera 25 s
-            // y `session/load` devuelve CERO caracteres del agente.
+            // ⚠️ Un corte aquí NO es un turno perdido. El trabajo es del servidor y sigue;
+            // lo único que se cayó es nuestra oreja. Esto costó una tarde entera de
+            // creerlo al revés: la app se rendía sola, decía «vuelve a pedírselo» y
+            // ofrecía remandar algo que el agente estaba terminando del otro lado.
             //
-            // La razón está en el relé: la caída del socket del cliente cierra también el
-            // socket hacia goose, y en Rust soltar la conexión cancela el futuro que
-            // atiende el `session/prompt`. Un turno **es** su socket; cuando el socket
-            // muere no queda trabajo huérfano al que volver.
-            //
-            // Así que el turno se da por PERDIDO y se dice. Una app que promete recuperar
-            // algo que ya no existe es peor que una que admite que lo perdió: enseña a no
-            // creerle. Esto cambia el día que el turno sea del servidor —ahí sí sobrevive
-            // sin nosotros—, y ese día vuelve el texto de «sigue trabajando».
-            EasyBitsClient.diag("[turno] \(sid) murió: \(error)")
-            let corte = !Task.isCancelled
-                && Self.esCorteDeTransporte(error, seFueAlFondo: hilo.huboFondo)
-            // ⚠️⚠️ Aquí se bifurca todo, y tenerlo mal se ve igual por fuera: «bloqueo el
-            // teléfono y se corta». Con el WebSocket el turno ES el socket y muere con él,
-            // así que lo honesto es decir que se perdió. Con gs el turno vive en el
-            // servidor: lo único que se cayó es nuestra oreja. Darlo por perdido —y
-            // ofrecer remandarlo— es rendirse por cuenta propia mientras el agente sigue
-            // escribiendo del otro lado, y encima encargar el mismo trabajo dos veces.
-            if corte && Self.porGS {
+            // Así que se marca que sigue trabajando —ahora es verdad— y se vuelve a
+            // escuchar. Lo que ya se había escrito se conserva.
+            EasyBitsClient.diag("[turno] \(sid) se cortó: \(error)")
+            if Task.isCancelled {
+                hilo.interrumpido = false
+                hilo.fallo = nil
+                if acumulado.isEmpty { hilo.mensajes.removeAll { $0.kind == .typing } }
+                else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
+            } else {
                 hilo.interrumpido = true
                 hilo.fallo = nil
-                hilo.paraReintentar = nil
-                // Al volver se vuelve a escuchar; si ya terminó, `cargar` lo trae.
+                if acumulado.isEmpty { hilo.mensajes.removeAll { $0.kind == .typing } }
+                else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
                 engancharse(hilo, de: canal, ponerseAlDia: true)
-            } else {
-                hilo.interrumpido = false
-                hilo.fallo = Task.isCancelled ? nil
-                    : corte ? "Se cortó la conexión y el turno se perdió. Vuelve a pedírselo."
-                            : "Se cortó a media respuesta"
-                // Lo que escribiste se guarda para poder reintentarlo de un toque: volver a
-                // teclearlo es trabajo que la app puede ahorrarte, y en una nota de voz ni
-                // siquiera se puede.
-                if corte { hilo.paraReintentar = texto }
-            }
-            // ⚠️ En el camino del corte NO se escribe el aviso DENTRO del mensaje. Ese
-            // texto se guardaba en el hilo y sobrevivía a la recogida: quedaba un «se
-            // cortó la conexión» pegado para siempre en mitad de una conversación que
-            // había terminado bien. Ahora lo dice un cartel atado a `interrumpido`, que
-            // desaparece solo en cuanto se recoge la respuesta. El parcial sí se conserva.
-            if corte && acumulado.isEmpty {
-                // Nada que enseñar todavía: se quita el «escribiendo…» y ya. Una burbuja
-                // vacía se lee como que el agente contestó con silencio.
-                hilo.mensajes.removeAll { $0.kind == .typing }
-            } else {
-                pintarRespuesta(hilo, id: respuesta,
-                                texto: corte ? acumulado
-                                             : Self.mensajeDeFallo(error, parcial: acumulado))
             }
             anotar(canal, hilo, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
         }
         cerrarTurno(canal, hilo)
-    }
-
-    /// Vuelve a mandar el turno que se perdió al cortarse la conexión.
-    func reintentar() async {
-        guard let canal = canalActivo, let hilo = canal.hilo,
-              let texto = hilo.paraReintentar else { return }
-        hilo.paraReintentar = nil
-        hilo.fallo = nil
-        await send(texto, a: canal.cuenta.id)
     }
 
     func stopTurn() async {
@@ -1766,95 +1484,21 @@ final class LiveAgentStore: AgentStoring {
         case .deny:         return buscar(["reject", "deny", "cancel"]) ?? opciones.last?.id ?? "reject"
         }
     }
+    // MARK: - Fallos
 
-    // MARK: - Fallos de red
-
-    /// Cortes del transporte, no del agente. En un teléfono son la vida normal.
+    /// Lo que se le enseña a una persona cuando un turno no llega a su fin.
     ///
-    /// ⚠️ Esta función es la que decide si una conversación se recupera o se da por muerta,
-    /// y durante semanas contestó que NO al caso más común de todos. Al bloquear el
-    /// teléfono, iOS mata el socket y el error que llega es **`NSPOSIXErrorDomain 53`**
-    /// (ECONNABORTED), que **no es un `URLError`**: el `as? URLError` de la primera línea
-    /// devolvía `nil`, el turno se marcaba como fallo del agente y `volverDelFondo` —que
-    /// sólo mira los hilos `interrumpido`— no volvía a preguntar nunca. El trabajo que la
-    /// caja SÍ había terminado se perdía, y la conversación se quedaba diciendo «vuelve a
-    /// intentarlo» para siempre.
-    ///
-    /// `seFueAlFondo` es la evidencia más fuerte que tenemos y por eso vale por sí sola:
-    /// si la app pasó por el fondo durante el turno, lo que rompió el socket fue iOS.
-    /// Cubre los errores que todavía no conocemos, que es de donde vino este fallo.
-    static func esCorteDeTransporte(_ error: Error, seFueAlFondo: Bool = false) -> Bool {
-        // Lo paraste tú, o el mensaje no cabía, o hay que volver a entrar: reintentar no
-        // arregla ninguna de las tres. Se mira ANTES que `seFueAlFondo`, o un 401 dejaría
-        // el hilo reintentando contra una sesión muerta sin decírtelo.
-        if esDefinitivo(error) { return false }
-        if seFueAlFondo { return true }
-
-        let e = error as NSError
-        if e.domain == NSPOSIXErrorDomain {
-            // 53 ECONNABORTED —el del teléfono bloqueado—, 54 ECONNRESET, 57 ENOTCONN,
-            // 32 EPIPE, 60 ETIMEDOUT, 50/51 red caída. Todos son «el socket se murió por
-            // debajo», ninguno es el agente.
-            return [53, 54, 57, 32, 60, 50, 51].contains(e.code)
-        }
-        // Por CÓDIGO y no sólo con `as? URLError`: un error reenvuelto por `URLSession` no
-        // siempre castea, y ahí volvíamos a caer en el mismo agujero.
-        if e.domain == NSURLErrorDomain {
-            return [NSURLErrorNetworkConnectionLost, NSURLErrorTimedOut,
-                    NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
-                    NSURLErrorDNSLookupFailed, NSURLErrorNotConnectedToInternet,
-                    NSURLErrorSecureConnectionFailed]
-                .contains(e.code)
-        }
-        if let f = error as? ACPClient.Fallo {
-            switch f {
-            // Sólo sale de `romper(_:)` o de un socket que ya no está. Siempre transporte.
-            case .noConectado: return true
-            // El reloj de 900 s de un turno largo: la caja sigue en ello. Y SÓLO el del
-            // turno — que expire `session/new` o `session/load` sí es un fallo de esa
-            // operación, y tratarlo como corte esconde un problema real de la caja.
-            case .timeout(let metodo): return metodo == "session/prompt"
-            case .remoto, .handshake: return false
-            }
-        }
-        return false
-    }
-
-    /// Errores que NO se arreglan volviendo a preguntar.
-    private static func esDefinitivo(_ error: Error) -> Bool {
-        let e = error as NSError
-        // EMSGSIZE: el turno traía algo demasiado grande. Repetirlo lo repite igual.
-        if e.domain == NSPOSIXErrorDomain && e.code == 40 { return true }
-        if error.localizedDescription.contains("Message too long") { return true }
-        // Sesión caducada: hay que volver a entrar, y hay que ENTERARSE.
-        let d = error.localizedDescription.lowercased()
-        return d.contains("401") || d.contains("403") || d.contains("unauthorized")
-    }
-
-    /// «network connection was lost» a secas suena a que el agente falló, y no fue él.
-    ///
-    /// ⚠️ Aquí vivía la rama de «connection abort» (POSIX 53). Ya no: ese error es el que
-    /// deja iOS al suspender la app, así que ahora lo reconoce `esCorteDeTransporte` y
-    /// nunca llega hasta aquí. Cuando estaba, decía «vuelve a intentarlo» por un trabajo
-    /// que la caja estaba terminando.
+    /// ⚠️ Aquí había noventa líneas clasificando errores por dominio y número —POSIX 53,
+    /// 54, 57, `URLError` por código, timeouts por método— para adivinar si el trabajo
+    /// seguía vivo al otro lado. Esa pregunta ya no existe: el turno es del servidor y
+    /// sigue. Lo único que puede pasar aquí es que se cayera NUESTRA conexión, y eso se
+    /// arregla volviendo a escuchar, no interpretando el número del error.
     static func mensajeDeFallo(_ error: Error, parcial: String) -> String {
         let detalle: String
-        if let u = error as? URLError {
-            switch u.code {
-            case .networkConnectionLost:
-                detalle = "Se cortó la conexión a media respuesta. El agente sí recibió el mensaje."
-            case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
-                detalle = "No pude alcanzar a tu agente. Puede que su caja esté despertando; vuelve a intentarlo."
-            case .notConnectedToInternet: detalle = "El teléfono no tiene internet."
-            case .timedOut: detalle = "El turno tardó más de lo que aguanta la conexión."
-            default: detalle = u.localizedDescription
-            }
-        } else if (error as NSError).code == 40 || error.localizedDescription.contains("Message too long") {
-            // ⚠️ POSIX 40 = EMSGSIZE. Salía tal cual, en inglés y sin decir de qué mensaje
-            // hablaba. Ver el tope del socket en `ACPClient.conectar`.
-            detalle = "Ese turno traía un mensaje demasiado grande para la conexión."
+        if let f = error as? ACPClient.Fallo, case .remoto(let m) = f {
+            detalle = m
         } else {
-            detalle = error.localizedDescription
+            detalle = "No pude terminar de traer la respuesta. Vuelve a abrir la conversación."
         }
         return parcial.isEmpty ? "⚠️ \(detalle)" : parcial + "\n\n⚠️ \(detalle)"
     }
@@ -1898,12 +1542,18 @@ final class LiveAgentStore: AgentStoring {
         // pantalla es ruido.
         // ⚠️ Por HILO, no por agente: con tres conversaciones del agente que miras, dos
         // podían terminar sin avisarte de ninguna sólo porque el agente era el activo.
-        if avisar, hubo, hilo.clave != hiloActivo?.clave || Avisos.enElFondo {
+        // ⚠️ El aviso LOCAL es sólo para lo que pasa con la app DELANTE: «terminó el otro
+        // hilo mientras mirabas éste». Con la app en el fondo avisa el servidor, que es el
+        // único que puede hacerlo con el teléfono bloqueado — y que además es el único que
+        // sabe de verdad cuándo terminó el turno, porque es suyo.
+        //
+        // Sin esta condición salían los dos: el local al volver y el push por detrás.
+        if avisar, hubo, hilo.clave != hiloActivo?.clave, !Avisos.enElFondo {
             Avisos.avisar(titulo: "\(canal.cuenta.name) terminó",
                           cuerpo: hilo.prompt.isEmpty ? "Tu agente acabó el turno." : hilo.prompt,
                           agentID: canal.cuenta.id)
-            sinVer.insert(canal.cuenta.id)
         }
+        if hubo, hilo.clave != hiloActivo?.clave { sinVer.insert(canal.cuenta.id) }
         // ⚠️ La caja NO guarda un hilo hasta que tiene mensajes: `session/new` no
         // aparece en `session/list` hasta el primer turno. Por eso la lista se
         // refresca al cerrar, o un hilo recién creado no se vería nunca.
