@@ -1622,14 +1622,28 @@ final class LiveAgentStore: AgentStoring {
             EasyBitsClient.diag("[turno] \(sid) murió: \(error)")
             let corte = !Task.isCancelled
                 && Self.esCorteDeTransporte(error, seFueAlFondo: hilo.huboFondo)
-            hilo.interrumpido = false
-            hilo.fallo = Task.isCancelled ? nil
-                : corte ? "Se cortó la conexión y el turno se perdió. Vuelve a pedírselo."
-                        : "Se cortó a media respuesta"
-            // Lo que escribiste se guarda para poder reintentarlo de un toque: volver a
-            // teclearlo es trabajo que la app puede ahorrarte, y en una nota de voz ni
-            // siquiera se puede.
-            if corte { hilo.paraReintentar = texto }
+            // ⚠️⚠️ Aquí se bifurca todo, y tenerlo mal se ve igual por fuera: «bloqueo el
+            // teléfono y se corta». Con el WebSocket el turno ES el socket y muere con él,
+            // así que lo honesto es decir que se perdió. Con gs el turno vive en el
+            // servidor: lo único que se cayó es nuestra oreja. Darlo por perdido —y
+            // ofrecer remandarlo— es rendirse por cuenta propia mientras el agente sigue
+            // escribiendo del otro lado, y encima encargar el mismo trabajo dos veces.
+            if corte && Self.porGS {
+                hilo.interrumpido = true
+                hilo.fallo = nil
+                hilo.paraReintentar = nil
+                // Al volver se vuelve a escuchar; si ya terminó, `cargar` lo trae.
+                engancharse(hilo, de: canal, ponerseAlDia: true)
+            } else {
+                hilo.interrumpido = false
+                hilo.fallo = Task.isCancelled ? nil
+                    : corte ? "Se cortó la conexión y el turno se perdió. Vuelve a pedírselo."
+                            : "Se cortó a media respuesta"
+                // Lo que escribiste se guarda para poder reintentarlo de un toque: volver a
+                // teclearlo es trabajo que la app puede ahorrarte, y en una nota de voz ni
+                // siquiera se puede.
+                if corte { hilo.paraReintentar = texto }
+            }
             // ⚠️ En el camino del corte NO se escribe el aviso DENTRO del mensaje. Ese
             // texto se guardaba en el hilo y sobrevivía a la recogida: quedaba un «se
             // cortó la conexión» pegado para siempre en mitad de una conversación que

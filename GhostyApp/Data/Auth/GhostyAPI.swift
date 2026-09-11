@@ -399,12 +399,15 @@ enum GhostyAPI {
             let cx = a["conexion"] as? [String: Any]
             let tipo = cx?["tipo"] as? String
             let token = cx?["token"] as? String
-            // ⚠️ El token y el host de la caja SÓLO hacen falta para hablarle por el
-            // WebSocket. Cuando el turno va por gs, el que conoce a la caja es el
-            // servidor: exigirlos aquí escondía agentes perfectamente utilizables —el de
-            // pruebas no aparecía y la app se quedaba «sin agentes» contra una cuenta que
-            // tenía catorce—.
-            if token == nil, !Transporte.porGS {
+            // ⚠️ Se siguen exigiendo, aunque con gs el que conoce a la caja sea el
+            // servidor. Los quité «porque ya no hacen falta» y la flota pasó de un agente
+            // a CATORCE: aparecieron todos los de la cuenta —agentes de otros motores,
+            // restos de pruebas— y la app dejó a la persona hablando con uno que no era el
+            // suyo. Que un agente tenga caja ACP es lo que lo hace suyo aquí.
+            //
+            // La excepción es el gancho de desarrollo, que ya dice a cuál quiere hablarle.
+            let pedidoAMano = ProcessInfo.processInfo.environment["GHOSTY_SOLO_AGENTE"]
+            if token == nil, pedidoAMano != id {
                 // Sin material de conexión no se puede conversar con él. Se cuenta para
                 // poder decirlo, y no se mete a la lista: un agente en pantalla que no
                 // contesta es peor que uno que no aparece.
