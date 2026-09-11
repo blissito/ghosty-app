@@ -64,6 +64,13 @@ distinguir «cero» de «no lo sé».
   estaba DESPIERTA (resume 15:16:58, sin suspend en la ventana), así que el silencio fue
   dentro del agente (ghosty-lite): un comando o una llamada al modelo que no volvió.
   Falta un tope por herramienta del lado ghosty-lite; aquí la red es el lease.
+  **Actualización (16:20 UTC): reproducido y resuelto.** La causa es `session/load` a la
+  caja con un turno EN MARCHA (lo hace `GET /conversations/:sid`): goose se queda mudo y
+  la herramienta pendiente no se lanza. Lo disparaba el reenganche tras dormirse el
+  teléfono (`engancharse(ponerseAlDia: true)`) y cerrar/reabrir la app. gs (`d9d6934`) ya
+  no carga historial con turno vivo: contesta `enCurso: true` y el backlog del SSE trae lo
+  nuevo. ⚠️ El loader del chat web hace el mismo `loadHistory`: un F5 a media respuesta
+  debería reproducirlo — pendiente del lado web/Teams.
 
 - **Lease con vencimiento por turno** (`PROMPT_TIMEOUT_MS` existe y no se usa). Un turno
   vivo pero mudo no tiene tope; es lo que llenó las ranuras de zombis.
