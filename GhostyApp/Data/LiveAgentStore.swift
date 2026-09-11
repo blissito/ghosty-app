@@ -1179,9 +1179,16 @@ final class LiveAgentStore: AgentStoring {
     private func porSocket(_ canal: Canal, _ hilo: Hilo, sid: String,
                            texto: String, adjuntos: [Adjunto] = [],
                            respuesta: String) async {
-        EasyBitsClient.diag("[turno] arrancando \(sid) en cliente \(canal.acp.map { ObjectIdentifier($0).debugDescription.suffix(8) } ?? "NINGUNO")")
-        guard let cliente = canal.acp else {
-            pintarRespuesta(hilo, id: respuesta, texto: "⚠️ Se perdió la conexión con tu agente.")
+        // ⚠️ Se PIDE el cliente, no se lee el que hubiera. Antes lo abría la
+        // rehidratación previa al turno; al quitarla, `canal.acp` podía estar vacío y el
+        // turno moría antes de salir con «se perdió la conexión» — con el agente intacto
+        // al otro lado.
+        let cliente: any TransporteDeAgente
+        do {
+            cliente = try await asegurarSocket(canal)
+        } catch {
+            pintarRespuesta(hilo, id: respuesta,
+                            texto: "⚠️ No pude hablar con tu agente. Vuelve a intentarlo.")
             cerrarTurno(canal, hilo)
             return
         }
@@ -1342,13 +1349,11 @@ final class LiveAgentStore: AgentStoring {
                     break
                 }
             }
-            // ⚠️ Sólo si el turno era NUESTRO. Al engancharnos a una conversación en
-            // reposo, gs manda `done` de entrada —es cómo dice «aquí no está pasando
-            // nada»— y eso pintaba un «cerró sin texto» por cada vez que abrías el hilo.
-            if acumulado.isEmpty && herramientas.isEmpty && !enganchado {
-                pintarRespuesta(hilo, id: respuesta, texto: "_El turno cerró sin texto._")
-            }
-            if enganchado && acumulado.isEmpty {
+            // ⚠️ Un turno que acaba sin texto NO deja rastro. Aquí se pintaba «El turno
+            // cerró sin texto», y salía en sitios donde no era verdad: al engancharse a
+            // una conversación en reposo, o cuando la respuesta llegaba por el otro flujo.
+            // Una frase inventada en mitad de una conversación es peor que un hueco.
+            if acumulado.isEmpty && herramientas.isEmpty {
                 hilo.mensajes.removeAll { $0.kind == .typing }
             }
             // El backlog nos hizo repetir lo que ya estaba en el hilo: se quita la copia
