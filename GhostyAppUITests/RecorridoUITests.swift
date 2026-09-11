@@ -190,10 +190,31 @@ final class RecorridoUITests: XCTestCase {
                       "nueva conversación no llevó al chat")
         foto("09-nueva-conversacion")
 
-        // 6b. Toque largo sobre una conversación: menú y confirmación de borrado.
         app.buttons["tab-conversations"].tap()
         // Sin teclado: si queda abierto empuja el popover y tapa media pantalla.
         if app.keyboards.count > 0 { app.swipeDown() }
+
+        // 6a. Deslizar una conversación: asoma «Borrar» y pide confirmación. Se cancela,
+        // para que el borrado de verdad (6b) siga yendo por el toque largo y queden
+        // cubiertos los dos caminos.
+        let paraDeslizar = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 1)
+        if paraDeslizar.exists {
+            paraDeslizar.swipeLeft()
+            let rojo = app.buttons["borrar-deslizado"].firstMatch
+            XCTAssertTrue(rojo.waitForExistence(timeout: 3), "deslizar no descubrió el botón de borrar")
+            foto("11a-deslizado")
+            rojo.tap()
+            XCTAssertTrue(app.staticTexts["Se borra también de tu agente. No se puede deshacer."]
+                            .waitForExistence(timeout: 3), "el botón rojo no pidió confirmación")
+            foto("11b-deslizado-confirmar")
+            // El «Cancelar» de un confirmationDialog no siempre entra en la jerarquía de
+            // accesibilidad: tocar fuera lo cierra igual.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+
+        // 6b. Toque largo sobre una conversación: menú y confirmación de borrado.
         let paraBorrar = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 2)
         let antes = app.descendants(matching: .any).matching(
