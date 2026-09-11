@@ -66,3 +66,18 @@ distinguir «cero» de «no lo sé».
   seguidos salen pegados («entrega el docentrega el doc»).
 - **`BloqueDeHistorial` ya no se manda**, pero el arreglo del contexto en ghosty-lite sigue
   sin medirse contra una caja recreada con dos turnos y la caja hibernada en medio.
+
+---
+
+## Abierto en la app (2026-09-11, madrugada)
+
+- **El botón de «ir hasta abajo»**. Lleva tres intentos y sigue mal: por geometría devolvía
+  cero, por gesto se queda pegado o baja a medias. El patrón correcto es la API de Apple
+  —`scrollPosition(id:)` + `defaultScrollAnchor(.bottom)`, iOS 17+— y no el apaño actual con
+  `ScrollViewReader` y un centinela. Rehacer, no parchear.
+- **El push lleva a la conversación equivocada**. Se aceptan `sessionId`, `sesion` y el
+  `thread-id` de APNs, y si la conversación no está abierta se abre. Falta el caso de tocar
+  el aviso **con la app cerrada**: el aviso llega antes de que existan los canales, así que
+  no hay a dónde ir. Hay que guardarlo y aplicarlo cuando la lista esté montada.
+- **Conversaciones que quedan «trabajando» para siempre**. Ya hay un botón «Detener» en el
+  cartel, pero la causa está en el servidor: sin lease por turno, un turno mudo no se muere.
