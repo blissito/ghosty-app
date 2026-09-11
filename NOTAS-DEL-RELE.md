@@ -1,77 +1,68 @@
-# Lo que la app necesita del otro lado
+# Lo que la app espera del otro lado
 
-Estado a 2026-09-10. Nada de esto se puede resolver desde el teléfono.
+Estado a 2026-09-11, de madrugada. La app ya **no habla con la caja**: habla con gs
+(`www.ghosty.studio`) por HTTP+SSE, y gs habla con la caja.
 
-> ⚠️ **Este archivo se llamaba `NOTAS-PARA-EASYBITS.md` y estaba mal dirigido.** Al medirlo,
-> nada de lo que pedía era de EasyBits: tres cosas eran de **gs** y la cuarta de
-> **ghosty-lite**. El teléfono habla con gs (`www.ghosty.studio`) y con la caja que gs
-> aprovisiona; EasyBits sólo aparece en el dominio del sandbox y en el POST que despierta la
-> caja.
+## Por qué se mudó
 
-## Lo que ya se hizo (2026-09-10)
+El teléfono se duerme. Con el WebSocket directo, el turno era del teléfono y moría con él
+— medido: mandar, cortar el socket a los 3 s, esperar 25 y pedir el hilo devuelve **cero
+caracteres**. El relé cierra el socket hacia el motor cuando cae el del cliente, y en Rust
+soltar la conexión cancela el futuro del `session/prompt`. **Un turno era su socket.**
 
-| Lo que pedía | Dónde estaba de verdad | Estado |
-|---|---|---|
-| Evento de turno para disparar el APNs | gs no tenía **ni ruta, ni tabla, ni APNs**. La app llevaba meses mandando su token a `/api/v2/me/devices` y comiéndose el 404. | ✅ hecho |
-| `permission.requested` | No faltaba un evento: **gs auto-aprobaba** todo (`allow_once` elegido solo, sin preguntar a nadie). | ✅ hecho |
-| Cursor en `session/load` | `_meta.replayTail` **ya existía** en la caja y no lo mandaba nadie. | ✅ parcial |
-| `session/load` no reconstruye el contexto | Bug de `ghosty-lite`, localizado. | ✅ arreglado, falta rebake |
-| `ghosty/artifact` sin `sessionId` | El relé acuñaba el token por **socket**, y gs multiplexa varias conversaciones por enlace. | ✅ hecho, falta rebake |
+En gs el turno vive en su propia tarea, fuera del request. Medido: matar la app a los 8 s y
+volver a los 40 → la respuesta está entera.
 
-### 1. Avisos
+## El contrato que usa la app
 
-`POST /api/v2/me/devices` existe (contrato tal cual lo mandaba la app). El aviso sale del
-`finally` de `startTurn` en gs, que es el único punto donde sabe con certeza que el turno
-terminó, y **sólo si nadie está mirando**.
+| Operación | Ruta |
+|---|---|
+| Mandar turno | `POST …/conversations/:sid/messages` → 202 `{turnId, estado, enCola}` |
+| Escuchar | `GET …/conversations/:sid/events` (SSE, re-suscribible) |
+| El hilo | `GET …/conversations/:sid?tail=N` → `{messages, saltados}` |
+| Permiso | `POST …/conversations/:sid/permission` `{id, optionId}` |
+| Detener | `POST …/conversations/:sid/cancel` |
+| Conversaciones | `GET`/`POST …/conversations`, `DELETE …/:sid` |
 
-⚠️ **Falta poner la llave de Apple**: `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` (y
-`APNS_BUNDLE_ID` si no es `com.fixtergeek.ghostyapp`). Sin ellas `pushConfigurado()` es
-`false` y no se manda nada — en silencio y a propósito, para no ensuciar el log en local.
+Eventos: `chunk`, `thought`, `tool`, `artifact`, `usage`, `permission`,
+`permission-resolved`, `status`, `caps`, `title`, `done`, `error`.
 
-### 2. Permisos
+### Tres filos que ya cortaron
 
-El turno se DETIENE de verdad. `event: permission` por el SSE, se contesta con
-`POST …/conversations/:sid/permission`, y hay plazo (10 min → se deniega): un pedido sin
-dueño retiene una ranura de la caja y desde fuera se lee como un agente colgado.
+1. **El `done` de bienvenida.** Quien se suscribe a una conversación en reposo recibe un
+   `done` de entrada. Lleva `reposo: true` para distinguirlo — sin mirarlo, cada turno sale
+   «cerró sin texto», y si se aplica mientras mandas, apaga el turno que acabas de encargar.
+2. **Los permisos abiertos se reenvían en CADA suscripción.** Sin memoria de lo ya avisado,
+   cada reenganche pinta otra tarjeta del mismo pedido.
+3. **El backlog no sustituye a `?tail=N`.** Dura unos minutos y vive en memoria de gs: para
+   «me fui un rato» hay que PEDIR la conversación.
 
-⚠️ **El default sigue siendo `auto`.** Sólo un cliente que sabe pintar la tarjeta y
-contestarla manda `permisos: "preguntar"` al encargar el turno. La app ya tiene la mitad
-(`PermissionsPane`, `LiveAgentStore.decide`), y lo enciende cuando migre de transporte.
+### `usage`
 
-### 3. El contexto
+`used`/`size` son el acumulado de la sesión contra el límite del modelo — tras una
+compactación `used` se pasa de `size`, y pintarlo como tokens del turno es de donde salió
+el «14xxk». Los buenos son `input`/`output`, y **se omiten** si la caja no los sabe: hay que
+distinguir «cero» de «no lo sé».
 
-**Causa encontrada**: el cerebro del teléfono es el binario `claude`, o sea un proveedor ACP
-**anidado**. `messages_to_prompt` sólo le manda el último mensaje del usuario; el historial
-vive dentro de su proceso. La red de seguridad es el memo de traspaso, que es de un solo uso
-**por proveedor** — y el proveedor se reusa entre `session/load`. Turno 1 lo gasta, turno 2
-encuentra al sub-agente en blanco y el memo ya está marcado como enviado. Ni contexto ni
-memo, y sin un solo error en el log.
+## Lo que se arregló en gs el 2026-09-10/11
 
-Arreglado: un resume fallido rearma el memo.
-
-⚠️ **`BloqueDeHistorial.swift` se borra cuando el rebake esté puesto y medido**, no antes.
-Son 14 mensajes / 6000 caracteres por turno.
-
-### 4. Entregas
-
-`ghosty/artifact` ya lleva `sessionId`, y la app lo usa (con respaldo para cajas con el relé
-viejo). `BloqueEbFile.swift` sigue vivo mientras el agente escriba ```` ```eb-file ```` en su
-texto.
-
----
+- `tools=1` en el ticket firmado: sin eso el agente pierde `entregar_archivo` y
+  `crear_artefacto`.
+- Evento `artifact` en el SSE: gs recibía `ghosty/artifact` del relé y **la tiraba**.
+- Push: no había ni ruta, ni tabla, ni APNs. Y la supresión «si alguien mira» se disparaba
+  justo con el teléfono suspendido —una conexión muerta no se detecta como muerta— o sea
+  **en el único caso que el push existe para cubrir**.
+- El barrido de huérfanas destruía la caja del teléfono cada 15 min (su fila conserva el
+  template legacy `goose-acp` y la exención sólo miraba `goose`/`ghosty-lite`).
+- Al caer el socket nadie avisaba al turno en vuelo: quedaba `running` para siempre **con la
+  ranura ocupada**. Con el cupo lleno de zombis, todo lo demás hace cola hasta reiniciar gs.
 
 ## Lo que queda
 
-- **La mudanza de transporte.** El WS directo a la caja es la razón de fondo de casi todo:
-  iOS mata el socket al irse al fondo y el turno muere con él. gs ya tiene el camino donde
-  *el host es dueño del trabajo* (`turns.server.ts`): `POST …/conversations/:sid/messages`
-  (202 + `turnId`), SSE en `…/events`, `…/cancel`. Con eso, `asegurarHilo` y su
-  `session/load` por turno desaparecen.
-  ⚠️ **Antes hay que añadir `tools=1` al ticket que firma gs** (`acpTicketUrl`), o el agente
-  pierde `entregar_archivo` y `crear_artefacto` al mudarse y parecerá que la migración lo rompió.
-- **El cursor `since` de verdad.** `replayTail` es un tope por la cola, no un cursor. El
-  sustrato para uno real está y es persistido: `messages(created_timestamp, id)` en el SQLite
-  de la caja.
-  ⚠️ Sería por **mensaje**: los trozos sueltos de un mensaje a medias no se guardan en ningún
-  lado y no se pueden reconstruir.
-- **`goose-acp` tiene su propia copia del relé** y no lleva el arreglo del `sessionId`.
+- **Lease con vencimiento por turno** (`PROMPT_TIMEOUT_MS` existe y no se usa). Un turno
+  vivo pero mudo no tiene tope; es lo que llenó las ranuras de zombis.
+- **Un cursor de verdad** en el hilo (`?since=`), en vez de `tail`.
+- `loadHistory` concatena mensajes consecutivos del mismo rol sin separador: dos envíos
+  seguidos salen pegados («entrega el docentrega el doc»).
+- **`BloqueDeHistorial` ya no se manda**, pero el arreglo del contexto en ghosty-lite sigue
+  sin medirse contra una caja recreada con dos turnos y la caja hibernada en medio.

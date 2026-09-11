@@ -42,6 +42,23 @@ conclusiones equivocadas por eso.
 La API (`scripts/asc.py builds`) **no lista** lo que está procesando, así que "no aparece"
 no distingue entre procesando, rechazado y nunca llegado.
 
+## El turno es del SERVIDOR, no del teléfono
+
+La app habla HTTP+SSE con gs (`ClienteGS`), no WebSocket con la caja. Eso no es un detalle
+de tuberías: **el teléfono se duerme**, y con el socket directo el turno moría con él
+(medido: cero caracteres al volver). En gs el turno sobrevive, el SSE es re-suscribible, y
+al volver sólo hay que preguntar qué pasó.
+
+De ahí salen las reglas que quedan:
+
+- **No hay nada que «recuperar».** Si el trabajo nunca fue nuestro, irse no requiere cerrar
+  nada ni apuntar deudas. Se quitaron ~900 líneas que existían para eso.
+- **El estado lo dice el servidor** (evento `status`), no se infiere de si queda un turno
+  local. Inferirlo ponía «Sigue trabajando…» encima de conversaciones en reposo.
+- **Nadie cambia de conversación por debajo.** Eso se veía como «se borró el historial al
+  enviar»: no se borraba, cambiaba el hilo y el mensaje se quedaba en el anterior.
+- Ver `NOTAS-DEL-RELE.md` para el contrato y los filos del SSE.
+
 ## Verificar en el simulador sin poder tocar la pantalla
 
 Hay ganchos de desarrollo por variable de entorno, porque el simulador no acepta toques por
@@ -58,7 +75,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_DEMO_INTERRUMPIDO=1` | pinta un hilo cortado por la suspensión (con el cartel) |
 | `GHOSTY_PUSH=1` | se registra en APNs sin esperar al diálogo del permiso |
 | `GHOSTY_SILENCIO=20` | da el turno por cortado tras 20 s sin eventos (por defecto, 8 min) |
-| `GHOSTY_TRANSPORTE=gs` | habla por HTTP+SSE contra gs en vez del WebSocket a la caja |
+| `GHOSTY_NUEVA=1` | arranca en una conversación nueva (crear sesión + primer turno) |
 | `GHOSTY_TOKEN=<bearer>` | presta una sesión sin pasar por el login (sólo Debug) |
 | `GHOSTY_SOLO_AGENTE=<id>` | la app sólo ve ESE agente |
 | `GHOSTY_AUTO_PERMISO=1` | contesta los permisos solo, para poder probar el camino entero |

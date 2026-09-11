@@ -125,10 +125,11 @@ actor ClienteGS: TransporteDeAgente {
 
     /// El hilo, por su cola.
     ///
-    /// ⚠️ Devuelve `nil` si esa conversación está contestando ahora mismo: pisar un turno
-    /// vivo con lo que había antes es el fallo que dejó conversaciones en blanco.
+    /// ⚠️ Se pide SIEMPRE, aunque la conversación esté contestando. La guarda de «no
+    /// pisar un turno vivo» vive donde debe —en quien aplica los mensajes, que compara
+    /// contra lo que ya hay— y aquí sólo servía para devolver un hilo vacío justo cuando
+    /// alguien tocaba un aviso para ir a verlo.
     func cargar(_ id: String, cwd: String) async throws -> [ACPClient.Replay]? {
-        guard escuchas[id] == nil else { return nil }
         var c = URLComponents(url: base("/conversations/\(id)"), resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "tail", value: "\(Self.cola)")]
         let r = try await pedir(c.url!)
@@ -404,9 +405,11 @@ actor ClienteGS: TransporteDeAgente {
             cont.finish(throwing: ACPClient.Fallo.remoto(p["message"] as? String ?? "Falló el turno."))
             return true
         case "done":
-            // Y si llega el `done` de reposo, esa conversación NO está trabajando. Decirlo
-            // es lo que apaga un «trabajando» que se quedó puesto de un turno anterior.
-            if p["reposo"] as? Bool == true { alCambiarEstado?(sesion, "reposo") }
+            // ⚠️ «Está en reposo» sólo cuando venimos a MIRAR. Si estamos mandando, este
+            // `done` es el de bienvenida —llega antes de que el turno arranque— y aplicarlo
+            // apagaba el turno recién encargado: la conversación decía «En reposo · listo»
+            // con el mensaje sin contestar. Era el mismo filo que ya cortó una vez.
+            if !esperandoTurno, p["reposo"] as? Bool == true { alCambiarEstado?(sesion, "reposo") }
             // ⚠️ `reposo: true` es «aquí no está pasando nada», no «tu turno acabó». Se
             // manda a quien se suscribe a una conversación quieta, y si se confunde con el
             // otro, el turno que estás a punto de encargar muere antes de nacer.

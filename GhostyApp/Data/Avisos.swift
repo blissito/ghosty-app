@@ -199,11 +199,20 @@ enum Avisos {
         func userNotificationCenter(_ c: UNUserNotificationCenter,
                                     didReceive respuesta: UNNotificationResponse) async {
             let info = respuesta.notification.request.content.userInfo
+            // ⚠️ Se registra el payload ENTERO. Un aviso que te lleva a la conversación
+            // equivocada no deja rastro de por qué, y la diferencia entre «no venía el
+            // id» y «venía y lo busqué mal» son dos arreglos distintos.
+            EasyBitsClient.diag("[push] tocado: \(info.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))")
             // `agentID` lo pone el aviso local; `agentId` el push del servidor. Se aceptan
             // los dos en vez de obligar a nadie a cambiar de nombre.
             guard let id = (info["agentID"] as? String) ?? (info["agentId"] as? String)
             else { return }
-            let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String)
+            // ⚠️ Y el `thread-id` de APNs como respaldo: es lo que agrupa los avisos por
+            // conversación, así que lleva el mismo `sessionId` aunque el payload no repita
+            // el campo. Sin esto, un aviso sin `sessionId` te dejaba en la conversación que
+            // tuvieras abierta — y parecía que el aviso era de ésa.
+            let hilo = (info["aps"] as? [String: Any])?["thread-id"] as? String
+            let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String) ?? hilo
             await MainActor.run {
                 NotificationCenter.default.post(name: Avisos.alTocar, object: id,
                                                 userInfo: sesion.map { ["sesion": $0] })
