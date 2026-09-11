@@ -29,7 +29,6 @@ struct ConversationView: View {
     @State private var vozBloqueada = false
     @State private var fallo: String?
     /// ¿Está el hilo al final? Decide si se enseña el botón de bajar.
-    @State private var alFinal = true
     /// Se incrementa al enviar: es la señal para bajar del todo.
     @State private var bajarYa = 0
     /// Hasta cuándo hay que seguir bajando pase lo que pase.
@@ -38,6 +37,8 @@ struct ConversationView: View {
     /// nota de voz encima hay que subirla primero—, así que un solo `scrollTo` al pulsar
     /// enviar apuntaba a un final que todavía no existía y te dejaba a media conversación.
     @State private var bajandoHasta = Date.distantPast
+    /// El último mensaje visible, según el propio `ScrollView`.
+    @State private var anclaje: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,126 +49,93 @@ struct ConversationView: View {
                     .padding(.bottom, 14)
             }
 
-            ScrollViewReader { scroll in
-                ScrollView {
-                    VStack(spacing: 0) {
-                    LazyVStack(spacing: 14) {
-                        if mensajesÚnicos.isEmpty {
-                            primeraVez
-                                .padding(.top, 90)
-                        }
-                        // ⚠️ Sonda del bug «escribo y el hilo se queda en blanco»: dice
-                        // CUÁNTOS mensajes cree la vista que hay. Si aquí sale 2 y la
-                        // pantalla está vacía, el fallo es de pintado; si sale 0 mientras
-                        // el turno corre, el fallo es del modelo. Sin esto llevo tres
-                        // conjeturas y ninguna acertó.
-                        Color.clear.frame(height: 0)
-                            .onAppear { EasyBitsClient.diag("[vista] pintando \(store.messages.count) mensajes de \(store.claveDelHilo.prefix(8))") }
-                            .onChange(of: store.messages.count) { _, n in
-                                EasyBitsClient.diag("[vista] ahora \(n) mensajes de \(store.claveDelHilo.prefix(8))")
-                            }
-                        ForEach(mensajesÚnicos) { mensaje in
-                            fila(mensaje).id(mensaje.id)
-                                // Sólo la entrega se anima al entrar: llega a mitad del
-                                // turno, cuando la persona está mirando, y aparecer de
-                                // golpe se lee como un salto del texto. Las burbujas no
-                                // la llevan a propósito — animar CADA trozo del streaming
-                                // haría temblar el hilo entero.
-                                .transition(esEntrega(mensaje)
-                                            ? .scale(scale: 0.94).combined(with: .opacity)
-                                            : .identity)
-                        }
+            // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y
+            // `defaultScrollAnchor`, iOS 17— y no con `ScrollViewReader` + centinela, que
+            // es lo que había. Ese apaño costó cuatro intentos y ninguno funcionó: medir
+            // la posición con geometría devolvía cero dentro de un `ScrollView`, deducirla
+            // del gesto dejaba el botón pegado, y `scrollTo` sobre un `LazyVStack` que
+            // aún no ha medido sus filas aterriza en cualquier parte. Esto no es un
+            // problema que haya que resolver a mano: el sistema ya sabe dónde estás.
+            //
+            // `anclaje` es el ÚLTIMO mensaje visible. Si es el último del hilo, estás
+            // abajo; si no, se enseña el botón. Bajar es asignarlo.
+            ScrollView {
+                LazyVStack(spacing: 14) {
+                    if mensajesÚnicos.isEmpty {
+                        primeraVez.padding(.top, 90)
                     }
-                    // ⚠️ El centinela va FUERA del `LazyVStack`. Dentro no se crea hasta
-                    // que asoma, así que `scrollTo("fondo")` no hacía nada y hubo que
-                    // apuntar al último mensaje y REINTENTAR — y los reintentos, con el
-                    // streaming cambiando el último id, se peleaban entre ellos: el hilo
-                    // subía, bajaba y acababa en ninguna parte. Fuera existe siempre y
-                    // basta un `scrollTo`.
-                    Color.clear.frame(height: 1).id("fondo")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-                }
-                .overlay(alignment: .bottom) {
-                    if !alFinal && !store.messages.isEmpty {
-                        Button {
-                            // ⚠️ NO se toca `alFinal` a mano. Ponerlo aquí escondía el
-                            // botón ANTES de bajar, así que si el scroll fallaba el botón
-                            // desaparecía igual: «no sirve, pero desaparece». Ahora lo
-                            // dice el último mensaje cuando de verdad aparece en pantalla,
-                            // y el scroll insiste hasta que el `LazyVStack` lo ha creado.
-                            // ⚠️ Insiste, no una sola vez. Un `scrollTo` en un hilo largo
-                            // aterriza sobre un alto que el `LazyVStack` todavía no ha
-                            // medido: el botón se marcaba como «ya estás abajo» y
-                            // desaparecía sin haber bajado. Ver `traerAlFinal`.
-                            traerAlFinal(scroll, animado: true)
-                        } label: {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color.gInk)
-                                .frame(width: 34, height: 34)
-                                .background(Color.gCard, in: Circle())
-                                .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
-                                .shadow(color: .black.opacity(0.10), radius: 8, y: 4)
+                    Color.clear.frame(height: 0)
+                        .onAppear { EasyBitsClient.diag("[vista] pintando \(store.messages.count) mensajes de \(store.claveDelHilo.prefix(8))") }
+                        .onChange(of: store.messages.count) { _, n in
+                            EasyBitsClient.diag("[vista] ahora \(n) mensajes de \(store.claveDelHilo.prefix(8))")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("ir-abajo")
-                        .accessibilityLabel("Ir al final")
-                        .padding(.bottom, 8)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    ForEach(mensajesÚnicos) { mensaje in
+                        fila(mensaje).id(mensaje.id)
+                            // Sólo la entrega se anima al entrar: llega a mitad del turno
+                            // y aparecer de golpe se lee como un salto. Animar CADA trozo
+                            // del streaming haría temblar el hilo entero.
+                            .transition(esEntrega(mensaje)
+                                        ? .scale(scale: 0.94).combined(with: .opacity)
+                                        : .identity)
                     }
                 }
-                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: alFinal)
-                // ⚠️ Se escucha el GESTO, no la geometría. Lo intenté midiendo dónde
-                // caía el centinela del final dentro de un espacio de coordenadas con
-                // nombre, y devolvía cero siempre: dentro de un `ScrollView` esa medida
-                // no se refresca al desplazarse, así que el botón no aparecía nunca.
-                // Arrastrar el dedo HACIA ABAJO es subir en el hilo, y eso sí se sabe
-                // sin adivinar nada.
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 12).onChanged { v in
-                        if v.translation.height > 24 { alFinal = false }
-                    }
-                )
-                .scrollDismissesKeyboard(.interactively)
-                .simultaneousGesture(
-                    TapGesture().onEnded {
-                        escribiendo = false
-                        if adjuntando {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                                adjuntando = false
-                            }
-                        }
-                    }
-                )
-                // ⚠️ Sólo se arrastra si YA estabas al final. Si has subido a releer
-                // algo, que la respuesta te tire hacia abajo es lo más molesto que puede
-                // hacer un chat — y era la mitad del «sube y baja».
-                .onChange(of: store.messages.count) { _, _ in
-                    guard alFinal || Date() < bajandoHasta else { return }
-                    alFondo(scroll, animado: true)
-                }
-                // También al crecer el ÚLTIMO mensaje: la respuesta llega en trozos y
-                // sin esto el texto nuevo queda fuera de vista mientras se escribe.
-                .onChange(of: textoDelUltimo) { _, _ in
-                    guard alFinal || Date() < bajandoHasta else { return }
-                    scroll.scrollTo("fondo", anchor: .bottom)
-                }
-                // ⚠️ Cargar un hilo entero NO es lo mismo que recibir un mensaje. El
-                // `LazyVStack` todavía no ha medido las filas cuando `messages` cambia de
-                // golpe, así que un solo `scrollTo` aterriza sobre una altura que aún no
-                // existe y el hilo se queda arriba, con los últimos mensajes escondidos.
-                // Por eso se repite tras el layout, y SIN animación: al abrir un hilo no
-                // hay nada que animar, sólo un sitio donde empezar a leer.
-                // Cambiar de conversación SÍ manda al final: es una pantalla nueva.
-                // Un reintento tras el layout, porque el alto todavía no es el definitivo.
-                // ⚠️ Al ENVIAR se baja siempre, aunque estuvieras arriba: acabas de
-                // escribir, y lo que quieres ver es tu mensaje y lo que conteste.
-                .onChange(of: bajarYa) { _, _ in traerAlFinal(scroll) }
-                .onChange(of: hiloVisible) { _, _ in traerAlFinal(scroll) }
-                .onAppear { traerAlFinal(scroll) }
+                .padding(.horizontal, 16)
+                // ⚠️ Aire al final, que es el «siempre esconde contenido»: sin esto la
+                // última línea queda justo debajo de la barra de conversaciones y hay que
+                // adivinar que sigue ahí.
+                .padding(.bottom, 28)
+                .scrollTargetLayout()
             }
+            // Un chat empieza abajo. Sin esto arranca arriba y hay que mandarlo al final
+            // a mano en cada apertura, que es de donde salían los saltos.
+            .defaultScrollAnchor(.bottom)
+            .scrollPosition(id: $anclaje, anchor: .bottom)
+            .overlay(alignment: .bottom) {
+                if !alFinal, !mensajesÚnicos.isEmpty {
+                    Button { irAbajo(animado: true) } label: {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.gInk)
+                            .frame(width: 34, height: 34)
+                            .background(Color.gCard, in: Circle())
+                            .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+                            .shadow(color: .black.opacity(0.10), radius: 8, y: 4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("ir-abajo")
+                    .accessibilityLabel("Ir al final")
+                    .padding(.bottom, 8)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: alFinal)
+            .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    escribiendo = false
+                    if adjuntando {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                            adjuntando = false
+                        }
+                    }
+                }
+            )
+            // ⚠️ Sólo se arrastra si YA estabas al final. Si has subido a releer algo, que
+            // la respuesta te tire hacia abajo es lo más molesto que puede hacer un chat.
+            .onChange(of: store.messages.count) { _, _ in
+                guard alFinal || Date() < bajandoHasta else { return }
+                irAbajo(animado: true)
+            }
+            // Y al crecer el último mensaje: la respuesta llega en trozos, y sin esto el
+            // texto nuevo se escribe fuera de la vista.
+            .onChange(of: textoDelUltimo) { _, _ in
+                guard alFinal || Date() < bajandoHasta else { return }
+                irAbajo()
+            }
+            // Al enviar se baja siempre, aunque estuvieras arriba: acabas de escribir.
+            .onChange(of: bajarYa) { _, _ in irAbajo() }
+            // Cambiar de conversación es una pantalla nueva: empieza por el final.
+            .onChange(of: hiloVisible) { _, _ in anclaje = mensajesÚnicos.last?.id }
 
             // ⚠️ Un CARTEL, no un mensaje. Que el aviso viva dentro de la respuesta lo
             // convertía en historia: quedaba «se cortó la conexión» pegado para siempre en
@@ -298,6 +266,28 @@ struct ConversationView: View {
         return store.messages.filter { vistos.insert($0.id).inserted }
     }
 
+    /// ¿Estás mirando el final del hilo? Lo dice el sistema, no una cuenta nuestra.
+    private var alFinal: Bool {
+        anclaje == nil || anclaje == mensajesÚnicos.last?.id
+    }
+
+    /// Al final del hilo. Una asignación, no un `scrollTo` con reintentos.
+    private func irAbajo(animado: Bool = false) {
+        guard let ultimo = mensajesÚnicos.last?.id else { return }
+        if animado {
+            withAnimation(.easeOut(duration: 0.28)) { anclaje = ultimo }
+        } else {
+            anclaje = ultimo
+        }
+        // ⚠️ Y otra vez tras el layout. Con el último mensaje creciendo —la respuesta
+        // llega en trozos— el ancla se fija sobre un alto que aún no es el definitivo y
+        // la última línea queda mordida por la barra de abajo.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
+            if mensajesÚnicos.last?.id == ultimo { anclaje = ultimo }
+        }
+    }
+
     private var hiloVisible: String {
         // ⚠️ La clave LOCAL, no el `sessionId`: dos conversaciones nuevas del mismo
         // agente no lo tienen todavía y serían indistinguibles — cambiar entre ellas
@@ -310,36 +300,6 @@ struct ConversationView: View {
     ///
     /// ⚠️ Los reintentos no son paranoia: dentro de un `LazyVStack` una fila que está
     /// fuera de pantalla **no se ha creado todavía**, y `scrollTo` a algo que no existe no
-    /// hace nada. Por eso el botón de bajar no bajaba.
-    /// Al final del hilo. Un solo `scrollTo`, al centinela que vive fuera del
-    /// `LazyVStack` y por tanto existe siempre.
-    private func alFondo(_ scroll: ScrollViewProxy, animado: Bool = false) {
-        guard !store.messages.isEmpty else { return }
-        if animado {
-            withAnimation(.easeOut(duration: 0.28)) { scroll.scrollTo("fondo", anchor: .bottom) }
-        } else {
-            scroll.scrollTo("fondo", anchor: .bottom)
-        }
-        // ⚠️ Se marca DESPUÉS de mandar el scroll, no dentro del botón antes de bajar:
-        // así estaba y escondía el botón aunque el desplazamiento fallara — «no sirve,
-        // pero desaparece».
-        alFinal = true
-    }
-
-    /// Al abrir una conversación: al final, y otra vez cuando ya se midió el alto.
-    private func traerAlFinal(_ scroll: ScrollViewProxy, animado: Bool = false) {
-        alFondo(scroll, animado: animado)
-        Task { @MainActor in
-            // Dos reintentos, no uno: con un hilo largo el primero cae sobre filas que aún
-            // no existen —el `LazyVStack` las crea al acercarse— y el segundo llega antes
-            // de que haya terminado de crearlas.
-            try? await Task.sleep(for: .milliseconds(120))
-            alFondo(scroll)
-            try? await Task.sleep(for: .milliseconds(260))
-            alFondo(scroll)
-        }
-    }
-
     private var textoDelUltimo: Int {
         guard case .agent(let t, _, _) = store.messages.last?.kind else { return 0 }
         return t.count

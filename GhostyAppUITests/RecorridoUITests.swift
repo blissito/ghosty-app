@@ -135,6 +135,9 @@ final class RecorridoUITests: XCTestCase {
         let bajar = app.buttons["ir-abajo"]
         XCTAssertTrue(bajar.waitForExistence(timeout: 3), "el botón de ir abajo no apareció al subir")
         bajar.tap()
+        // Con la animación terminada: fotografiar a media bajada enseña el último mensaje
+        // cortado y parece un fallo de layout que no es.
+        Thread.sleep(forTimeInterval: 1.0)
         foto("07-tras-bajar")
 
         // 4b. La conversación con foto: imagen de markdown y tarjeta de entrega. Aquí es
