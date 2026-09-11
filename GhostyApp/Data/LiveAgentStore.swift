@@ -246,6 +246,28 @@ final class LiveAgentStore: AgentStoring {
         // Sin sesión no hay nada que pedir: la app arranca en el login.
         guard Session.haySesion else { conexion = .sinLlave; return }
 
+        // ⚠️ Lo guardado se pinta ANTES de hablar con nadie. Al arrancar, la app se
+        // quedaba en blanco varios segundos esperando a que el servidor dijera qué agentes
+        // hay — y la lista de ayer es casi siempre la de hoy. Ahora la conversación
+        // aparece de inmediato y se afina cuando llegue la respuesta.
+        //
+        // Sólo si hay algo que enseñar: sin cuentas guardadas, la espera es honesta.
+        let guardadas = Credentials.accounts
+        if !guardadas.isEmpty, conexion != .lista {
+            cuentas = guardadas
+            montarCanales()
+        // Gancho de desarrollo: arrancar en una conversación NUEVA, que es el camino que
+        // más se rompe —crear sesión y mandar el primer turno— y el que no se puede
+        // provocar desde un script sin tocar la pantalla.
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["GHOSTY_NUEVA"] == "1", let c = canalActivo {
+            let h = c.abrir()
+            c.activa = h.clave
+        }
+        #endif
+            conexion = .lista
+        }
+
         // La flota la sabe el servidor. Esto es lo que borra el paso de teclear un
         // token y un id: la cuenta ya sabe qué agentes tiene, y si no tiene ninguno,
         // el servidor le provisiona el primero.
@@ -295,43 +317,7 @@ final class LiveAgentStore: AgentStoring {
         }
         // El agente activo se conserva entre arranques, pero sólo si sigue existiendo:
         // uno borrado desde la web dejaría la app apuntando a la nada.
-        let activo = Credentials.activeID
-        selectedAgentID = cuentas.contains(where: { $0.id == activo }) ? activo! : cuentas[0].id
-        // ⚠️ Los canales se crean AQUÍ y no bajo demanda desde una vista: crearlos al
-        // leerlos sería mutar estado observado durante el pintado, y eso repinta en
-        // bucle. Un canal que ya existe conserva su turno vivo entre recargas.
-        for c in cuentas where canales[c.id] == nil {
-            let canal = Canal(cuenta: c)
-            // Lo guardado se pinta ANTES de hablar con la caja. Es todo el punto: el
-            // historial y el hilo salen al instante y se afinan cuando la caja conteste.
-            let hilos = cache.lista(c.id)
-            if !hilos.isEmpty {
-                canal.hilosRemotos = hilos
-                canal.estadoHilos = .listo
-            }
-            for guardado in cache.abiertos(c.id) {
-                let h = canal.abrir(guardado.sesionID)
-                h.mensajes = guardado.mensajes
-                h.sospechoso = guardado.sospechoso
-            }
-            // Siempre hay una conversación donde escribir: si no había ninguna guardada,
-            // se abre una vacía. Sin esto el compositor no tendría a qué mandar.
-            if canal.hilos.isEmpty { canal.abrir() }
-            canal.activa = canal.hilos.last?.clave
-            canales[c.id] = canal
-            // ⚠️ Al ARRANCAR también hay que volver a escuchar. Si el turno siguió
-            // mientras la app estaba cerrada —que es justo lo que se compró con este
-            // transporte—, la conversación se abriría enseñando tu mensaje y ninguna
-            // respuesta, y el agente escribiendo sin público.
-            // ⚠️ Quién tiene la verdad de qué conversaciones hay es el SERVIDOR, no el
-            // caché del teléfono. Si la app muere de golpe, lo último que escribiste no
-            // llegó ni a guardarse, y al abrir aparecía una conversación en blanco
-            // mientras el agente contestaba del otro lado.
-            ponerseAlDia(canal)
-        }
-        for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
-            canales[id]?.soltar(); canales[id] = nil
-        }
+        montarCanales()
         conexion = .lista
     }
 
@@ -715,6 +701,16 @@ final class LiveAgentStore: AgentStoring {
         // Y cuando el pedido deja de esperar —lo contestaste tú desde otro sitio, o se
         // acabó el plazo— la tarjeta se retira sola. Una que sigue pidiendo permiso por
         // algo ya resuelto no se puede quitar de ninguna manera.
+        // Que la espera se DIGA. Un reloj corriendo sin explicar a qué espera se lee como
+        // que la app se colgó, y es justo cuando más falta hace entender qué pasa.
+        await c.alHacerCola { [weak canal] cuantas in
+            Task { @MainActor in
+                guard let canal, let hilo = canal.hilo else { return }
+                hilo.turno?.detail = cuantas == 1
+                    ? "Esperando turno · 1 por delante"
+                    : "Esperando turno · \(cuantas) por delante"
+            }
+        }
         await c.alResolverPermiso { [weak self, weak canal] id in
             Task { @MainActor in
                 guard let canal else { return }
@@ -1069,6 +1065,12 @@ final class LiveAgentStore: AgentStoring {
         if canal.acp == nil { hilo.turno?.detail = "Despertando a tu agente…" }
         hilo.prompt = limpio
         hilo.uso = (0, 0)
+        // ⚠️ El permiso se pide AL MANDAR, que es el momento en que la promesa tiene
+        // sentido: «guarda el teléfono, te aviso». Antes sólo se pedía al cambiar de
+        // agente teniendo otro trabajando —un caso raro— así que en la práctica no se
+        // pedía nunca, y sin permiso no suena ningún aviso por muy bien que el servidor
+        // los mande. Es idempotente: pregunta una vez en la vida de la app.
+        Avisos.pedirPermisoSiHaceFalta()
 
         // ⚠️ Se cancela lo anterior ANTES de asignar. Si el hilo estaba enganchado a su
         // conversación —escuchando lo que pasara ahí— reemplazar la tarea sin cancelarla
@@ -1615,6 +1617,54 @@ final class LiveAgentStore: AgentStoring {
         case .allowOnce: return "Permitido esta vez · ahora"
         case .allowForTask: return "Permitido para esa tarea · ahora"
         case .deny: return "Rechazado · ahora"
+        }
+    }
+
+    /// Un canal por agente, con lo guardado pintado ya.
+    ///
+    /// ⚠️ Los canales se crean AQUÍ y no bajo demanda desde una vista: crearlos al leerlos
+    /// sería mutar estado observado durante el pintado, y eso repinta en bucle. Un canal
+    /// que ya existe conserva su turno vivo entre recargas.
+    private func montarCanales() {
+        guard !cuentas.isEmpty else { return }
+        let activo = Credentials.activeID
+        selectedAgentID = cuentas.contains(where: { $0.id == activo }) ? activo! : cuentas[0].id
+        // leerlos sería mutar estado observado durante el pintado, y eso repinta en
+        // bucle. Un canal que ya existe conserva su turno vivo entre recargas.
+        for c in cuentas where canales[c.id] == nil {
+            let canal = Canal(cuenta: c)
+            // Lo guardado se pinta ANTES de hablar con la caja. Es todo el punto: el
+            // historial y el hilo salen al instante y se afinan cuando la caja conteste.
+            let hilos = cache.lista(c.id)
+            if !hilos.isEmpty {
+                canal.hilosRemotos = hilos
+                canal.estadoHilos = .listo
+            }
+            for guardado in cache.abiertos(c.id) {
+                let h = canal.abrir(guardado.sesionID)
+                h.mensajes = guardado.mensajes
+                h.sospechoso = guardado.sospechoso
+            }
+            // Siempre hay una conversación donde escribir: si no había ninguna guardada,
+            // se abre una vacía. Sin esto el compositor no tendría a qué mandar.
+            if canal.hilos.isEmpty { canal.abrir() }
+            canal.activa = canal.hilos.last?.clave
+            canales[c.id] = canal
+            // ⚠️ Al ARRANCAR también hay que volver a escuchar. Si el turno siguió
+            // mientras la app estaba cerrada —que es justo lo que se compró con este
+            // transporte—, la conversación se abriría enseñando tu mensaje y ninguna
+            // respuesta, y el agente escribiendo sin público.
+            // ⚠️ Quién tiene la verdad de qué conversaciones hay es el SERVIDOR, no el
+            // caché del teléfono. Si la app muere de golpe, lo último que escribiste no
+            // llegó ni a guardarse, y al abrir aparecía una conversación en blanco
+            // mientras el agente contestaba del otro lado.
+            ponerseAlDia(canal)
+        }
+        for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
+            canales[id]?.soltar(); canales[id] = nil
+        }
+        for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
+            canales[id]?.soltar(); canales[id] = nil
         }
     }
 }

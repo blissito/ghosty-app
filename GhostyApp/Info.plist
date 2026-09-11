@@ -49,6 +49,10 @@
 	<dict>
 		<key>UIColorName</key>
 		<string>bg</string>
+		<key>UIImageName</key>
+		<string>ghosty-lila</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<true/>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

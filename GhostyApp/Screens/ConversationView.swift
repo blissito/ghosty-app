@@ -696,6 +696,17 @@ struct ConversationView: View {
 
     private func enviar() {
         guard hayQueMandar, !subiendo else { return }
+        // ⚠️ Con un turno en curso NO se manda, y el texto se queda donde está. El
+        // servidor, al recibir un segundo mensaje en la misma conversación, CANCELA el
+        // anterior y espera a que muera antes de arrancar el nuevo — así que mandar aquí
+        // tiraba el trabajo en marcha sin decir nada, y si la caja tardaba en morir, el
+        // nuevo turno tampoco arrancaba. Se veía como «mando otro y se cuelgan los dos».
+        //
+        // La salida es explícita: detener es un botón, no un efecto secundario de escribir.
+        if store.currentTurn != nil {
+            fallo = "Tu agente está con lo anterior. Detenlo si quieres mandarle esto."
+            return
+        }
         let texto = borrador
         let envio = adjuntos
         borrador = ""

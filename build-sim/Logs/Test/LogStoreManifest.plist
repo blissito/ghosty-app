@@ -6,10 +6,10 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>05B0334F-EAE3-46DB-96A4-83B006C2878B</key>
+		<key>74CB13F0-B72C-4ED7-92C1-2421C1F061FA</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>91686148-8395-4B81-BCCF-48B3B551EFFD</string>
+			<string>EC25BF39-BC10-462C-ACBF-AA7763FDEAC6</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -30,7 +30,7 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_20-16-57--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_22-28-43--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -57,18 +57,18 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810785817.50367606</real>
+			<real>810793723.97130096</real>
 			<key>timeStoppedRecording</key>
-			<real>810785903.99933696</real>
+			<real>810793813.884547</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>05B0334F-EAE3-46DB-96A4-83B006C2878B</string>
+			<string>74CB13F0-B72C-4ED7-92C1-2421C1F061FA</string>
 		</dict>
-		<key>95CACB2E-0B5B-4DA8-8F83-B0DC661E07B9</key>
+		<key>DC09F605-A1EF-4FC2-BE87-99ED3A582536</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>7B215A76-573C-49CE-A612-DB34599EAA46</string>
+			<string>1C8067FA-CAC0-467A-BDD2-54C3181432BE</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -89,7 +89,7 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_20-28-49--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_22-40-37--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -116,13 +116,13 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810786529.34025002</real>
+			<real>810794437.61638701</real>
 			<key>timeStoppedRecording</key>
-			<real>810786613.06616902</real>
+			<real>810794525.26231098</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>95CACB2E-0B5B-4DA8-8F83-B0DC661E07B9</string>
+			<string>DC09F605-A1EF-4FC2-BE87-99ED3A582536</string>
 		</dict>
 	</dict>
 </dict>

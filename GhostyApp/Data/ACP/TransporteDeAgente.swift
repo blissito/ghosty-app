@@ -37,6 +37,9 @@ protocol TransporteDeAgente: Actor {
     /// WebSocket no puede: allí el turno murió con el socket—.
     nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<ACPClient.Replay, Error>?
 
+    /// Cuántas conversaciones hay por delante cuando el turno tiene que esperar ranura.
+    func alHacerCola(_ handler: @escaping @Sendable (Int) -> Void)
+
     func cancelar(_ sessionID: String) async
 
     func borrarSesion(_ id: String) async throws

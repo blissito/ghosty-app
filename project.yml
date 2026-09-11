@@ -91,8 +91,14 @@ targets:
         # esto es sólo un adelanto.
         UIBackgroundModes:
           - remote-notification
+        # ⚠️ Con el fantasma, no un color plano. El arranque enseñaba dos fotogramas en
+        # blanco antes de que SwiftUI pintara nada: no es lentitud —son los milisegundos
+        # normales del sistema— pero se lee como un parpadeo roto. Con la imagen, esos
+        # mismos milisegundos se leen como la app abriéndose.
         UILaunchScreen:
           UIColorName: bg
+          UIImageName: ghosty-lila
+          UIImageRespectsSafeAreaInsets: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIUserInterfaceStyle: Light

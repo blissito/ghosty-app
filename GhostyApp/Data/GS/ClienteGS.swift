@@ -185,6 +185,10 @@ actor ClienteGS: TransporteDeAgente {
         permisoPendiente = handler
     }
 
+    /// Aviso de que este turno está haciendo cola detrás de otros.
+    private var alEsperar: (@Sendable (Int) -> Void)?
+    func alHacerCola(_ handler: @escaping @Sendable (Int) -> Void) { alEsperar = handler }
+
     private var permisoResuelto: (@Sendable (String) -> Void)?
     func alResolverPermiso(_ handler: @escaping @Sendable (String) -> Void) {
         permisoResuelto = handler
@@ -276,7 +280,13 @@ actor ClienteGS: TransporteDeAgente {
         // cliente que lo pida sin poder contestar deja el turno detenido diez minutos.
         cuerpo["permisos"] = "preguntar"
         let r = try await pedir(base("/conversations/\(sesion)/messages"), metodo: "POST", cuerpo: cuerpo)
-        EasyBitsClient.diag("[gs] turno encargado \(sesion): \(r["turnId"] as? String ?? "?") estado=\(r["estado"] as? String ?? "?")")
+        let enCola = r["enCola"] as? Int ?? 0
+        EasyBitsClient.diag("[gs] turno encargado \(sesion): \(r["turnId"] as? String ?? "?") estado=\(r["estado"] as? String ?? "?") enCola=\(enCola)")
+        // ⚠️ Un agente atiende un número limitado de conversaciones a la vez. Si las
+        // ranuras están ocupadas, el turno espera — y un reloj corriendo sin decir a qué
+        // espera se lee como «se colgó». Medido en la caja de alguien: cinco turnos en
+        // cola detrás de dos que se quedaron atascados, y la app enseñando «Trabajando…».
+        if enCola > 0 { alEsperar?(enCola) }
     }
 
     /// Abre el SSE y traduce lo que llega.
