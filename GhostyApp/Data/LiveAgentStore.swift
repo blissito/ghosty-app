@@ -1463,6 +1463,7 @@ final class LiveAgentStore: AgentStoring {
                         if v.titulo == "herramienta" { v.titulo = herramientas[i].titulo }
                         if v.salida == nil { v.salida = herramientas[i].salida }
                         if v.donde == nil { v.donde = herramientas[i].donde }
+                        if v.detalle == nil { v.detalle = herramientas[i].detalle }
                         herramientas[i] = v
                     } else {
                         herramientas.append(h)
@@ -1474,7 +1475,7 @@ final class LiveAgentStore: AgentStoring {
                     // durante todo lo que quedara del turno, que suele ser lo más largo.
                     if let viva = herramientas.last(where: \.esperando) {
                         hilo.sinHerramientas = false
-                        hilo.turno?.detail = viva.titulo
+                        hilo.turno?.detail = viva.rotulo
                     } else {
                         // Ninguna corriendo: vuelve a mandar el reloj.
                         hilo.sinHerramientas = true

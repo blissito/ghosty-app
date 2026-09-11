@@ -61,6 +61,7 @@ struct HerramientaGuardada: Codable {
     var estado: String
     var salida: String?
     var donde: String?
+    var detalle: String?
 
     init(_ h: Herramienta) {
         id = h.id
@@ -78,12 +79,13 @@ struct HerramientaGuardada: Codable {
         // se enseña recortada de todas formas.
         salida = h.salida.map { String($0.prefix(2000)) }
         donde = h.donde
+        detalle = h.detalle
     }
 
     var herramienta: Herramienta {
         Herramienta(id: id, titulo: titulo, clase: Herramienta.Clase(clase),
                     estado: estado == "fallida" ? .fallida : .hecha,
-                    salida: salida, donde: donde)
+                    salida: salida, donde: donde, detalle: detalle)
     }
 }
 

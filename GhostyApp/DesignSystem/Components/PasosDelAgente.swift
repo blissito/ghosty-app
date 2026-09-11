@@ -52,7 +52,7 @@ struct PasosDelAgente: View {
             HStack(spacing: 7) {
                 if let viva = run.corriendo {
                     ProgressView().controlSize(.mini)
-                    Text(viva.titulo)
+                    Text(viva.rotulo)
                         .lineLimit(1)
                 } else if run.fallidas > 0 {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -88,7 +88,7 @@ private struct PasoFila: View {
             icono
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
-                    Text(h.titulo)
+                    Text(h.rotulo)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(h.estado == .fallida ? Color.gDangerInk : Color.gInk)
                         .lineLimit(1)

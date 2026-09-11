@@ -55,6 +55,16 @@ struct Herramienta: Identifiable, Equatable, Sendable {
     var salida: String?
     /// El archivo que tocó, si lo dice.
     var donde: String?
+    /// QUÉ hizo, en una línea: el comando, la búsqueda, la URL. goose titula «Terminal»
+    /// y sin esto diez pasos seguidos eran diez filas iguales.
+    var detalle: String?
 
     var esperando: Bool { estado == .corriendo }
+
+    /// «Terminal · npm test». Si el título ya lo dice (Ghosty-ACP manda «shell · echo
+    /// hola»), no se repite.
+    var rotulo: String {
+        guard let d = detalle, !d.isEmpty, !titulo.localizedCaseInsensitiveContains(d) else { return titulo }
+        return "\(titulo) · \(d)"
+    }
 }

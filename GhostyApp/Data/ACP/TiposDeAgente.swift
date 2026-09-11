@@ -133,7 +133,8 @@ enum ACPClient {
             clase: .init(u["kind"] as? String),
             estado: estado,
             salida: Self.salidaDe(u["content"]),
-            donde: donde)
+            donde: donde,
+            detalle: u["detalle"] as? String)
     }
 
     /// Un hash que vale lo mismo en todos los arranques.

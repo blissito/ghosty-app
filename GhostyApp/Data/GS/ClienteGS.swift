@@ -423,6 +423,7 @@ actor ClienteGS: TransporteDeAgente {
                 cont.yield(.tool(ACPClient.herramienta([
                     "title": p["title"] as Any, "kind": p["kind"] as Any,
                     "status": p["status"] as Any, "locations": p["path"].map { [["path": $0]] } as Any,
+                    "detalle": p["detalle"] as Any,
                 ], id: id)))
             }
         case "artifact":
