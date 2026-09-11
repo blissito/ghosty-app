@@ -256,6 +256,12 @@ final class LiveAgentStore: AgentStoring {
         if !guardadas.isEmpty, conexion != .lista {
             cuentas = guardadas
             montarCanales()
+        // El aviso que se tocó con la app cerrada, ahora que ya hay dónde llevarlo.
+        if let pendiente = avisoPendiente {
+            avisoPendiente = nil
+            seleccionar(pendiente.agente)
+            abrirDesdeAviso(sesion: pendiente.sesion, de: pendiente.agente)
+        }
         // Gancho de desarrollo: arrancar en una conversación NUEVA, que es el camino que
         // más se rompe —crear sesión y mandar el primer turno— y el que no se puede
         // provocar desde un script sin tocar la pantalla.
@@ -450,6 +456,32 @@ final class LiveAgentStore: AgentStoring {
         return hilo.mensajes.count != antes
     }
 
+    /// Abrir la conversación de un aviso: llevar allí, traer lo que se dijo y escuchar.
+    ///
+    /// ⚠️ Se pide ESTA conversación por su id, no «la activa». Pedir la activa justo
+    /// después de cambiarla es una carrera que se pierde: el aviso te llevaba al sitio
+    /// correcto y el hilo aparecía vacío.
+    func abrirDesdeAviso(sesion: String, de agentID: String) {
+        // ⚠️ Con la app CERRADA, el aviso llega antes de que existan los canales: se
+        // guarda y se aplica en cuanto la lista esté montada. Sin esto, tocar un aviso
+        // arrancaba la app y te dejaba en la conversación de siempre — como si el aviso
+        // hubiera sido de ésa.
+        guard let canal = canales[agentID] else {
+            avisoPendiente = (agentID, sesion)
+            return
+        }
+        let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
+        mirar(hilo, de: agentID)
+        Task { [weak self, weak canal] in
+            guard let self, let canal else { return }
+            await self.traerLaConversacion(hilo, de: canal)
+            self.engancharse(hilo, de: canal)
+        }
+    }
+
+    /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
+    private var avisoPendiente: (agente: String, sesion: String)?
+
     /// Qué conversaciones hay, qué se dijo en la que miras, y volver a escucharla.
     func ponerseAlDia(_ canal: Canal) {
         guard !DemoData.encendido, Session.haySesion else { return }
@@ -497,7 +529,16 @@ final class LiveAgentStore: AgentStoring {
             for e in entregas.deSesion(sid) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
-            guard !mensajes.isEmpty, hilo.mensajes.count <= antes else { return }
+            // ⚠️⚠️ NUNCA se pisa con MENOS de lo que ya hay. El servidor devuelve la cola
+            // del hilo (`tail`), y además junta mensajes seguidos del mismo hablante: lo
+            // que vuelve puede ser más corto que lo que tienes delante, y sustituirlo sin
+            // más borra respuestas que estaban bien. Si viene con menos, se deja lo local
+            // y se prefiere quedarse corto de frescura que perder una conversación.
+            guard !mensajes.isEmpty, hilo.mensajes.count <= antes,
+                  mensajes.count >= hilo.mensajes.count else {
+                EasyBitsClient.diag("[hilo] \(sid): el servidor trae \(mensajes.count) y aquí hay \(hilo.mensajes.count); no lo piso")
+                return
+            }
             hilo.mensajes = mensajes
             hilo.fallo = nil
             guardarHilos(canal)
@@ -1580,7 +1621,12 @@ final class LiveAgentStore: AgentStoring {
         // había acabado, justo cuando lo que había pasado era que bloqueaste el teléfono.
         // El reloj sí se limpia —el turno local ya no existe—, pero la conversación queda
         // pendiente hasta que se recoja de verdad.
-        let hubo = hilo.turno != nil && !hilo.interrumpido
+        // ⚠️ «Hubo turno» también cuando lo escuchamos sin haberlo mandado: al
+        // engancharse a una conversación que estaba trabajando, el turno local puede no
+        // existir, y sin esto la conversación terminaba sin ponerse la palomita — parecía
+        // que seguía pendiente cuando ya había contestado.
+        let hubo = (hilo.turno != nil || hilo.mensajes.last?.esDelAgente == true)
+            && !hilo.interrumpido
         hilo.cronometro?.cancel(); hilo.cronometro = nil
         hilo.turno = nil; hilo.inicio = nil
         if hubo {

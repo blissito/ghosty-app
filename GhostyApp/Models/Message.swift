@@ -31,6 +31,16 @@ struct PullRequestCard: Equatable, Sendable {
 }
 
 struct Message: Identifiable, Equatable, Sendable {
+    /// ¿Lo último que hay en el hilo lo escribió el agente? Con eso se sabe que una
+    /// conversación CONTESTÓ, aunque el turno no fuera nuestro —al engancharse a uno que
+    /// ya estaba corriendo, aquí no hay turno local que mirar—.
+    var esDelAgente: Bool {
+        switch kind {
+        case .agent, .entrega: return true
+        default: return false
+        }
+    }
+
     enum Kind: Equatable, Sendable {
         /// El texto y, si los hubo, lo que se mandó con él.
         ///
