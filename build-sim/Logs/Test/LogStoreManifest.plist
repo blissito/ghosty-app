@@ -6,10 +6,10 @@
 	<integer>12</integer>
 	<key>logs</key>
 	<dict>
-		<key>52D182BC-341A-4EA8-A610-F2A52BA8C61D</key>
+		<key>C5D4AE2A-4005-43E9-87A1-0005310A0511</key>
 		<dict>
 			<key>auxiliaryLogUniqueIdentifier</key>
-			<string>1CC65300-1179-43D1-9541-007AD9ED7950</string>
+			<string>63491CA3-2512-4B15-9B2F-C760B7A05015</string>
 			<key>auxiliaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
@@ -30,7 +30,7 @@
 			<key>domainType</key>
 			<string>com.apple.dt.unit.cocoaUnitTest</string>
 			<key>fileName</key>
-			<string>Test-GhostyApp-2026.09.10_23-03-49--0600.xcresult</string>
+			<string>Test-GhostyApp-2026.09.10_23-24-59--0600.xcresult</string>
 			<key>hasAuxiliaryLog</key>
 			<true/>
 			<key>hasPrimaryLog</key>
@@ -57,13 +57,13 @@
 			<key>signature</key>
 			<string>Test GhostyApp</string>
 			<key>timeStartedRecording</key>
-			<real>810795829.22627997</real>
+			<real>810797099.00992203</real>
 			<key>timeStoppedRecording</key>
-			<real>810795913.97858202</real>
+			<real>810797177.21064401</real>
 			<key>title</key>
 			<string>Test GhostyApp</string>
 			<key>uniqueIdentifier</key>
-			<string>52D182BC-341A-4EA8-A610-F2A52BA8C61D</string>
+			<string>C5D4AE2A-4005-43E9-87A1-0005310A0511</string>
 		</dict>
 		<key>F2C38200-866C-49EB-B9E2-B730D166DBA3</key>
 		<dict>

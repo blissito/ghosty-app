@@ -1134,14 +1134,22 @@ final class LiveAgentStore: AgentStoring {
                 // reconstruye el contexto del modelo, así que si no se la mandamos
                 // nosotros, el agente empieza en blanco en cada mensaje. Es un parche con
                 // coste en tokens y se borra el día que la caja lo haga bien.
-                // ⚠️ Con gs NO se manda: el contexto lo mantiene el servidor, que es
-                // dueño de la sesión. Mandarlo igual no es sólo pagar tokens de más —
-                // medido en la caja de pruebas, el agente se puso a comentar el propio
-                // bloque en vez de contestar la pregunta.
-                // El contexto lo mantiene el servidor: mandarle la conversación dentro
-                // del turno era un parche del camino viejo, y además el agente acababa
-                // comentando el propio bloque en vez de contestar. Ver `BloqueDeHistorial`.
-                let conHistoria = conVoz
+                // ⚠️⚠️ VUELVE la conversación previa dentro del turno, y no me gusta más
+                // que a nadie. La quité con el refactor —«el contexto es del servidor»— y
+                // esa misma noche el agente contestó «no tengo contexto, éste es el primer
+                // mensaje de la conversación» a la tercera pregunta de un hilo largo, y
+                // luego «no encuentro a qué te refieres con ellas» sobre unas fotos que
+                // acababa de entregar.
+                //
+                // El arreglo del contexto existe en ghosty-lite pero NO está medido contra
+                // la caja de quien usa esto. Hasta que lo esté, la red de seguridad se
+                // queda: una app que olvida lo que acabas de decirle no sirve de nada, y
+                // pagar unos tokens es preferible a eso.
+                //
+                // Se borra el día que alguien mida dos turnos con la caja hibernada en
+                // medio y el agente recuerde. Ver `NOTAS-DEL-RELE.md`.
+                let conHistoria = BloqueDeHistorial.texto(hilo.mensajes)
+                    .map { "\($0)\n\n\(conVoz)" } ?? conVoz
                 await self.porSocket(canal, hilo, sid: sid, texto: conHistoria,
                                      adjuntos: conArchivos,
                                      respuesta: idRespuesta)
@@ -1429,6 +1437,16 @@ final class LiveAgentStore: AgentStoring {
 
     func stopTurn() async {
         guard let canal = canalActivo, let hilo = canal.hilo else { return }
+        // ⚠️ También sirve para soltar una conversación que creemos trabajando allá pero
+        // que no tiene turno local: se le dice al servidor que pare y se limpia aquí. Sin
+        // esto, un turno colgado del otro lado dejaba la conversación inutilizable.
+        if hilo.turno == nil, hilo.interrumpido, let sid = hilo.sesionID {
+            hilo.interrumpido = false
+            hilo.enVuelo?.cancel(); hilo.enVuelo = nil
+            refrescarEstado(canal)
+            Task { [acp = canal.acp] in await acp?.cancelar(sid) }
+            return
+        }
         detener(canal, hilo)
     }
 

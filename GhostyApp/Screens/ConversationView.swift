@@ -179,6 +179,14 @@ struct ConversationView: View {
                     Text("Tu agente sigue con esto. Te aviso en cuanto termine.")
                         .gMeta().foregroundStyle(Color.gInk2)
                     Spacer(minLength: 0)
+                    // ⚠️ SIEMPRE una salida. Este cartel no ofrecía ninguna: si el turno
+                    // se quedaba colgado allá, la conversación se quedaba diciendo «sigue
+                    // con esto» sin forma de pararlo ni de escribir —el botón de detener
+                    // sólo sale con un turno LOCAL vivo, y aquí no lo hay—.
+                    Button("Detener") { Task { await store.stopTurn() } }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.gPrimary)
+                        .accessibilityIdentifier("detener-interrumpido")
                 }
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .background(Color.gCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
