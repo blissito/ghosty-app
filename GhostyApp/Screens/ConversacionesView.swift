@@ -284,7 +284,7 @@ struct ConversacionesView: View {
                                 TintedIcon(systemName: "clock.arrow.circlepath", tint: .gInk3,
                                            background: .gFill, size: 28)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(store.titulos.titulo(s.id) ?? nombre(s))
+                                    Text(store.titulos.titulo(agente.id, s.id) ?? nombre(s))
                                         .font(.system(size: 15, weight: .medium))
                                         .foregroundStyle(Color.gInk).lineLimit(1)
                                     Text(detalle(s)).gMeta()

@@ -22,6 +22,9 @@ final class Hilo {
     let clave = UUID().uuidString
     /// La de la caja. `nil` = todavía no se ha creado allá.
     var sesionID: String?
+    /// De qué agente es. Lo pone el `Canal` al abrirlo; hace falta para las claves
+    /// persistidas (título, entregas, visto), que van por agente Y sesión.
+    var agenteID = ""
 
     var mensajes: [Message] = []
 
@@ -138,7 +141,7 @@ final class Hilo {
     var titulo: String {
         // ⚠️ Primero el fijado. `mensajes` es la COLA que manda el servidor, así que su
         // «primer mensaje» va cambiando conforme la conversación crece: el título mutaba.
-        if let sesionID, let fijo = TitleStore.compartido.titulo(sesionID) { return Self.limpio(fijo) }
+        if let sesionID, let fijo = TitleStore.compartido.titulo(agenteID, sesionID) { return Self.limpio(fijo) }
         for m in mensajes { if case .user(let t, _) = m.kind, !t.isEmpty { return Self.limpio(t) } }
         // Sólo mientras el mensaje va en camino y todavía no está en la lista.
         if !prompt.isEmpty { return Self.limpio(prompt) }
@@ -233,6 +236,7 @@ final class Canal {
         // escribirle. Ver el aviso de `Hilo.tocado`.
         if let sesionID, let ya = hilo(sesion: sesionID) { activa = ya.clave; return ya }
         let h = Hilo()
+        h.agenteID = cuenta.id
         h.sesionID = sesionID
         hilos.append(h)
         activa = h.clave

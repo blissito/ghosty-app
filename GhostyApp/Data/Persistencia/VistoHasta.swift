@@ -8,13 +8,14 @@ import Foundation
 enum VistoHasta {
     private static let clave = "ghosty.vistoHasta"
 
-    static func de(_ sesion: String) -> Date? {
-        (UserDefaults.standard.dictionary(forKey: clave)?[sesion] as? Double).map(Date.init(timeIntervalSince1970:))
+    // ⚠️ Con el agente en la clave: el id de sesión lo pone la caja y se repite entre agentes.
+    static func de(_ agente: String, _ sesion: String) -> Date? {
+        (UserDefaults.standard.dictionary(forKey: clave)?["\(agente)/\(sesion)"] as? Double).map(Date.init(timeIntervalSince1970:))
     }
 
-    static func marcar(_ sesion: String, _ fecha: Date = Date()) {
+    static func marcar(_ agente: String, _ sesion: String, _ fecha: Date = Date()) {
         var d = UserDefaults.standard.dictionary(forKey: clave) ?? [:]
-        d[sesion] = fecha.timeIntervalSince1970
+        d["\(agente)/\(sesion)"] = fecha.timeIntervalSince1970
         UserDefaults.standard.set(d, forKey: clave)
     }
 }

@@ -344,8 +344,9 @@ final class EntregasStore {
 
     /// Lo entregado EN una conversación, en el orden en que llegó. Es lo que devuelve las
     /// tarjetas al hilo cuando se recarga desde la caja.
-    func deSesion(_ sesionID: String) -> [Entrega] {
-        entregas.filter { $0.sesionID == sesionID }.sorted { $0.recibida < $1.recibida }
+    /// ⚠️ Por agente Y sesión: el id de sesión lo pone la caja y se repite entre agentes.
+    func deSesion(_ sesionID: String, de agentID: String) -> [Entrega] {
+        entregas.filter { $0.sesionID == sesionID && $0.agentID == agentID }.sorted { $0.recibida < $1.recibida }
     }
 
     /// Borra UNA. Vive sólo en el teléfono, así que esto no puede dejar nada huérfano en

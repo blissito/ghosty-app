@@ -442,7 +442,7 @@ final class LiveAgentStore: AgentStoring {
         if id != selectedAgentID { seleccionar(id) }
         canales[id]?.activa = hilo.clave
         hilo.visto = true
-        if let sid = hilo.sesionID { VistoHasta.marcar(sid) }
+        if let sid = hilo.sesionID { VistoHasta.marcar(id, sid) }
     }
 
     // MARK: - Ponerse al día
@@ -590,7 +590,7 @@ final class LiveAgentStore: AgentStoring {
             hilo.interrumpido = false
             hilo.termino = u.terminado
             if let fin = u.terminado {
-                hilo.visto = (VistoHasta.de(sid) ?? .distantPast) >= fin
+                hilo.visto = (VistoHasta.de(canal.cuenta.id, sid) ?? .distantPast) >= fin
                 if !hilo.visto { sinVer.insert(canal.cuenta.id) }
             }
         }
@@ -610,7 +610,7 @@ final class LiveAgentStore: AgentStoring {
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
             // Las entregas se cosen aquí: el hilo que devuelve el servidor es texto, y la
             // foto que te entregó el agente vive en este teléfono.
-            for e in entregas.deSesion(sid) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
+            for e in entregas.deSesion(sid, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // El servidor es la verdad del hilo: se SUSTITUYE, no se compara. Aquí hubo
@@ -634,7 +634,7 @@ final class LiveAgentStore: AgentStoring {
             // hacía cambiar conforme la conversación crecía.
             if let primero = mensajes.first(where: { if case .user = $0.kind { return true } else { return false } }),
                case .user(let t, _) = primero.kind {
-                titulos.anotarSiFalta(sid, desde: t)
+                titulos.anotarSiFalta(canal.cuenta.id, sid, desde: t)
             }
             aplicarUltimoTurno(await cliente.ultimoTurno(de: sid), a: hilo, de: canal)
             guardarHilos(canal)
@@ -716,7 +716,7 @@ final class LiveAgentStore: AgentStoring {
             } catch {
                 falloAlBorrar = "La cerré aquí, pero sigue guardada en tu agente."
             }
-            titulos.olvidar(sid)
+            titulos.olvidar(canal.cuenta.id, sid)
             withAnimation(Self.alBorrar) { canal.hilosRemotos.removeAll { $0.id == sid } }
             cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
         }
@@ -738,7 +738,7 @@ final class LiveAgentStore: AgentStoring {
             falloAlBorrar = "Tu agente no pudo borrarla. Sigue ahí."
             return
         }
-        titulos.olvidar(sesion.id)
+        titulos.olvidar(agenteID, sesion.id)
         withAnimation(Self.alBorrar) { canal.hilosRemotos.removeAll { $0.id == sesion.id } }
         cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
     }
@@ -1054,7 +1054,7 @@ final class LiveAgentStore: AgentStoring {
             // —el relé las empuja en vivo y no las guarda—, así que sin esto la foto que
             // te entregó el agente desaparecía del hilo al reabrirlo: seguía en
             // Artefactos, pero la conversación se quedaba con el texto solo.
-            for e in entregas.deSesion(sesion.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
+            for e in entregas.deSesion(sesion.id, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // ⚠️⚠️ Tres motivos para NO pisar lo que hay, y los tres pasaron:
@@ -1078,7 +1078,7 @@ final class LiveAgentStore: AgentStoring {
             // ya está aquí.
             if let primero = mensajes.first(where: { if case .user = $0.kind { return true } else { return false } }),
                case .user(let t, _) = primero.kind {
-                titulos.anotarSiFalta(sesion.id, desde: t)
+                titulos.anotarSiFalta(canal.cuenta.id, sesion.id, desde: t)
             }
             guardarHilos(canal)
         } catch {
@@ -1254,7 +1254,7 @@ final class LiveAgentStore: AgentStoring {
                 // Por HTTP EasyBits habla con la única sesión ACP del agente, así que
                 // cualquier turno por ahí acaba en la conversación equivocada.
                 let sid = try await self.asegurarHilo(canal, hilo)
-                self.titulos.anotarSiFalta(sid, desde: limpio)
+                self.titulos.anotarSiFalta(canal.cuenta.id, sid, desde: limpio)
                 // Todo adjunto se sube a la cuenta; una imagen viaja ADEMÁS inline, y una
                 // nota de voz se transcribe aquí.
                 let conArchivos = await self.subidos(adjuntos, sesion: sid)

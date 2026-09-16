@@ -28,22 +28,28 @@ final class TitleStore {
         }
     }
 
-    func titulo(_ sessionID: String) -> String? { titulos[sessionID] }
+    /// ⚠️ La clave lleva el AGENTE. El id de sesión lo pone la CAJA (`20260916_1`) y se
+    /// repite entre agentes —y en el mismo agente si su caja se recrea—: con la clave a
+    /// secas, una conversación nueva heredaba el título de otra.
+    private static func clave(_ agentID: String, _ sessionID: String) -> String { "\(agentID)/\(sessionID)" }
+
+    func titulo(_ agentID: String, _ sessionID: String) -> String? { titulos[Self.clave(agentID, sessionID)] }
 
     /// Sólo el primero manda: el título de un hilo es de lo que se habló al abrirlo,
     /// no del último mensaje.
-    func anotarSiFalta(_ sessionID: String, desde texto: String) {
-        guard titulos[sessionID] == nil else { return }
+    func anotarSiFalta(_ agentID: String, _ sessionID: String, desde texto: String) {
+        let k = Self.clave(agentID, sessionID)
+        guard titulos[k] == nil else { return }
         let limpio = texto
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\n", with: " ")
         guard !limpio.isEmpty else { return }
-        titulos[sessionID] = String(limpio.prefix(60))
+        titulos[k] = String(limpio.prefix(60))
         guardar()
     }
 
-    func olvidar(_ sessionID: String) {
-        titulos[sessionID] = nil
+    func olvidar(_ agentID: String, _ sessionID: String) {
+        titulos[Self.clave(agentID, sessionID)] = nil
         guardar()
     }
 
