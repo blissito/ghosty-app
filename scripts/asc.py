@@ -9,6 +9,8 @@ dependencia menos y son veinte líneas. La llave privada vive en
     ./asc.py groups                      # grupos de prueba
     ./asc.py testers                     # personas invitadas
     ./asc.py asignar <buildId> <grupoId> # manda un build a un grupo
+    ./asc.py ficha [0.1] [buildId]       # la ficha de la tienda (metadata/es-MX + cuenta del revisor)
+    ./asc.py capturas [carpeta]          # sube las capturas de iPhone 6.9" a la versión en preparación
 """
 import base64, json, os, sys, time, urllib.request
 from cryptography.hazmat.primitives import hashes, serialization
@@ -55,6 +57,60 @@ def app_id():
         if a["attributes"]["bundleId"] == "com.fixtergeek.ghostyapp":
             return a["id"]
     sys.exit("no encontré la app com.fixtergeek.ghostyapp")
+
+
+# ── La ficha de App Store (no TestFlight) ────────────────────────────────────────
+METADATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "metadata")
+LOCALE = "es-MX"
+CONTACTO = {
+    "contactFirstName": "Hector",
+    "contactLastName": "Campos",
+    "contactEmail": "rotcehcm@hotmail.com",
+    "contactPhone": os.environ.get("ASC_PHONE", ""),
+}
+
+
+def leer(nombre: str) -> str:
+    """Un texto de metadata/es-MX/<nombre>.txt. Viven en el repo para poder revisarlos."""
+    with open(os.path.join(METADATA, LOCALE, f"{nombre}.txt"), encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def revisor():
+    """Usuario y contraseña de la cuenta de demo para App Review. FUERA del repo."""
+    ruta = os.path.expanduser("~/.appstoreconnect/revisor.txt")
+    try:
+        u, c = open(ruta, encoding="utf-8").read().split()
+        return u, c
+    except (OSError, ValueError):
+        sys.exit(f"falta {ruta} con «usuario contraseña» de la cuenta del revisor")
+
+
+def version_en_preparacion(app):
+    """La appStoreVersion que se puede editar, o None. Sólo hay una a la vez."""
+    r = api(f"/apps/{app}/appStoreVersions?filter[platform]=IOS&limit=5")["data"]
+    for v in r:
+        if v["attributes"]["appStoreState"] in (
+            "PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED",
+            "METADATA_REJECTED", "INVALID_BINARY", "WAITING_FOR_REVIEW",
+        ):
+            return v
+    return None
+
+
+def localizacion(coleccion, padre_ruta, padre_tipo, padre_id, atributos):
+    """PATCH si ya hay localización es-MX en esa colección; POST si no."""
+    hay = [l for l in api(f"{padre_ruta}/{padre_id}/{coleccion}")["data"]
+           if l["attributes"]["locale"] == LOCALE]
+    if hay:
+        api(f"/{coleccion}/{hay[0]['id']}", "PATCH",
+            {"data": {"type": coleccion, "id": hay[0]["id"], "attributes": atributos}})
+        return "actualizada"
+    api(f"/{coleccion}", "POST", {"data": {
+        "type": coleccion,
+        "attributes": {**atributos, "locale": LOCALE},
+        "relationships": {padre_tipo: {"data": {"type": padre_tipo + "s", "id": padre_id}}}}})
+    return "creada"
 
 
 cmd = sys.argv[1] if len(sys.argv) > 1 else "builds"
@@ -146,11 +202,10 @@ elif cmd == "preparar-externo":
     # 1) Localización
     locs = api(f"/apps/{app}/betaAppLocalizations")["data"]
     cuerpo_loc = {
-        "description": ("Ghosty es un cliente para hablar con tus agentes de IA. "
-                        "Escribes al agente, él trabaja en un servidor y su respuesta "
-                        "se muestra con formato: listas, tablas y bloques de código. "
-                        "La app trae una credencial de prueba ya configurada, así que "
-                        "abre y funciona sin registro."),
+        "description": ("Ghosty es la app para hablar con tu agente de ghosty.studio. "
+                        "Le pides cosas por texto o voz, le mandas fotos y archivos, y "
+                        "recibes lo que produce (PDF, hojas, imágenes) en la conversación. "
+                        "Hace falta una cuenta de ghosty.studio (Apple, Google o correo)."),
         "feedbackEmail": "rotcehcm@hotmail.com",
     }
     if locs:
@@ -165,19 +220,15 @@ elif cmd == "preparar-externo":
                       "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})
         print("localización creada")
 
-    # 2) Datos de contacto. Sin cuenta de demo: la credencial va horneada, así que
-    # el revisor abre la app y ya está conectada.
+    # 2) Datos de contacto y la cuenta de demo del revisor (ver `revisor()`).
     det = api(f"/apps/{app}/betaAppReviewDetail")["data"]
+    usuario, clave = revisor()
     cuerpo_det = {
-        "contactFirstName": "Hector",
-        "contactLastName": "Campos",
-        "contactEmail": "rotcehcm@hotmail.com",
-        "contactPhone": os.environ.get("ASC_PHONE", ""),
-        "demoAccountRequired": False,
-        "notes": ("No hace falta cuenta: la app trae una credencial de prueba "
-                  "configurada y al abrir ya puede escribirle al agente. "
-                  "Escribe cualquier mensaje en el campo de texto y el agente "
-                  "responde en unos segundos."),
+        **CONTACTO,
+        "demoAccountRequired": True,
+        "demoAccountName": usuario,
+        "demoAccountPassword": clave,
+        "notes": leer("review_notes"),
     }
     api(f"/betaAppReviewDetails/{det['id']}", "PATCH",
         {"data": {"type": "betaAppReviewDetails", "id": det["id"], "attributes": cuerpo_det}})
@@ -206,6 +257,116 @@ elif cmd == "revision":
         d = api(f"/builds/{s_['id']}/betaAppReviewSubmission")["data"]
         estado = d["attributes"]["betaReviewState"] if d else "sin enviar"
         print(f"build {s_['attributes']['version']}: {estado}")
+
+elif cmd == "ficha":
+    # La ficha de la tienda: versión, textos, URL de privacidad y datos para el revisor.
+    # Lo que no cubre (categoría, edad, precio, cuestionario de privacidad, ENVIAR) va a
+    # mano en la web: ver metadata/CHECKLIST.md.
+    app = app_id()
+    version = sys.argv[2] if len(sys.argv) > 2 else "0.1"
+
+    v = version_en_preparacion(app)
+    if v is None:
+        v = api("/appStoreVersions", "POST", {"data": {
+            "type": "appStoreVersions",
+            "attributes": {"platform": "IOS", "versionString": version},
+            "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})["data"]
+        print("versión creada:", version)
+    elif v["attributes"]["versionString"] != version:
+        api(f"/appStoreVersions/{v['id']}", "PATCH", {"data": {
+            "type": "appStoreVersions", "id": v["id"],
+            "attributes": {"versionString": version}}})
+        print("versión renombrada a", version)
+    else:
+        print("versión en preparación:", version, "·", v["attributes"]["appStoreState"])
+
+    # Textos de la versión.
+    estado = localizacion("appStoreVersionLocalizations", "/appStoreVersions",
+                          "appStoreVersion", v["id"], {
+        "description": leer("description"),
+        "keywords": leer("keywords"),
+        "promotionalText": leer("promotional_text"),
+        "supportUrl": leer("support_url"),
+        "marketingUrl": leer("support_url"),
+    })
+    print("textos de la versión:", estado)
+
+    # Nombre, subtítulo y política de privacidad viven en appInfo, no en la versión.
+    info = api(f"/apps/{app}/appInfos")["data"][0]
+    estado = localizacion("appInfoLocalizations", "/appInfos", "appInfo", info["id"], {
+        "name": leer("name"),
+        "subtitle": leer("subtitle"),
+        "privacyPolicyUrl": leer("privacy_url"),
+    })
+    print("nombre y privacidad:", estado)
+
+    # Lo que ve el revisor: contacto, cuenta de demo y notas.
+    usuario, clave = revisor()
+    det = api(f"/appStoreVersions/{v['id']}/appStoreReviewDetail")["data"]
+    atributos = {**CONTACTO, "demoAccountRequired": True,
+                 "demoAccountName": usuario, "demoAccountPassword": clave,
+                 "notes": leer("review_notes")}
+    if det:
+        api(f"/appStoreReviewDetails/{det['id']}", "PATCH", {"data": {
+            "type": "appStoreReviewDetails", "id": det["id"], "attributes": atributos}})
+    else:
+        api("/appStoreReviewDetails", "POST", {"data": {
+            "type": "appStoreReviewDetails", "attributes": atributos,
+            "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": v["id"]}}}}})
+    print("datos para el revisor listos (cuenta de demo:", usuario + ")")
+
+    # El build, si se pidió: ./asc.py ficha 0.1 <buildId>
+    if len(sys.argv) > 3:
+        api(f"/appStoreVersions/{v['id']}/relationships/build", "PATCH",
+            {"data": {"type": "builds", "id": sys.argv[3]}})
+        print("build atada a la versión:", sys.argv[3])
+
+elif cmd == "capturas":
+    # Sube los PNG de una carpeta como capturas de iPhone 6.9" (1320×2868) a la versión
+    # en preparación, en orden alfabético. Reemplaza las que hubiera.
+    import hashlib
+    carpeta = sys.argv[2] if len(sys.argv) > 2 else os.path.join(METADATA, "capturas")
+    tipo = os.environ.get("ASC_DISPLAY", "APP_IPHONE_67")
+    app = app_id()
+    v = version_en_preparacion(app)
+    if v is None:
+        sys.exit("no hay versión en preparación: corre `ficha` primero")
+    loc = [l for l in api(f"/appStoreVersions/{v['id']}/appStoreVersionLocalizations")["data"]
+           if l["attributes"]["locale"] == LOCALE]
+    if not loc:
+        sys.exit("no hay localización es-MX: corre `ficha` primero")
+    loc = loc[0]["id"]
+    sets = api(f"/appStoreVersionLocalizations/{loc}/appScreenshotSets")["data"]
+    conjunto = next((s_ for s_ in sets if s_["attributes"]["screenshotDisplayType"] == tipo), None)
+    if conjunto:
+        for c in api(f"/appScreenshotSets/{conjunto['id']}/appScreenshots")["data"]:
+            api(f"/appScreenshots/{c['id']}", "DELETE")
+    else:
+        conjunto = api("/appScreenshotSets", "POST", {"data": {
+            "type": "appScreenshotSets",
+            "attributes": {"screenshotDisplayType": tipo},
+            "relationships": {"appStoreVersionLocalization": {
+                "data": {"type": "appStoreVersionLocalizations", "id": loc}}}}})["data"]
+    archivos = sorted(f for f in os.listdir(carpeta) if f.lower().endswith(".png"))
+    for nombre in archivos:
+        datos = open(os.path.join(carpeta, nombre), "rb").read()
+        # 1) reservar, 2) subir por partes a donde diga Apple, 3) confirmar con el md5.
+        r = api("/appScreenshots", "POST", {"data": {
+            "type": "appScreenshots",
+            "attributes": {"fileName": nombre, "fileSize": len(datos)},
+            "relationships": {"appScreenshotSet": {
+                "data": {"type": "appScreenshotSets", "id": conjunto["id"]}}}}})["data"]
+        for op in r["attributes"]["uploadOperations"]:
+            trozo = datos[op["offset"]:op["offset"] + op["length"]]
+            req = urllib.request.Request(op["url"], data=trozo, method=op["method"])
+            for h in op["requestHeaders"]:
+                req.add_header(h["name"], h["value"])
+            urllib.request.urlopen(req).read()
+        api(f"/appScreenshots/{r['id']}", "PATCH", {"data": {
+            "type": "appScreenshots", "id": r["id"],
+            "attributes": {"uploaded": True, "sourceFileChecksum": hashlib.md5(datos).hexdigest()}}})
+        print("subida:", nombre)
+    print(f"{len(archivos)} capturas en {tipo}")
 
 else:
     sys.exit(__doc__)

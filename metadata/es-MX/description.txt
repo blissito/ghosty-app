@@ -1,0 +1,15 @@
+Ghosty es la app para hablar con tu agente de ghosty.studio desde el teléfono.
+
+Tu agente trabaja en su propia computadora en la nube: lee y escribe documentos, investiga en la web, genera PDF, Word y hojas de cálculo, y se conecta a las herramientas que ya usas. Con Ghosty le pides cosas desde donde estés y recibes lo que produce.
+
+Qué puedes hacer:
+
+• Pedirle cosas por texto o por nota de voz.
+• Mandarle fotos y archivos para que trabaje con ellos.
+• Recibir lo que hace directo en la conversación: PDF, Word, hojas de cálculo, imágenes.
+• Darle permiso cuando lo pide antes de hacer algo delicado.
+• Seguir varias conversaciones a la vez y saber cuál ya contestó.
+• Recibir un aviso cuando termina, aunque hayas cerrado la app.
+• Ver tus archivos y artefactos en un solo sitio.
+
+Necesitas una cuenta de ghosty.studio. Puedes entrar con Apple, con Google o con tu correo.

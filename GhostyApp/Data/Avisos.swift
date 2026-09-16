@@ -23,7 +23,9 @@ enum Avisos {
     /// Se pide la PRIMERA vez que dejas a un agente trabajando y te vas con otro, no al
     /// arrancar: ahí no hay contexto y el permiso se rechaza.
     static func pedirPermisoSiHaceFalta() {
-        guard !pedido else { return }
+        // Con el gancho de push el diálogo no se pide: en el simulador nadie puede
+        // contestarlo y tapa la pantalla (ver `registrarSiYaHayPermiso`).
+        guard !pedido, Gancho.valor("GHOSTY_PUSH") != "1" else { return }
         pedido = true
         UNUserNotificationCenter.current().delegate = delegado
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { ok, _ in
@@ -50,6 +52,7 @@ enum Avisos {
         #if canImport(UIKit)
         // Gancho de desarrollo: en el simulador no se puede tocar el diálogo del permiso.
         if Gancho.valor("GHOSTY_PUSH") == "1" {
+            pedido = true // y no se pregunta después: el diálogo taparía la captura
             UNUserNotificationCenter.current().delegate = delegado
             UIApplication.shared.registerForRemoteNotifications()
             return

@@ -34,6 +34,22 @@ final class RecorridoUITests: XCTestCase {
         try? img.pngRepresentation.write(to: carpeta.appending(path: "\(nombre).png"))
     }
 
+    /// La pantalla de entrar: lo primero que ve un revisor. Tiene que decir qué es esto y
+    /// ofrecer las tres vías (Apple, Google, correo).
+    func testLogin() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO"] = nil
+        app.launchEnvironment["GHOSTY_SIN_SESION"] = "1"
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Tu agente, en tu bolsillo."].waitForExistence(timeout: 3),
+                      "no salió la pantalla de entrar")
+        XCTAssertTrue(app.staticTexts["Necesitas una cuenta de ghosty.studio."].exists,
+                      "el login no dice que hace falta cuenta")
+        XCTAssertTrue(app.buttons["Continuar con Google"].exists, "falta el botón de Google")
+        XCTAssertTrue(app.buttons["Continuar con Apple"].exists, "falta el botón de Apple")
+        foto("00-login")
+    }
+
     /// El botón de detener del compositor. Va aparte porque necesita la app arrancada con
     /// un turno vivo, y el recorrido normal no lo tiene.
     func testDetener() {

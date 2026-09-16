@@ -59,6 +59,18 @@ struct LoginView: View {
 
             Text("Tu agente, en tu bolsillo.").gMeta().padding(.top, 6)
 
+            // Lo que un revisor —o cualquiera que instale sin conocer ghosty.studio— lee
+            // en cinco segundos. Sin esto la pantalla era un logo y dos botones.
+            VStack(spacing: 4) {
+                Text("Pídele cosas por texto o voz.")
+                Text("Te manda lo que hace: PDF, hojas, imágenes.")
+                Text("Te avisa cuando termina.")
+            }
+            .gMeta()
+            .multilineTextAlignment(.center)
+            .padding(.top, 18)
+            .padding(.horizontal, 32)
+
             Spacer()
 
             VStack(spacing: 12) {
@@ -85,6 +97,10 @@ struct LoginView: View {
                     .padding(.horizontal, 32).padding(.top, 12)
             }
 
+            Text("Necesitas una cuenta de ghosty.studio.")
+                .gCaption().foregroundStyle(Color.gInk3)
+                .padding(.top, 14)
+
             Spacer().frame(height: 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -96,6 +112,12 @@ struct LoginView: View {
         switch p.id {
         case "apple": BotonApple(cargando: yendo == p.id) { Task { await entrar(p.id) } }
         case "google": BotonGoogle(cargando: yendo == p.id) { Task { await entrar(p.id) } }
+        // Correo y contraseña: el login de siempre de gs. Es la vía de la cuenta de demo
+        // que pide App Review y la salida para quien no tenga Google ni Apple.
+        case "correo":
+            BotonNeutro(titulo: "Continuar con correo", icono: "envelope", cargando: yendo == p.id) {
+                Task { await entrar(p.id) }
+            }
         // Un proveedor que el servidor conoce y esta versión de la app no (EasyBits será
         // el primero). Sale con un botón neutro en vez de desaparecer: mejor entrar con
         // un botón sin marca que no poder entrar.
@@ -192,13 +214,19 @@ private struct BotonGoogle: View {
 /// Para un proveedor que esta versión todavía no sabe pintar con su marca.
 private struct BotonNeutro: View {
     var titulo: String
+    var icono: String? = nil
     var cargando: Bool
     var accion: () -> Void
 
     var body: some View {
         Button(action: accion) {
-            Text(cargando ? "Abriendo…" : titulo)
-                .font(.system(size: 17, weight: .medium))
+            HStack(spacing: 8) {
+                if let icono {
+                    Image(systemName: icono).font(.system(size: 17, weight: .medium))
+                }
+                Text(cargando ? "Abriendo…" : titulo)
+                    .font(.system(size: 17, weight: .medium))
+            }
                 .foregroundStyle(Color.gInk)
                 .frame(maxWidth: .infinity)
                 .frame(height: 50)

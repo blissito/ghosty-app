@@ -257,7 +257,9 @@ final class LiveAgentStore: AgentStoring {
         if DemoData.encendido { cargarDemo(); return }
 
         // Sin sesión no hay nada que pedir: la app arranca en el login.
-        guard Session.haySesion else { conexion = .sinLlave; return }
+        // `GHOSTY_SIN_SESION=1` fuerza el login aunque el simulador tenga llavero: es
+        // lo que deja fotografiar esa pantalla en el recorrido.
+        guard Session.haySesion, !Gancho.encendido("GHOSTY_SIN_SESION") else { conexion = .sinLlave; return }
 
         // ⚠️ Lo guardado se pinta ANTES de hablar con nadie. Al arrancar, la app se
         // quedaba en blanco varios segundos esperando a que el servidor dijera qué agentes

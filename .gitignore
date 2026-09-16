@@ -26,3 +26,4 @@ __pycache__/
 
 # El último número de build que subí; ver subir-testflight.sh
 .ultima-build
+metadata/capturas/
