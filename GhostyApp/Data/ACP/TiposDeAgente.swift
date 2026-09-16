@@ -185,13 +185,16 @@ enum ACPClient {
                       (p["contenido"] as? String).map { String($0.prefix(200)) },
                       (p["contenidoBase64"] as? String).map { String($0.prefix(200)) }]
             .compactMap { $0 }.joined(separator: "|")
-        let id = "e" + Self.huellaEstable(huella)
+        // Si gs ya la guardó en los archivos de la cuenta, el id es el SUYO: así la que
+        // llega en vivo y la que vuelve del servidor al recargar son la misma fila.
+        let remotoID = p["fileId"] as? String
+        let id = remotoID.map { "f-\($0)" } ?? "e" + Self.huellaEstable(huella)
         switch p["tipo"] as? String {
         case "archivo":
             let nombre = (p["nombre"] as? String) ?? "Archivo"
             let datos = (p["contenidoBase64"] as? String).flatMap { Data(base64Encoded: $0) }
             return Entrega(id: id, agentID: agentID, forma: .archivo, titulo: nombre,
-                           recibida: Date(), contenido: nil, datos: datos)
+                           recibida: Date(), contenido: nil, datos: datos, remotoID: remotoID)
         case "artefacto":
             let forma: Entrega.Forma
             switch p["subtipo"] as? String {
@@ -202,7 +205,8 @@ enum ACPClient {
             return Entrega(id: id, agentID: agentID, forma: forma,
                            titulo: (p["titulo"] as? String) ?? "Sin título",
                            recibida: Date(),
-                           contenido: (p["contenido"] as? String) ?? "", datos: nil)
+                           contenido: (p["contenido"] as? String) ?? "", datos: nil,
+                           remotoID: remotoID)
         default:
             return nil
         }

@@ -56,11 +56,17 @@ struct EntregaCard: View {
     }
 
     private func bajar(yAbrir: Bool) async {
-        guard let s = entrega.url, let u = URL(string: s), !bajando else { return }
+        guard !bajando, entrega.url != nil || entrega.remotoID != nil else { return }
         bajando = true
         defer { bajando = false }
         do {
-            guard let d = await Descargas.bytes(u) else {
+            // De los archivos de la cuenta, con firma fresca; o de la URL que anunció el
+            // agente, que puede haber caducado.
+            let d: Data?
+            if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+            else if let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
+            else { d = nil }
+            guard let d else {
                 // ⚠️ Una URL firmada CADUCA. Decirlo es la diferencia entre «esto ya no
                 // está» y una tarjeta que no hace nada al tocarla.
                 falloAlBajar = "Ese enlace ya no sirve."
@@ -85,7 +91,7 @@ struct EntregaCard: View {
             else if entrega.esAudio { return }
             // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
             // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
-            else if datos == nil, entrega.url != nil { Task { await bajar(yAbrir: true) } }
+            else if datos == nil, entrega.url != nil || entrega.remotoID != nil { Task { await bajar(yAbrir: true) } }
             else { compartiendo = conBytes()?.aDisco() }
         } label: {
             VStack(alignment: .leading, spacing: 0) {

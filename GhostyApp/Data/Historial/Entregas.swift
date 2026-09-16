@@ -51,12 +51,17 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     var url: String?
     /// Lo que dijo que pesaba, para poder decirlo sin bajarlo.
     var bytesRemotos: Int?
+    /// Su id en los archivos de la CUENTA. Desde que gs guarda las entregas (2026-09-16),
+    /// es lo que las hace volver en otro teléfono: se baja con `GhostyAPI.bajar(id)`,
+    /// que acuña una URL firmada fresca (las firmadas caducan; por eso no se guarda una).
+    var remotoID: String?
 
     /// El de siempre. Se escribe a mano porque `init(from:)` propio quita el que Swift
     /// generaba solo.
     init(id: String, agentID: String, sesionID: String? = nil, forma: Forma, titulo: String,
          recibida: Date, contenido: String? = nil, datos: Data? = nil,
-         url: String? = nil, bytesRemotos: Int? = nil) {
+         url: String? = nil, bytesRemotos: Int? = nil, remotoID: String? = nil) {
+        self.remotoID = remotoID
         self.id = id; self.agentID = agentID; self.sesionID = sesionID
         self.forma = forma; self.titulo = titulo; self.recibida = recibida
         self.contenido = contenido; self.datos = datos
@@ -86,7 +91,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// conversación (`MensajeGuardado.entrega`), y si sólo uno de los dos escribiera los
     /// bytes, la foto volvería a desaparecer al recargar el hilo.
     enum CodingKeys: String, CodingKey {
-        case id, agentID, sesionID, forma, titulo, recibida, contenido, url, bytesRemotos
+        case id, agentID, sesionID, forma, titulo, recibida, contenido, url, bytesRemotos, remotoID
     }
 
     init(from decoder: Decoder) throws {
@@ -100,6 +105,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         contenido = try c.decodeIfPresent(String.self, forKey: .contenido)
         url = try c.decodeIfPresent(String.self, forKey: .url)
         bytesRemotos = try c.decodeIfPresent(Int.self, forKey: .bytesRemotos)
+        remotoID = try c.decodeIfPresent(String.self, forKey: .remotoID)
         // Los de siempre, más los del formato viejo: un `entregas.json` escrito antes de
         // esto lleva los bytes dentro, y tirarlos sería perder artefactos que ya tenías.
         if let viejos = try? decoder.container(keyedBy: ClaveVieja.self)
@@ -127,6 +133,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         try c.encodeIfPresent(contenido, forKey: .contenido)
         try c.encodeIfPresent(url, forKey: .url)
         try c.encodeIfPresent(bytesRemotos, forKey: .bytesRemotos)
+        try c.encodeIfPresent(remotoID, forKey: .remotoID)
     }
 
     var etiqueta: String {
@@ -203,7 +210,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// lo necesitan la tarjeta, el visor de imagen y el reproductor — cuando cada uno se
     /// lo montaba por su cuenta, acertaba o fallaba por su cuenta.
     /// ¿Hay que bajarlo antes de poder hacer nada con él?
-    var hayQueBajar: Bool { datos == nil && contenido == nil && url != nil }
+    var hayQueBajar: Bool { datos == nil && contenido == nil && (url != nil || remotoID != nil) }
 
     func aDisco() -> URL? {
         let base = FileManager.default.temporaryDirectory

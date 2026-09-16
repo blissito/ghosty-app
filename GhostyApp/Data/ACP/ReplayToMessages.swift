@@ -134,6 +134,28 @@ enum ReplayToMessages {
             let sitio = min(donde + 1, mensajes.count)
             mensajes.insert(Message(id: id, kind: .entrega(e)), at: sitio)
         }
+        // Lo que el agente ENTREGÓ y gs guardó en los archivos de la cuenta. Es lo que
+        // hace que una tarjeta vuelva en otro teléfono o tras reinstalar: el replay de la
+        // caja no trae entregas. El replay tampoco trae fechas, así que van al final, en
+        // el orden en que se guardaron; el mismo id que en vivo (`f-<fileId>`) evita la
+        // doble tarjeta cuando el teléfono ya la tenía.
+        let delServidor = archivos.values.filter { $0.origen == "agente" }
+            .sorted { ($0.creado ?? .distantPast) < ($1.creado ?? .distantPast) }
+        for f in delServidor {
+            let id = "entrega-f-\(f.id)"
+            guard !mensajes.contains(where: { $0.id == id }) else { continue }
+            let forma: Entrega.Forma
+            switch (f.tipo, f.subtipo) {
+            case ("artefacto", "doc"?):   forma = .doc
+            case ("artefacto", "sheet"?): forma = .sheet
+            case ("artefacto", _):        forma = .artifact
+            default:                      forma = .archivo
+            }
+            let e = Entrega(id: "f-\(f.id)", agentID: "", forma: forma,
+                            titulo: f.titulo ?? f.nombre, recibida: f.creado ?? Date(),
+                            bytesRemotos: f.bytes, remotoID: f.id)
+            mensajes.append(Message(id: id, kind: .entrega(e)))
+        }
         return mensajes
     }
 }

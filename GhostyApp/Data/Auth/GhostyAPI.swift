@@ -246,6 +246,13 @@ enum GhostyAPI {
         let bytes: Int
         let segundos: Double?
         let onda: [Float]?
+        /// `"agente"` si lo ENTREGÓ el agente (gs lo marca en `meta`); `nil` si lo subió
+        /// la persona. Es lo que decide si vuelve como tarjeta o como adjunto.
+        var origen: String? = nil
+        var tipo: String? = nil
+        var subtipo: String? = nil
+        var titulo: String? = nil
+        var creado: Date? = nil
     }
 
     /// Baja un archivo de la cuenta.
@@ -366,17 +373,27 @@ enum GhostyAPI {
             // una onda plana sería pintar un widget que miente sobre lo que se grabó.
             var segundos: Double?
             var onda: [Float]?
+            var meta: [String: Any] = [:]
             if let crudo = f["meta"] as? String,
                let m = try? JSONSerialization.jsonObject(with: Data(crudo.utf8)) as? [String: Any] {
+                meta = m
                 segundos = m["segundos"] as? Double
                 if let b64 = m["onda"] as? String, let bytes = Data(base64Encoded: b64) {
                     onda = bytes.map { Float($0) / 255 }
                 }
             }
-            mapa[nombre] = ArchivoDeSesion(id: id, nombre: nombre,
-                                           mime: (f["mime"] as? String) ?? "application/octet-stream",
-                                           bytes: (f["size"] as? Int) ?? 0,
-                                           segundos: segundos, onda: onda)
+            var a = ArchivoDeSesion(id: id, nombre: nombre,
+                                    mime: (f["mime"] as? String) ?? "application/octet-stream",
+                                    bytes: (f["size"] as? Int) ?? 0,
+                                    segundos: segundos, onda: onda)
+            a.origen = meta["origen"] as? String
+            a.tipo = meta["tipo"] as? String
+            a.subtipo = meta["subtipo"] as? String
+            a.titulo = meta["titulo"] as? String
+            a.creado = (f["createdAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
+            // ⚠️ Una entrega del agente puede repetir nombre (dos «informe.pdf»): la clave
+            // lleva el id para no perder ninguna. Los adjuntos de la persona siguen por nombre.
+            mapa[a.origen == "agente" ? "\(nombre)#\(id)" : nombre] = a
         }
         return mapa
     }
