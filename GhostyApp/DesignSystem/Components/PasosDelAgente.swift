@@ -16,6 +16,9 @@ struct PasosDelAgente: View {
     /// abrir. Ocultar el trabajo del agente ya fue un error dos veces —en code-mode ESO es
     /// el trabajo— y el resultado era un "Trabajando…" mudo casi todo el turno.
     @State private var abierto: Bool
+    /// ¿La persona lo abrió o cerró a mano? Entonces manda ella: nada de plegarlo solo.
+    @State private var decidido = false
+    @State private var plegadoPendiente: Task<Void, Never>?
 
     init(run: ToolRun, abierto: Bool) {
         self.run = run
@@ -37,8 +40,17 @@ struct PasosDelAgente: View {
         .frame(maxWidth: 300, alignment: .leading)
         // Al terminar el turno se pliega solo. ⚠️ Un `@State` no se re-inicializa cuando
         // cambian las props, así que sin esto se quedaría abierto para siempre.
+        //
+        // ⚠️ Entre una herramienta y la siguiente hay un instante sin «corriendo», y eso
+        // se leía como «terminó»: la lista se cerraba a cada paso y había que reabrirla.
+        // Ahora se espera 1.5 s de silencio, y si la persona lo abrió o cerró a mano no
+        // se toca nunca.
         .onChange(of: run.corriendo?.id) { _, ahora in
-            if ahora == nil {
+            plegadoPendiente?.cancel()
+            guard ahora == nil, !decidido else { return }
+            plegadoPendiente = Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                guard !Task.isCancelled else { return }
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { abierto = false }
             }
         }
@@ -47,6 +59,8 @@ struct PasosDelAgente: View {
     /// La línea que abre y cierra. Dice lo justo para no tener que abrirla.
     private var resumen: some View {
         Button {
+            decidido = true
+            plegadoPendiente?.cancel()
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { abierto.toggle() }
         } label: {
             HStack(spacing: 7) {
