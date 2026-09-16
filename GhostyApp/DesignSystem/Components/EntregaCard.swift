@@ -75,7 +75,7 @@ struct EntregaCard: View {
             bajados = d
             falloAlBajar = nil
             if yAbrir {
-                if let img = UIImage(data: d), entrega.esAudio == false { mirando = img }
+                if entrega.tipo != "pdf", let img = UIImage(data: d), entrega.esAudio == false { mirando = img }
                 else { compartiendo = conBytes()?.aDisco() }
             }
         }
@@ -87,7 +87,13 @@ struct EntregaCard: View {
             // `VisorDeImagen`: QuickLook abre un PDF y se queda en negro con un PNG.
             // Una imagen la enseñamos nosotros y un audio se reproduce en la propia
             // tarjeta; lo demás va al visor del sistema.
-            if let img = imagen { mirando = img }
+            // ⚠️ Un PDF NO se abre como imagen: `imagen` es sólo su portada para la
+            // tarjeta, y en el visor de fotos «un PDF de dos páginas» se veía de una.
+            if entrega.tipo == "pdf" {
+                if datos == nil { Task { await bajar(yAbrir: true) } }
+                else { compartiendo = conBytes()?.aDisco() }
+            }
+            else if let img = imagen { mirando = img }
             else if entrega.esAudio { return }
             // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
             // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
