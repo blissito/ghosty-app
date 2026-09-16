@@ -124,3 +124,6 @@ Lo que asume y hay que soltar:
 - ghosty-lite: `crates/goose/src/session/session_manager.rs:1595-1620` (ids), `crates/
   goose/src/acp/provider.rs` (claude-acp; no manda `rawInput`).
 - app: `GhostyApp/Data/LiveAgentStore.swift`, `Data/GS/ClienteGS.swift`, `NOTAS-DEL-RELE.md`.
+
+> TODO: este documento debe vivir en `~/ghosty-studio/docs/` (junto a
+> `agentes-v2-arquitectura.md`); aquí es sólo el borrador.
