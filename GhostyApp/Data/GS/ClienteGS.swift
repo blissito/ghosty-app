@@ -14,6 +14,11 @@ import Foundation
 /// memoria de gs. Para «me fui una hora» lo correcto es pedir el hilo (`cargar`), no
 /// confiar en el backlog.
 actor ClienteGS: TransporteDeAgente {
+    /// A quién avisar cuando el servidor no contesta y se está reintentando. Lo engancha
+    /// el store para pintarlo en el turno: tres puntitos mudos durante un deploy de gs se
+    /// sienten como una app colgada.
+    nonisolated(unsafe) static var alReintentar: (@Sendable (String) -> Void)?
+
     private let agentID: String
     /// Cuántos mensajes se piden al recuperar un hilo. La cola es lo que se lee al volver.
     private static let cola = 60
@@ -89,7 +94,10 @@ actor ClienteGS: TransporteDeAgente {
     /// No hay socket que abrir: se comprueba que el agente responde y ya.
     @discardableResult
     func conectar() async throws -> String {
-        _ = try await pedir(base("/conversations"))
+        // ⚠️ Con reintentos, como el turno. Un deploy de gs (dos reinicios en cinco
+        // minutos, medido el 2026-09-16) contestaba 502 aquí y el envío moría en «No
+        // llegó a salir» sin que el servidor llegara a ver nada.
+        _ = try await conReintentos { try await self.pedir(self.base("/conversations")) }
         return "gs"
     }
 
@@ -117,7 +125,9 @@ actor ClienteGS: TransporteDeAgente {
     }
 
     func nuevaSesion(cwd: String) async throws -> (id: String, modos: ACPClient.Modos?) {
-        let r = try await pedir(base("/conversations"), metodo: "POST", cuerpo: [:])
+        // Ídem: un 502 de nginx significa que gs NO recibió el POST, así que reintentar
+        // no crea dos conversaciones.
+        let r = try await conReintentos { try await self.pedir(self.base("/conversations"), metodo: "POST", cuerpo: [:]) }
         guard let id = r["id"] as? String else {
             throw ACPClient.Fallo.handshake("el servidor no devolvió la conversación")
         }
@@ -308,6 +318,7 @@ actor ClienteGS: TransporteDeAgente {
                        .cannotFindHost, .dnsLookupFailed].contains(e.code), intento < 5 else { throw e }
             }
             EasyBitsClient.diag("[gs] encargar: reintento \(intento) en \(espera) s")
+            Self.alReintentar?("El servidor no responde. Reintento \(intento) de 4…")
             try await Task.sleep(for: .seconds(espera))
             espera *= 2
         }

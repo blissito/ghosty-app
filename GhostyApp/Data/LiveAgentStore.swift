@@ -241,6 +241,12 @@ final class LiveAgentStore: AgentStoring {
         // en el arranque: si el refresh moría al mandar un mensaje, la persona veía «no pude
         // contestarle a tu agente» y una app deslogueada que seguía enseñando el chat.
         Session.alCaducar = { [weak self] in self?.conexion = .sinLlave }
+        ClienteGS.alReintentar = { [weak self] texto in
+            Task { @MainActor in
+                guard let self else { return }
+                for c in self.canales.values { for h in c.hilos where h.turno != nil { h.turno?.detail = texto } }
+            }
+        }
         conexion = .cargando
         // Gancho de desarrollo: «se tocó un aviso ANTES de que existiera nada», que es el
         // arranque en frío por push. Un push del simulador arranca la app sin variables,
@@ -1231,6 +1237,9 @@ final class LiveAgentStore: AgentStoring {
         // la hace más rápida, la hace honesta.
         if canal.acp == nil { hilo.turno?.detail = "Despertando a tu agente…" }
         hilo.prompt = limpio
+        // Hasta que exista la conversación en el servidor, el mensaje no vive en ningún
+        // caché: se apunta aparte por si la app muere esperando. Ver `BorradorPendiente`.
+        if hilo.sesionID == nil { BorradorPendiente.anotar(limpio, de: canal.cuenta.id) }
         hilo.uso = (0, 0)
         // ⚠️ El permiso se pide AL MANDAR, que es el momento en que la promesa tiene
         // sentido: «guarda el teléfono, te aviso». Antes sólo se pedía al cambiar de
@@ -1254,6 +1263,7 @@ final class LiveAgentStore: AgentStoring {
                 // Por HTTP EasyBits habla con la única sesión ACP del agente, así que
                 // cualquier turno por ahí acaba en la conversación equivocada.
                 let sid = try await self.asegurarHilo(canal, hilo)
+                BorradorPendiente.olvidar(de: canal.cuenta.id)
                 self.titulos.anotarSiFalta(canal.cuenta.id, sid, desde: limpio)
                 // Todo adjunto se sube a la cuenta; una imagen viaja ADEMÁS inline, y una
                 // nota de voz se transcribe aquí.
@@ -1296,6 +1306,7 @@ final class LiveAgentStore: AgentStoring {
                 // Un fallo aquí es "no llegó a salir": o no se pudo abrir la conversación,
                 // o no se pudo subir un adjunto. En los dos casos el agente no vio nada, y
                 // el compositor tiene que poder devolverle su trabajo a la persona.
+                BorradorPendiente.olvidar(de: canal.cuenta.id) // el compositor lo recupera
                 hilo.envioFallo = true
                 hilo.fallo = "No llegó a salir"
                 self.pintarRespuesta(hilo, id: idRespuesta,

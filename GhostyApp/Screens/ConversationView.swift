@@ -162,6 +162,14 @@ struct ConversationView: View {
             .onChange(of: textoDelUltimo) { _, _ in seguir() }
             // Cambiar de conversación es una pantalla nueva: empieza por el final.
             .onChange(of: hiloVisible) { _, _ in irAbajo() }
+            // Un mensaje que se mandó y la app murió antes de que existiera la
+            // conversación vuelve al compositor, con el aviso, en vez de desaparecer.
+            .task(id: store.selectedAgentID) {
+                if borrador.isEmpty, let perdido = BorradorPendiente.recoger(de: store.selectedAgentID) {
+                    borrador = perdido
+                    fallo = "No se pudo mandar. Inténtalo otra vez."
+                }
+            }
             .task(id: "\(hiloVisible)/\(store.hiloActivo?.sesionID ?? "")") {
                 guard let sid = store.hiloActivo?.sesionID else { agenda = nil; return }
                 let a = Agenda(agentID: store.selectedAgentID, sessionID: sid)
