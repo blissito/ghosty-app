@@ -16,7 +16,7 @@ import UIKit
 /// Se enciende con `GHOSTY_DEMO=1` (en el simulador: `SIMCTL_CHILD_GHOSTY_DEMO=1`).
 enum DemoData {
     static var encendido: Bool {
-        ProcessInfo.processInfo.environment["GHOSTY_DEMO"] == "1"
+        Gancho.valor("GHOSTY_DEMO") == "1"
     }
 
     static let cuentas: [AgentAccount] = [
@@ -153,7 +153,7 @@ extension LiveAgentStore {
         let vacia = uno.abrir()
         uno.activa = larga.clave
         // Gancho para poder fotografiar la conversación con entregas sin tocar la pantalla.
-        if ProcessInfo.processInfo.environment["GHOSTY_DEMO_ENTREGAS"] == "1" {
+        if Gancho.valor("GHOSTY_DEMO_ENTREGAS") == "1" {
             uno.activa = foto.clave
         }
         larga.termino = Date().addingTimeInterval(-3600)
@@ -164,7 +164,7 @@ extension LiveAgentStore {
         larga.fallo = "Se cortó a media respuesta"
         // Y `GHOSTY_DEMO_TRABAJANDO=1` deja el hilo activo contestando, que es la única
         // forma de fotografiar el botón de detener del compositor.
-        if ProcessInfo.processInfo.environment["GHOSTY_DEMO_TRABAJANDO"] == "1" {
+        if Gancho.valor("GHOSTY_DEMO_TRABAJANDO") == "1" {
             larga.fallo = nil
             larga.turno = TurnActivity(id: "t2", title: "el informe", detail: "Leyendo",
                                        step: 1, totalSteps: 4, elapsed: "0:12")
@@ -172,7 +172,7 @@ extension LiveAgentStore {
         // `GHOSTY_DEMO_INTERRUMPIDO=1`: el hilo que dejaste trabajando y iOS suspendió.
         // Es el estado que hay que poder MIRAR — el cartel de «sigue con esto» y la fila
         // gris de la lista— sin tener que bloquear un teléfono de verdad.
-        if ProcessInfo.processInfo.environment["GHOSTY_DEMO_INTERRUMPIDO"] == "1" {
+        if Gancho.valor("GHOSTY_DEMO_INTERRUMPIDO") == "1" {
             larga.fallo = nil
             larga.turno = nil
             larga.interrumpido = true

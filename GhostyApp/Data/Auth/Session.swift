@@ -59,7 +59,7 @@ enum Session {
 
     static var haySesion: Bool {
         #if DEBUG
-        if ProcessInfo.processInfo.environment["GHOSTY_TOKEN"]?.isEmpty == false { return true }
+        if Gancho.valor("GHOSTY_TOKEN")?.isEmpty == false { return true }
         #endif
         return leer() != nil
     }
@@ -70,6 +70,10 @@ enum Session {
     }
 
     // MARK: - Uso
+
+    /// A quién avisar cuando la sesión muere de verdad (refresh rechazado). Lo engancha el
+    /// store para volver al login desde cualquier sitio, no sólo desde el arranque.
+    @MainActor static var alCaducar: (() -> Void)?
 
     enum Fallo: LocalizedError {
         case sinSesion
@@ -96,7 +100,7 @@ enum Session {
         //
         // No se guarda en el llavero a propósito: vive en el proceso y se va con él.
         #if DEBUG
-        if let prestado = ProcessInfo.processInfo.environment["GHOSTY_TOKEN"], !prestado.isEmpty {
+        if let prestado = Gancho.valor("GHOSTY_TOKEN"), !prestado.isEmpty {
             return prestado
         }
         #endif
@@ -144,6 +148,7 @@ enum Session {
         // un bucle, y guardarla sería una sesión zombi que nunca se recupera.
         if codigo == 400 || codigo == 401 {
             cerrar()
+            await MainActor.run { alCaducar?() }
             throw Fallo.caducada
         }
         guard codigo == 200,

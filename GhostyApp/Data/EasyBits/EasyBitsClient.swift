@@ -223,7 +223,7 @@ struct EasyBitsClient: Sendable {
         #if DEBUG
         return true
         #else
-        return ProcessInfo.processInfo.environment["GHOSTY_DIAG"] == "1"
+        return Gancho.valor("GHOSTY_DIAG") == "1"
         #endif
     }()
 

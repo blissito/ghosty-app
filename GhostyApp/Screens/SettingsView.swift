@@ -11,6 +11,9 @@ struct SettingsView: View {
     @Environment(\.openURL) private var abrir
 
     @State private var saliendo = false
+    @State private var confirmarBorrado = false
+    @State private var borrando = false
+    @State private var falloAlBorrar: String?
 
     private var resumenDeConectores: String {
         let n = store.conectores.filter(\.conectado).count
@@ -38,6 +41,8 @@ struct SettingsView: View {
          URL(string: "https://tasks.ghosty.studio")!),
         ("Sales", "Tu embudo y tus conversaciones de venta",
          URL(string: "https://sales.ghosty.studio")!),
+        ("Privacidad", "Qué guardamos y por qué",
+         URL(string: "https://www.ghosty.studio/privacidad")!),
     ]
 
     var body: some View {
@@ -143,6 +148,7 @@ struct SettingsView: View {
                     // Va después de la versión y antes de cerrar sesión, en gris y sin
                     // ceremonia: no es una función que nadie vaya buscando, es la que se
                     // pide por teléfono cuando algo va mal.
+                    if !Bitacora.estaVacia {
                     ShareLink(item: Bitacora.volcar()) {
                         HStack(spacing: 6) {
                             Image(systemName: "doc.text")
@@ -151,6 +157,7 @@ struct SettingsView: View {
                         }
                         .gMeta()
                         .foregroundStyle(Color.gInk3)
+                    }
                     }
 
                     ActionButton(title: saliendo ? "Saliendo…" : "Cerrar sesión", kind: .destructive) {
@@ -163,6 +170,39 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(saliendo)
+
+                    // Borrar la cuenta. Apple lo exige dentro de la app (5.1.1(v)). En gris y
+                    // al final: es la salida definitiva, no una función que se busque.
+                    Button {
+                        confirmarBorrado = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            if borrando { ProgressView().controlSize(.mini) }
+                            Text(borrando ? "Borrando…" : "Borrar mi cuenta")
+                        }
+                        .gMeta()
+                        .foregroundStyle(Color.gInk3)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(borrando || saliendo)
+                    .accessibilityIdentifier("borrar-cuenta")
+                    .confirmationDialog("¿Borrar tu cuenta?", isPresented: $confirmarBorrado, titleVisibility: .visible) {
+                        Button("Borrar mi cuenta", role: .destructive) {
+                            borrando = true
+                            Task {
+                                falloAlBorrar = await store.borrarCuenta()
+                                borrando = false
+                                if falloAlBorrar == nil { dismiss() }
+                            }
+                        }
+                        Button("Cancelar", role: .cancel) {}
+                    } message: {
+                        Text("Se borran tus agentes, tus conversaciones y tus archivos. No se puede deshacer.")
+                    }
+                    if let falloAlBorrar {
+                        Text(falloAlBorrar).gCaption().foregroundStyle(Color.gDangerInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 8)

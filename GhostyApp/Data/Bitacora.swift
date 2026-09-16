@@ -42,6 +42,10 @@ enum Bitacora {
         }
     }
 
+    /// ¿No hay nada que compartir? En Release el diagnóstico va apagado y el registro está
+    /// vacío: el botón de compartirlo sería un botón que no hace nada.
+    static var estaVacia: Bool { cola.sync { lineas.isEmpty } }
+
     /// Deja el archivo al día y devuelve dónde está.
     @discardableResult
     static func volcar() -> URL {

@@ -8,7 +8,7 @@ struct RootView: View {
     // concreta desde la línea de comandos para poder verificarlas sin tocar la
     // pantalla del simulador, que no acepta toques por script.
     @State private var tab: GhostyTab =
-        GhostyTab(rawValue: ProcessInfo.processInfo.environment["GHOSTY_TAB"] ?? "") ?? .chat
+        GhostyTab(rawValue: Gancho.valor("GHOSTY_TAB") ?? "") ?? .chat
     @State private var hoja: Agent?
     @State private var ajustes = false
     /// La imagen que se está mirando a pantalla completa. Vive aquí porque quien pide
@@ -93,22 +93,22 @@ struct RootView: View {
             // depender de que alguien teclee en el simulador.
             // Gancho de desarrollo: carga el hilo más reciente de la caja para
             // poder verificar el replay sin tocar la pantalla.
-            if ProcessInfo.processInfo.environment["GHOSTY_LOAD_THREAD"] == "1" {
+            if Gancho.valor("GHOSTY_LOAD_THREAD") == "1" {
                 await store.cargarHilos()
                 if let primero = store.hilosRemotos.first {
                     await store.abrirHilo(primero)
                 }
             }
-            if ProcessInfo.processInfo.environment["GHOSTY_SHEET"] == "1" {
+            if Gancho.valor("GHOSTY_SHEET") == "1" {
                 hoja = store.selectedAgent
             }
             // Gancho: crea un hilo nuevo antes de la sonda, para verificar que
             // session/new funciona y que el turno cae en ESE hilo.
-            if ProcessInfo.processInfo.environment["GHOSTY_NEW_THREAD"] == "1" {
+            if Gancho.valor("GHOSTY_NEW_THREAD") == "1" {
                 store.nuevaConversacion()
                 try? await Task.sleep(for: .seconds(6))
             }
-            if let sonda = ProcessInfo.processInfo.environment["GHOSTY_PROBE"],
+            if let sonda = Gancho.valor("GHOSTY_PROBE"),
                !sonda.isEmpty, case .lista = store.conexion {
                 // Gancho: `GHOSTY_ADJUNTOS=imagen|archivo|ambos` manda la sonda CON
                 // adjuntos. El simulador no acepta toques por script, así que sin esto no
@@ -174,7 +174,7 @@ struct RootView: View {
     /// Adjuntos sintéticos para el gancho `GHOSTY_ADJUNTOS`. Sólo se construyen si la
     /// variable está puesta, así que en un build normal no cuestan nada.
     private static func adjuntosDePrueba() -> [Adjunto] {
-        let modo = ProcessInfo.processInfo.environment["GHOSTY_ADJUNTOS"] ?? ""
+        let modo = Gancho.valor("GHOSTY_ADJUNTOS") ?? ""
         guard !modo.isEmpty else { return [] }
         var lista: [Adjunto] = []
         if modo == "imagen" || modo == "ambos" {

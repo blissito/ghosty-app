@@ -30,7 +30,7 @@ struct LoginView: View {
         /// Lo que se pinta antes de que conteste el servidor, y si no contesta. Google
         /// lleva configurado desde siempre; enseñar una pantalla vacía mientras carga
         /// sería peor que enseñar el camino que casi todos usan.
-        static let respaldo: [Proveedor] = [.init(id: "google", etiqueta: "Google")]
+        static let respaldo: [Proveedor] = [.init(id: "google", etiqueta: "Google"), .init(id: "apple", etiqueta: "Apple")]
     }
 
     /// Google arriba (es el camino de casi todos); el resto en el orden del servidor.

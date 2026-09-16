@@ -55,7 +55,11 @@ if [ "$DENTRO" != "$SIGUIENTE" ]; then
   echo "  (mira CFBundleVersion en project.yml: tiene que ser \$(CURRENT_PROJECT_VERSION))" >&2
   exit 1
 fi
-echo "el .ipa lleva build $DENTRO ✓"
+VERSION=$(unzip -p build/ipa/GhostyApp.ipa 'Payload/GhostyApp.app/Info.plist' | plutil -extract CFBundleShortVersionString raw -o - -- - 2>/dev/null)
+# ⚠️ Y el manifiesto de privacidad: sin él la subida se rechaza (ITMS-91053) y tampoco avisa.
+unzip -l build/ipa/GhostyApp.ipa | grep -q 'Payload/GhostyApp.app/PrivacyInfo.xcprivacy' \
+  || { echo "✗ el .ipa no lleva PrivacyInfo.xcprivacy — no lo subo" >&2; exit 1; }
+echo "el .ipa lleva versión $VERSION, build $DENTRO, manifiesto de privacidad ✓"
 
 # ⚠️ VALIDAR ANTES DE SUBIR. `--upload-app` dice `UPLOAD SUCCEEDED` en cuanto el paquete
 # viaja, y lo que lo rechaza después es MUDO: no hay correo y la build no aparece ni en

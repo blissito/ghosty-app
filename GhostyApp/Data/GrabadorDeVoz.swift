@@ -46,7 +46,7 @@ final class GrabadorDeVoz {
             try sesion.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
             try sesion.setActive(true)
         } catch {
-            print("[voz] no pude abrir la sesión de audio: \(error.localizedDescription)")
+            EasyBitsClient.diag("[voz] no pude abrir la sesión de audio: \(error.localizedDescription)")
             return
         }
 
@@ -65,7 +65,7 @@ final class GrabadorDeVoz {
             recorder = r
             archivo = url
         } catch {
-            print("[voz] no pude grabar: \(error.localizedDescription)")
+            EasyBitsClient.diag("[voz] no pude grabar: \(error.localizedDescription)")
             return
         }
 

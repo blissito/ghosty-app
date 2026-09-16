@@ -372,7 +372,7 @@ actor ClienteGS: TransporteDeAgente {
                 // 8 s, como hace iOS al suspender la app. Es lo que deja probar el
                 // reenganche sin bloquear un teléfono.
                 #if DEBUG
-                if let s = ProcessInfo.processInfo.environment["GHOSTY_CORTAR"], let seg = Int(s),
+                if let s = Gancho.valor("GHOSTY_CORTAR"), let seg = Int(s),
                    !Self.yaCorto {
                     Self.yaCorto = true
                     Task {

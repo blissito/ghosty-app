@@ -62,7 +62,7 @@ struct AgentSheetView: View {
     /// Gancho de desarrollo: el simulador no acepta toques por script, así que sin esto
     /// no hay forma de verificar un panel que no sea el primero. Gana sobre lo guardado.
     private static let panelForzado =
-        SheetPane(rawValue: ProcessInfo.processInfo.environment["GHOSTY_PANE"] ?? "")
+        SheetPane(rawValue: Gancho.valor("GHOSTY_PANE") ?? "")
 
     private var pane: Binding<SheetPane> {
         Binding(

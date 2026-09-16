@@ -237,12 +237,16 @@ final class LiveAgentStore: AgentStoring {
     var correo: String?
 
     func cargar() async {
+        // Una sesión que caduca a MEDIA charla vuelve al login. Antes sólo se atendía aquí,
+        // en el arranque: si el refresh moría al mandar un mensaje, la persona veía «no pude
+        // contestarle a tu agente» y una app deslogueada que seguía enseñando el chat.
+        Session.alCaducar = { [weak self] in self?.conexion = .sinLlave }
         conexion = .cargando
         // Gancho de desarrollo: «se tocó un aviso ANTES de que existiera nada», que es el
         // arranque en frío por push. Un push del simulador arranca la app sin variables,
         // así que este camino sólo se puede ejercitar desde aquí.
         #if DEBUG
-        if let aviso = ProcessInfo.processInfo.environment["GHOSTY_AVISO"],
+        if let aviso = Gancho.valor("GHOSTY_AVISO"),
            let barra = aviso.firstIndex(of: "/") {
             irA(agente: String(aviso[..<barra]), sesion: String(aviso[aviso.index(after: barra)...]))
         }
@@ -269,7 +273,7 @@ final class LiveAgentStore: AgentStoring {
         // más se rompe —crear sesión y mandar el primer turno— y el que no se puede
         // provocar desde un script sin tocar la pantalla.
         #if DEBUG
-        if ProcessInfo.processInfo.environment["GHOSTY_NUEVA"] == "1", let c = canalActivo {
+        if Gancho.valor("GHOSTY_NUEVA") == "1", let c = canalActivo {
             let h = c.abrir()
             c.activa = h.clave
         }
@@ -299,7 +303,7 @@ final class LiveAgentStore: AgentStoring {
         // alguien está usando en su teléfono ahora mismo. Un filtro es más fiable que
         // acordarse de no tocarla.
         #if DEBUG
-        if let solo = ProcessInfo.processInfo.environment["GHOSTY_SOLO_AGENTE"], !solo.isEmpty {
+        if let solo = Gancho.valor("GHOSTY_SOLO_AGENTE"), !solo.isEmpty {
             cuentas = cuentas.filter { $0.id == solo }
             EasyBitsClient.diag("[dev] sólo el agente \(solo): quedan \(cuentas.count)")
         }
@@ -340,6 +344,13 @@ final class LiveAgentStore: AgentStoring {
         cache.limpiar()
         correo = nil
         conexion = .sinLlave
+    }
+
+    /// Borra la cuenta y deja la app como recién instalada. Devuelve el aviso si no se pudo.
+    func borrarCuenta() async -> String? {
+        if let aviso = await GhostyAPI.borrarCuenta() { return aviso }
+        await cerrarSesion()
+        return nil
     }
 
     /// Vuelve a pedir la flota al servidor. La usa la pantalla de cuenta.
@@ -921,7 +932,7 @@ final class LiveAgentStore: AgentStoring {
         // así que sin esto el camino de RESPUESTA del permiso —que es donde el turno se
         // reanuda o se queda detenido diez minutos— no se puede ejercitar sin una persona.
         #if DEBUG
-        if ProcessInfo.processInfo.environment["GHOSTY_AUTO_PERMISO"] == "1" {
+        if Gancho.valor("GHOSTY_AUTO_PERMISO") == "1" {
             EasyBitsClient.diag("[permiso] llegó \(p.titulo); contesto solo (gancho de dev)")
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(2))
@@ -1333,7 +1344,7 @@ final class LiveAgentStore: AgentStoring {
                 a.remoto = try await GhostyAPI.subir(a, sesion: sesion)
             } catch {
                 falloDeSubida = error.localizedDescription
-                print("[adjunto] no subió \(a.nombre): \(error.localizedDescription)")
+                EasyBitsClient.diag("[adjunto] no subió \(a.nombre): \(error.localizedDescription)")
             }
             salida.append(a)
         }

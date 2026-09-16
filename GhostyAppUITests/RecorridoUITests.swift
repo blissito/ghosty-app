@@ -253,5 +253,23 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(guardadas.exists, "no salió el plegable de guardadas")
         guardadas.tap()
         foto("10-guardadas")
+
+        // 8. Borrar la cuenta EXISTE y pide confirmación (Apple 5.1.1). Se cancela: en demo
+        //    no hay red y no hay cuenta que borrar.
+        let cuenta = app.buttons["cuenta"].firstMatch
+        XCTAssertTrue(cuenta.waitForExistence(timeout: 3), "no está el botón de cuenta")
+        cuenta.tap()
+        let borrarCuenta = app.buttons["borrar-cuenta"].firstMatch
+        XCTAssertTrue(borrarCuenta.waitForExistence(timeout: 3), "no está «Borrar mi cuenta» en Ajustes")
+        app.swipeUp()
+        borrarCuenta.tap()
+        // El botón rojo de confirmar es la prueba de que se pidió confirmación. Se cierra
+        // sin tocarlo: con «Cancelar» si el diálogo lo trae (hoja) o tocando fuera (popover).
+        let confirmar = app.buttons.matching(NSPredicate(format: "label == 'Borrar mi cuenta'")).allElementsBoundByIndex
+        XCTAssertTrue(confirmar.count >= 2 || app.buttons["Cancelar"].exists, "borrar la cuenta no pidió confirmación")
+        foto("15-borrar-cuenta")
+        let cancelar = app.buttons["Cancelar"].firstMatch
+        if cancelar.exists { cancelar.tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap() }
     }
 }

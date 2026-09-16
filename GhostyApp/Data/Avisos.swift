@@ -49,7 +49,7 @@ enum Avisos {
     static func registrarSiYaHayPermiso() {
         #if canImport(UIKit)
         // Gancho de desarrollo: en el simulador no se puede tocar el diálogo del permiso.
-        if ProcessInfo.processInfo.environment["GHOSTY_PUSH"] == "1" {
+        if Gancho.valor("GHOSTY_PUSH") == "1" {
             UNUserNotificationCenter.current().delegate = delegado
             UIApplication.shared.registerForRemoteNotifications()
             return

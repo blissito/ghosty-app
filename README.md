@@ -1,8 +1,7 @@
 # Ghosty App
 
-Prototipo estático de la app iOS de Ghosty: las cinco pantallas para juzgarlas en un
-teléfono de verdad. **Cero red, cero ACP, cero push** — los datos están cableados en
-`GhostyApp/Data/MockData.swift`.
+La app iOS de Ghosty: habla con tus agentes de ghosty.studio (HTTP+SSE contra gs), con
+push, adjuntos, notas de voz y entregas. Ver `CLAUDE.md` para cómo se prueba y se reparte.
 
 ## Correrlo
 

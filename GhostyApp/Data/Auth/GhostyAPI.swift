@@ -179,6 +179,29 @@ enum GhostyAPI {
         return (true, j?["aviso"] as? String)
     }
 
+    /// Borra la cuenta entera en el servidor. Apple lo exige para publicar (5.1.1(v)).
+    ///
+    /// Devuelve el aviso a enseñar si NO se pudo. El 409 `espacio_compartido` no es un
+    /// fallo: la persona es dueña de un espacio de equipo y eso no se arrastra desde un
+    /// botón del teléfono; se le manda a la web.
+    static func borrarCuenta() async -> String? {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me"))
+        req.httpMethod = "DELETE"
+        req.assumesHTTP3Capable = false
+        guard let token = try? await Session.accessToken() else { return "Tu sesión expiró. Vuelve a entrar." }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req) else {
+            return "Sin conexión. Inténtalo de nuevo."
+        }
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        if codigo == 200 { return nil }
+        let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+        if codigo == 409, j?["error"] as? String == "espacio_compartido" {
+            return "Eres dueño de un espacio con más personas. Bórralo o transfiérelo desde ghosty.studio y vuelve a intentarlo."
+        }
+        return "No pude borrar la cuenta (\(codigo)). Inténtalo más tarde."
+    }
+
     /// Transcribe un audio con el whisper de la flota.
     ///
     /// ⚠️ Bytes CRUDOS, no base64. El endpoint de partner que ya existía usa base64 porque
@@ -208,7 +231,7 @@ enum GhostyAPI {
               let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
               let texto = j["text"] as? String
         else {
-            print("[voz] no se pudo transcribir")
+            EasyBitsClient.diag("[voz] no se pudo transcribir")
             return nil
         }
         let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -406,7 +429,7 @@ enum GhostyAPI {
             // suyo. Que un agente tenga caja ACP es lo que lo hace suyo aquí.
             //
             // La excepción es el gancho de desarrollo, que ya dice a cuál quiere hablarle.
-            let pedidoAMano = ProcessInfo.processInfo.environment["GHOSTY_SOLO_AGENTE"]
+            let pedidoAMano = Gancho.valor("GHOSTY_SOLO_AGENTE")
             if token == nil, pedidoAMano != id {
                 // Sin material de conexión no se puede conversar con él. Se cuenta para
                 // poder decirlo, y no se mete a la lista: un agente en pantalla que no

@@ -168,7 +168,7 @@ struct NotaDeVoz: View {
             }
         } catch {
             fallo = "No pude reproducirlo."
-            print("[voz] no pude reproducir: \(error.localizedDescription)")
+            EasyBitsClient.diag("[voz] no pude reproducir: \(error.localizedDescription)")
         }
     }
 
