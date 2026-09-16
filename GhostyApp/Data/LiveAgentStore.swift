@@ -544,13 +544,25 @@ final class LiveAgentStore: AgentStoring {
             async let traida: Void = {
                 if let visible { await self.traerLaConversacion(visible, de: canal) }
             }()
+            // ⚠️ Una lista VACÍA también es una respuesta (antes se ignoraba, y una cuenta
+            // recién limpiada seguía enseñando su caché para siempre). Lo que no es
+            // respuesta es `nil`: fallo de red, y ahí no se toca nada.
             if let cliente = try? await self.asegurarSocket(canal),
-               let frescas = try? await cliente.sesiones(), !frescas.isEmpty {
+               let frescas = try? await cliente.sesiones() {
                 canal.hilosRemotos = frescas
                 canal.estadoHilos = .listo
                 self.cache.guardarLista(frescas, de: canal.cuenta.id)
                 for f in frescas {
                     if let h = canal.hilo(sesion: f.id) { self.aplicarUltimoTurno(f.ultimoTurno, a: h, de: canal) }
+                }
+                // Y las abiertas que el servidor YA NO tiene (borradas desde otro sitio) se
+                // cierran aquí. Se respeta la que trabaja y la que aún no tiene sesión.
+                let vivas = Set(frescas.map(\.id))
+                for h in canal.hilos where h.turno == nil {
+                    guard let sid = h.sesionID, !vivas.contains(sid) else { continue }
+                    EasyBitsClient.diag("[hilos] \(sid) ya no está en el servidor: se cierra")
+                    self.cache.olvidarAbierta(sid, de: canal.cuenta.id)
+                    canal.cerrar(h)
                 }
                 // ⚠️⚠️ NUNCA se cambia de conversación por debajo. Esto llevaba a la
                 // persona a otra conversación mientras escribía —«se borró el historial al
@@ -560,7 +572,8 @@ final class LiveAgentStore: AgentStoring {
                 //
                 // Sólo se abre una si NO hay ninguna, que es el arranque en frío.
                 if canal.hilos.isEmpty {
-                    canal.activa = canal.abrir(frescas[0].id).clave
+                    if let primera = frescas.first { canal.activa = canal.abrir(primera.id).clave }
+                    else { canal.abrir() }
                 }
             }
             await traida
