@@ -152,6 +152,11 @@ final class RecorridoUITests: XCTestCase {
         // cortado y parece un fallo de layout que no es.
         Thread.sleep(forTimeInterval: 1.0)
         foto("07-tras-bajar")
+        // ⚠️ Que el botón se esconda no prueba nada: se esconde al tocarlo. Lo que prueba
+        // que bajó es que la ÚLTIMA respuesta esté en pantalla.
+        let ultima = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Respuesta 12.'")).firstMatch
+        XCTAssertTrue(ultima.exists && ultima.isHittable, "el botón de ir abajo no bajó al último mensaje")
+        XCTAssertFalse(bajar.exists, "el botón de ir abajo sigue tras bajar")
 
         // 4b. La conversación con foto: imagen de markdown y tarjeta de entrega. Aquí es
         //     donde se ve si una imagen grande respeta el ancho de la burbuja.

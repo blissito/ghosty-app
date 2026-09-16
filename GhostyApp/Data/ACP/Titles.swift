@@ -10,6 +10,9 @@ import Observation
 @Observable
 @MainActor
 final class TitleStore {
+    /// Uno para toda la app: `Hilo.titulo` lo consulta y el store lo escribe.
+    static let compartido = TitleStore()
+
     private var titulos: [String: String] = [:]
 
     private var archivo: URL {

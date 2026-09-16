@@ -215,7 +215,7 @@ final class LiveAgentStore: AgentStoring {
         guard !DemoData.encendido else { return }
         almacenamiento = try? await GhostyAPI.almacenamiento()
     }
-    let titulos = TitleStore()
+    let titulos = TitleStore.compartido
 
     /// Archivos y documentos de la cuenta. ⚠️ NO son del agente: el modelo `File` de
     /// EasyBits no tiene `agentId` y los artefactos se atribuyen al dueño, así que
@@ -518,6 +518,13 @@ final class LiveAgentStore: AgentStoring {
             // La lista la tiene el SERVIDOR. El caché del teléfono es para pintar algo
             // mientras llega, no para decidir qué existe: si la app muere de golpe, lo
             // último que escribiste no llegó ni a guardarse.
+            // ⚠️ La conversación que se MIRA va primero y en paralelo con la lista. Antes
+            // iba detrás de `sesiones()` y del enganche: al volver de un push la pantalla
+            // se quedaba quieta varios segundos y luego aparecía todo de golpe.
+            let visible = canal.hilo
+            async let traida: Void = {
+                if let visible { await self.traerLaConversacion(visible, de: canal) }
+            }()
             if let cliente = try? await self.asegurarSocket(canal),
                let frescas = try? await cliente.sesiones(), !frescas.isEmpty {
                 canal.hilosRemotos = frescas
@@ -537,8 +544,10 @@ final class LiveAgentStore: AgentStoring {
                     canal.activa = canal.abrir(frescas[0].id).clave
                 }
             }
+            await traida
             guard let hilo = canal.hilo else { return }
-            await self.traerLaConversacion(hilo, de: canal)
+            // Si la activa cambió mientras tanto (arranque en frío), se trae ahora.
+            if hilo !== visible { await self.traerLaConversacion(hilo, de: canal) }
             self.engancharse(hilo, de: canal)
         }
     }
@@ -607,6 +616,13 @@ final class LiveAgentStore: AgentStoring {
             EasyBitsClient.diag("[hilo] \(sid): el servidor trae \(mensajes.count) mensajes (había \(hilo.mensajes.count))")
             hilo.mensajes = mensajes
             hilo.fallo = nil
+            // El título se FIJA la primera vez que se ve el hilo: el servidor manda sólo
+            // la cola (`tail`), y sacarlo cada vez del «primer mensaje» de esa cola lo
+            // hacía cambiar conforme la conversación crecía.
+            if let primero = mensajes.first(where: { if case .user = $0.kind { return true } else { return false } }),
+               case .user(let t, _) = primero.kind {
+                titulos.anotarSiFalta(sid, desde: t)
+            }
             aplicarUltimoTurno(await cliente.ultimoTurno(de: sid), a: hilo, de: canal)
             guardarHilos(canal)
         } catch {

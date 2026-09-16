@@ -39,6 +39,10 @@ struct ConversationView: View {
     /// que bajar. De ahí salieron un plazo de cuatro segundos, un contador de envíos y
     /// un reintento a los 120 ms, y el scroll seguía siendo intermitente.
     @State private var pegadoAbajo = true
+    /// Cada incremento es una orden de bajar al fondo; la ejecuta el `ScrollViewReader`.
+    @State private var bajar = 0
+    @State private var bajarAnimado = false
+    private static let fondo = "fondo-del-hilo"
 
     /// La agenda de la conversación que se mira. Se rehace al cambiar de hilo: es por
     /// `(agente, sesión)`, y una conversación nueva sin `sessionId` no tiene agenda aún.
@@ -64,6 +68,7 @@ struct ConversationView: View {
             //
             // `anclaje` es el ÚLTIMO mensaje visible. Si es el último del hilo, estás
             // abajo; si no, se enseña el botón. Bajar es asignarlo.
+            ScrollViewReader { lector in
             ScrollView {
                 // ⚠️ VStack, NO LazyVStack. Con el perezoso, al plegar una tarjeta de
                 // herramientas el contenido encogía, el offset quedaba más allá del final
@@ -88,6 +93,10 @@ struct ConversationView: View {
                                         ? .scale(scale: 0.94).combined(with: .opacity)
                                         : .identity)
                     }
+                    // El fondo de verdad: a donde se baja. Un mensaje largo que crece
+                    // con el streaming no cambia de id, y «bajar» a un id que ya es
+                    // el ancla no mueve nada.
+                    Color.clear.frame(height: 1).id(Self.fondo)
                 }
                 .padding(.horizontal, 16)
                 // ⚠️ Aire al final, que es el «siempre esconde contenido»: sin esto la
@@ -100,6 +109,16 @@ struct ConversationView: View {
             // a mano en cada apertura, que es de donde salían los saltos.
             .defaultScrollAnchor(.bottom)
             .scrollPosition(id: $anclaje, anchor: .bottom)
+            // ⚠️ Bajar es `scrollTo`, no asignar el ancla. Asignar `anclaje = ultimo` no
+            // hacía nada si el sistema ya lo tenía como ancla —pasa siempre que el último
+            // mensaje es más alto que la pantalla: subes a releerlo, el ancla sigue
+            // siendo él, y el botón no servía—. Con un `VStack` (no perezoso) todas las
+            // filas existen, así que `scrollTo` aterriza donde debe.
+            .onChange(of: bajar) { _, _ in
+                guard bajar > 0 else { return }
+                if bajarAnimado { withAnimation(.easeOut(duration: 0.28)) { lector.scrollTo(Self.fondo, anchor: .bottom) } }
+                else { lector.scrollTo(Self.fondo, anchor: .bottom) }
+            }
             .overlay(alignment: .bottom) {
                 if !alFinal, !mensajesÚnicos.isEmpty {
                     Button { irAbajo(animado: true) } label: {
@@ -134,7 +153,7 @@ struct ConversationView: View {
             // si sigues el final o subiste a releer.
             .onChange(of: anclaje) { _, a in
                 guard let a, let ultimo = mensajesÚnicos.last?.id else { return }
-                pegadoAbajo = a == ultimo
+                pegadoAbajo = a == ultimo || a == Self.fondo
             }
             // Llega un mensaje o crece el último (la respuesta viene en trozos): se baja
             // sólo si seguías el final. Que la respuesta te tire hacia abajo cuando has
@@ -152,6 +171,7 @@ struct ConversationView: View {
             .sheet(isPresented: $abrirAgenda) {
                 if let agenda { AgendaSheet(agenda: agenda) }
             }
+            } // ScrollViewReader
 
             // ⚠️ Un CARTEL, no un mensaje. Que el aviso viva dentro de la respuesta lo
             // convertía en historia: quedaba «se cortó la conexión» pegado para siempre en
@@ -290,9 +310,9 @@ struct ConversationView: View {
 
     /// Si sigues el final, quédate en él.
     private func seguir(animado: Bool = false) {
-        guard pegadoAbajo, let ultimo = mensajesÚnicos.last?.id else { return }
-        if animado { withAnimation(.easeOut(duration: 0.28)) { anclaje = ultimo } }
-        else { anclaje = ultimo }
+        guard pegadoAbajo, !mensajesÚnicos.isEmpty else { return }
+        bajarAnimado = animado
+        bajar += 1
     }
 
     /// Al final del hilo, pase lo que pase: enviar, tocar el botón, cambiar de hilo.

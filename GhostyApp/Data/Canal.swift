@@ -136,6 +136,9 @@ final class Hilo {
     /// echo hola» aparecía en la barra como «busca sonidos de comic». Una conversación se
     /// llama por donde empezó, no por lo último que dijiste — es lo que hacen todos.
     var titulo: String {
+        // ⚠️ Primero el fijado. `mensajes` es la COLA que manda el servidor, así que su
+        // «primer mensaje» va cambiando conforme la conversación crece: el título mutaba.
+        if let sesionID, let fijo = TitleStore.compartido.titulo(sesionID) { return Self.limpio(fijo) }
         for m in mensajes { if case .user(let t, _) = m.kind, !t.isEmpty { return Self.limpio(t) } }
         // Sólo mientras el mensaje va en camino y todavía no está en la lista.
         if !prompt.isEmpty { return Self.limpio(prompt) }
