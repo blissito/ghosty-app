@@ -1186,6 +1186,12 @@ final class LiveAgentStore: AgentStoring {
     /// así que poner a dos a trabajar obligaba a ir y volver.
     func send(_ text: String, adjuntos: [Adjunto] = [], a agenteID: String? = nil) async {
         let limpio = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `/clear` (o `/new`) es «conversación nueva», no un mensaje: al agente le llegaba
+        // como texto. Mismo camino que el botón +. Otros `/algo` se mandan tal cual.
+        if adjuntos.isEmpty, ["/clear", "/new"].contains(limpio.lowercased()) {
+            nuevaConversacion()
+            return
+        }
         guard !limpio.isEmpty || !adjuntos.isEmpty,
               let canal = canales[agenteID ?? selectedAgentID] else { return }
         let cuenta = canal.cuenta
