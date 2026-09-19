@@ -1202,6 +1202,9 @@ final class LiveAgentStore: AgentStoring {
         // hacía que un mensaje acabara en una conversación en blanco.
         let hilo = canal.hilo ?? canal.abrir()
         canal.activa = hilo.clave
+        // Último uso AHORA, sin esperar a que el servidor lo diga en la próxima flota: la
+        // lista de agentes se ordena por esto y el que acabas de usar sube al instante.
+        if let i = agents.firstIndex(where: { $0.id == cuenta.id }) { agents[i].ultimaActividad = Date() }
         // Un turno nuevo borra el fallo del anterior: lo que importa es cómo va ÉSTE.
         hilo.fallo = nil
         // Y manda sobre la recogida de lo anterior: si le vuelves a escribir, lo que sea
