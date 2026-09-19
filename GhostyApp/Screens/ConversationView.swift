@@ -369,6 +369,17 @@ struct ConversationView: View {
                        onRequestChanges: { Task { await store.respondToPR(card, approve: false) } })
                 Spacer(minLength: 30)
             }
+        case .sistema(let causa):
+            HStack {
+                Spacer()
+                Label(causa, systemImage: "clock")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.gInk3)
+                    .lineLimit(1)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Color.gFill, in: Capsule())
+                Spacer()
+            }
         case .typing:
             HStack { TypingBubble(); Spacer() }
         }

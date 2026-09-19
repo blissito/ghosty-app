@@ -147,9 +147,16 @@ actor ClienteGS: TransporteDeAgente {
         let r = try await pedir(c.url!)
         saltados[id] = r["saltados"] as? Int ?? 0
         ultimos[id] = ACPClient.UltimoTurno.desde(r["ultimoTurno"])
-        return (r["messages"] as? [[String: Any]] ?? []).compactMap { m in
-            guard let t = m["text"] as? String, !t.isEmpty else { return nil }
-            guard m["role"] as? String == "user" else { return .agent(t) }
+        // ⚠️ Cada mensaje de la copia va precedido de una frontera `.turno("m<i>")`: el
+        // conversor pega trozos consecutivos del mismo rol (existe para los `*_chunk` de
+        // ACP), y sin frontera dos mensajes seguidos del mismo lado salían fundidos en una
+        // burbuja («baja este videoya?»). El endpoint no devuelve `seq`; la posición basta.
+        return (r["messages"] as? [[String: Any]] ?? []).enumerated().flatMap { (i, m) -> [ACPClient.Replay] in
+            guard let t = m["text"] as? String, !t.isEmpty else { return [] }
+            guard m["role"] as? String == "user" else { return [.turno("m\(i)"), .agent(t)] }
+            // Un turno abierto por la plataforma (agenda, entrega de un encargo): línea de
+            // sistema con la causa, no burbuja de la persona con las instrucciones al modelo.
+            if t.hasPrefix("⏰ ") { return [.turno("m\(i)"), .user(t)] }
             // ⚠️ Lo que se guardó es lo que se MANDÓ, con toda la fontanería dentro: el
             // bloque de conversación previa que ponía la app antes de esta mudanza, y los
             // `curl` de los adjuntos. Sin limpiarlo, al recargar el hilo la burbuja de la
@@ -159,8 +166,22 @@ actor ClienteGS: TransporteDeAgente {
             // Un turno programado lleva pegadas las instrucciones al agente («nadie está
             // mirando… contesta OK»). Son para él; a la persona se le enseña lo que pidió.
             let visible = Self.sinReglasDeAgenda(limpio.isEmpty ? t : limpio)
-            return .user(visible)
+            return [.turno("m\(i)"), .user(visible)]
         }
+    }
+
+    /// Sólo la causa de un mensaje de plataforma «⏰ … (causa). …»: en minúsculas; si no
+    /// trae paréntesis, la primera frase recortada a 60.
+    static func causaDeSistema(_ t: String) -> String {
+        let sin = t.hasPrefix("⏰ ") ? String(t.dropFirst(2)) : t
+        if let m = sin.range(of: #"^[^(\n]*\(([^)]+)\)"#, options: .regularExpression) {
+            let dentro = sin[m]
+            if let a = dentro.firstIndex(of: "("), let b = dentro.lastIndex(of: ")"), a < b {
+                return String(dentro[dentro.index(after: a)..<b]).lowercased()
+            }
+        }
+        let frase = sin.split(whereSeparator: { $0 == "." || $0 == "\n" || $0 == ":" }).first.map(String.init) ?? sin
+        return frase.count > 60 ? String(frase.prefix(59)) + "…" : frase
     }
 
     /// Mismo prefijo que pone gs (`SCHEDULED_MARK` en `scheduled-turns.server.ts`).

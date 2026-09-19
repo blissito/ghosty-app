@@ -34,6 +34,12 @@ enum ReplayToMessages {
 
             switch quien {
             case .usuario:
+                // Un mensaje de la plataforma («⏰ Turno programado … (causa)») es una línea
+                // de sistema, no una burbuja de la persona.
+                if limpio.hasPrefix("⏰ ") {
+                    mensajes.append(Message(id: "s\(mensajes.count)", kind: .sistema(ClienteGS.causaDeSistema(limpio))))
+                    return
+                }
                 // ⚠️ El replay devuelve el prompt TAL CUAL se envió, fontanería incluida:
                 // el bloque de adjuntos, los `curl` y una URL firmada de varias líneas. Sin
                 // esto, reabrir un hilo con una nota de voz enseñaba un muro de texto con
@@ -97,7 +103,12 @@ enum ReplayToMessages {
                 if quien != .agente { cerrar(); quien = .agente }
                 texto += t
 
-            case .thought, .turno:
+            case .turno:
+                // Frontera de mensaje/turno: cierra la burbuja aunque el rol se repita
+                // (dos mensajes seguidos de la persona son dos burbujas).
+                cerrar(); quien = nil
+
+            case .thought:
                 // El razonamiento del agente no va al hilo: es ruido para quien lee,
                 // y en la caja son párrafos enteros por turno.
                 break

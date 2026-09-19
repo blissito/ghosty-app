@@ -119,7 +119,7 @@ struct MensajeGuardado: Codable {
             quien = .entrega
             texto = e.titulo
             entrega = e
-        case .typing, .prCard:
+        case .typing, .prCard, .sistema:
             return nil
         }
     }

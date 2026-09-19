@@ -61,7 +61,7 @@ enum BloqueDeHistorial {
             // Lo entregado cuenta como parte de la conversación: «el PDF de antes» sólo
             // se entiende si sabe que entregó un PDF.
             return "Tú entregaste: \(e.titulo)"
-        case .prCard, .typing:
+        case .prCard, .typing, .sistema:
             return nil
         }
     }
