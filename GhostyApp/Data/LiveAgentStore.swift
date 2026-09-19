@@ -1614,6 +1614,11 @@ final class LiveAgentStore: AgentStoring {
                     break
                 }
             }
+            // ⚠️ Un vigilante CANCELADO (lo cancela `send` para arrancar el turno propio)
+            // sale del bucle limpio —el stream devuelve nil, no lanza— y llegaba aquí a
+            // borrar el typing y a cerrar el turno que `send` acababa de arrancar: la
+            // conversación quedaba «En reposo» sin respuesta. No es su turno: se va.
+            if Task.isCancelled && enganchado && acumulado.isEmpty && herramientas.isEmpty { return }
             // ⚠️ Un turno que acaba sin texto NO deja rastro. Aquí se pintaba «El turno
             // cerró sin texto», y salía en sitios donde no era verdad: al engancharse a
             // una conversación en reposo, o cuando la respuesta llegaba por el otro flujo.
