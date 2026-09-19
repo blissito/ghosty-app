@@ -85,7 +85,7 @@ enum Credentials {
 
 }
 
-/// Llavero. `WhenUnlockedThisDeviceOnly`: la credencial no viaja al respaldo de
+/// Llavero. `AfterFirstUnlockThisDeviceOnly`: la credencial no viaja al respaldo de
 /// iCloud ni a otro dispositivo.
 enum Keychain {
     enum Clave: String {
@@ -96,6 +96,21 @@ enum Keychain {
     }
 
     private static let servicio = "studio.ghosty.app"
+
+    /// Una sola vez por instalación: los ítems escritos con `WhenUnlocked` se reescriben
+    /// con `AfterFirstUnlock` para que el push silencioso en frío (teléfono bloqueado)
+    /// pueda leer la sesión. Corre en primer plano, con el teléfono desbloqueado.
+    private static var migrado = false
+    static func migrarAccesibilidad() {
+        guard !migrado else { return }
+        migrado = true
+        let marca = "llavero.afterFirstUnlock"
+        guard !UserDefaults.standard.bool(forKey: marca) else { return }
+        for clave in [Clave.cuentas, .activo, .sesion] {
+            if let v = leer(clave) { escribir(clave, v) }
+        }
+        UserDefaults.standard.set(true, forKey: marca)
+    }
 
     static func leer(_ clave: Clave) -> String? {
         var q = base(clave)
@@ -112,7 +127,9 @@ enum Keychain {
         borrar(clave)
         var item = base(clave)
         item[kSecValueData as String] = Data(valor.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        // `AfterFirstUnlock` y no `WhenUnlocked`: un push silencioso con el teléfono
+        // bloqueado arranca la app en frío y tiene que poder leer la sesión (`recogerYa`).
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(item as CFDictionary, nil)
     }
 

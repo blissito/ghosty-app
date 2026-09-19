@@ -462,6 +462,7 @@ final class LiveAgentStore: AgentStoring {
     ///
     /// El reposo no es una excepción que reparar — es el estado normal de un teléfono.
     func volverDelFondo() async {
+        Keychain.migrarAccesibilidad()
         guard !DemoData.encendido, Session.haySesion else { return }
         for canal in canales.values { ponerseAlDia(canal) }
     }
@@ -659,6 +660,17 @@ final class LiveAgentStore: AgentStoring {
             guardarHilos(canal)
         } catch {
             EasyBitsClient.diag("[hilo] no pude traer \(sid): \(error)")
+            // Un 404 no es «sin red»: el hilo ya no existe o ya no es tuyo (agente
+            // compartido: cada quien ve sólo sus hilos). Se cierra en vez de dejar el
+            // caché abierto como si nada.
+            if case ACPClient.Fallo.remoto(let m) = error, m.contains("ya no existe"), hilo.turno == nil {
+                cache.olvidarAbierta(sid, de: canal.cuenta.id)
+                withAnimation(Self.alBorrar) {
+                    canal.cerrar(hilo)
+                    if canal.hilos.isEmpty { canal.abrir() }
+                }
+                guardarHilos(canal)
+            }
         }
     }
 

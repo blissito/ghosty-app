@@ -182,7 +182,14 @@ final class Canal {
     /// Cuál se está mirando (su `clave`).
     var activa: String?
 
-    var hilosRemotos: [ACPClient.Session] = []
+    var hilosRemotos: [ACPClient.Session] = [] {
+        // El título que manda gs pisa el local: es el mismo que ven la web y la Mac.
+        didSet {
+            for s in hilosRemotos where !ConversacionesView.esGenerico(s.title) {
+                TitleStore.compartido.anotar(cuenta.id, s.id, titulo: s.title)
+            }
+        }
+    }
     var estadoHilos: EstadoHilos = .sinPedir
     var infoDeLaCaja: String?
     /// ¿Se está despertando la caja ahora mismo? Sin esto la app se siente colgada:

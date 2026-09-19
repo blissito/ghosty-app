@@ -37,6 +37,15 @@ final class TitleStore {
 
     /// Sólo el primero manda: el título de un hilo es de lo que se habló al abrirlo,
     /// no del último mensaje.
+    /// Lo que dice el SERVIDOR pisa lo local: desde el 2026-09-19 gs bautiza cada hilo al
+    /// cerrar su primer turno, y ése es el título que ven las demás superficies.
+    func anotar(_ agentID: String, _ sessionID: String, titulo: String) {
+        let k = Self.clave(agentID, sessionID)
+        guard !titulo.isEmpty, titulos[k] != titulo else { return }
+        titulos[k] = titulo
+        guardar()
+    }
+
     func anotarSiFalta(_ agentID: String, _ sessionID: String, desde texto: String) {
         let k = Self.clave(agentID, sessionID)
         guard titulos[k] == nil else { return }

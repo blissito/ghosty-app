@@ -284,7 +284,7 @@ struct ConversacionesView: View {
                                 TintedIcon(systemName: "clock.arrow.circlepath", tint: .gInk3,
                                            background: .gFill, size: 28)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(store.titulos.titulo(agente.id, s.id) ?? nombre(s))
+                                    Text(Self.esGenerico(s.title) ? (store.titulos.titulo(agente.id, s.id) ?? nombre(s)) : s.title)
                                         .font(.system(size: 15, weight: .medium))
                                         .foregroundStyle(Color.gInk).lineLimit(1)
                                     Text(detalle(s)).gMeta()
@@ -310,8 +310,13 @@ struct ConversacionesView: View {
     }
 
     private func nombre(_ s: ACPClient.Session) -> String {
-        if s.title != "New Chat", !s.title.isEmpty, s.title != "Sin título" { return s.title }
+        if !Self.esGenerico(s.title) { return s.title }
         return "Conversación sin abrir"
+    }
+
+    /// Los nombres que pone la caja o gs cuando aún no hay bautizo.
+    static func esGenerico(_ t: String) -> Bool {
+        t.isEmpty || t == "New Chat" || t == "Sin título" || t == "Conversación" || t == "Conversación nueva"
     }
 
     private func detalle(_ s: ACPClient.Session) -> String {
