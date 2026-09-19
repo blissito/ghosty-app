@@ -447,20 +447,32 @@ enum GhostyAPI {
             //
             // La excepción es el gancho de desarrollo, que ya dice a cuál quiere hablarle.
             let pedidoAMano = Gancho.valor("GHOSTY_SOLO_AGENTE")
-            if token == nil, pedidoAMano != id {
+            // Un agente de gs se lista AUNQUE no traiga token: la app habla con él por
+            // gs (HTTP), no por el WebSocket de la caja, y desde el 2026-09-16 eso vale
+            // para cualquier motor. Lo que antes desbordaba la lista (14 agentes) hoy se
+            // ordena por último uso y favoritos. Los de EasyBits siguen exigiendo token.
+            let origenGS = (a["origen"] as? String) == "gs"
+            if token == nil, pedidoAMano != id, !origenGS {
                 // Sin material de conexión no se puede conversar con él. Se cuenta para
                 // poder decirlo, y no se mete a la lista: un agente en pantalla que no
                 // contesta es peor que uno que no aparece.
                 if a["necesitaToken"] != nil { faltan = true }
                 continue
             }
+            if token == nil, a["necesitaToken"] != nil { faltan = true }
+            let iso = ISO8601DateFormatter(); iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let iso2 = ISO8601DateFormatter()
+            let ultima = (a["ultimaActividad"] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
             cuentas.append(AgentAccount(
                 id: id,
                 token: token ?? "",
                 name: nombre,
                 // El host lo manda el servidor: cablearlo aquí ataría la app a UN
                 // dominio de cajas, y ya hay dos fierros.
-                host: tipo == "acp" ? cx?["host"] as? String : nil
+                host: tipo == "acp" ? cx?["host"] as? String : nil,
+                motor: a["motor"] as? String,
+                compartidoPor: a["compartidoPor"] as? String,
+                ultimaActividad: ultima
             ))
         }
 

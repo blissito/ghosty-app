@@ -32,4 +32,8 @@ struct Agent: Identifiable, Equatable, Sendable {
     var status: AgentStatus
     /// Motor, para la línea bajo el nombre en la conversación
     var engine: String
+    /// Correo del dueño si el agente es compartido conmigo.
+    var compartidoPor: String? = nil
+    /// Último uso mío (lo dice gs), para ordenar.
+    var ultimaActividad: Date? = nil
 }

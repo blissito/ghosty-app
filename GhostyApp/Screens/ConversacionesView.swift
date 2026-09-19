@@ -16,12 +16,32 @@ struct ConversacionesView: View {
 
     /// Qué agentes tienen desplegadas sus conversaciones guardadas.
     @State private var desplegados: Set<String> = []
+    /// Favoritos (por teléfono). Estado local para repintar al tocar la estrella.
+    @State private var favoritos: Set<String> = Favoritos.ids
+    /// Sólo favoritos. Recordado.
+    @AppStorage("app.soloFavoritos") private var soloFavoritos = false
+
+    /// Favoritos arriba, luego el resto; cada grupo por último uso (sin uso al final, por
+    /// nombre). Con «sólo favoritos», nada más el primer grupo.
+    private var agentesOrdenados: [Agent] {
+        func porUso(_ a: Agent, _ b: Agent) -> Bool {
+            switch (a.ultimaActividad, b.ultimaActividad) {
+            case let (x?, y?): return x > y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+        }
+        let favs = store.agents.filter { favoritos.contains($0.id) }.sorted(by: porUso)
+        let resto = store.agents.filter { !favoritos.contains($0.id) }.sorted(by: porUso)
+        return soloFavoritos && !favs.isEmpty ? favs : favs + resto
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 cabecera
-                ForEach(store.agents) { agente in
+                ForEach(agentesOrdenados) { agente in
                     if let canal = store.canales[agente.id] {
                         grupo(agente, canal)
                     }
@@ -47,6 +67,18 @@ struct ConversacionesView: View {
                 Text(resumen).gMeta()
             }
             Spacer()
+            // Sólo favoritos. Apagado si no hay ninguno marcado.
+            if !favoritos.isEmpty || soloFavoritos {
+                Button { soloFavoritos.toggle() } label: {
+                    TintedIcon(systemName: soloFavoritos ? "star.fill" : "star",
+                               tint: soloFavoritos ? Color(hex: 0xF5B300) : .gInk3,
+                               background: .gCard, size: 36)
+                        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(favoritos.isEmpty)
+                .accessibilityLabel("Sólo favoritos")
+            }
             Button(action: onCuenta) {
                 TintedIcon(systemName: "person.crop.circle", tint: .gInk, background: .gCard, size: 36)
                     .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
@@ -98,10 +130,31 @@ struct ConversacionesView: View {
         HStack(spacing: 12) {
             GhostyMascot(tone: agente.tone, height: 42)
             VStack(alignment: .leading, spacing: 2) {
-                Text(agente.name).gRowTitle()
+                HStack(spacing: 6) {
+                    Text(agente.name).gRowTitle()
+                    // El motor distingue homónimos («Ghosty» ×4); «compartido» dice que
+                    // es de otra cuenta y corre con sus llaves.
+                    Text(agente.engine).gMeta()
+                    if agente.compartidoPor != nil {
+                        Text("compartido").gChip().foregroundStyle(Color.gInk3)
+                    }
+                }
                 StatusLine(status: store.estado(de: agente.id)).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Favorito: arriba de la lista. Toggle sin cambiar de agente.
+            Button {
+                Favoritos.alternar(agente.id)
+                favoritos = Favoritos.ids
+            } label: {
+                Image(systemName: favoritos.contains(agente.id) ? "star.fill" : "star")
+                    .font(.system(size: 15))
+                    .foregroundStyle(favoritos.contains(agente.id) ? Color(hex: 0xF5B300) : Color.gInk3)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(favoritos.contains(agente.id) ? "Quitar de favoritos" : "Marcar favorito")
 
             if canal.enCurso.count > 1 {
                 Text("\(canal.enCurso.count) en curso").gChip().foregroundStyle(Color.gInk3)

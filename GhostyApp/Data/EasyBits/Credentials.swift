@@ -14,6 +14,16 @@ struct AgentAccount: Identifiable, Codable, Equatable {
     /// (el dominio por defecto). Viene del servidor y no cableado porque ya hay dos
     /// fierros y el dominio puede cambiar sin que la app se entere.
     var host: String?
+    /// Motor (`claude`, `ghosty-lite`, `goose`…), para distinguir homónimos.
+    var motor: String? = nil
+    /// Correo del dueño cuando el agente es compartido conmigo (`AgentShare` en gs).
+    var compartidoPor: String? = nil
+    /// Último turno MÍO con este agente, para ordenar por último uso.
+    var ultimaActividad: Date? = nil
+
+    var esCompartido: Bool { compartidoPor != nil }
+    /// «Ghosty · claude»: el nombre solo no distingue cuatro «Ghosty».
+    var rotulo: String { motor.map { "\(name) · \($0)" } ?? name }
 
     var esTokenDeAgente: Bool { token.hasPrefix("agt_") }
     var esLlaveDeCuenta: Bool { token.hasPrefix("eb_sk_") }
@@ -139,5 +149,21 @@ enum Keychain {
         [kSecClass as String: kSecClassGenericPassword,
          kSecAttrService as String: servicio,
          kSecAttrAccount as String: clave.rawValue]
+    }
+}
+
+/// Agentes favoritos, por TELÉFONO (UserDefaults), no por cuenta: es una comodidad de
+/// esta pantalla, igual que en la app de Mac (`notch.favoritos`).
+enum Favoritos {
+    private static let clave = "app.favoritos"
+    static var ids: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: clave) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: clave) }
+    }
+    static func es(_ id: String) -> Bool { ids.contains(id) }
+    static func alternar(_ id: String) {
+        var s = ids
+        if s.contains(id) { s.remove(id) } else { s.insert(id) }
+        ids = s
     }
 }

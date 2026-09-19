@@ -334,7 +334,9 @@ final class LiveAgentStore: AgentStoring {
         agents = cuentas.enumerated().map { i, c in
             Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
                   status: .idle(since: "listo"),
-                  engine: c.esAgenteNativo ? "Ghosty Studio" : "EasyBits")
+                  engine: c.motor ?? (c.esAgenteNativo ? "Ghosty Studio" : "EasyBits"),
+                  compartidoPor: c.compartidoPor,
+                  ultimaActividad: c.ultimaActividad)
         }
         // El agente activo se conserva entre arranques, pero sólo si sigue existiendo:
         // uno borrado desde la web dejaría la app apuntando a la nada.
@@ -1886,7 +1888,11 @@ final class LiveAgentStore: AgentStoring {
     private func montarCanales() {
         guard !cuentas.isEmpty else { return }
         let activo = Credentials.activeID
-        selectedAgentID = cuentas.contains(where: { $0.id == activo }) ? activo! : cuentas[0].id
+        // Sin uno guardado, el que usaste más recientemente (lo dice gs); si ninguno
+        // tiene uso, el primero. Antes era el primero a secas, y con cuatro «Ghosty»
+        // abría el vacío.
+        let masReciente = cuentas.max { ($0.ultimaActividad ?? .distantPast) < ($1.ultimaActividad ?? .distantPast) }
+        selectedAgentID = cuentas.contains(where: { $0.id == activo }) ? activo! : (masReciente?.id ?? cuentas[0].id)
         // leerlos sería mutar estado observado durante el pintado, y eso repinta en
         // bucle. Un canal que ya existe conserva su turno vivo entre recargas.
         for c in cuentas where canales[c.id] == nil {

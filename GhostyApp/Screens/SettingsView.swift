@@ -93,6 +93,9 @@ struct SettingsView: View {
                                         .font(.system(size: 15, weight: .medium))
                                         .foregroundStyle(Color.gInk)
                                     Text(a.engine).gMeta()
+                                    if let de = a.compartidoPor {
+                                        Text("compartido por \(de)").gMeta().lineLimit(1)
+                                    }
                                     Spacer()
                                     if a.id == store.selectedAgentID {
                                         Text("activo").gMeta()
