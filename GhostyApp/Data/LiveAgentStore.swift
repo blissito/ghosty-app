@@ -1395,6 +1395,8 @@ final class LiveAgentStore: AgentStoring {
         }
         await consumir(cliente.prompt(sessionID: sid, texto: texto, adjuntos: adjuntos),
                        canal, hilo, sid: sid, texto: texto, respuesta: respuesta)
+        // Terminó el turno propio: se vuelve a vigilar el hilo, que gs puede abrir solo.
+        if !Task.isCancelled { engancharse(hilo, de: canal) }
     }
 
     /// Vuelve a engancharse a un turno que sigue corriendo allá.
@@ -1566,6 +1568,24 @@ final class LiveAgentStore: AgentStoring {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                             hilo.mensajes.append(Message(id: idEntrega, kind: .entrega(e)))
                         }
+                    }
+                case .cerrado:
+                    // Un turno ajeno terminó y seguimos vigilando: se cierra como si fuera
+                    // nuestro (reloj, palomita, aviso) y se recarga el hilo un respiro
+                    // después, porque la copia de gs (mensaje de plataforma, adjunto) se
+                    // escribe justo tras el `done`. El siguiente turno estrena burbuja.
+                    if acumulado.isEmpty && herramientas.isEmpty {
+                        hilo.mensajes.removeAll { $0.kind == .typing }
+                    } else {
+                        anotar(canal, hilo, chars: acumulado.count, como: .done)
+                    }
+                    hilo.interrumpido = false
+                    cerrarTurno(canal, hilo)
+                    acumulado = ""; herramientas = []
+                    respuesta = "resp-\(UUID().uuidString.prefix(8))"
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .milliseconds(800))
+                        await self?.traerLaConversacion(hilo, de: canal)
                     }
                 case .user, .thought:
                     break

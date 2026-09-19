@@ -70,6 +70,9 @@ enum ACPClient {
         /// De QUÉ turno es lo que sigue. Lo pone gs en cada `chunk`/`done`; es lo que
         /// deja colgar el texto de la MISMA burbuja aunque se llegue por enganche.
         case turno(String)
+        /// Un turno AJENO terminó mientras vigilábamos la conversación en reposo (gs lo
+        /// abrió: entrega de un encargo, agenda). El flujo sigue abierto para el siguiente.
+        case cerrado(String)
         case user(String)
         case agent(String)
         case thought(String)

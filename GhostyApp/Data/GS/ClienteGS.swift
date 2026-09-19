@@ -508,17 +508,24 @@ actor ClienteGS: TransporteDeAgente {
             cont.finish(throwing: ACPClient.Fallo.remoto(p["message"] as? String ?? "Falló el turno."))
             return true
         case "done":
+            let reposo = p["reposo"] as? Bool == true
+            if esperandoTurno {
+                if let id = p["turnId"] as? String { cont.yield(.turno(id)) }
+                // ⚠️ `reposo: true` es «aquí no está pasando nada», no «tu turno acabó». Se
+                // manda a quien se suscribe a una conversación quieta, y si se confunde con
+                // el otro, el turno que estás a punto de encargar muere antes de nacer.
+                return !reposo
+            }
+            // Vigilando (`seguir`): la escucha es PERMANENTE. gs no cierra el SSE en reposo
+            // y puede abrir un turno solo en este hilo (entrega de un video que terminó de
+            // bajar, agenda): «reposo» sólo apaga el estado; un turno que termina se avisa
+            // con `.cerrado` y se sigue escuchando el siguiente. Antes aquí se cerraba el
+            // flujo y una entrega de la plataforma no se veía hasta recargar.
+            if reposo { alCambiarEstado?(sesion, "reposo"); return false }
             if let id = p["turnId"] as? String { cont.yield(.turno(id)) }
-            // ⚠️ «Está en reposo» sólo cuando venimos a MIRAR. Si estamos mandando, este
-            // `done` es el de bienvenida —llega antes de que el turno arranque— y aplicarlo
-            // apagaba el turno recién encargado: la conversación decía «En reposo · listo»
-            // con el mensaje sin contestar. Era el mismo filo que ya cortó una vez.
-            if !esperandoTurno, p["reposo"] as? Bool == true { alCambiarEstado?(sesion, "reposo") }
-            // ⚠️ `reposo: true` es «aquí no está pasando nada», no «tu turno acabó». Se
-            // manda a quien se suscribe a una conversación quieta, y si se confunde con el
-            // otro, el turno que estás a punto de encargar muere antes de nacer.
-            if esperandoTurno, p["reposo"] as? Bool == true { return false }
-            return true
+            cont.yield(.cerrado(p["turnId"] as? String ?? ""))
+            alCambiarEstado?(sesion, "reposo")
+            return false
         default:
             // `title`, `caps`, `status`, `models`… todavía no se usan. No se tiran a la
             // basura en silencio: que aparezca uno nuevo tiene que poder verse.

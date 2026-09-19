@@ -103,7 +103,7 @@ enum ReplayToMessages {
                 if quien != .agente { cerrar(); quien = .agente }
                 texto += t
 
-            case .turno:
+            case .turno, .cerrado:
                 // Frontera de mensaje/turno: cierra la burbuja aunque el rol se repita
                 // (dos mensajes seguidos de la persona son dos burbujas).
                 cerrar(); quien = nil
