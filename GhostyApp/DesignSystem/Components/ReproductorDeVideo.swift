@@ -82,7 +82,12 @@ struct ReproductorDeVideo: View {
            let (tam, tr) = try? await pista.load(.naturalSize, .preferredTransform) {
             let real = tam.applying(tr)
             let w = abs(real.width), h = abs(real.height)
-            if w > 0, h > 0 { aspecto = w / h }
+            if w > 0, h > 0, abs(w / h - aspecto) > 0.01 {
+                aspecto = w / h
+                // El cuadro cambió de alto DESPUÉS del primer pintado: que el hilo vuelva a
+                // anclarse abajo si estaba siguiendo el final.
+                NotificationCenter.default.post(name: .hiloCrecio, object: nil)
+            }
         }
         // ⚠️ `.playback`: si la sesión quedó en modo grabación (nota de voz), el video sale
         // por el auricular a volumen mínimo y parece mudo.
@@ -93,4 +98,9 @@ struct ReproductorDeVideo: View {
 
 extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
+}
+
+extension Notification.Name {
+    /// Algo del hilo creció tarde (video medido, imagen cargada): re-anclar abajo.
+    static let hiloCrecio = Notification.Name("gs.hiloCrecio")
 }

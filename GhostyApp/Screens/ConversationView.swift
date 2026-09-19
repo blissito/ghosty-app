@@ -39,6 +39,10 @@ struct ConversationView: View {
     /// que bajar. De ahí salieron un plazo de cuatro segundos, un contador de envíos y
     /// un reintento a los 120 ms, y el scroll seguía siendo intermitente.
     @State private var pegadoAbajo = true
+    /// «Siguiendo el final»: se re-ancla abajo con cada crecimiento del contenido hasta
+    /// que la persona arrastre. `pegadoAbajo` lo mueve el sistema con cada relayout y por
+    /// eso no sirve para esto: al crecer una tarjeta el ancla cambia de id un instante.
+    @State private var siguiendoElFinal = true
     /// Cada incremento es una orden de bajar al fondo; la ejecuta el `ScrollViewReader`.
     @State private var bajar = 0
     @State private var bajarAnimado = false
@@ -112,7 +116,7 @@ struct ConversationView: View {
                     Color.clear.preference(key: AltoDelHilo.self, value: g.size.height)
                 })
                 .onPreferenceChange(AltoDelHilo.self) { _ in
-                    if pegadoAbajo { lector.scrollTo(Self.fondo, anchor: .bottom) }
+                    if siguiendoElFinal { lector.scrollTo(Self.fondo, anchor: .bottom) }
                 }
             }
             // Un chat empieza abajo. Sin esto arranca arriba y hay que mandarlo al final
@@ -164,12 +168,26 @@ struct ConversationView: View {
             .onChange(of: anclaje) { _, a in
                 guard let a, let ultimo = mensajesÚnicos.last?.id else { return }
                 pegadoAbajo = a == ultimo || a == Self.fondo
+                // Volver abajo con el dedo es volver a seguir el final.
+                if pegadoAbajo { siguiendoElFinal = true }
             }
+            // El dedo manda: arrastrar suelta el «seguir el final».
+            .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { g in
+                if g.translation.height > 0 { siguiendoElFinal = false }
+            })
             // Llega un mensaje o crece el último (la respuesta viene en trozos): se baja
             // sólo si seguías el final. Que la respuesta te tire hacia abajo cuando has
             // subido a releer es lo más molesto que puede hacer un chat.
             .onChange(of: store.messages.count) { _, _ in seguir(animado: true) }
             .onChange(of: textoDelUltimo) { _, _ in seguir() }
+            // Una tarjeta que se midió tarde (video, imagen): si seguías el final, abajo.
+            .onReceive(NotificationCenter.default.publisher(for: .hiloCrecio)) { _ in
+                guard siguiendoElFinal else { return }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(60))
+                    lector.scrollTo(Self.fondo, anchor: .bottom)
+                }
+            }
             // Cambiar de conversación es una pantalla nueva: empieza por el final.
             .onChange(of: hiloVisible) { _, _ in irAbajo() }
             // Un mensaje que se mandó y la app murió antes de que existiera la
@@ -336,6 +354,7 @@ struct ConversationView: View {
     /// Al final del hilo, pase lo que pase: enviar, tocar el botón, cambiar de hilo.
     private func irAbajo(animado: Bool = false) {
         pegadoAbajo = true
+        siguiendoElFinal = true
         seguir(animado: animado)
     }
 

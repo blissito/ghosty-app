@@ -175,7 +175,12 @@ struct AgentHeader: View {
     var body: some View {
         VStack(spacing: 5) {
             GhostyMascot(tone: agent.tone, height: 46)
-            Text(agent.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk)
+            HStack(spacing: 5) {
+                Text(agent.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk)
+                // Motor y «compartido»: cuatro «Ghosty» no se distinguen por el nombre.
+                Text(agent.compartidoPor != nil ? "\(agent.engine) · compartido" : agent.engine)
+                    .font(.system(size: 11)).foregroundStyle(Color.gInk3)
+            }
             StatusLine(status: estado ?? agent.status)
                 .font(.system(size: 12.5))
                 .lineLimit(1)

@@ -247,6 +247,8 @@ private struct ImagenDeRespuesta: View {
             guard let url, imagen == nil else { return }
             let i = await CargadorDeImagen.imagen(url)
             imagen = i
+            // Cambió de alto (placeholder 140 → imagen real): re-anclar el hilo abajo.
+            NotificationCenter.default.post(name: .hiloCrecio, object: nil)
             fallo = i == nil
         }
     }
