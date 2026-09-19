@@ -1636,7 +1636,10 @@ final class LiveAgentStore: AgentStoring {
             if Task.isCancelled {
                 hilo.interrumpido = false
                 hilo.fallo = nil
-                if acumulado.isEmpty { hilo.mensajes.removeAll { $0.kind == .typing } }
+                // ⚠️ Un VIGILANTE cancelado (lo cancela `send` para arrancar el turno propio)
+                // no toca el typing: es el que acaba de poner ese `send`. Borrarlo aquí
+                // dejaba el hilo sin «pensando» durante toda la respuesta.
+                if acumulado.isEmpty { if !enganchado { hilo.mensajes.removeAll { $0.kind == .typing } } }
                 else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
             } else {
                 hilo.interrumpido = true
@@ -1647,6 +1650,9 @@ final class LiveAgentStore: AgentStoring {
                 engancharse(hilo, de: canal, ponerseAlDia: true)
             }
             anotar(canal, hilo, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
+            // Un vigilante en reposo cancelado por `send` no cierra nada: el turno que
+            // empieza es del `send`, con su reloj y su typing. Cerrarlo aquí los borraba.
+            if enganchado && Task.isCancelled && acumulado.isEmpty && herramientas.isEmpty { return }
         }
         cerrarTurno(canal, hilo)
     }
