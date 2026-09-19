@@ -104,6 +104,16 @@ struct ConversationView: View {
                 // adivinar que sigue ahí.
                 .padding(.bottom, 28)
                 .scrollTargetLayout()
+                // El contenido CRECE después del primer pintado (markdown, tarjetas de
+                // video con su cuadro, imágenes): mientras sigas el final, cada cambio de
+                // altura vuelve a anclar abajo sin animación. Es lo que evita el «se quedó
+                // a la mitad» al abrir un hilo. Si subiste a releer, no se fuerza.
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: AltoDelHilo.self, value: g.size.height)
+                })
+                .onPreferenceChange(AltoDelHilo.self) { _ in
+                    if pegadoAbajo { lector.scrollTo(Self.fondo, anchor: .bottom) }
+                }
             }
             // Un chat empieza abajo. Sin esto arranca arriba y hay que mandarlo al final
             // a mano en cada apertura, que es de donde salían los saltos.
@@ -818,4 +828,8 @@ struct ConversationView: View {
     }
 }
 
-
+/// Alto del contenido del hilo, para re-anclar abajo cuando crece tarde.
+private struct AltoDelHilo: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}

@@ -94,19 +94,23 @@ struct EntregaCard: View {
                 else { compartiendo = conBytes()?.aDisco() }
             }
             else if let img = imagen { mirando = img }
-            else if entrega.esAudio { return }
+            else if entrega.esAudio || entrega.esVideo { return }
             // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
             // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
             else if datos == nil, entrega.url != nil || entrega.remotoID != nil { Task { await bajar(yAbrir: true) } }
             else { compartiendo = conBytes()?.aDisco() }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
-                vistaPrevia
-                // Un audio se oye aquí; no hay «fila» que abrir nada.
-                if entrega.esAudio {
-                    ReproductorDeEntrega(entrega: entrega)
+                // Un video se ve aquí, con su cuadro reservado; un audio se oye aquí.
+                if entrega.esVideo {
+                    ReproductorDeVideo(entrega: entrega)
                 } else {
-                    fila
+                    vistaPrevia
+                    if entrega.esAudio {
+                        ReproductorDeEntrega(entrega: entrega)
+                    } else {
+                        fila
+                    }
                 }
             }
             .frame(maxWidth: 300, alignment: .leading)

@@ -262,6 +262,12 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         }
     }
 
+    /// ¿Es video? Se reproduce en la tarjeta, por streaming, sin bajarlo entero.
+    var esVideo: Bool {
+        guard let t = tipo else { return false }
+        return ["mp4", "mov", "m4v", "webm"].contains(t)
+    }
+
     /// ¿Suena? Entonces no se abre con el visor del sistema: se reproduce aquí.
     var esAudio: Bool {
         guard let t = tipo else { return false }
@@ -292,6 +298,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
             case "zip", "tar", "gz": return "shippingbox"
             case "txt", "md", "json", "log": return "doc.plaintext"
             case "mp3", "m4a", "wav", "aac", "ogg", "flac": return "waveform"
+            case "mp4", "mov", "m4v", "webm": return "film"
             default: return "paperclip"
             }
         }
