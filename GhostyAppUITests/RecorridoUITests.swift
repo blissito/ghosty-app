@@ -235,6 +235,28 @@ final class RecorridoUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.8)
         }
 
+        // 6a2. Toque largo → «Renombrar»: el campo, guardar, y el nombre nuevo en la fila.
+        let paraNombrar = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 1)
+        if paraNombrar.exists {
+            paraNombrar.press(forDuration: 1.1)
+            let renombrar = app.buttons["Renombrar"].firstMatch
+            XCTAssertTrue(renombrar.waitForExistence(timeout: 3), "el toque largo no ofreció renombrar")
+            renombrar.tap()
+            let campo = app.textFields.firstMatch
+            XCTAssertTrue(campo.waitForExistence(timeout: 3), "renombrar no abrió el campo")
+            campo.tap()
+            // Viene con el nombre actual: se borra tecleando retrocesos.
+            let actual = (campo.value as? String) ?? ""
+            campo.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: actual.count))
+            campo.typeText("Lista del súper")
+            foto("11c-renombrar")
+            app.buttons["Guardar"].firstMatch.tap()
+            XCTAssertTrue(app.staticTexts["Lista del súper"].waitForExistence(timeout: 3),
+                          "el nombre nuevo no apareció en la lista")
+            foto("11d-renombrada")
+        }
+
         // 6b. Toque largo sobre una conversación: menú y confirmación de borrado.
         let paraBorrar = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 2)

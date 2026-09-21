@@ -33,7 +33,17 @@ final class TitleStore {
     /// secas, una conversación nueva heredaba el título de otra.
     private static func clave(_ agentID: String, _ sessionID: String) -> String { "\(agentID)/\(sessionID)" }
 
-    func titulo(_ agentID: String, _ sessionID: String) -> String? { titulos[Self.clave(agentID, sessionID)] }
+    func titulo(_ agentID: String, _ sessionID: String) -> String? {
+        guard let t = titulos[Self.clave(agentID, sessionID)], !Self.esFontaneria(t) else { return nil }
+        return t
+    }
+
+    /// Un título que gs bautizó con el bloque de contexto delante («[CONVERSACIÓN PREVIA
+    /// DE ESTE MISMO HILO…»). gs ya no los produce, pero los que quedaron guardados aquí
+    /// y en su tabla no dicen nada: se tratan como sin título.
+    static func esFontaneria(_ t: String) -> Bool {
+        t.hasPrefix("[CONVERSACIÓN PREVIA") || t.hasPrefix("[ADJUNTOS DE ESTE MENSAJE")
+    }
 
     /// Sólo el primero manda: el título de un hilo es de lo que se habló al abrirlo,
     /// no del último mensaje.
@@ -41,7 +51,7 @@ final class TitleStore {
     /// cerrar su primer turno, y ése es el título que ven las demás superficies.
     func anotar(_ agentID: String, _ sessionID: String, titulo: String) {
         let k = Self.clave(agentID, sessionID)
-        guard !titulo.isEmpty, titulos[k] != titulo else { return }
+        guard !titulo.isEmpty, !Self.esFontaneria(titulo), titulos[k] != titulo else { return }
         titulos[k] = titulo
         guardar()
     }

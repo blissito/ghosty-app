@@ -276,6 +276,11 @@ final class LiveAgentStore: AgentStoring {
         let guardadas = Credentials.accounts
         if !guardadas.isEmpty, conexion != .lista {
             cuentas = guardadas
+            // ⚠️ También los `Agent`. Se montaban los canales pero `agents` se quedaba
+            // vacío hasta que contestara la flota: la cabecera del chat y la lista de
+            // conversaciones (que recorre `agents`) salían en blanco esos segundos, así
+            // que el «arranque instantáneo» no se veía por ningún lado.
+            armarAgentes()
             montarCanales()
         // Gancho de desarrollo: arrancar en una conversación NUEVA, que es el camino que
         // más se rompe —crear sesión y mandar el primer turno— y el que no se puede
@@ -330,18 +335,25 @@ final class LiveAgentStore: AgentStoring {
             return
         }
 
-        let tonos: [AgentTone] = [.lila, .azul, .durazno]
-        agents = cuentas.enumerated().map { i, c in
-            Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
-                  status: .idle(since: "listo"),
-                  engine: c.motor ?? (c.esAgenteNativo ? "Ghosty Studio" : "EasyBits"),
-                  compartidoPor: c.compartidoPor,
-                  ultimaActividad: c.ultimaActividad)
-        }
+        armarAgentes()
         // El agente activo se conserva entre arranques, pero sólo si sigue existiendo:
         // uno borrado desde la web dejaría la app apuntando a la nada.
         montarCanales()
         conexion = .lista
+    }
+
+    /// Los `Agent` de la pantalla a partir de las cuentas. Conserva el estado del que ya
+    /// existía (un turno vivo no se pierde por refrescar la flota).
+    private func armarAgentes() {
+        let tonos: [AgentTone] = [.lila, .azul, .durazno]
+        let antes = agents
+        agents = cuentas.enumerated().map { i, c in
+            Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
+                  status: antes.first(where: { $0.id == c.id })?.status ?? .idle(since: "listo"),
+                  engine: c.motor ?? (c.esAgenteNativo ? "Ghosty Studio" : "EasyBits"),
+                  compartidoPor: c.compartidoPor,
+                  ultimaActividad: c.ultimaActividad)
+        }
     }
 
     /// Cierra sesión: revoca en el servidor, borra el llavero y vuelve al login.
@@ -754,6 +766,33 @@ final class LiveAgentStore: AgentStoring {
             cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
         }
         cerrarHilo(hilo)
+    }
+
+    /// Le pone nombre a una conversación, aquí y en gs.
+    ///
+    /// ⚠️ Existe porque el bautizo automático toma el PRIMER mensaje tal cual, y si ese
+    /// mensaje fue «haz mi lista del súper» pues bien, pero media lista salía como
+    /// «[CONVERSACIÓN PREVIA…» o «hola». Adivinar en cuál estaba la lista del súper no
+    /// es una opción: el nombre lo pone la persona.
+    ///
+    /// Primero se pinta (el título es local desde antes de que exista el PATCH) y luego
+    /// se manda; si gs no puede, se dice y el nombre se queda aquí igual.
+    func renombrar(_ sesionID: String, de agenteID: String, a titulo: String) async {
+        let t = titulo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, let canal = canales[agenteID] else { return }
+        titulos.anotar(agenteID, sesionID, titulo: t)
+        if let i = canal.hilosRemotos.firstIndex(where: { $0.id == sesionID }) {
+            var s = canal.hilosRemotos[i]; s.title = t; canal.hilosRemotos[i] = s
+            cache.guardarLista(canal.hilosRemotos, de: agenteID)
+        }
+        guard !DemoData.encendido else { return }
+        do {
+            let cliente = try await asegurarSocket(canal)
+            try await cliente.renombrarSesion(sesionID, titulo: t)
+            falloAlBorrar = nil
+        } catch {
+            falloAlBorrar = "Le puse el nombre aquí, pero tu agente no lo guardó."
+        }
     }
 
     /// Borra una conversación guardada que no está abierta aquí.
@@ -1647,12 +1686,22 @@ final class LiveAgentStore: AgentStoring {
                 if acumulado.isEmpty { if !enganchado { hilo.mensajes.removeAll { $0.kind == .typing } } }
                 else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
             } else {
-                hilo.interrumpido = true
+                // ⚠️ «Sigue trabajando» SÓLO si había trabajo. Un vigilante sobre una
+                // conversación en reposo también se corta (bloquear el teléfono, cambiar
+                // de red, un deploy de gs) y aquí se marcaba interrumpido igual: el cartel
+                // de «tu agente sigue con esto» salía bajo un hilo que no hacía nada, y
+                // la lista decía «Sigue trabajando · te aviso» sobre conversaciones
+                // paradas. Si no hubo turno ni llegó nada, se vuelve a escuchar y ya.
+                let habiaTrabajo = hilo.turno != nil || !acumulado.isEmpty || !herramientas.isEmpty
+                hilo.interrumpido = habiaTrabajo
                 hilo.fallo = nil
                 hilo.reenganches += 1
                 if acumulado.isEmpty { hilo.mensajes.removeAll { $0.kind == .typing } }
                 else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
-                engancharse(hilo, de: canal, ponerseAlDia: true)
+                engancharse(hilo, de: canal, ponerseAlDia: habiaTrabajo)
+                // Y sin trabajo no hay turno que cerrar: `cerrarTurno` habría marcado
+                // «contestó» (con sonido) por la última burbuja del agente, que era vieja.
+                if enganchado && !habiaTrabajo { return }
             }
             anotar(canal, hilo, chars: acumulado.count, como: Task.isCancelled ? .stopped : .failed)
             // Un vigilante en reposo cancelado por `send` no cierra nada: el turno que

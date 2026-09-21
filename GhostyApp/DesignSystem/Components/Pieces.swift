@@ -164,31 +164,81 @@ struct ArtifactRow: View {
     }
 }
 
-/// Cabecera con el avatar arriba al centro y el estado debajo. Es la firma visual de
-/// Muse y lo que hace que el agente "exista" aunque no le escribas.
+/// Cabecera de chips, como la de Grok: una píldora al centro con la mascota, el nombre
+/// y un punto de estado; un chip redondo a la derecha para empezar otra conversación.
+///
+/// ⚠️ Era la mascota grande arriba con el nombre y el estado debajo (la firma de Muse), y
+/// se comía un cuarto de la pantalla en cada chat. Lo que hace que el agente «exista» es
+/// el punto de estado y su nombre siempre a la vista, no 46 pt de mascota: aquí cabe en
+/// una fila de 36 pt y el hilo gana esa altura.
 struct AgentHeader: View {
     let agent: Agent
     /// El estado se PREGUNTA al store: guardado en el `Agent` se desincroniza del turno.
     var estado: AgentStatus?
     var onTap: (() -> Void)?
+    /// El chip de la derecha. `nil` = no se pinta.
+    var onNueva: (() -> Void)?
+
+    private var status: AgentStatus { estado ?? agent.status }
+
+    /// Verde trabajando, rojo esperándote, gris en reposo: lo que decía la línea entera
+    /// de estado, en 8 pt.
+    private var punto: Color {
+        switch status {
+        case .working: return .gGreenInk
+        case .awaitingApproval: return .gDanger
+        case .idle: return .gInk4
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 5) {
-            GhostyMascot(tone: agent.tone, height: 46)
-            HStack(spacing: 5) {
-                Text(agent.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk)
-                // Motor y «compartido»: cuatro «Ghosty» no se distinguen por el nombre.
-                Text(agent.compartidoPor != nil ? "\(agent.engine) · compartido" : agent.engine)
-                    .font(.system(size: 11)).foregroundStyle(Color.gInk3)
+        ZStack {
+            Button { onTap?() } label: {
+                HStack(spacing: 7) {
+                    GhostyMascot(tone: agent.tone, height: 22)
+                        .overlay(alignment: .bottomTrailing) {
+                            Circle().fill(punto).frame(width: 8, height: 8)
+                                .overlay(Circle().stroke(Color.gCard, lineWidth: 1.5))
+                                .offset(x: 2, y: 1)
+                        }
+                    Text(agent.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                        .lineLimit(1)
+                    // Motor y «compartido»: cuatro «Ghosty» no se distinguen por el nombre.
+                    Text(agent.compartidoPor != nil ? "\(agent.engine) · compartido" : agent.engine)
+                        .font(.system(size: 11)).foregroundStyle(Color.gInk3)
+                        .lineLimit(1)
+                }
+                .padding(.leading, 10).padding(.trailing, 14)
+                .frame(height: 36)
+                .background(Color.gCard, in: Capsule())
+                .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+                .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
             }
-            StatusLine(status: estado ?? agent.status)
-                .font(.system(size: 12.5))
-                .lineLimit(1)
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("cabecera-agente")
+            .frame(maxWidth: 260)
+
+            if let onNueva {
+                HStack {
+                    Spacer()
+                    Button(action: onNueva) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.gInk)
+                            .frame(width: 36, height: 36)
+                            .background(Color.gCard, in: Circle())
+                            .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+                            .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("nueva-conversacion-cabecera")
+                }
                 .padding(.horizontal, Theme.Space.screenH)
+            }
         }
         .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { onTap?() }
     }
 }
 

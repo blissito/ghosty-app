@@ -14,6 +14,9 @@ struct DeslizarParaBorrar: ViewModifier {
     let titulo: String
     let consecuencia: String?
     let alBorrar: () -> Void
+    /// «Renombrar» en el mismo menú del toque largo. Va aquí y no como otro
+    /// `.contextMenu` encima: dos menús apilados y sólo se ve el de fuera.
+    var alRenombrar: (() -> Void)? = nil
 
     @State private var desplazamiento: CGFloat = 0
     @State private var abierta = false
@@ -47,6 +50,9 @@ struct DeslizarParaBorrar: ViewModifier {
             }
             content
                 .contextMenu {
+                    if let alRenombrar {
+                        Button(action: alRenombrar) { Label("Renombrar", systemImage: "pencil") }
+                    }
                     Button(role: .destructive) { preguntando = true } label: {
                         Label("Borrar", systemImage: "trash")
                     }
@@ -110,8 +116,10 @@ struct ConfirmarBorrado: ViewModifier {
 extension View {
     func deslizarParaBorrar(_ titulo: String,
                             consecuencia: String? = nil,
+                            alRenombrar: (() -> Void)? = nil,
                             alBorrar: @escaping () -> Void) -> some View {
-        modifier(DeslizarParaBorrar(titulo: titulo, consecuencia: consecuencia, alBorrar: alBorrar))
+        modifier(DeslizarParaBorrar(titulo: titulo, consecuencia: consecuencia,
+                                    alBorrar: alBorrar, alRenombrar: alRenombrar))
     }
 
     func confirmarBorrado(_ titulo: String, consecuencia: String?,

@@ -85,7 +85,7 @@ struct ArtifactsView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let agente = store.selectedAgent {
-                AgentHeader(agent: agente, onTap: onOpenSheet).padding(.top, 8)
+                AgentHeader(agent: agente, onTap: onOpenSheet).padding(.top, 4).padding(.bottom, 6)
             }
 
             if store.puedeVerArchivos {

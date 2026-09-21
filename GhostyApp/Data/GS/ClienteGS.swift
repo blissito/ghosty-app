@@ -204,6 +204,10 @@ actor ClienteGS: TransporteDeAgente {
         _ = try await pedir(base("/conversations/\(id)"), metodo: "DELETE")
     }
 
+    func renombrarSesion(_ id: String, titulo: String) async throws {
+        _ = try await pedir(base("/conversations/\(id)"), metodo: "PATCH", cuerpo: ["title": titulo])
+    }
+
     func fijarModo(_ modo: String, sessionID: String) async throws {
         // El modo no se fija por conversación: el permiso se pide turno a turno.
     }

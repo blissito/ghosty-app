@@ -11,6 +11,9 @@ import SwiftUI
 /// aquí sería decir dos veces lo mismo en la misma pantalla.
 struct OtrosTrabajando: View {
     let store: LiveAgentStore
+    /// Qué chip se está renombrando (agente, sesión) y el texto del campo.
+    @State private var renombrando: (agente: String, sesion: String)?
+    @State private var nombreNuevo = ""
 
     /// ⚠️ TODAS las conversaciones abiertas, no sólo las que trabajan. Con la fila
     /// puesta arriba y sólo con las vivas, para cambiarte a una que ya contestó había que
@@ -76,6 +79,17 @@ struct OtrosTrabajando: View {
                     .padding(.trailing, Theme.Space.cardH)
             }
             .padding(.bottom, 4)
+            .alert("Nombre de la conversación", isPresented: Binding(
+                get: { renombrando != nil }, set: { if !$0 { renombrando = nil } })) {
+                TextField("Lista del súper", text: $nombreNuevo)
+                Button("Guardar") {
+                    if let r = renombrando {
+                        Task { await store.renombrar(r.sesion, de: r.agente, a: nombreNuevo) }
+                    }
+                    renombrando = nil
+                }
+                Button("Cancelar", role: .cancel) { renombrando = nil }
+            }
         }
     }
 
@@ -185,6 +199,16 @@ struct OtrosTrabajando: View {
             .shadow(color: .black.opacity(0.05), radius: 7, y: 4)
         }
         .buttonStyle(.plain)
+        // Mantener pulsado el chip para ponerle nombre: es donde más falta hace saber
+        // cuál es cuál.
+        .contextMenu {
+            if let sid = hilo.sesionID {
+                Button {
+                    nombreNuevo = hilo.titulo == "Conversación nueva" ? "" : hilo.titulo
+                    renombrando = (canal.cuenta.id, sid)
+                } label: { Label("Renombrar", systemImage: "pencil") }
+            }
+        }
         .accessibilityIdentifier("chip-\(hilo.clave)")
     }
 }

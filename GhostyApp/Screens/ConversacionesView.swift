@@ -20,6 +20,9 @@ struct ConversacionesView: View {
     @State private var favoritos: Set<String> = Favoritos.ids
     /// Sólo favoritos. Recordado.
     @AppStorage("app.soloFavoritos") private var soloFavoritos = false
+    /// Qué conversación se está renombrando (agente, sesión) y el texto del campo.
+    @State private var renombrando: (agente: String, sesion: String)?
+    @State private var nombreNuevo = ""
 
     /// Favoritos arriba, luego el resto; cada grupo por último uso (sin uso al final, por
     /// nombre). Con «sólo favoritos», nada más el primer grupo.
@@ -58,6 +61,17 @@ struct ConversacionesView: View {
         // ⚠️ Entrar ES verlo: apagar el punto de la pestaña vivía SÓLO en la Flota, así que
         // al sustituirla había que traérselo o el punto no se apagaría nunca.
         .onAppear { store.vistoTodo() }
+        .alert("Nombre de la conversación", isPresented: Binding(
+            get: { renombrando != nil }, set: { if !$0 { renombrando = nil } })) {
+            TextField("Lista del súper", text: $nombreNuevo)
+            Button("Guardar") {
+                if let r = renombrando {
+                    Task { await store.renombrar(r.sesion, de: r.agente, a: nombreNuevo) }
+                }
+                renombrando = nil
+            }
+            Button("Cancelar", role: .cancel) { renombrando = nil }
+        }
     }
 
     private var cabecera: some View {
@@ -210,10 +224,13 @@ struct ConversacionesView: View {
             store.mirar(h, de: agente.id)
             onAbrir()
         }
+        // Sólo las que ya existen en el agente se pueden nombrar: una sin sesión no
+        // tiene a qué ponérselo.
         .deslizarParaBorrar("¿Borrar «\(h.titulo)»?",
                              consecuencia: h.sesionID == nil
                                 ? "Todavía no existe en tu agente: se descarta y ya."
-                                : "Se borra también de tu agente. No se puede deshacer.") {
+                                : "Se borra también de tu agente. No se puede deshacer.",
+                             alRenombrar: h.sesionID.map { sid in { pedirNombre(agente.id, sid, actual: h.titulo) } }) {
             Task { await store.borrarConversacion(h) }
         }
     }
@@ -353,13 +370,20 @@ struct ConversacionesView: View {
                         .buttonStyle(.plain)
                         .transition(.scale(scale: 0.94).combined(with: .opacity))
                         .deslizarParaBorrar("¿Borrar esta conversación?",
-                                             consecuencia: "Se borra de tu agente. No se puede deshacer.") {
+                                             consecuencia: "Se borra de tu agente. No se puede deshacer.",
+                                             alRenombrar: { pedirNombre(agente.id, s.id, actual: nombre(s)) }) {
                             Task { await store.borrarGuardada(s, de: agente.id) }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Abre el campo con el nombre que tiene ahora, para corregirlo en vez de reescribirlo.
+    private func pedirNombre(_ agente: String, _ sesion: String, actual: String) {
+        nombreNuevo = actual == "Conversación sin abrir" || actual == "Conversación nueva" ? "" : actual
+        renombrando = (agente, sesion)
     }
 
     private func nombre(_ s: ACPClient.Session) -> String {
@@ -370,6 +394,7 @@ struct ConversacionesView: View {
     /// Los nombres que pone la caja o gs cuando aún no hay bautizo.
     static func esGenerico(_ t: String) -> Bool {
         t.isEmpty || t == "New Chat" || t == "Sin título" || t == "Conversación" || t == "Conversación nueva"
+            || TitleStore.esFontaneria(t)
     }
 
     private func detalle(_ s: ACPClient.Session) -> String {

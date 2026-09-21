@@ -48,12 +48,12 @@ struct GhostyTabBar: View {
                 } label: {
                     ZStack {
                         if selection == tab {
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
                                 .fill(Color.gFillStrong)
                                 .matchedGeometryEffect(id: "activa", in: resaltado)
                         }
                         Image(systemName: tab.icon)
-                            .font(.system(size: 19, weight: .regular))
+                            .font(.system(size: 17, weight: .regular))
                             .foregroundStyle(selection == tab ? Color.gInk : Color.gInk4)
                             .overlay(alignment: .topTrailing) {
                                 if puntos.contains(tab) {
@@ -76,9 +76,11 @@ struct GhostyTabBar: View {
                 .accessibilityIdentifier("tab-\(tab.rawValue)")
             }
         }
-        .padding(6)
-        // Altura fija: el toque queda en 44 pt y la píldora no se estira al ZStack.
-        .frame(height: 56)
+        .padding(4)
+        // Altura fija. Eran 56 pt (44 de toque + 6 de margen por lado); a 46 el toque
+        // sigue en 38 pt de píldora más el aire de abajo, y la barra deja de pesar tanto
+        // como el compositor que tiene encima.
+        .frame(height: 46)
         .background(Color.gCard)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous))
         .shadow(color: .black.opacity(0.07), radius: 1, x: 0, y: 1)

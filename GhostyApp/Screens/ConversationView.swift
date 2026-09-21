@@ -57,9 +57,10 @@ struct ConversationView: View {
         VStack(spacing: 0) {
             if let agente = store.selectedAgent {
                 AgentHeader(agent: agente, estado: store.estado(de: agente.id),
-                            onTap: { escribiendo = false; onOpenSheet() })
-                    .padding(.top, 8)
-                    .padding(.bottom, 14)
+                            onTap: { escribiendo = false; onOpenSheet() },
+                            onNueva: { store.nuevaConversacion() })
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)
             }
 
             // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y
@@ -132,17 +133,32 @@ struct ConversationView: View {
                 guard bajar > 0 else { return }
                 if bajarAnimado { withAnimation(.easeOut(duration: 0.28)) { lector.scrollTo(Self.fondo, anchor: .bottom) } }
                 else { lector.scrollTo(Self.fondo, anchor: .bottom) }
+                // ⚠️ Y otra vez cuando termine la animación. Con un mensaje largo que
+                // sigue creciendo (streaming) el primer `scrollTo` aterrizaba en el fondo
+                // de HACE un instante y se quedaba a medio camino: el botón «no
+                // funcionaba». El segundo cierra la diferencia sin animación.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(bajarAnimado ? 320 : 80))
+                    guard siguiendoElFinal else { return }
+                    lector.scrollTo(Self.fondo, anchor: .bottom)
+                }
             }
             .overlay(alignment: .bottom) {
                 if !alFinal, !mensajesÚnicos.isEmpty {
                     Button { irAbajo(animado: true) } label: {
                         Image(systemName: "arrow.down")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(Color.gInk)
-                            .frame(width: 34, height: 34)
+                            .frame(width: 44, height: 44)
                             .background(Color.gCard, in: Circle())
                             .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
-                            .shadow(color: .black.opacity(0.10), radius: 8, y: 4)
+                            .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+                            // ⚠️ 44 pt de toque de verdad, con aire alrededor: a 34 pt
+                            // había que atinarle, y el toque que caía al lado lo cogía el
+                            // scroll (que además cierra el teclado) y parecía que el botón
+                            // no hacía nada.
+                            .padding(6)
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("ir-abajo")

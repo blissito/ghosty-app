@@ -51,6 +51,9 @@ protocol TransporteDeAgente: Actor {
 
     func borrarSesion(_ id: String) async throws
 
+    /// Le pone nombre a una conversación. Lo ven la web y la Mac también.
+    func renombrarSesion(_ id: String, titulo: String) async throws
+
     /// Contesta a un permiso. El id es el que trajo el `Permiso`.
     func responderPermiso(_ id: String, opcion: String) async throws
 

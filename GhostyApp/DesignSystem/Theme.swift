@@ -52,9 +52,9 @@ enum Theme {
         static let cardH: CGFloat = 16
         static let row: CGFloat = 13
         /// Aire para que la píldora de pestañas no tape el final del contenido.
-        static let tabBarClearance: CGFloat = 92
-        /// La píldora mide 56 y se separa 4 del borde: el compositor va encima de eso.
-        static let composerClearance: CGFloat = 68
+        static let tabBarClearance: CGFloat = 82
+        /// La píldora mide 46 y se separa 4 del borde: el compositor va encima de eso.
+        static let composerClearance: CGFloat = 58
     }
 
     /// El primario es degradado, no plano: es lo que hace que "Permitir" se lea
