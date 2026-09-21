@@ -47,13 +47,14 @@ actor ClienteGS: TransporteDeAgente {
 
     private func peticion(_ url: URL, metodo: String = "GET",
                           cuerpo: [String: Any]? = nil,
-                          sse: Bool = false) async throws -> URLRequest {
+                          sse: Bool = false, rejected: String? = nil) async throws -> URLRequest {
         var r = URLRequest(url: url)
         r.httpMethod = metodo
         // ⚠️ El token se pide en CADA llamada, no se guarda: `Session.accessToken()` lo
         // refresca si caducó. Ningún cliente de esta app lo hacía —ver el aviso de
         // `Session.swift`— y una sesión caducada se veía como "el agente no contesta".
-        r.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
+        // `rejected`: el token que el servidor acaba de rechazar con 401; fuerza refresh.
+        r.setValue("Bearer \(try await Session.accessToken(rejected: rejected))", forHTTPHeaderField: "Authorization")
         // HTTP/3 fuera: por QUIC el cuerpo de un SSE puede no entregarse por trozos y el
         // turno se queda colgado SIN error. Ya mordió en dos clientes de este repo.
         r.assumesHTTP3Capable = false
@@ -67,14 +68,35 @@ actor ClienteGS: TransporteDeAgente {
 
     @discardableResult
     private func pedir(_ url: URL, metodo: String = "GET",
-                       cuerpo: [String: Any]? = nil) async throws -> [String: Any] {
-        let (d, resp) = try await Self.sesion.data(for: try await peticion(url, metodo: metodo, cuerpo: cuerpo))
+                       cuerpo: [String: Any]? = nil, rejected: String? = nil) async throws -> [String: Any] {
+        let req = try await peticion(url, metodo: metodo, cuerpo: cuerpo, rejected: rejected)
+        let (d, resp) = try await Self.sesion.data(for: req)
         let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if [502, 503, 504].contains(codigo) { throw ACPClient.Fallo.transitorio(codigo) }
+        if codigo == 401 {
+            // Una vez con token nuevo; si vuelve a rechazar, la sesión murió de verdad.
+            if rejected == nil, let used = Self.bearerToken(req) {
+                return try await pedir(url, metodo: metodo, cuerpo: cuerpo, rejected: used)
+            }
+            await Self.sessionDead()
+            throw Session.Fallo.caducada
+        }
         guard (200..<300).contains(codigo) else {
             throw ACPClient.Fallo.remoto(mensajeDeError(d, codigo))
         }
         return (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
+    }
+
+    private static func bearerToken(_ r: URLRequest) -> String? {
+        r.value(forHTTPHeaderField: "Authorization").map { String($0.dropFirst("Bearer ".count)) }
+    }
+
+    /// El servidor rechazó también el token recién refrescado: no hay nada que reintentar.
+    /// Se borra la sesión y se manda al login, en vez de dejar un «401» que no se arregla.
+    private static func sessionDead() async {
+        EasyBitsClient.diag("[gs] 401 con token nuevo: sesión muerta, al login")
+        Session.cerrar()
+        await MainActor.run { Session.alCaducar?() }
     }
 
     /// Lo que se le enseña a una persona cuando el servidor dice que no.
@@ -391,12 +413,25 @@ actor ClienteGS: TransporteDeAgente {
                           _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation,
                           esperandoTurno: Bool = false) async throws {
         dejarDeEscuchar(sesion)
-        let req = try await peticion(base("/conversations/\(sesion)/events"), sse: true)
+        // ⚠️ El SSE se abre ANTES de encargar el turno, así que un 401 aquí era lo primero
+        // que veía la persona («El servidor contestó 401 al escuchar») y nadie refrescaba.
+        // Ahora: un intento con token nuevo; si tampoco entra, sesión muerta → login.
+        var req = try await peticion(base("/conversations/\(sesion)/events"), sse: true)
+        var (bytes, resp) = try await Self.sesion.bytes(for: req)
+        if (resp as? HTTPURLResponse)?.statusCode == 401, let used = Self.bearerToken(req) {
+            req = try await peticion(base("/conversations/\(sesion)/events"), sse: true, rejected: used)
+            (bytes, resp) = try await Self.sesion.bytes(for: req)
+            if (resp as? HTTPURLResponse)?.statusCode == 401 {
+                await Self.sessionDead()
+                throw Session.Fallo.caducada
+            }
+        }
+        let opened = (bytes, resp)
         let listo = Semaforo()
         escuchas[sesion] = Task { [weak self] in
             guard let self else { return }
             do {
-                let (bytes, resp) = try await Self.sesion.bytes(for: req)
+                let (bytes, resp) = opened
                 let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 guard codigo == 200 else {
                     await listo.abrir()

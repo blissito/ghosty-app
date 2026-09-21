@@ -71,7 +71,7 @@ enum Session {
 
     // MARK: - Uso
 
-    /// A quién avisar cuando la sesión muere de verdad (refresh rechazado). Lo engancha el
+    /// A quién avisar cuando la sesión muere de verdad (refresh rejected). Lo engancha el
     /// store para volver al login desde cualquier sitio, no sólo desde el arranque.
     @MainActor static var alCaducar: (() -> Void)?
 
@@ -92,7 +92,13 @@ enum Session {
     /// El margen de 60 s no es paranoia: sin él, un token que vence en dos segundos pasa
     /// la comprobación y caduca a mitad del viaje, y el fallo aparece como un error de
     /// red cualquiera.
-    static func accessToken() async throws -> String {
+    ///
+    /// `rejected`: un access que el servidor acaba de contestar con 401 aunque el reloj
+    /// local lo daba por bueno (revocado desde otro sitio, o el servidor perdió la
+    /// escritura del último refresh —pasó el 2026-09-21: ocho minutos de escrituras
+    /// perdidas y el token nuevo no existía en la base—). Si el guardado sigue siendo
+    /// ése, se refresca aunque no haya vencido; si otro ya lo cambió, se devuelve el nuevo.
+    static func accessToken(rejected: String? = nil) async throws -> String {
         // ⚠️ Gancho de DESARROLLO, sólo en Debug. El simulador no puede pasar por el login
         // —hay que teclear credenciales de una persona— y sin sesión no se puede verificar
         // NADA de lo que habla con el servidor. Con `GHOSTY_TOKEN` se le presta uno de
@@ -105,8 +111,9 @@ enum Session {
         }
         #endif
         guard let g = leer() else { throw Fallo.sinSesion }
-        if Date().timeIntervalSince1970 < g.expira - 60 { return g.access }
-        return try await refrescarUnaVez(g.refresh)
+        let stillValid = Date().timeIntervalSince1970 < g.expira - 60
+        if stillValid, g.access != rejected { return g.access }
+        return try await refrescarUnaVez(g.refresh, rejected: rejected)
     }
 
     /// UN refresh en vuelo, compartido por todas las peticiones.
@@ -119,10 +126,10 @@ enum Session {
     @MainActor private static var refrescando: Task<String, Error>?
 
     @MainActor
-    private static func refrescarUnaVez(_ refresh: String) async throws -> String {
+    private static func refrescarUnaVez(_ refresh: String, rejected: String? = nil) async throws -> String {
         if let t = refrescando { return try await t.value }
         // Otro pudo haber refrescado mientras esperábamos el actor: se relee.
-        if let g = leer(), Date().timeIntervalSince1970 < g.expira - 60 { return g.access }
+        if let g = leer(), Date().timeIntervalSince1970 < g.expira - 60, g.access != rejected { return g.access }
         let t = Task { try await refrescar(refresh) }
         refrescando = t
         defer { refrescando = nil }
