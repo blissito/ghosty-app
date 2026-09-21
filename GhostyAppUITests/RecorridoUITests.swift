@@ -192,9 +192,14 @@ final class RecorridoUITests: XCTestCase {
 
         // 4b. La conversación con foto: imagen de markdown y tarjeta de entrega. Aquí es
         //     donde se ve si una imagen grande respeta el ancho de la burbuja.
-        let conFoto = app.buttons.matching(NSPredicate(format: "label CONTAINS 'solo me interesa'")).firstMatch
-        if conFoto.waitForExistence(timeout: 3) {
+        // Se llega por la lista (la barra de chips ya no existe).
+        app.buttons["tab-conversations"].tap()
+        let conFoto = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
+        XCTAssertTrue(conFoto.waitForExistence(timeout: 3), "no está la conversación con foto")
+        if conFoto.exists {
             conFoto.tap()
+            XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3))
             foto("07b-conversacion-con-imagen")
 
             // Tocar una imagen de la respuesta tiene que abrirla a pantalla completa.
@@ -208,6 +213,16 @@ final class RecorridoUITests: XCTestCase {
                 foto("07c-imagen-abierta")
                 app.buttons["cerrar-visor"].firstMatch.tap()
             }
+            // La nota de voz (` ```eb-audio `) sale como reproductor y play la baja y la
+            // reproduce: antes era JSON crudo, y un mp3 por URL decía «No tengo el audio».
+            let play = app.buttons["reproducir-audio"].firstMatch
+            XCTAssertTrue(play.waitForExistence(timeout: 3), "la nota de voz no salió como reproductor")
+            play.tap()
+            Thread.sleep(forTimeInterval: 1.0)
+            foto("07d-nota-de-voz")
+            XCTAssertEqual(play.label, "Pausar", "play no puso a sonar la nota de voz")
+            XCTAssertFalse(app.staticTexts["Ese enlace ya no sirve."].exists, "la nota de voz no se pudo bajar")
+            XCTAssertFalse(app.staticTexts["No pude reproducirlo."].exists, "la nota de voz no sonó")
         }
 
         // 5. El adjuntador de tres tarjetas.

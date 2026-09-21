@@ -33,15 +33,20 @@ enum BloqueEbFile {
     /// medias daría una URL truncada. Quien los use debe recorrerlos AL REVÉS para ir
     /// quitándolos sin invalidar los índices de los demás.
     static func buscar(_ texto: String, agentID: String, sesionID: String?) -> [Encontrado] {
-        guard texto.contains("```eb-file") else { return [] }
+        guard texto.contains("```eb-file") || texto.contains("```eb-audio") else { return [] }
         var salida: [Encontrado] = []
         var desde = texto.startIndex
 
-        while let abre = texto.range(of: "```eb-file", range: desde..<texto.endIndex) {
+        // ⚠️ También ` ```eb-audio `: es la nota de voz (`voice.speak` del SDK) y salía
+        // como JSON crudo en el hilo, con la URL firmada dentro. Es una entrega de audio
+        // como cualquier otra, con su reproductor.
+        while let abre = texto.range(of: "```eb-file", range: desde..<texto.endIndex)
+                        ?? texto.range(of: "```eb-audio", range: desde..<texto.endIndex) {
             guard let cierra = texto.range(of: "```", range: abre.upperBound..<texto.endIndex)
             else { break }   // sin cerrar: todavía está llegando
             let cuerpo = String(texto[abre.upperBound..<cierra.lowerBound])
-            if let e = entrega(de: cuerpo, agentID: agentID, sesionID: sesionID) {
+            let esVoz = texto[abre.lowerBound...].hasPrefix("```eb-audio")
+            if let e = entrega(de: cuerpo, agentID: agentID, sesionID: sesionID, voz: esVoz) {
                 salida.append(Encontrado(entrega: e, rango: abre.lowerBound..<cierra.upperBound))
             } else {
                 EasyBitsClient.diag("[eb-file] ⚠️ no pude leerlo, lo dejo tal cual: \(cuerpo.prefix(120))")
@@ -52,18 +57,23 @@ enum BloqueEbFile {
     }
 
     /// Tolerante a propósito: lo único que se exige es la URL.
-    private static func entrega(de cuerpo: String, agentID: String, sesionID: String?) -> Entrega? {
+    private static func entrega(de cuerpo: String, agentID: String, sesionID: String?, voz: Bool = false) -> Entrega? {
         guard let datos = cuerpo.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
               let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
               let url = (j["url"] as? String) ?? (j["href"] as? String),
               !url.isEmpty
         else { return nil }
 
-        let nombre = (j["name"] as? String) ?? (j["nombre"] as? String)
+        var nombre = (j["name"] as? String) ?? (j["nombre"] as? String)
             ?? (j["filename"] as? String) ?? (j["titulo"] as? String)
             // Sin nombre, el último trozo de la URL: es lo que llamaría cualquiera.
             ?? URL(string: url)?.lastPathComponent
             ?? "Archivo"
+        // La nota de voz se llama así, con la extensión de la URL para que `tipo` acierte.
+        if voz {
+            let ext = URL(string: url)?.pathExtension.lowercased() ?? ""
+            nombre = "Nota de voz" + (ext.isEmpty ? ".ogg" : ".\(ext)")
+        }
 
         var e = Entrega(id: "eb" + huella(url), agentID: agentID, sesionID: sesionID,
                         forma: .archivo, titulo: nombre, recibida: Date(),

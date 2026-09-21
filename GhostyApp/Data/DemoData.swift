@@ -45,6 +45,26 @@ enum DemoData {
     /// Una imagen GRANDE de verdad, en disco, para comprobar que la burbuja la acota.
     /// Sin red: el simulador no siempre la tiene y una prueba que depende de internet no
     /// prueba nada.
+    /// Un segundo de tono a 440 Hz en WAV, para que la nota de voz de la demo suene de
+    /// verdad al tocar play.
+    static func audioDemo() -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "voz-demo.wav")
+        if !FileManager.default.fileExists(atPath: url.path) {
+            let sr = 8000, n = sr * 4
+            var pcm = [Int16](repeating: 0, count: n)
+            for i in 0..<n { pcm[i] = Int16(sin(Double(i) * 2 * .pi * 440 / Double(sr)) * 8000) }
+            var d = Data()
+            func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+            func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+            d.append(contentsOf: Array("RIFF".utf8)); u32(UInt32(36 + n * 2)); d.append(contentsOf: Array("WAVE".utf8))
+            d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(UInt32(sr)); u32(UInt32(sr * 2)); u16(2); u16(16)
+            d.append(contentsOf: Array("data".utf8)); u32(UInt32(n * 2))
+            pcm.withUnsafeBytes { d.append(contentsOf: $0) }
+            try? d.write(to: url)
+        }
+        return url
+    }
+
     static func imagenGrande() -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory()).appending(path: "grande.png")
         if !FileManager.default.fileExists(atPath: url.path) {
@@ -97,7 +117,9 @@ enum DemoData {
         let crudo = "Ya está, recortada. Te la entrego.\n\n"
             + "```eb-file\n{\"url\":\"\(imagenGrande().absoluteString)\","
             + "\"name\":\"cotizacion.png\",\"size\":48213}\n```\n\n"
-            + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n"
+            + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n\n"
+            // La nota de voz TAL CUAL la imprime `voice.speak` del SDK: sólo URL, sin bytes.
+            + "```eb-audio\n{\"url\":\"\(audioDemo().absoluteString)\",\"waveform\":\"\",\"durationMs\":4000,\"mime\":\"audio/wav\"}\n```\n"
         var visible = crudo
         var deEbFile: [Message] = []
         for h in BloqueEbFile.buscar(crudo, agentID: "demo-1", sesionID: "s-foto").reversed() {

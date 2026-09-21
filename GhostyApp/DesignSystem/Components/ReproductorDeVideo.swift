@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import Photos
 
 /// Un video que el agente entregó, reproducible dentro de la tarjeta.
 ///
@@ -16,6 +17,10 @@ struct ReproductorDeVideo: View {
     @State private var aspecto: CGFloat = 16.0 / 9.0
     @State private var fallo: String?
     @State private var archivoParaCompartir: URL?
+    /// Cómo va el guardado en Fotos: bajando, «Guardado en Fotos», o el fallo.
+    @State private var guardando = false
+    @State private var avisoGuardado: String?
+    @State private var intentos = 0
 
     private var alto: CGFloat { min(360, ancho / aspecto) }
 
@@ -27,6 +32,11 @@ struct ReproductorDeVideo: View {
                     VideoPlayer(player: player)
                 } else if let fallo {
                     Text(fallo).gCaption().foregroundStyle(.white.opacity(0.8))
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            intentos += 1; self.fallo = nil
+                            Task { await preparar() }
+                        }
                 } else {
                     ProgressView().tint(.white)
                 }
@@ -43,24 +53,37 @@ struct ReproductorDeVideo: View {
                     Text([entrega.etiqueta, entrega.peso].compactMap { $0 }.joined(separator: " · ")).gCaption()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Guardar/compartir: se baja al tocar, no antes.
-                Button {
-                    Task {
-                        guard let id = entrega.remotoID, let d = try? await GhostyAPI.bajar(id) else { return }
-                        var copia = entrega; copia.datos = d
-                        archivoParaCompartir = copia.aDisco()
+                // ⚠️ GUARDAR EN FOTOS, no «compartir». Antes era un icono de 32 pt que
+                // abría una hoja con un ShareLink dentro: al toque no le atinabas y, cuando
+                // sí, el video acababa en Archivos, no en la galería, que es donde se
+                // quiere para usarlo en otras apps. Ahora se baja y va a Fotos directo.
+                Button { Task { await guardarEnFotos() } } label: {
+                    ZStack {
+                        if guardando { ProgressView().controlSize(.small) }
+                        else {
+                            Image(systemName: avisoGuardado == "Guardado en Fotos" ? "checkmark" : "arrow.down.to.line")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color.gInk)
+                        }
                     }
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.gInk2)
-                        .frame(width: 32, height: 32)
-                        .contentShape(Rectangle())
+                    .frame(width: 44, height: 44)
+                    .background(Color.gFill, in: Circle())
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Guardar")
+                .accessibilityIdentifier("guardar-video")
+                .accessibilityLabel("Guardar en Fotos")
+                // Compartir sigue disponible con toque largo (mandarlo por WhatsApp, etc.).
+                .contextMenu {
+                    Button { Task { await compartir() } } label: { Label("Compartir…", systemImage: "square.and.arrow.up") }
+                }
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
+            if let avisoGuardado {
+                Text(avisoGuardado).gCaption()
+                    .foregroundStyle(avisoGuardado == "Guardado en Fotos" ? Color.gGreenInk : Color.gDangerInk)
+                    .padding(.horizontal, 12).padding(.bottom, 8)
+            }
         }
         .task(id: entrega.id) { await preparar() }
         .onDisappear { player?.pause() }
@@ -70,6 +93,40 @@ struct ReproductorDeVideo: View {
         }
     }
 
+    /// Los bytes del video: del archivo de la cuenta (firma fresca) o de la URL anunciada.
+    private func bytes() async -> Data? {
+        if let d = entrega.datos { return d }
+        if let id = entrega.remotoID, let d = try? await GhostyAPI.bajar(id) { return d }
+        if let s = entrega.url, let u = URL(string: s) { return await Descargas.bytes(u) }
+        return nil
+    }
+
+    private func guardarEnFotos() async {
+        guard !guardando else { return }
+        guardando = true; defer { guardando = false }
+        guard let d = await bytes() else { avisoGuardado = "Ese enlace ya no sirve."; return }
+        var copia = entrega; copia.datos = d
+        guard let archivo = copia.aDisco() else { avisoGuardado = "No pude guardarlo."; return }
+        let permiso = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard permiso == .authorized || permiso == .limited else {
+            avisoGuardado = "Sin permiso para Fotos. Actívalo en Ajustes."; return
+        }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: archivo)
+            }
+            avisoGuardado = "Guardado en Fotos"
+        } catch {
+            avisoGuardado = "No pude guardarlo en Fotos."
+        }
+    }
+
+    private func compartir() async {
+        guard let d = await bytes() else { avisoGuardado = "Ese enlace ya no sirve."; return }
+        var copia = entrega; copia.datos = d
+        archivoParaCompartir = copia.aDisco()
+    }
+
     private func preparar() async {
         guard player == nil else { return }
         var url: URL?
@@ -77,6 +134,13 @@ struct ReproductorDeVideo: View {
         else if let u = entrega.url { url = URL(string: u) }
         guard let url else { fallo = "No encuentro el video."; return }
         let asset = AVURLAsset(url: url)
+        // ⚠️ Si el asset no carga (firma caducada, red), NO se monta un reproductor
+        // mudo: se dice y se puede reintentar con una URL fresca tocando el cuadro. Era
+        // el «a veces reproduce y a veces no».
+        if (try? await asset.load(.isPlayable)) != true {
+            fallo = intentos == 0 ? "No cargó. Toca para reintentar." : "Ese enlace ya no sirve."
+            return
+        }
         // El aspecto real, si el asset lo cuenta; si no, se queda el 16:9 reservado.
         if let pista = try? await asset.loadTracks(withMediaType: .video).first,
            let (tam, tr) = try? await pista.load(.naturalSize, .preferredTransform) {

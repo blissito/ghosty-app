@@ -82,41 +82,16 @@ struct EntregaCard: View {
     }
 
     var body: some View {
-        Button {
-            // Una imagen la enseñamos nosotros; lo demás va al visor del sistema. Ver
-            // `VisorDeImagen`: QuickLook abre un PDF y se queda en negro con un PNG.
-            // Una imagen la enseñamos nosotros y un audio se reproduce en la propia
-            // tarjeta; lo demás va al visor del sistema.
-            // ⚠️ Un PDF NO se abre como imagen: `imagen` es sólo su portada para la
-            // tarjeta, y en el visor de fotos «un PDF de dos páginas» se veía de una.
-            if entrega.tipo == "pdf" {
-                if datos == nil { Task { await bajar(yAbrir: true) } }
-                else { compartiendo = conBytes()?.aDisco() }
+        // ⚠️ Un audio o un video NO van dentro de un `Button`: sus controles (play,
+        // guardar) son botones propios, y anidados dentro del de la tarjeta el toque se
+        // lo quedaba el de fuera —que para audio/video no hacía nada—. Era el «play no
+        // reproduce» y el «el botón de descarga no recibe el clic».
+        Group {
+            if entrega.esAudio || entrega.esVideo {
+                tarjeta
+            } else {
+                Button(action: abrir) { tarjeta }
             }
-            else if let img = imagen { mirando = img }
-            else if entrega.esAudio || entrega.esVideo { return }
-            // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
-            // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
-            else if datos == nil, entrega.url != nil || entrega.remotoID != nil { Task { await bajar(yAbrir: true) } }
-            else { compartiendo = conBytes()?.aDisco() }
-        } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                // Un video se ve aquí, con su cuadro reservado; un audio se oye aquí.
-                if entrega.esVideo {
-                    ReproductorDeVideo(entrega: entrega)
-                } else {
-                    vistaPrevia
-                    if entrega.esAudio {
-                        ReproductorDeEntrega(entrega: entrega)
-                    } else {
-                        fila
-                    }
-                }
-            }
-            .frame(maxWidth: 300, alignment: .leading)
-            .background(Color.gCard)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 5, y: 2)
         }
         .buttonStyle(.plain)
         .quickLookPreview($compartiendo)
@@ -136,6 +111,42 @@ struct EntregaCard: View {
         .fullScreenCover(item: $mirando) { img in
             VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: conBytes()?.aDisco())
         }
+    }
+
+    /// Tocar la tarjeta: una imagen la enseñamos nosotros; lo demás va al visor del
+    /// sistema. Ver `VisorDeImagen`: QuickLook abre un PDF y se queda en negro con un PNG.
+    /// ⚠️ Un PDF NO se abre como imagen: `imagen` es sólo su portada para la tarjeta, y
+    /// en el visor de fotos «un PDF de dos páginas» se veía de una.
+    private func abrir() {
+        if entrega.tipo == "pdf" {
+            if datos == nil { Task { await bajar(yAbrir: true) } }
+            else { compartiendo = conBytes()?.aDisco() }
+        }
+        else if let img = imagen { mirando = img }
+        // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
+        // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
+        else if datos == nil, entrega.url != nil || entrega.remotoID != nil { Task { await bajar(yAbrir: true) } }
+        else { compartiendo = conBytes()?.aDisco() }
+    }
+
+    private var tarjeta: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Un video se ve aquí, con su cuadro reservado; un audio se oye aquí.
+            if entrega.esVideo {
+                ReproductorDeVideo(entrega: entrega)
+            } else {
+                vistaPrevia
+                if entrega.esAudio {
+                    ReproductorDeEntrega(entrega: entrega)
+                } else {
+                    fila
+                }
+            }
+        }
+        .frame(maxWidth: 300, alignment: .leading)
+        .background(Color.gCard)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .shadow(color: .black.opacity(0.06), radius: 5, y: 2)
     }
 
     // MARK: - Piezas

@@ -41,6 +41,8 @@
 	<string>Para grabar notas de voz y mandárselas a tu agente.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Para que puedas mandarle una foto a tu agente.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Para guardar en tu galería los videos e imágenes que te entrega tu agente.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
