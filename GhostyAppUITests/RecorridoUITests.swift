@@ -52,6 +52,28 @@ final class RecorridoUITests: XCTestCase {
 
     /// El botón de detener del compositor. Va aparte porque necesita la app arrancada con
     /// un turno vivo, y el recorrido normal no lo tiene.
+    /// Mandar con el teclado abierto: el mensaje sube hasta arriba y la respuesta crece
+    /// debajo (como Claude). Se fotografía con el teclado recién cerrado, que es cuando
+    /// el alto visible cambia y el aire de abajo se recalcula.
+    func testMandarSubeElMensaje() {
+        XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
+        let campo = app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
+        XCTAssertTrue(campo.waitForExistence(timeout: 3), "no hay campo de mensaje")
+        campo.tap()
+        campo.typeText("investiga qué es Clay")
+        app.buttons["enviar"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 0.9)
+        foto("50-mandado")
+        let mio = app.staticTexts["investiga qué es Clay"].firstMatch
+        XCTAssertTrue(mio.waitForExistence(timeout: 3))
+        // Arriba del todo: justo bajo la cabecera (que acaba hacia y≈100 en puntos) y
+        // nunca tapado por ella.
+        let y = mio.frame.minY
+        XCTAssertTrue(y > 90 && y < 160, "el mensaje mandado quedó en y=\(y), no pegado arriba")
+        Thread.sleep(forTimeInterval: 9)
+        foto("51-respondido")
+    }
+
     func testDetener() {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO_TRABAJANDO"] = "1"

@@ -53,6 +53,8 @@ struct ConversationView: View {
     /// «El próximo mensaje de usuario que aparezca es el mío»: `send` es asíncrono y el id
     /// lo pone el store, así que se espera a verlo en la lista.
     @State private var esperandoMiMensaje = false
+    /// El próximo re-anclaje al fondo va animado: es la subida del mensaje que mandaste.
+    @State private var animarSubida = false
     /// Alto de lo que va desde el mensaje anclado hasta el final, y alto visible del
     /// hilo: la diferencia es el aire que se pone debajo para que el mensaje QUEPA arriba.
     @State private var altoDeLaCola: CGFloat = 0
@@ -70,7 +72,7 @@ struct ConversationView: View {
                             onTap: { escribiendo = false; onOpenSheet() },
                             onNueva: { store.nuevaConversacion() })
                     .padding(.top, 4)
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 12)
             }
 
             // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y
@@ -242,8 +244,8 @@ struct ConversationView: View {
         // filas existen, así que `scrollTo` aterriza donde debe.
         .onChange(of: bajar) { _, _ in
             guard bajar > 0 else { return }
-            if bajarAnimado { withAnimation(.easeOut(duration: 0.28)) { lector.scrollTo(Self.fondo, anchor: .bottom) } }
-            else { lector.scrollTo(Self.fondo, anchor: .bottom) }
+            if bajarAnimado { withAnimation(.easeOut(duration: 0.28)) { reanclar(lector) } }
+            else { reanclar(lector) }
             // ⚠️ Y otra vez cuando termine la animación. Con un mensaje largo que
             // sigue creciendo (streaming) el primer `scrollTo` aterrizaba en el fondo
             // de HACE un instante y se quedaba a medio camino: el botón «no
@@ -251,7 +253,7 @@ struct ConversationView: View {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(bajarAnimado ? 320 : 80))
                 guard siguiendoElFinal else { return }
-                lector.scrollTo(Self.fondo, anchor: .bottom)
+                reanclar(lector)
             }
         }
         .overlay(alignment: .bottom) {
@@ -315,7 +317,7 @@ struct ConversationView: View {
             guard siguiendoElFinal else { return }
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(60))
-                lector.scrollTo(Self.fondo, anchor: .bottom)
+                reanclar(lector)
             }
         }
         // Cambiar de conversación es una pantalla nueva: empieza por el final.
@@ -386,7 +388,15 @@ struct ConversationView: View {
             Color.clear.preference(key: AltoDelHilo.self, value: g.size.height)
         })
         .onPreferenceChange(AltoDelHilo.self) { _ in
-            if siguiendoElFinal { lector.scrollTo(Self.fondo, anchor: .bottom) }
+            guard siguiendoElFinal else { return }
+            // La subida del mensaje recién mandado se ve: es el aire apareciendo de
+            // golpe, y sin esto el re-anclaje instantáneo se comía la animación.
+            if animarSubida {
+                animarSubida = false
+                withAnimation(.easeOut(duration: 0.35)) { reanclar(lector) }
+            } else {
+                reanclar(lector)
+            }
         }
         .onPreferenceChange(AltoDeLaCola.self) { altoDeLaCola = $0 }
     }
@@ -401,13 +411,10 @@ struct ConversationView: View {
         if esperandoMiMensaje || reciénMandado,
            let mio = mensajesÚnicos.last(where: { $0.esDeUsuario })?.id, mio != anclaArriba {
             esperandoMiMensaje = false
+            animarSubida = true
             anclaArriba = mio
-            // El aire de abajo aún no está medido en este mismo pintado: se baja al fondo
-            // (que con el aire ES el mensaje arriba) un respiro después.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(60))
-                withAnimation(.easeOut(duration: 0.3)) { lector.scrollTo(Self.fondo, anchor: .bottom) }
-            }
+            // El aire de abajo aún no está medido en este mismo pintado: el re-anclaje
+            // lo hace `AltoDelHilo` cuando el contenido crezca, animado por `animarSubida`.
             return
         }
         seguir(animado: true)
@@ -422,8 +429,24 @@ struct ConversationView: View {
         guard let anclaArriba, let i = mensajesÚnicos.firstIndex(where: { $0.id == anclaArriba }) else { return [] }
         return Array(mensajesÚnicos[i...])
     }
-    /// Lo que falta para que la cola llene la pantalla. 28 es el `padding(.bottom)`.
-    private var aireDebajo: CGFloat { max(0, altoVisible - altoDeLaCola - 28 - 14) }
+    /// A dónde se «sigue el final». Con un mensaje recién mandado que aún cabe con su
+    /// respuesta en la pantalla, el final ES ese mensaje arriba: se ancla por su `id` con
+    /// `.top`, que no depende de medir el aire al punto. Medido: con el aire calculado a
+    /// mano el mensaje se metía bajo la cabecera en el iPhone y quedaba corto en el
+    /// simulador. Cuando la cola ya no cabe, se vuelve al fondo como siempre.
+    private func reanclar(_ lector: ScrollViewProxy) {
+        if let anclaArriba, altoDeLaCola + 57 < altoVisible {
+            lector.scrollTo(anclaArriba, anchor: .top)
+        } else {
+            lector.scrollTo(Self.fondo, anchor: .bottom)
+        }
+    }
+
+    /// Lo que falta para que la cola llene la pantalla. Debajo de la cola hay: el
+    /// espaciado al aire (14), el aire, el espaciado al fondo (14), el fondo (1) y el
+    /// `padding(.bottom)` (28) = 57; y 8 más para que la burbuja no bese la cabecera.
+    /// ⚠️ Restaba 42 y el mensaje subía hasta meterse bajo la cabecera.
+    private var aireDebajo: CGFloat { max(0, altoVisible - altoDeLaCola - 57) }
 
     @ViewBuilder
     private func filaAnimada(_ mensaje: Message) -> some View {
