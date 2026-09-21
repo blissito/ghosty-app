@@ -53,8 +53,6 @@ struct ConversationView: View {
     /// «El próximo mensaje de usuario que aparezca es el mío»: `send` es asíncrono y el id
     /// lo pone el store, así que se espera a verlo en la lista.
     @State private var esperandoMiMensaje = false
-    /// El próximo re-anclaje al fondo va animado: es la subida del mensaje que mandaste.
-    @State private var animarSubida = false
     /// Alto de lo que va desde el mensaje anclado hasta el final, y alto visible del
     /// hilo: la diferencia es el aire que se pone debajo para que el mensaje QUEPA arriba.
     @State private var altoDeLaCola: CGFloat = 0
@@ -366,9 +364,12 @@ struct ConversationView: View {
             .background(GeometryReader { g in
                 Color.clear.preference(key: AltoDeLaCola.self, value: g.size.height)
             })
-            if anclaArriba != nil {
-                Color.clear.frame(height: aireDebajo)
-            }
+            // ⚠️ SIEMPRE presente y con altura animable. `defaultScrollAnchor(.bottom)`
+            // sigue el crecimiento del contenido al instante, así que un aire que aparece
+            // de golpe es un salto seco por mucho `scrollTo` animado que venga después;
+            // si la ALTURA anima de 0 al aire, el anclaje de abajo la sigue y la subida se
+            // ve.
+            Color.clear.frame(height: anclaArriba == nil ? 0 : aireDebajo)
             // El fondo de verdad: a donde se baja. Un mensaje largo que crece
             // con el streaming no cambia de id, y «bajar» a un id que ya es
             // el ancla no mueve nada.
@@ -391,12 +392,7 @@ struct ConversationView: View {
             guard siguiendoElFinal else { return }
             // La subida del mensaje recién mandado se ve: es el aire apareciendo de
             // golpe, y sin esto el re-anclaje instantáneo se comía la animación.
-            if animarSubida {
-                animarSubida = false
-                withAnimation(.easeOut(duration: 0.35)) { reanclar(lector) }
-            } else {
-                reanclar(lector)
-            }
+            reanclar(lector)
         }
         .onPreferenceChange(AltoDeLaCola.self) { altoDeLaCola = $0 }
     }
@@ -411,8 +407,7 @@ struct ConversationView: View {
         if esperandoMiMensaje || reciénMandado,
            let mio = mensajesÚnicos.last(where: { $0.esDeUsuario })?.id, mio != anclaArriba {
             esperandoMiMensaje = false
-            animarSubida = true
-            anclaArriba = mio
+            withAnimation(.easeOut(duration: 0.4)) { anclaArriba = mio }
             // El aire de abajo aún no está medido en este mismo pintado: el re-anclaje
             // lo hace `AltoDelHilo` cuando el contenido crezca, animado por `animarSubida`.
             return
@@ -496,7 +491,14 @@ struct ConversationView: View {
         case .user(let t, let adj):
             HStack { Spacer(minLength: 40); UserBubble(text: t, adjuntos: adj, vuelo: vuelo) }
         case .agent(let t, let tools, let trailing):
-            HStack { AgentBubble(text: t, tools: tools, trailing: trailing); Spacer(minLength: 30) }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack { AgentBubble(text: t, tools: tools, trailing: trailing); Spacer(minLength: 30) }
+                // Herramientas corriendo y todavía sin texto: la mascota debajo de la
+                // línea de pasos, que es el «sigo en ello» mientras no hay nada que leer.
+                if t.isEmpty, tools?.corriendo != nil {
+                    MascotaPensando(tone: store.selectedAgent?.tone ?? .lila, texto: nil)
+                }
+            }
         case .entrega(let e):
             HStack {
                 EntregaCard(entrega: e)
@@ -525,19 +527,11 @@ struct ConversationView: View {
                 Spacer()
             }
         case .typing:
-            // Una sola línea con lo que está haciendo, no una burbuja de puntos: el
-            // detalle lo pone el turno (la herramienta en curso) y la mascota de la
-            // cabecera ya late mientras trabaja.
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small).tint(Color.gPrimary)
-                Text(store.hiloActivo?.turno?.detail ?? "Pensando…")
-                    .gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
-                    .contentTransition(.opacity)
-                    .animation(.easeInOut(duration: 0.2), value: store.hiloActivo?.turno?.detail)
-                Spacer()
-            }
-            .padding(.leading, 4)
-            .accessibilityIdentifier("pensando")
+            // La mascota pensando y, al lado, lo que está haciendo en una línea. Es el
+            // indicador de carga del hilo (como el spinner de Claude bajo la herramienta).
+            MascotaPensando(tone: store.selectedAgent?.tone ?? .lila,
+                            texto: store.hiloActivo?.turno?.detail ?? "Pensando…")
+                .accessibilityIdentifier("pensando")
         }
     }
 
@@ -972,6 +966,31 @@ struct ConversationView: View {
             adjuntos.append(a)
             fallo = nil
         }
+    }
+}
+
+/// La mascota latiendo, con una línea opcional de lo que hace.
+struct MascotaPensando: View {
+    let tone: AgentTone
+    let texto: String?
+    @State private var late = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            GhostyMascot(tone: tone, height: 26)
+                .scaleEffect(late ? 1.1 : 0.92)
+                .opacity(late ? 1 : 0.75)
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) { late = true }
+                }
+            if let texto {
+                Text(texto).gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: texto)
+            }
+            Spacer()
+        }
+        .padding(.leading, 4)
     }
 }
 
