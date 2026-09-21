@@ -92,7 +92,7 @@ struct ConversationView: View {
             if let hilo = store.hiloActivo, hilo.interrumpido {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.mini)
-                    Text("Tu agente sigue con esto. Te aviso en cuanto termine.")
+                    Text("Sigo con esto. Te aviso en cuanto termine.")
                         .gMeta().foregroundStyle(Color.gInk2)
                     Spacer(minLength: 0)
                     // ⚠️ SIEMPRE una salida. Este cartel no ofrecía ninguna: si el turno

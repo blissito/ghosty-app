@@ -926,7 +926,7 @@ final class LiveAgentStore: AgentStoring {
                     hilo.cronometro?.cancel(); hilo.cronometro = nil
                     hilo.inicio = nil
                 case "waking":
-                    hilo.turno?.detail = "Despertando a tu agente…"
+                    hilo.turno?.detail = "Despertando…"
                 default:
                     hilo.interrumpido = false
                     if hilo.turno == nil {
@@ -1189,7 +1189,7 @@ final class LiveAgentStore: AgentStoring {
         // contradicen en la misma pantalla, y la de arriba es la que hace pensar que se
         // colgó. El turno local ya no existe —lo mató la suspensión— pero el trabajo sí.
         if canal.hilos.contains(where: { $0.interrumpido }) {
-            return .working(task: "Sigue trabajando…")
+            return .working(task: "Sigo trabajando…")
         }
         return .idle(since: "listo")
     }
@@ -1310,7 +1310,7 @@ final class LiveAgentStore: AgentStoring {
         // ⚠️ Levantar una caja dormida tarda segundos —hay `/revive` y reintentos— y
         // hasta ahora eso eran tres puntitos mudos: la app se sentía colgada. Decirlo no
         // la hace más rápida, la hace honesta.
-        if canal.acp == nil { hilo.turno?.detail = "Despertando a tu agente…" }
+        if canal.acp == nil { hilo.turno?.detail = "Despertando…" }
         hilo.prompt = limpio
         // Hasta que exista la conversación en el servidor, el mensaje no vive en ningún
         // caché: se apunta aparte por si la app muere esperando. Ver `BorradorPendiente`.
@@ -1968,13 +1968,15 @@ final class LiveAgentStore: AgentStoring {
     /// Qué decir de un turno del que sólo sabemos cuánto lleva.
     static func comoVa(_ segundos: Int) -> String {
         switch segundos {
+        // En PRIMERA persona: lo dice la mascota, al lado suyo, en el hilo. «Sigue en
+        // ello» leído junto a Ghosty sonaba a que hablaba de otro.
         case ..<6:   return "Pensando…"
         case ..<15:  return "Trabajando…"
-        case ..<30:  return "Sigue en ello…"
-        case ..<60:  return "Esto lleva un poco…"
-        case ..<120: return "Sigue trabajando…"
-        case ..<300: return "Lleva un buen rato…"
-        default:     return "Muy largo — puedes detenerlo"
+        case ..<30:  return "Sigo en ello…"
+        case ..<60:  return "Esto me lleva un poco…"
+        case ..<120: return "Sigo trabajando…"
+        case ..<300: return "Llevo un buen rato…"
+        default:     return "Me está tomando mucho — puedes detenerme"
         }
     }
 
