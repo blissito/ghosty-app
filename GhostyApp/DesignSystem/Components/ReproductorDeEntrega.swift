@@ -132,7 +132,8 @@ struct ReproductorDeEntrega: View {
                 if !Task.isCancelled { sonando = false; avance = 0 }
             }
         } catch {
-            fallo = "No pude reproducirlo."
+            // Un ogg/opus en un iOS que no lo decodifica (18.x): que se sepa por qué.
+            fallo = entrega.tipo == "ogg" ? "Este iPhone no reproduce ogg. Pídele el mp3." : "No pude reproducirlo."
         }
     }
 

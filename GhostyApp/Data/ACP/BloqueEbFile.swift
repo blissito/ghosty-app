@@ -63,9 +63,13 @@ enum BloqueEbFile {
     /// Tolerante a propósito: lo único que se exige es la URL.
     private static func entrega(de cuerpo: String, agentID: String, sesionID: String?, voz: Bool = false) -> Entrega? {
         guard let datos = cuerpo.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
-              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
-              let url = (j["url"] as? String) ?? (j["href"] as? String),
-              !url.isEmpty
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+        else { return nil }
+        // ⚠️ La nota de voz trae `url` (ogg/opus, el de WhatsApp) y desde el 2026-09-21
+        // también `mp3`: un iPhone con iOS 18 no decodifica Opus, así que si hay mp3 se
+        // usa ése. Sin él, se intenta el ogg (en iOS 26 sí suena).
+        let preferida = voz ? (j["mp3"] as? String) : nil
+        guard let url = preferida ?? (j["url"] as? String) ?? (j["href"] as? String), !url.isEmpty
         else { return nil }
 
         var nombre = (j["name"] as? String) ?? (j["nombre"] as? String)
