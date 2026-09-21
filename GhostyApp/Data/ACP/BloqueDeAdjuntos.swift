@@ -161,12 +161,22 @@ enum BloqueDeAdjuntos {
         //    se mandó un archivo es información de la persona, y con el nombre se vuelve a
         //    encontrar el archivo en la cuenta para rehidratar su reproductor. Coserlos al
         //    texto obligaba a volver a parsearlos, que es lo que esto evita.
-        if let ini = t.range(of: "[ADJUNTOS DE ESTE MENSAJE") {
-            let finTexto = "no te inventes el contenido."
-            let fin = t.range(of: finTexto, range: ini.upperBound..<t.endIndex)
+        //    ⚠️ Son DOS formatos: el nuestro («[ADJUNTOS DE ESTE MENSAJE…]») y el que arma
+        //    `buildPrompt` de gs cuando el turno sale del chat web («[YA EN ESTE MENSAJE]»,
+        //    «[PARA DESCARGAR]», «[NO PUDE ENTREGARTE]»). Sin el segundo, una nota de voz
+        //    mandada desde la web salía aquí con su `curl` y sin reproductor.
+        let bloques: [(ini: String, fin: String)] = [
+            ("[ADJUNTOS DE ESTE MENSAJE", "no te inventes el contenido."),
+            ("[YA EN ESTE MENSAJE]", "ni digas que no te llegó."),
+            ("[PARA DESCARGAR]", "NUNCA digas que no te llegó ningún archivo."),
+            ("[NO PUDE ENTREGARTE]", "que lo pegue a mano."),
+        ]
+        for b in bloques {
+            guard let ini = t.range(of: b.ini) else { continue }
+            let fin = t.range(of: b.fin, range: ini.upperBound..<t.endIndex)
             let hasta = fin?.upperBound ?? t.endIndex
             let bloque = String(t[ini.lowerBound..<hasta])
-            nombres = bloque
+            nombres += bloque
                 .split(separator: "\n")
                 .filter { $0.hasPrefix("· ") }
                 .compactMap { $0.dropFirst(2).split(separator: " (").first.map(String.init) }
