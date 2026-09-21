@@ -320,6 +320,14 @@ struct ConversationView: View {
         }
         // Cambiar de conversación es una pantalla nueva: empieza por el final.
         .onChange(of: hiloVisible) { _, _ in anclaArriba = nil; esperandoMiMensaje = false; irAbajo() }
+        // ⚠️ El aire de abajo vive SÓLO mientras el turno corre. Dejarlo después —como hace
+        // Claude— aquí era un hueco por el que se arrastraba la conversación entera fuera
+        // de la pantalla (medido en el iPhone): al cerrar el turno se recoge, animado, y
+        // el hilo vuelve a su ancla de siempre.
+        .onChange(of: store.currentTurn == nil) { _, enReposo in
+            guard enReposo, anclaArriba != nil else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { anclaArriba = nil }
+        }
         // Un mensaje que se mandó y la app murió antes de que existiera la
         // conversación vuelve al compositor, con el aviso, en vez de desaparecer.
         .task(id: store.selectedAgentID) {
