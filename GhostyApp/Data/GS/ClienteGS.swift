@@ -102,12 +102,18 @@ actor ClienteGS: TransporteDeAgente {
     /// Lo que se le enseña a una persona cuando el servidor dice que no.
     private func mensajeDeError(_ d: Data, _ codigo: Int) -> String {
         let cuerpo = String(decoding: d, as: UTF8.self).prefix(300)
+        // gs contesta `{ error, message }` con la frase ya redactada (saldo agotado con su
+        // fecha de reinicio, modelo que exige llave propia…). Antes se pintaba el JSON
+        // crudo recortado a dos líneas, y un 402 se leía como «el agente no responde».
+        let json = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
+        let mensaje = json?["message"] as? String
         switch codigo {
         case 401, 403: return "Hay que volver a entrar a tu cuenta."
+        case 402:      return mensaje ?? "Se acabó el saldo de este agente."
         case 404:      return "Ese agente o esa conversación ya no existe."
         case 409:      return "Ese agente no es de los que hablan por aquí."
         case 429:      return "Se acabó el cupo de turnos por ahora."
-        default:       return cuerpo.isEmpty ? "El servidor contestó \(codigo)." : String(cuerpo)
+        default:       return mensaje ?? (cuerpo.isEmpty ? "El servidor contestó \(codigo)." : String(cuerpo))
         }
     }
 
