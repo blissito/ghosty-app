@@ -180,6 +180,8 @@ struct AgentHeader: View {
     var onNueva: (() -> Void)?
 
     private var status: AgentStatus { estado ?? agent.status }
+    private var trabajando: Bool { if case .working = status { return true } else { return false } }
+    @State private var latiendo = false
 
     /// Verde trabajando, rojo esperándote, gris en reposo: lo que decía la línea entera
     /// de estado, en 8 pt.
@@ -196,6 +198,13 @@ struct AgentHeader: View {
             Button { onTap?() } label: {
                 HStack(spacing: 7) {
                     GhostyMascot(tone: agent.tone, height: 22)
+                        // Late mientras trabaja: es el «estado de carga» de la cabecera,
+                        // sin una línea de texto que lo diga.
+                        .scaleEffect(latiendo ? 1.12 : 1)
+                        .animation(trabajando
+                                   ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
+                                   : .easeOut(duration: 0.2), value: latiendo)
+                        .onChange(of: trabajando, initial: true) { _, t in latiendo = t }
                         .overlay(alignment: .bottomTrailing) {
                             Circle().fill(punto).frame(width: 8, height: 8)
                                 .overlay(Circle().stroke(Color.gCard, lineWidth: 1.5))

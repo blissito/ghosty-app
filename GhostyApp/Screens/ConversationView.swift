@@ -47,6 +47,16 @@ struct ConversationView: View {
     @State private var bajar = 0
     @State private var bajarAnimado = false
     private static let fondo = "fondo-del-hilo"
+    /// El mensaje que acabas de mandar, para clavarlo ARRIBA de la pantalla mientras el
+    /// agente contesta debajo (como Claude). `nil` = hilo abierto normal, anclado al final.
+    @State private var anclaArriba: String?
+    /// «El próximo mensaje de usuario que aparezca es el mío»: `send` es asíncrono y el id
+    /// lo pone el store, así que se espera a verlo en la lista.
+    @State private var esperandoMiMensaje = false
+    /// Alto de lo que va desde el mensaje anclado hasta el final, y alto visible del
+    /// hilo: la diferencia es el aire que se pone debajo para que el mensaje QUEPA arriba.
+    @State private var altoDeLaCola: CGFloat = 0
+    @State private var altoVisible: CGFloat = 0
 
     /// La agenda de la conversación que se mira. Se rehace al cambiar de hilo: es por
     /// `(agente, sesión)`, y una conversación nueva sin `sessionId` no tiene agenda aún.
@@ -73,157 +83,7 @@ struct ConversationView: View {
             //
             // `anclaje` es el ÚLTIMO mensaje visible. Si es el último del hilo, estás
             // abajo; si no, se enseña el botón. Bajar es asignarlo.
-            ScrollViewReader { lector in
-            ScrollView {
-                // ⚠️ VStack, NO LazyVStack. Con el perezoso, al plegar una tarjeta de
-                // herramientas el contenido encogía, el offset quedaba más allá del final
-                // y no se pintaba NADA: el hilo entero en blanco con los mensajes dentro
-                // (medido: «pintando 2 mensajes» y pantalla vacía). El hilo trae como
-                // mucho `tail` mensajes; no hay nada que virtualizar.
-                VStack(spacing: 14) {
-                    if mensajesÚnicos.isEmpty {
-                        primeraVez.padding(.top, 90)
-                    }
-                    Color.clear.frame(height: 0)
-                        .onAppear { EasyBitsClient.diag("[vista] pintando \(store.messages.count) mensajes de \(store.claveDelHilo.prefix(8))") }
-                        .onChange(of: store.messages.count) { _, n in
-                            EasyBitsClient.diag("[vista] ahora \(n) mensajes de \(store.claveDelHilo.prefix(8))")
-                        }
-                    ForEach(mensajesÚnicos) { mensaje in
-                        fila(mensaje).id(mensaje.id)
-                            // Sólo la entrega se anima al entrar: llega a mitad del turno
-                            // y aparecer de golpe se lee como un salto. Animar CADA trozo
-                            // del streaming haría temblar el hilo entero.
-                            .transition(esEntrega(mensaje)
-                                        ? .scale(scale: 0.94).combined(with: .opacity)
-                                        : .identity)
-                    }
-                    // El fondo de verdad: a donde se baja. Un mensaje largo que crece
-                    // con el streaming no cambia de id, y «bajar» a un id que ya es
-                    // el ancla no mueve nada.
-                    Color.clear.frame(height: 1).id(Self.fondo)
-                }
-                .padding(.horizontal, 16)
-                // ⚠️ Aire al final, que es el «siempre esconde contenido»: sin esto la
-                // última línea queda justo debajo de la barra de conversaciones y hay que
-                // adivinar que sigue ahí.
-                .padding(.bottom, 28)
-                .scrollTargetLayout()
-                // El contenido CRECE después del primer pintado (markdown, tarjetas de
-                // video con su cuadro, imágenes): mientras sigas el final, cada cambio de
-                // altura vuelve a anclar abajo sin animación. Es lo que evita el «se quedó
-                // a la mitad» al abrir un hilo. Si subiste a releer, no se fuerza.
-                .background(GeometryReader { g in
-                    Color.clear.preference(key: AltoDelHilo.self, value: g.size.height)
-                })
-                .onPreferenceChange(AltoDelHilo.self) { _ in
-                    if siguiendoElFinal { lector.scrollTo(Self.fondo, anchor: .bottom) }
-                }
-            }
-            // Un chat empieza abajo. Sin esto arranca arriba y hay que mandarlo al final
-            // a mano en cada apertura, que es de donde salían los saltos.
-            .defaultScrollAnchor(.bottom)
-            .scrollPosition(id: $anclaje, anchor: .bottom)
-            // ⚠️ Bajar es `scrollTo`, no asignar el ancla. Asignar `anclaje = ultimo` no
-            // hacía nada si el sistema ya lo tenía como ancla —pasa siempre que el último
-            // mensaje es más alto que la pantalla: subes a releerlo, el ancla sigue
-            // siendo él, y el botón no servía—. Con un `VStack` (no perezoso) todas las
-            // filas existen, así que `scrollTo` aterriza donde debe.
-            .onChange(of: bajar) { _, _ in
-                guard bajar > 0 else { return }
-                if bajarAnimado { withAnimation(.easeOut(duration: 0.28)) { lector.scrollTo(Self.fondo, anchor: .bottom) } }
-                else { lector.scrollTo(Self.fondo, anchor: .bottom) }
-                // ⚠️ Y otra vez cuando termine la animación. Con un mensaje largo que
-                // sigue creciendo (streaming) el primer `scrollTo` aterrizaba en el fondo
-                // de HACE un instante y se quedaba a medio camino: el botón «no
-                // funcionaba». El segundo cierra la diferencia sin animación.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(bajarAnimado ? 320 : 80))
-                    guard siguiendoElFinal else { return }
-                    lector.scrollTo(Self.fondo, anchor: .bottom)
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if !alFinal, !mensajesÚnicos.isEmpty {
-                    Button { irAbajo(animado: true) } label: {
-                        Image(systemName: "arrow.down")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Color.gInk)
-                            .frame(width: 44, height: 44)
-                            .background(Color.gCard, in: Circle())
-                            .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
-                            .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
-                            // ⚠️ 44 pt de toque de verdad, con aire alrededor: a 34 pt
-                            // había que atinarle, y el toque que caía al lado lo cogía el
-                            // scroll (que además cierra el teclado) y parecía que el botón
-                            // no hacía nada.
-                            .padding(6)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("ir-abajo")
-                    .accessibilityLabel("Ir al final")
-                    .padding(.bottom, 8)
-                    .transition(.scale(scale: 0.8).combined(with: .opacity))
-                }
-            }
-            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: alFinal)
-            .scrollDismissesKeyboard(.interactively)
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    escribiendo = false
-                    if adjuntando {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                            adjuntando = false
-                        }
-                    }
-                }
-            )
-            // El dedo manda: el ancla la mueve el sistema al hacer scroll, y de ahí sale
-            // si sigues el final o subiste a releer.
-            .onChange(of: anclaje) { _, a in
-                guard let a, let ultimo = mensajesÚnicos.last?.id else { return }
-                pegadoAbajo = a == ultimo || a == Self.fondo
-                // Volver abajo con el dedo es volver a seguir el final.
-                if pegadoAbajo { siguiendoElFinal = true }
-            }
-            // El dedo manda: arrastrar suelta el «seguir el final».
-            .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { g in
-                if g.translation.height > 0 { siguiendoElFinal = false }
-            })
-            // Llega un mensaje o crece el último (la respuesta viene en trozos): se baja
-            // sólo si seguías el final. Que la respuesta te tire hacia abajo cuando has
-            // subido a releer es lo más molesto que puede hacer un chat.
-            .onChange(of: store.messages.count) { _, _ in seguir(animado: true) }
-            .onChange(of: textoDelUltimo) { _, _ in seguir() }
-            // Una tarjeta que se midió tarde (video, imagen): si seguías el final, abajo.
-            .onReceive(NotificationCenter.default.publisher(for: .hiloCrecio)) { _ in
-                guard siguiendoElFinal else { return }
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(60))
-                    lector.scrollTo(Self.fondo, anchor: .bottom)
-                }
-            }
-            // Cambiar de conversación es una pantalla nueva: empieza por el final.
-            .onChange(of: hiloVisible) { _, _ in irAbajo() }
-            // Un mensaje que se mandó y la app murió antes de que existiera la
-            // conversación vuelve al compositor, con el aviso, en vez de desaparecer.
-            .task(id: store.selectedAgentID) {
-                if borrador.isEmpty, let perdido = BorradorPendiente.recoger(de: store.selectedAgentID) {
-                    borrador = perdido
-                    fallo = "No se pudo mandar. Inténtalo otra vez."
-                }
-            }
-            .task(id: "\(hiloVisible)/\(store.hiloActivo?.sesionID ?? "")") {
-                guard let sid = store.hiloActivo?.sesionID else { agenda = nil; return }
-                let a = Agenda(agentID: store.selectedAgentID, sessionID: sid)
-                agenda = a
-                await a.recargar()
-            }
-            .sheet(isPresented: $abrirAgenda) {
-                if let agenda { AgendaSheet(agenda: agenda) }
-            }
-            } // ScrollViewReader
+            hilo
 
             // ⚠️ Un CARTEL, no un mensaje. Que el aviso viva dentro de la respuesta lo
             // convertía en historia: quedaba «se cortó la conexión» pegado para siempre en
@@ -250,15 +110,13 @@ struct ConversationView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            // ⚠️ El conmutador de conversaciones va ABAJO, pegado al compositor. Estuvo
-            // arriba —bajo la cabecera— y era donde no llega el pulgar: para cambiarte de
-            // conversación había que estirar el dedo hasta la cabeza del agente y abrir un
-            // panel. Aquí es un toque, en la zona donde ya tienes la mano.
             // Lo que el agente hará solo, si hay algo: es lo que convierte «trabaja en
             // esto por días» en algo que se ve sin abrir ninguna hoja.
             if let agenda { AgendaStrip(agenda: agenda) { abrirAgenda = true } }
 
-            OtrosTrabajando(store: store)
+            // ⚠️ Aquí vivió la barra de chips de conversaciones con su «+». Se fue: la
+            // lista de verdad es la pestaña de Conversaciones, y «nueva» ya está en la
+            // cabecera. Dos entradas para lo mismo encima del compositor era ruido.
 
             compositor
                 // Venir de «Nueva conversación» abre el teclado: si te llevan a una
@@ -360,6 +218,224 @@ struct ConversationView: View {
 
     private var alFinal: Bool { pegadoAbajo }
 
+
+    /// El hilo con su scroll. Aparte del `body` porque el compilador no lo tipaba junto.
+    private var hilo: some View {
+        ScrollViewReader { lector in
+        ScrollView {
+            // ⚠️ VStack, NO LazyVStack. Con el perezoso, al plegar una tarjeta de
+            // herramientas el contenido encogía, el offset quedaba más allá del final
+            // y no se pintaba NADA: el hilo entero en blanco con los mensajes dentro
+            // (medido: «pintando 2 mensajes» y pantalla vacía). El hilo trae como
+            // mucho `tail` mensajes; no hay nada que virtualizar.
+            contenidoDelHilo(lector)
+        }
+        .background(MedidorDeAlto(alto: $altoVisible))
+        // Un chat empieza abajo. Sin esto arranca arriba y hay que mandarlo al final
+        // a mano en cada apertura, que es de donde salían los saltos.
+        .defaultScrollAnchor(.bottom)
+        .scrollPosition(id: $anclaje, anchor: .bottom)
+        // ⚠️ Bajar es `scrollTo`, no asignar el ancla. Asignar `anclaje = ultimo` no
+        // hacía nada si el sistema ya lo tenía como ancla —pasa siempre que el último
+        // mensaje es más alto que la pantalla: subes a releerlo, el ancla sigue
+        // siendo él, y el botón no servía—. Con un `VStack` (no perezoso) todas las
+        // filas existen, así que `scrollTo` aterriza donde debe.
+        .onChange(of: bajar) { _, _ in
+            guard bajar > 0 else { return }
+            if bajarAnimado { withAnimation(.easeOut(duration: 0.28)) { lector.scrollTo(Self.fondo, anchor: .bottom) } }
+            else { lector.scrollTo(Self.fondo, anchor: .bottom) }
+            // ⚠️ Y otra vez cuando termine la animación. Con un mensaje largo que
+            // sigue creciendo (streaming) el primer `scrollTo` aterrizaba en el fondo
+            // de HACE un instante y se quedaba a medio camino: el botón «no
+            // funcionaba». El segundo cierra la diferencia sin animación.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(bajarAnimado ? 320 : 80))
+                guard siguiendoElFinal else { return }
+                lector.scrollTo(Self.fondo, anchor: .bottom)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if !alFinal, !mensajesÚnicos.isEmpty {
+                Button { irAbajo(animado: true) } label: {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                        .frame(width: 44, height: 44)
+                        .background(Color.gCard, in: Circle())
+                        .shadow(color: .black.opacity(0.06), radius: 1, y: 1)
+                        .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+                        // ⚠️ 44 pt de toque de verdad, con aire alrededor: a 34 pt
+                        // había que atinarle, y el toque que caía al lado lo cogía el
+                        // scroll (que además cierra el teclado) y parecía que el botón
+                        // no hacía nada.
+                        .padding(6)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("ir-abajo")
+                .accessibilityLabel("Ir al final")
+                .padding(.bottom, 8)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: alFinal)
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                escribiendo = false
+                if adjuntando {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
+                        adjuntando = false
+                    }
+                }
+            }
+        )
+        // El dedo manda: el ancla la mueve el sistema al hacer scroll, y de ahí sale
+        // si sigues el final o subiste a releer.
+        .onChange(of: anclaje) { _, a in
+            guard let a, let ultimo = mensajesÚnicos.last?.id else { return }
+            pegadoAbajo = a == ultimo || a == Self.fondo
+            // Volver abajo con el dedo es volver a seguir el final.
+            if pegadoAbajo { siguiendoElFinal = true }
+        }
+        // El dedo manda: arrastrar suelta el «seguir el final».
+        .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { g in
+            if g.translation.height > 0 { siguiendoElFinal = false }
+        })
+        // Llega un mensaje o crece el último (la respuesta viene en trozos): se baja
+        // sólo si seguías el final. Que la respuesta te tire hacia abajo cuando has
+        // subido a releer es lo más molesto que puede hacer un chat.
+        .onChange(of: store.messages.count) { _, _ in llegoMensaje(lector) }
+        // Y al aparecer: la sonda de desarrollo manda antes de que la vista exista, y el
+        // `onChange` de arriba no ve ese cambio.
+        .onAppear { llegoMensaje(lector) }
+        .onChange(of: textoDelUltimo) { _, _ in seguir() }
+        // Una tarjeta que se midió tarde (video, imagen): si seguías el final, abajo.
+        .onReceive(NotificationCenter.default.publisher(for: .hiloCrecio)) { _ in
+            guard siguiendoElFinal else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(60))
+                lector.scrollTo(Self.fondo, anchor: .bottom)
+            }
+        }
+        // Cambiar de conversación es una pantalla nueva: empieza por el final.
+        .onChange(of: hiloVisible) { _, _ in anclaArriba = nil; esperandoMiMensaje = false; irAbajo() }
+        // Un mensaje que se mandó y la app murió antes de que existiera la
+        // conversación vuelve al compositor, con el aviso, en vez de desaparecer.
+        .task(id: store.selectedAgentID) {
+            if borrador.isEmpty, let perdido = BorradorPendiente.recoger(de: store.selectedAgentID) {
+                borrador = perdido
+                fallo = "No se pudo mandar. Inténtalo otra vez."
+            }
+        }
+        .task(id: "\(hiloVisible)/\(store.hiloActivo?.sesionID ?? "")") {
+            guard let sid = store.hiloActivo?.sesionID else { agenda = nil; return }
+            let a = Agenda(agentID: store.selectedAgentID, sessionID: sid)
+            agenda = a
+            await a.recargar()
+        }
+        .sheet(isPresented: $abrirAgenda) {
+            if let agenda { AgendaSheet(agenda: agenda) }
+        }
+        } // ScrollViewReader
+    }
+
+    /// El contenido del scroll, aparte: dentro del `body` el compilador no lo tipaba.
+    @ViewBuilder
+    private func contenidoDelHilo(_ lector: ScrollViewProxy) -> some View {
+                VStack(spacing: 14) {
+            if mensajesÚnicos.isEmpty {
+                primeraVez.padding(.top, 90)
+            }
+            Color.clear.frame(height: 0)
+                .onAppear { EasyBitsClient.diag("[vista] pintando \(store.messages.count) mensajes de \(store.claveDelHilo.prefix(8))") }
+                .onChange(of: store.messages.count) { _, n in
+                    EasyBitsClient.diag("[vista] ahora \(n) mensajes de \(store.claveDelHilo.prefix(8))")
+                }
+            ForEach(antesDelAncla) { mensaje in filaAnimada(mensaje) }
+            // ⚠️ Lo que va desde TU último mensaje se mide aparte: es lo que
+            // permite calcular cuánto aire hace falta debajo para que ese mensaje
+            // se quede pegado arriba mientras la respuesta crece (como Claude). El
+            // aire se come conforme la cola crece, y cuando la cola ya no cabe, el
+            // hilo vuelve a comportarse como siempre.
+            VStack(spacing: 14) {
+                ForEach(desdeElAncla) { mensaje in filaAnimada(mensaje) }
+            }
+            .background(GeometryReader { g in
+                Color.clear.preference(key: AltoDeLaCola.self, value: g.size.height)
+            })
+            if anclaArriba != nil {
+                Color.clear.frame(height: aireDebajo)
+            }
+            // El fondo de verdad: a donde se baja. Un mensaje largo que crece
+            // con el streaming no cambia de id, y «bajar» a un id que ya es
+            // el ancla no mueve nada.
+            Color.clear.frame(height: 1).id(Self.fondo)
+        }
+        .padding(.horizontal, 16)
+        // ⚠️ Aire al final, que es el «siempre esconde contenido»: sin esto la
+        // última línea queda justo debajo de la barra de conversaciones y hay que
+        // adivinar que sigue ahí.
+        .padding(.bottom, 28)
+        .scrollTargetLayout()
+        // El contenido CRECE después del primer pintado (markdown, tarjetas de
+        // video con su cuadro, imágenes): mientras sigas el final, cada cambio de
+        // altura vuelve a anclar abajo sin animación. Es lo que evita el «se quedó
+        // a la mitad» al abrir un hilo. Si subiste a releer, no se fuerza.
+        .background(GeometryReader { g in
+            Color.clear.preference(key: AltoDelHilo.self, value: g.size.height)
+        })
+        .onPreferenceChange(AltoDelHilo.self) { _ in
+            if siguiendoElFinal { lector.scrollTo(Self.fondo, anchor: .bottom) }
+        }
+        .onPreferenceChange(AltoDeLaCola.self) { altoDeLaCola = $0 }
+    }
+
+    /// Llegó un mensaje: si es el que acabas de mandar, se clava arriba; si no, se
+    /// sigue el final como siempre.
+    private func llegoMensaje(_ lector: ScrollViewProxy) {
+        // También cuando el envío no pasó por `enviar` (la sonda de desarrollo, la flota):
+        // «tu mensaje y el typing detrás» sólo lo produce un envío desde aquí.
+        let reciénMandado = mensajesÚnicos.last?.kind == .typing
+            && mensajesÚnicos.dropLast().last?.esDeUsuario == true
+        if esperandoMiMensaje || reciénMandado,
+           let mio = mensajesÚnicos.last(where: { $0.esDeUsuario })?.id, mio != anclaArriba {
+            esperandoMiMensaje = false
+            anclaArriba = mio
+            // El aire de abajo aún no está medido en este mismo pintado: se baja al fondo
+            // (que con el aire ES el mensaje arriba) un respiro después.
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(60))
+                withAnimation(.easeOut(duration: 0.3)) { lector.scrollTo(Self.fondo, anchor: .bottom) }
+            }
+            return
+        }
+        seguir(animado: true)
+    }
+
+    /// Los mensajes antes de tu último envío, y desde él (inclusive).
+    private var antesDelAncla: [Message] {
+        guard let anclaArriba, let i = mensajesÚnicos.firstIndex(where: { $0.id == anclaArriba }) else { return mensajesÚnicos }
+        return Array(mensajesÚnicos[..<i])
+    }
+    private var desdeElAncla: [Message] {
+        guard let anclaArriba, let i = mensajesÚnicos.firstIndex(where: { $0.id == anclaArriba }) else { return [] }
+        return Array(mensajesÚnicos[i...])
+    }
+    /// Lo que falta para que la cola llene la pantalla. 28 es el `padding(.bottom)`.
+    private var aireDebajo: CGFloat { max(0, altoVisible - altoDeLaCola - 28 - 14) }
+
+    @ViewBuilder
+    private func filaAnimada(_ mensaje: Message) -> some View {
+        fila(mensaje).id(mensaje.id)
+            // Sólo la entrega se anima al entrar: llega a mitad del turno
+            // y aparecer de golpe se lee como un salto. Animar CADA trozo
+            // del streaming haría temblar el hilo entero.
+            .transition(esEntrega(mensaje)
+                        ? .scale(scale: 0.94).combined(with: .opacity)
+                        : .identity)
+    }
+
     /// Si sigues el final, quédate en él.
     private func seguir(animado: Bool = false) {
         guard pegadoAbajo, !mensajesÚnicos.isEmpty else { return }
@@ -426,7 +502,19 @@ struct ConversationView: View {
                 Spacer()
             }
         case .typing:
-            HStack { TypingBubble(); Spacer() }
+            // Una sola línea con lo que está haciendo, no una burbuja de puntos: el
+            // detalle lo pone el turno (la herramienta en curso) y la mascota de la
+            // cabecera ya late mientras trabaja.
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small).tint(Color.gPrimary)
+                Text(store.hiloActivo?.turno?.detail ?? "Pensando…")
+                    .gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: store.hiloActivo?.turno?.detail)
+                Spacer()
+            }
+            .padding(.leading, 4)
+            .accessibilityIdentifier("pensando")
         }
     }
 
@@ -785,6 +873,7 @@ struct ConversationView: View {
         // Acabas de escribir: se sigue el final aunque estuvieras arriba. El mensaje se
         // añade después (el envío es asíncrono) y `seguir` lo baja al llegar.
         pegadoAbajo = true
+        esperandoMiMensaje = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             adjuntos = []
             adjuntando = false
@@ -861,6 +950,26 @@ struct ConversationView: View {
             fallo = nil
         }
     }
+}
+
+/// Mide el alto de la vista a la que se pone de fondo.
+private struct MedidorDeAlto: View {
+    @Binding var alto: CGFloat
+    var body: some View {
+        GeometryReader { g in
+            Color.clear
+                .onAppear { alto = g.size.height }
+                .onChange(of: g.size.height) { _, h in alto = h }
+        }
+    }
+}
+
+/// Alto de lo que va desde tu último mensaje, para el aire que lo clava arriba.
+private struct AltoDeLaCola: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    // ⚠️ `max`, no «el último»: los hermanos que no ponen la clave aportan 0 y con
+    // «el último gana» la medida llegaba siempre en cero.
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Alto del contenido del hilo, para re-anclar abajo cuando crece tarde.

@@ -125,18 +125,11 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10), "la app no arrancó en la demo")
         foto("01-chat")
 
-        // 1. El chip de otra conversación tiene que llevarme a ella.
-        // ⚠️ El primero que se pueda TOCAR, no el primero de la lista: la barra centra la
-        // conversación activa, así que los chips de su izquierda quedan fuera de pantalla.
-        let chips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chip-'"))
-        XCTAssertTrue(chips.firstMatch.waitForExistence(timeout: 3), "no salió ningún chip de conversación")
-        // `isHittable` revienta con un elemento fuera de pantalla, así que se mira el marco.
-        let ancho = app.frame.width
-        let chip = (0..<chips.count).map { chips.element(boundBy: $0) }
-            .first { $0.frame.minX >= 0 && $0.frame.maxX <= ancho }
-        XCTAssertNotNil(chip, "ningún chip quedó a la vista")
-        chip?.tap()
-        foto("02-chip-otro-agente")
+        // 1. Nueva conversación desde la cabecera: tiene que dejarte en un hilo vacío.
+        app.buttons["nueva-conversacion-cabecera"].tap()
+        XCTAssertTrue(app.staticTexts["¿En qué te ayudo?"].waitForExistence(timeout: 3),
+                      "el chip de nueva conversación no abrió un hilo vacío")
+        foto("02-nueva-desde-cabecera")
 
         // 2. La hoja del agente y sus paneles.
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Ghosty' OR label CONTAINS 'Nube'"))
@@ -150,8 +143,9 @@ final class RecorridoUITests: XCTestCase {
         app.buttons["tab-conversations"].tap()
         foto("04-conversaciones")
 
+        // La del informe (larga): la primera fila ahora es la vacía que se acaba de crear.
         let fila = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).firstMatch
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'El informe'")).firstMatch
         XCTAssertTrue(fila.waitForExistence(timeout: 3), "no se pintó la lista de conversaciones")
         fila.tap()
         XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
@@ -218,8 +212,10 @@ final class RecorridoUITests: XCTestCase {
         // 6a. Deslizar una conversación: asoma «Borrar» y pide confirmación. Se cancela,
         // para que el borrado de verdad (6b) siga yendo por el toque largo y queden
         // cubiertos los dos caminos.
+        // Por nombre, no por posición: el recorrido ya creó conversaciones nuevas (sin
+        // sesión) y ésas van primero.
         let paraDeslizar = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 1)
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
         if paraDeslizar.exists {
             paraDeslizar.swipeLeft()
             let rojo = app.buttons["borrar-deslizado"].firstMatch
@@ -237,7 +233,7 @@ final class RecorridoUITests: XCTestCase {
 
         // 6a2. Toque largo → «Renombrar»: el campo, guardar, y el nombre nuevo en la fila.
         let paraNombrar = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 1)
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'El informe'")).firstMatch
         if paraNombrar.exists {
             paraNombrar.press(forDuration: 1.1)
             let renombrar = app.buttons["Renombrar"].firstMatch
@@ -259,7 +255,7 @@ final class RecorridoUITests: XCTestCase {
 
         // 6b. Toque largo sobre una conversación: menú y confirmación de borrado.
         let paraBorrar = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).element(boundBy: 2)
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
         let antes = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).count
         if paraBorrar.exists {

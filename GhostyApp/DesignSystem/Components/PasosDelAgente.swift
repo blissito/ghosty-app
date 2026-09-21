@@ -10,114 +10,121 @@ import SwiftUI
 /// lo que produjo**, en vez de contar cuántas corrieron.
 struct PasosDelAgente: View {
     let run: ToolRun
-    /// Mientras el turno vive se enseñan todos; al cerrar se colapsan.
-    ///
-    /// ⚠️ Colapsar NO es esconder: el historial ya leído se pliega y se puede volver a
-    /// abrir. Ocultar el trabajo del agente ya fue un error dos veces —en code-mode ESO es
-    /// el trabajo— y el resultado era un "Trabajando…" mudo casi todo el turno.
-    @State private var abierto: Bool
-    /// ¿La persona lo abrió o cerró a mano? Entonces manda ella: nada de plegarlo solo.
-    @State private var decidido = false
-    @State private var plegadoPendiente: Task<Void, Never>?
+    /// Se conserva por compatibilidad con quien llama; la línea es siempre una y el
+    /// detalle vive en el drawer.
+    init(run: ToolRun, abierto: Bool = false) { self.run = run }
 
-    init(run: ToolRun, abierto: Bool) {
-        self.run = run
-        _abierto = State(initialValue: abierto)
-    }
+    @State private var drawer = false
 
+    /// UNA línea, como Claude: el paso que corre ahora (o el último), con su icono y un
+    /// chevron. Tocarla abre el drawer con la línea de tiempo completa. La lista de
+    /// tarjetas en el hilo ocupaba media pantalla en un turno largo y empujaba la
+    /// respuesta fuera de la vista.
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if abierto {
-                ForEach(run.herramientas) { h in
-                    PasoFila(h: h)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .leading).combined(with: .opacity),
-                            removal: .opacity))
-                }
-            }
-            resumen
-        }
-        .frame(maxWidth: 300, alignment: .leading)
-        // Al terminar el turno se pliega solo. ⚠️ Un `@State` no se re-inicializa cuando
-        // cambian las props, así que sin esto se quedaría abierto para siempre.
-        //
-        // ⚠️ Entre una herramienta y la siguiente hay un instante sin «corriendo», y eso
-        // se leía como «terminó»: la lista se cerraba a cada paso y había que reabrirla.
-        // Ahora se espera 1.5 s de silencio, y si la persona lo abrió o cerró a mano no
-        // se toca nunca.
-        .onChange(of: run.corriendo?.id) { _, ahora in
-            plegadoPendiente?.cancel()
-            guard ahora == nil, !decidido else { return }
-            plegadoPendiente = Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                guard !Task.isCancelled else { return }
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { abierto = false }
-            }
-        }
-    }
-
-    /// La línea que abre y cierra. Dice lo justo para no tener que abrirla.
-    private var resumen: some View {
-        Button {
-            decidido = true
-            plegadoPendiente?.cancel()
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { abierto.toggle() }
-        } label: {
-            HStack(spacing: 7) {
+        Button { drawer = true } label: {
+            HStack(spacing: 8) {
                 if let viva = run.corriendo {
                     ProgressView().controlSize(.mini)
-                    Text(viva.rotulo)
-                        .lineLimit(1)
+                    Text(viva.rotulo).lineLimit(1)
                 } else if run.fallidas > 0 {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Color.gDangerInk)
-                    Text("\(run.count) pasos · \(run.fallidas) con problemas")
-                } else {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.gGreenInk)
-                    Text("\(run.count) paso\(run.count == 1 ? "" : "s")")
-                        .contentTransition(.numericText())
+                    Text("\(run.count) pasos · \(run.fallidas) con problemas").lineLimit(1)
+                } else if let ultima = run.herramientas.last {
+                    Image(systemName: ultima.clase.icono)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.gInk3)
+                    Text(run.count == 1 ? ultima.rotulo : "\(ultima.rotulo) · \(run.count) pasos")
+                        .lineLimit(1)
                 }
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .rotationEffect(.degrees(abierto ? 180 : 0))
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color.gInk4)
             }
-            .font(.system(size: 12.5, weight: .medium))
+            .font(.system(size: 13, weight: .medium))
             .foregroundStyle(Color.gInk3)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("pasos-del-agente")
+        .sheet(isPresented: $drawer) {
+            DrawerDePasos(run: run)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackground(Color.gBg)
+        }
+    }
+}
+
+/// El drawer: la línea de tiempo de lo que corrió, con hilo vertical entre pasos.
+private struct DrawerDePasos: View {
+    let run: ToolRun
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Text("Pasos").font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.gInk)
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.gInk2)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("cerrar-pasos")
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 6)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(run.herramientas.enumerated()), id: \.element.id) { i, h in
+                        PasoFila(h: h, ultimo: i == run.herramientas.count - 1)
+                    }
+                }
+                .padding(.horizontal, Theme.Space.screenH)
+                .padding(.vertical, 10)
+            }
+        }
     }
 }
 
 /// Una herramienta: qué es, cómo va y qué devolvió.
 private struct PasoFila: View {
     let h: Herramienta
+    var ultimo = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            icono
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    Text(h.rotulo)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(h.estado == .fallida ? Color.gDangerInk : Color.gInk)
-                        .lineLimit(1)
-                    if let d = h.donde {
-                        Text(d).gMono(size: 11).foregroundStyle(Color.gInk3).lineLimit(1)
-                    }
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 0) {
+                icono
+                if !ultimo {
+                    Rectangle().fill(Color.gSeparator).frame(width: 1.5)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+            .frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(h.rotulo)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(h.estado == .fallida ? Color.gDangerInk : Color.gInk)
+                    .lineLimit(2)
+                if let d = h.donde {
+                    Text(d).gMono(size: 11.5).foregroundStyle(Color.gInk3).lineLimit(1)
                 }
                 if let s = h.salida, !s.isEmpty { asomo(s) }
             }
+            .padding(.bottom, ultimo ? 0 : 18)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background(Color.gCard)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder

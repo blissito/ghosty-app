@@ -1329,6 +1329,15 @@ final class LiveAgentStore: AgentStoring {
         // En el registro se ve como un `started` duplicado; en pantalla, como un agente
         // tartamudo.
         hilo.enVuelo?.cancel()
+        // En demo no hay caja: se simula un turno con herramientas y texto en trozos,
+        // que es lo que deja mirar el hilo mientras «trabaja» sin red.
+        if DemoData.encendido {
+            hilo.enVuelo = Task { [weak self] in
+                guard let self else { return }
+                await self.turnoDeDemo(canal, hilo, respuesta: idRespuesta)
+            }
+            return
+        }
         hilo.enVuelo = Task { [weak self] in
             guard let self else { return }
             // El turno anterior tiene que estar MUERTO antes de hablarle a la misma sesión.
@@ -1902,6 +1911,39 @@ final class LiveAgentStore: AgentStoring {
     /// El cronómetro corre en el cliente porque la caja no manda progreso por paso:
     /// el contrato sólo trae `chunk` · `usage` · `done`. Mejor un reloj honesto que
     /// una barra inventada.
+    /// Un turno de mentira para el modo demo: tres herramientas y una respuesta que
+    /// llega por trozos. Sólo para mirar la UI; no toca nada real.
+    private func turnoDeDemo(_ canal: Canal, _ hilo: Hilo, respuesta: String) async {
+        var herramientas: [Herramienta] = []
+        let pasos: [(String, Herramienta.Clase, String)] = [
+            ("Buscar en la web", .search, "Clay.com plataforma ventas qué es 2026"),
+            ("Leer página", .fetch, "https://clay.com/pricing"),
+            ("Resumir", .think, "Resumiendo qué es Clay, sus funciones, precios y críticas"),
+        ]
+        for (i, paso) in pasos.enumerated() {
+            try? await Task.sleep(for: .seconds(1.6))
+            if Task.isCancelled { return }
+            herramientas.append(Herramienta(id: "demo-\(i)", titulo: paso.0, clase: paso.1,
+                                            estado: .corriendo, salida: nil, donde: nil, detalle: paso.2))
+            hilo.sinHerramientas = false
+            hilo.turno?.detail = paso.2
+            pintarRespuesta(hilo, id: respuesta, texto: "", herramientas: herramientas)
+            try? await Task.sleep(for: .seconds(1.4))
+            herramientas[i].estado = .hecha
+            herramientas[i].salida = "ok"
+            pintarRespuesta(hilo, id: respuesta, texto: "", herramientas: herramientas)
+        }
+        let texto = "**Clay** es una plataforma de prospección: junta datos de decenas de fuentes, enriquece listas y automatiza el alcance. Cobra por créditos, y lo que más critican es que el precio escala rápido."
+        var acumulado = ""
+        for palabra in texto.split(separator: " ") {
+            try? await Task.sleep(for: .milliseconds(70))
+            if Task.isCancelled { return }
+            acumulado += (acumulado.isEmpty ? "" : " ") + palabra
+            pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+        }
+        cerrarTurno(canal, hilo)
+    }
+
     private func arrancarCronometro(_ hilo: Hilo, titulo: String) {
         hilo.inicio = Date()
         hilo.turno = TurnActivity(id: UUID().uuidString, title: titulo,

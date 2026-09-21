@@ -20,8 +20,8 @@ enum DemoData {
     }
 
     static let cuentas: [AgentAccount] = [
-        AgentAccount(id: "demo-1", token: "gat_demo1", name: "Ghosty", host: nil),
-        AgentAccount(id: "demo-2", token: "gat_demo2", name: "Nube", host: nil),
+        AgentAccount(id: "demo-1", token: "gat_demo1", name: "Ghosty", host: nil, motor: "claude"),
+        AgentAccount(id: "demo-2", token: "gat_demo2", name: "Nube", host: nil, motor: "goose"),
     ]
 
     /// Un PNG de 8×8 de verdad, para que la burbuja tenga una imagen que pintar.
