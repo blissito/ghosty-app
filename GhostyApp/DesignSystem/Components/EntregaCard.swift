@@ -86,14 +86,17 @@ struct EntregaCard: View {
         // guardar) son botones propios, y anidados dentro del de la tarjeta el toque se
         // lo quedaba el de fuera —que para audio/video no hacía nada—. Era el «play no
         // reproduce» y el «el botón de descarga no recibe el clic».
+        // ⚠️ Y la que sí se abre va con `onTapGesture`, no con `Button`: un `Button` que
+        // presenta un `fullScreenCover` desde su acción se queda «pulsado», y el SIGUIENTE
+        // toque en cualquier sitio del hilo lo suelta y vuelve a abrir el visor —medido:
+        // cerrar la imagen y dar play a la nota de voz de al lado reabría la imagen—.
         Group {
             if entrega.esAudio || entrega.esVideo {
                 tarjeta
             } else {
-                Button(action: abrir) { tarjeta }
+                tarjeta.contentShape(Rectangle()).onTapGesture(perform: abrir)
             }
         }
-        .buttonStyle(.plain)
         .quickLookPreview($compartiendo)
         // ⚠️ Sólo las IMÁGENES se bajan al aparecer: la miniatura es lo que hace útil la
         // tarjeta. Lo demás espera al toque — ver el aviso de arriba.
@@ -109,7 +112,8 @@ struct EntregaCard: View {
             await bajar(yAbrir: false)
         }
         .fullScreenCover(item: $mirando) { img in
-            VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: conBytes()?.aDisco())
+            VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: conBytes()?.aDisco(),
+                          onCerrar: { mirando = nil })
         }
     }
 

@@ -115,11 +115,12 @@ enum DemoData {
                               contenido: nil, datos: png)
         // El texto pasa por el MISMO puente que en vivo, o la demo probaría otra cosa.
         let crudo = "Ya está, recortada. Te la entrego.\n\n"
+            // La nota de voz TAL CUAL la imprime `voice.speak` del SDK: sólo URL, sin bytes.
+            // Va ANTES del archivo a propósito: ése es el orden que se saltaba el parser.
+            + "```eb-audio\n{\"url\":\"\(audioDemo().absoluteString)\",\"waveform\":\"\",\"durationMs\":4000,\"mime\":\"audio/wav\"}\n```\n\n"
             + "```eb-file\n{\"url\":\"\(imagenGrande().absoluteString)\","
             + "\"name\":\"cotizacion.png\",\"size\":48213}\n```\n\n"
-            + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n\n"
-            // La nota de voz TAL CUAL la imprime `voice.speak` del SDK: sólo URL, sin bytes.
-            + "```eb-audio\n{\"url\":\"\(audioDemo().absoluteString)\",\"waveform\":\"\",\"durationMs\":4000,\"mime\":\"audio/wav\"}\n```\n"
+            + "1. **Gatito naranja** ![gatito](\(imagenGrande().absoluteString))\n"
         var visible = crudo
         var deEbFile: [Message] = []
         for h in BloqueEbFile.buscar(crudo, agentID: "demo-1", sesionID: "s-foto").reversed() {

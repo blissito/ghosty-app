@@ -20,6 +20,10 @@ struct VisorDeImagen: View {
     let imagen: UIImage
     let titulo: String
     var archivo: URL?
+    /// Quién lo presentó puede cerrarlo él mismo. `dismiss` del entorno no cerraba el
+    /// visor abierto desde una tarjeta de entrega cuando el hilo ya había cambiado de
+    /// conversación antes (medido en el recorrido): la ✕ no hacía nada.
+    var onCerrar: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var escala: CGFloat = 1
@@ -51,7 +55,7 @@ struct VisorDeImagen: View {
 
             VStack {
                 HStack {
-                    Button { dismiss() } label: {
+                    Button { if let onCerrar { onCerrar() } else { dismiss() } } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(.white)

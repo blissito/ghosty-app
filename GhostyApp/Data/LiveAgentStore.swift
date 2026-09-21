@@ -654,6 +654,19 @@ final class LiveAgentStore: AgentStoring {
             // todavía no ha cerrado; si el historial ya trae su texto parcial como último
             // mensaje del agente, se quita esa copia y gana la que sigue creciendo.
             guard !mensajes.isEmpty else { return }
+            // ⚠️ Si el SERVIDOR dice que el último turno ya acabó, el turno local es un
+            // fantasma: la app se durmió a media respuesta y nadie lo cerró. Con él vivo,
+            // lo de abajo QUITABA la respuesta de verdad para conservar la burbuja local
+            // vacía —y al abrir el push se veía «Sigo con esto» para siempre, con la
+            // respuesta sin cargar hasta cerrar la app—. Se cierra el local primero.
+            let ultimo = await cliente.ultimoTurno(de: sid)
+            if hilo.turno != nil, let u = ultimo, !["running", "queued"].contains(u.estado) {
+                EasyBitsClient.diag("[hilo] \(sid): el servidor ya cerró el turno (\(u.estado)); suelto el local")
+                hilo.enVuelo?.cancel(); hilo.enVuelo = nil
+                hilo.interrumpido = false
+                hilo.mensajes.removeAll { $0.kind == .typing }
+                cerrarTurno(canal, hilo)
+            }
             let vivas = hilo.mensajes.filter { $0.id.hasPrefix("turno-") && hilo.turno != nil }
             if !vivas.isEmpty, mensajes.last?.esDelAgente == true,
                case .agent = mensajes.last!.kind {
@@ -670,7 +683,7 @@ final class LiveAgentStore: AgentStoring {
                case .user(let t, _) = primero.kind {
                 titulos.anotarSiFalta(canal.cuenta.id, sid, desde: t)
             }
-            aplicarUltimoTurno(await cliente.ultimoTurno(de: sid), a: hilo, de: canal)
+            aplicarUltimoTurno(ultimo, a: hilo, de: canal)
             guardarHilos(canal)
         } catch {
             EasyBitsClient.diag("[hilo] no pude traer \(sid): \(error)")

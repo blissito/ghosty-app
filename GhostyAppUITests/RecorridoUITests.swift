@@ -210,11 +210,18 @@ final class RecorridoUITests: XCTestCase {
                 .max { $0.frame.height < $1.frame.height }
             if let imagen, imagen.exists, imagen.isHittable {
                 imagen.tap()
+                // Con la presentación terminada: tocar ✕ a media animación se pierde.
+                XCTAssertTrue(app.buttons["cerrar-visor"].waitForExistence(timeout: 3))
+                Thread.sleep(forTimeInterval: 0.8)
                 foto("07c-imagen-abierta")
                 app.buttons["cerrar-visor"].firstMatch.tap()
+                XCTAssertTrue(app.buttons["cerrar-visor"].waitForNonExistence(timeout: 3), "el visor no cerró")
             }
             // La nota de voz (` ```eb-audio `) sale como reproductor y play la baja y la
             // reproduce: antes era JSON crudo, y un mp3 por URL decía «No tengo el audio».
+            // Con el visor ya cerrado del todo: tocar mientras se va aterrizaba en la
+            // tarjeta de la imagen y volvía a abrirlo.
+            Thread.sleep(forTimeInterval: 0.8)
             let play = app.buttons["reproducir-audio"].firstMatch
             XCTAssertTrue(play.waitForExistence(timeout: 3), "la nota de voz no salió como reproductor")
             play.tap()
@@ -342,5 +349,26 @@ final class RecorridoUITests: XCTestCase {
         let cancelar = app.buttons["Cancelar"].firstMatch
         if cancelar.exists { cancelar.tap() }
         else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap() }
+    }
+}
+
+extension RecorridoUITests {
+    func testVisorCierra() {
+        XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
+        app.buttons["tab-conversations"].tap()
+        let fila = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
+        XCTAssertTrue(fila.waitForExistence(timeout: 3)); fila.tap()
+        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3))
+        let todas = app.images
+        let imagen = (0..<todas.count).map { todas.element(boundBy: $0) }
+            .filter { $0.frame.height > 100 }.max { $0.frame.height < $1.frame.height }!
+        imagen.tap()
+        XCTAssertTrue(app.buttons["cerrar-visor"].waitForExistence(timeout: 3))
+        Thread.sleep(forTimeInterval: 0.8)
+        app.buttons["cerrar-visor"].firstMatch.tap()
+        let cerrado = app.buttons["cerrar-visor"].waitForNonExistence(timeout: 3)
+        foto("60-tras-cerrar-visor")
+        XCTAssertTrue(cerrado, "el visor no cerró")
     }
 }

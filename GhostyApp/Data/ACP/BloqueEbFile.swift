@@ -40,8 +40,12 @@ enum BloqueEbFile {
         // ⚠️ También ` ```eb-audio `: es la nota de voz (`voice.speak` del SDK) y salía
         // como JSON crudo en el hilo, con la URL firmada dentro. Es una entrega de audio
         // como cualquier otra, con su reproductor.
-        while let abre = texto.range(of: "```eb-file", range: desde..<texto.endIndex)
-                        ?? texto.range(of: "```eb-audio", range: desde..<texto.endIndex) {
+        // ⚠️ El que aparezca PRIMERO. Buscar `eb-file` y luego `eb-audio` se saltaba una
+        // nota de voz que venía antes del archivo: se veía el JSON de la voz y la
+        // tarjeta del mp3 debajo.
+        while let abre = [texto.range(of: "```eb-file", range: desde..<texto.endIndex),
+                          texto.range(of: "```eb-audio", range: desde..<texto.endIndex)]
+                            .compactMap({ $0 }).min(by: { $0.lowerBound < $1.lowerBound }) {
             guard let cierra = texto.range(of: "```", range: abre.upperBound..<texto.endIndex)
             else { break }   // sin cerrar: todavía está llegando
             let cuerpo = String(texto[abre.upperBound..<cierra.lowerBound])
