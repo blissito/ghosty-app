@@ -24,6 +24,25 @@ enum ACPClient {
         let estado: String
         let error: String?
         let terminado: Date?
+        /// Cuándo arrancó. Es lo que deja caducar un `running` que nadie confirma.
+        let iniciado: Date?
+
+        /// Cuánto le creemos a un turno que dice que sigue.
+        ///
+        /// ⚠️ gs ya corta por silencio a los 10 min (`TURN_SILENCE_MS`), pero eso es
+        /// dentro del servidor: si la fila se quedó vieja por cualquier motivo, la app no
+        /// tiene que repetir la mentira. Pasado esto se deja de decir que trabaja, en vez
+        /// de enseñar un cronómetro eterno — es el `staleDate` de ActivityKit traído aquí.
+        static let frescura: TimeInterval = 15 * 60
+
+        /// El servidor dice que sigue **y** la fecha lo respalda.
+        ///
+        /// ⚠️ Sin `iniciado` devuelve `false` a propósito: un servidor que no manda la
+        /// fecha no nos autoriza a inventar que hay trabajo en curso.
+        var sigueVivo: Bool {
+            guard ["running", "queued"].contains(estado), let i = iniciado else { return false }
+            return i > Date().addingTimeInterval(-Self.frescura)
+        }
 
         static func desde(_ d: Any?) -> UltimoTurno? {
             guard let d = d as? [String: Any], let id = d["turnId"] as? String,
@@ -31,8 +50,11 @@ enum ACPClient {
             let iso = ISO8601DateFormatter()
             iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let iso2 = ISO8601DateFormatter()
-            let fin = (d["endedAt"] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
-            return UltimoTurno(turnId: id, estado: estado, error: d["error"] as? String, terminado: fin)
+            func fecha(_ clave: String) -> Date? {
+                (d[clave] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
+            }
+            return UltimoTurno(turnId: id, estado: estado, error: d["error"] as? String,
+                               terminado: fecha("endedAt"), iniciado: fecha("startedAt"))
         }
     }
 

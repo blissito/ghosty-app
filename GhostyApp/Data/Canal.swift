@@ -262,6 +262,18 @@ final class Canal {
     /// Los que te están esperando a ti.
     var esperandoPermiso: [Hilo] { hilos.filter { $0.permisoPendiente != nil } }
 
+    /// Las conversaciones que el SERVIDOR dice que están corriendo y que esta app no está
+    /// oyendo: el turno salió de la Mac o de la web.
+    ///
+    /// ⚠️ Es la única forma de saberlo sin abrir un SSE por conversación —gs no tiene
+    /// stream por agente— y sale de la lista que ya se pide en `ponerseAlDia`.
+    /// ⚠️ Se descuentan las que tienen turno LOCAL vivo: ésas las cuenta `enCurso`, y
+    /// sumarlas dos veces decía «trabajando en 2 conversaciones» con una sola.
+    var trabajoRemoto: [ACPClient.Session] {
+        let locales = Set(enCurso.compactMap(\.sesionID))
+        return hilosRemotos.filter { ($0.ultimoTurno?.sigueVivo ?? false) && !locales.contains($0.id) }
+    }
+
     func soltar() {
         for h in hilos { h.soltar() }
         hilos = []

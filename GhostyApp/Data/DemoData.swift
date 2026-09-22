@@ -148,6 +148,36 @@ enum DemoData {
         ACPClient.Session(id: "s-vieja", title: "Cotización de marzo", cwd: "/data/work",
                           updatedAt: Date().addingTimeInterval(-86_400), messageCount: 6),
     ]
+
+    /// Lo que el agente hace desde OTRO lado: la Mac o la web. gs lo reporta en la lista
+    /// y esta app no lo está oyendo — es justo el estado que la lista no sabía pintar.
+    ///
+    /// Va aparte de `sesiones` a propósito: ésa la comparten los dos canales y meterle
+    /// turnos vivos cambiaría capturas que ya son contrato.
+    static var sesionesRemotas: [ACPClient.Session] {
+        func turno(_ id: String, _ estado: String, inicio: TimeInterval, fin: TimeInterval? = nil)
+            -> ACPClient.UltimoTurno {
+            ACPClient.UltimoTurno(turnId: id, estado: estado, error: nil,
+                                  terminado: fin.map { Date().addingTimeInterval($0) },
+                                  iniciado: Date().addingTimeInterval(inicio))
+        }
+        return [
+            // Corriendo de verdad: enciende «Trabajando en otra conversación…».
+            ACPClient.Session(id: "s-remota", title: "Migración de la base", cwd: "/data/work",
+                              updatedAt: Date(), messageCount: 3,
+                              ultimoTurno: turno("tr1", "running", inicio: -90)),
+            // Zombi: el servidor lleva tres horas diciendo «running». La caducidad tiene
+            // que apagarlo, o la lista miente toda la tarde.
+            ACPClient.Session(id: "s-zombi", title: "Turno mudo", cwd: "/data/work",
+                              updatedAt: Date().addingTimeInterval(-10_800), messageCount: 2,
+                              ultimoTurno: turno("tr2", "running", inicio: -10_800)),
+            // Contestó desde otro lado y nunca la abriste aquí: enciende el punto.
+            ACPClient.Session(id: "s-contesto-fuera", title: "Cotización de abril",
+                              cwd: "/data/work", updatedAt: Date().addingTimeInterval(-300),
+                              messageCount: 8,
+                              ultimoTurno: turno("tr3", "done", inicio: -600, fin: -300)),
+        ]
+    }
 }
 
 extension LiveAgentStore {
@@ -208,6 +238,17 @@ extension LiveAgentStore {
         foto.tocado = Date().addingTimeInterval(-120)
         vacia.tocado = Date().addingTimeInterval(-300)
         uno.hilosRemotos = DemoData.sesiones
+        // `GHOSTY_DEMO_REMOTO=1`: el agente trabajando desde la Mac. Es lo único que deja
+        // MIRAR ese estado sin tener dos aparatos delante.
+        if Gancho.valor("GHOSTY_DEMO_REMOTO") == "1" {
+            larga.fallo = nil
+            // ⚠️ Sin el permiso: «espera tu visto bueno» GANA sobre cualquier trabajo, y
+            // con razón —está detenido esperándote—, pero entonces tapa justo el estado
+            // que este gancho existe para poder mirar.
+            foto.permisoPendiente = nil
+            uno.hilosRemotos = DemoData.sesiones + DemoData.sesionesRemotas
+            for s in DemoData.sesionesRemotas { marcarSinVerRemota(s, agente: uno.cuenta.id) }
+        }
         uno.estadoHilos = .listo
         uno.infoDeLaCaja = "demo 1.0"
 

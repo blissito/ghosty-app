@@ -363,6 +363,36 @@ final class RecorridoUITests: XCTestCase {
 }
 
 extension RecorridoUITests {
+    /// El agente trabajando desde OTRA superficie (la Mac, la web).
+    ///
+    /// ⚠️ Es el fallo que originó esto: llegaban los push de las respuestas y la lista
+    /// seguía diciendo «En reposo», porque el estado salía de los turnos que había abierto
+    /// ESTE teléfono. Un test que sólo compilara no lo habría visto nunca.
+    func testTrabajoRemoto() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchEnvironment["GHOSTY_DEMO_REMOTO"] = "1"
+        app.launchEnvironment["GHOSTY_TAB"] = "conversations"
+        app.launch()
+
+        // 1. La cabecera del agente lo dice, aunque el turno no lo abrimos aquí.
+        let estado = app.staticTexts["estado-demo-1"]
+        XCTAssertTrue(estado.waitForExistence(timeout: 5), "no se pintó el estado del agente")
+        XCTAssertTrue(estado.label.contains("otra conversación"),
+                      "la cabecera no dice que trabaja desde otro lado: «\(estado.label)»")
+        foto("20-estado-remoto")
+
+        // 2. Las guardadas: la que corre dice «Trabajando…» y la que lleva tres horas
+        //    muda NO — si no, la lista miente toda la tarde.
+        app.buttons["guardadas-demo-1"].tap()
+        XCTAssertTrue(app.staticTexts["Trabajando…"].waitForExistence(timeout: 3),
+                      "la conversación que sí corre no dice que trabaja")
+        let sinNoticias = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH 'Sin noticias'")).firstMatch
+        XCTAssertTrue(sinNoticias.exists, "el turno mudo de hace tres horas sigue diciendo que trabaja")
+        foto("21-guardadas-remotas")
+    }
+
     func testVisorCierra() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
         app.buttons["tab-conversations"].tap()

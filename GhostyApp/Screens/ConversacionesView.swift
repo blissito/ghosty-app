@@ -106,7 +106,11 @@ struct ConversacionesView: View {
     /// de un vistazo si hay algo corriendo sin tener que leer la lista entera.
     private var resumen: String {
         let abiertas = store.canales.values.reduce(0) { $0 + $1.hilos.count }
+        // ⚠️ Se cuenta TAMBIÉN lo que corre desde otra superficie. Sin eso, el renglón
+        // decía «1 trabajando» justo encima de una cabecera que decía que el agente
+        // trabajaba: dos frases que se contradicen en la misma pantalla.
         let ocupadas = store.enCurso.count
+            + store.canales.values.reduce(0) { $0 + $1.trabajoRemoto.count }
         let base = abiertas == 1 ? "1 conversación" : "\(abiertas) conversaciones"
         guard ocupadas > 0 else { return base }
         return base + (ocupadas == 1 ? " · 1 trabajando" : " · \(ocupadas) trabajando")
@@ -154,6 +158,7 @@ struct ConversacionesView: View {
                     }
                 }
                 StatusLine(status: store.estado(de: agente.id)).lineLimit(1)
+                    .accessibilityIdentifier("estado-\(agente.id)")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -403,7 +408,14 @@ struct ConversacionesView: View {
         if let u = s.ultimoTurno {
             let cuando = u.terminado.map { " · " + Hilo.hace($0) } ?? ""
             switch u.estado {
-            case "running", "queued": return "Trabajando…"
+            case "running", "queued":
+                // ⚠️ Con fecha: un turno que dice «running» desde hace horas no está
+                // trabajando, se quedó colgado. Decirlo es más honesto que un
+                // «Trabajando…» eterno que nadie puede desmentir desde aquí.
+                guard u.sigueVivo else {
+                    return "Sin noticias" + (u.iniciado.map { " · " + Hilo.hace($0) } ?? "")
+                }
+                return "Trabajando…"
             case "error":   return "Falló: \(u.error ?? "el turno se cortó")"
             case "stopped": return "Detenido" + cuando
             default:        return "Contestó" + cuando

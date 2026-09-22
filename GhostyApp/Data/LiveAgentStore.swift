@@ -477,7 +477,26 @@ final class LiveAgentStore: AgentStoring {
     /// El reposo no es una excepción que reparar — es el estado normal de un teléfono.
     func volverDelFondo() async {
         Keychain.migrarAccesibilidad()
+        repasarLaFlota(forzado: true)
+    }
+
+    /// Cuándo se preguntó por última vez por TODOS los agentes.
+    private var ultimoRepaso: Date?
+
+    /// Preguntar por todos los agentes, no sólo por el que miras.
+    ///
+    /// Es lo que hace que la lista sepa del trabajo que empezó en otra superficie: el
+    /// estado vive en `GET /conversations`, así que basta con volver a pedirlo.
+    ///
+    /// ⚠️ NO hay temporizador. Un repaso periódico despierta la radio con la pantalla
+    /// apagada —lo peor para la batería en iOS— y no arregla nada: nadie mira una lista
+    /// que no tiene delante. Se pregunta al volver del fondo y al entrar a la lista.
+    /// ⚠️ Con freno: entrar y salir de la pestaña tres veces no son tres rondas de GET por
+    /// agente. Volver del fondo sí fuerza, que ahí sí pudo pasar cualquier cosa.
+    func repasarLaFlota(forzado: Bool = false) {
         guard !DemoData.encendido, Session.haySesion else { return }
+        if !forzado, let u = ultimoRepaso, Date().timeIntervalSince(u) < 30 { return }
+        ultimoRepaso = Date()
         for canal in canales.values { ponerseAlDia(canal) }
     }
 
@@ -501,7 +520,12 @@ final class LiveAgentStore: AgentStoring {
         let hilo = canal.hilo(sesion: sid) ?? canal.abrir(sid)
         let antes = hilo.mensajes.count
         await traerLaConversacion(hilo, de: canal)
-        return hilo.mensajes.count != antes
+        let hayNuevo = hilo.mensajes.count != antes
+        // El punto de la pestaña, si mientras dormías contestó algo que no estabas
+        // mirando. ⚠️ NO se pide aquí la lista de conversaciones: esto corre con unos
+        // segundos de presupuesto que da iOS, y ya gastó uno trayendo el hilo.
+        if hayNuevo, hilo.clave != hiloActivo?.clave { sinVer.insert(agentID) }
+        return hayNuevo
     }
 
     /// Un aviso pide ir a una conversación. Es la ÚNICA entrada: el destino se guarda
@@ -569,6 +593,7 @@ final class LiveAgentStore: AgentStoring {
                 self.cache.guardarLista(frescas, de: canal.cuenta.id)
                 for f in frescas {
                     if let h = canal.hilo(sesion: f.id) { self.aplicarUltimoTurno(f.ultimoTurno, a: h, de: canal) }
+                    else { self.marcarSinVerRemota(f, agente: canal.cuenta.id) }
                 }
                 // Y las abiertas que el servidor YA NO tiene (borradas desde otro sitio) se
                 // cierran aquí. Se respeta la que trabaja y la que aún no tiene sesión.
@@ -628,6 +653,19 @@ final class LiveAgentStore: AgentStoring {
                 if !hilo.visto { sinVer.insert(canal.cuenta.id) }
             }
         }
+    }
+
+    /// Una conversación que NO tienes abierta aquí también puede haber contestado.
+    ///
+    /// ⚠️ Antes se ignoraban: el agente terminaba algo que le encargaste desde la Mac y la
+    /// pestaña no encendía el punto hasta que abrías ese hilo —que es justo lo que no ibas
+    /// a hacer si nada te avisaba—.
+    /// ⚠️ NO se abre el hilo para averiguarlo: eso cuesta un GET por conversación y llena
+    /// la barra de conversaciones que nadie pidió. La fila de la lista ya trae la fecha.
+    func marcarSinVerRemota(_ s: ACPClient.Session, agente: String) {
+        guard let u = s.ultimoTurno, !u.sigueVivo, let fin = u.terminado else { return }
+        let visto = VistoHasta.de(agente, s.id) ?? .distantPast
+        if fin > visto { sinVer.insert(agente) }
     }
 
     /// Lo que se dijo en esta conversación, según el servidor.
@@ -1197,6 +1235,18 @@ final class LiveAgentStore: AgentStoring {
         if let vivo = canal.enCurso.last {
             return .working(task: vivo.turno?.detail ?? "Trabajando…")
         }
+        // Trabajo que NO empezó en este teléfono (la Mac, la web). Va antes de
+        // «interrumpido» porque esto lo CONFIRMA el servidor y aquello lo infiere el
+        // teléfono; entre los dos, gana el que sabe.
+        //
+        // ⚠️ No se nombra el dispositivo: gs manda `canal: "chat"` para la web, la Mac y
+        // el teléfono, así que «desde tu Mac» sería inventado. Lo que sí es verificable
+        // es que hay otra conversación con turno vivo que no estamos oyendo.
+        let remotas = canal.trabajoRemoto.count
+        if remotas > 0 {
+            return .working(task: remotas == 1 ? "Trabajando en otra conversación…"
+                                               : "Trabajando en \(remotas) conversaciones…")
+        }
         // ⚠️ Un hilo INTERRUMPIDO no está en reposo. La cabecera decía «En reposo · listo»
         // justo encima del cartel que dice «tu agente sigue con esto»: dos frases que se
         // contradicen en la misma pantalla, y la de arriba es la que hace pensar que se
@@ -1214,14 +1264,11 @@ final class LiveAgentStore: AgentStoring {
     /// otros dos siguieran corriendo.
     private func refrescarEstado(_ canal: Canal) {
         guard let i = agents.firstIndex(where: { $0.id == canal.cuenta.id }) else { return }
-        if !canal.esperandoPermiso.isEmpty {
-            // Gana siempre: es lo único que te está esperando a ti, y está detenido.
-            agents[i].status = .awaitingApproval
-        } else if let vivo = canal.enCurso.last {
-            agents[i].status = .working(task: vivo.turno?.detail ?? "Trabajando…")
-        } else {
-            agents[i].status = .idle(since: "ahora")
-        }
+        // ⚠️ Se PREGUNTA a `estado(de:)` en vez de recalcular. Esto era una copia de aquella
+        // función y la copia ya se quedó atrás una vez: le faltaba la rama de
+        // «interrumpido», así que la cabecera y la lista decían cosas distintas del mismo
+        // agente. Dos versiones de la misma regla se desincronizan siempre.
+        agents[i].status = estado(de: canal.cuenta.id)
     }
 
     // MARK: - AgentStoring

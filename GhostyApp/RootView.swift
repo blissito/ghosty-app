@@ -72,6 +72,13 @@ struct RootView: View {
             guard nueva == .active else { return }
             Task { await store.volverDelFondo() }
         }
+        // Entrar a la lista es pedirle cuentas a TODOS los agentes: es la pantalla donde
+        // se ve lo que el agente está haciendo desde otra superficie, y ese estado vive
+        // en el servidor. El freno de los 30 s lo pone el store.
+        .onChange(of: tab) { _, nueva in
+            guard nueva == .conversations else { return }
+            store.repasarLaFlota()
+        }
         // Tocar un aviso lleva al chat. El destino lo resuelve el store (`irA`); aquí
         // sólo se cambia de pestaña cuando lo pide.
         .onChange(of: store.pestanaPedida) { _, pedida in
