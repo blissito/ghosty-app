@@ -25,11 +25,14 @@ enum ReplayToMessages {
         // recuperarlo. Además el `ok` que se guardaba ahí NUNCA se usaba al cerrar, así
         // que un hilo recargado perdía qué había fallado.
         var herramientas: [Herramienta] = []
+        // Igual que en vivo: lo que el agente escribe DESPUÉS de llamar una herramienta
+        // es otro párrafo, no la continuación de la frase anterior.
+        var separarTrasHerramienta = false
 
         enum Quien { case usuario, agente }
 
         func cerrar() {
-            defer { texto = ""; herramientas = [] }
+            defer { texto = ""; herramientas = []; separarTrasHerramienta = false }
             let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
 
             switch quien {
@@ -101,6 +104,11 @@ enum ReplayToMessages {
 
             case .agent(let t):
                 if quien != .agente { cerrar(); quien = .agente }
+                if separarTrasHerramienta, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    separarTrasHerramienta = false
+                    while texto.hasSuffix("\n") { texto.removeLast() }
+                    if !texto.isEmpty { texto += "\n\n" }
+                }
                 texto += t
 
             case .turno, .cerrado:
@@ -117,6 +125,7 @@ enum ReplayToMessages {
                 // Una herramienta pertenece al turno del agente aunque llegue antes
                 // de que él escriba una palabra.
                 if quien != .agente { cerrar(); quien = .agente }
+                if !texto.isEmpty { separarTrasHerramienta = true }
                 if let k = herramientas.firstIndex(where: { $0.id == h.id }) {
                     var v = h
                     if v.titulo == "herramienta" { v.titulo = herramientas[k].titulo }

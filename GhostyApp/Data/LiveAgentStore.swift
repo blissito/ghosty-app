@@ -1532,6 +1532,10 @@ final class LiveAgentStore: AgentStoring {
         var respuesta = respuesta
         var acumulado = ""
         var herramientas: [Herramienta] = []
+        // El agente escribe, llama una herramienta y vuelve a escribir. Sin esto los dos
+        // trozos quedaban pegados en el mismo párrafo («…ahora reviso.Listo, encontré…»),
+        // que es lo que en la web y en la app de escritorio sí se separa.
+        var separarTrasHerramienta = false
 
         do {
             for try await evento in flujo {
@@ -1572,6 +1576,11 @@ final class LiveAgentStore: AgentStoring {
                         respuesta = nueva
                     }
                 case .agent(let t):
+                    if separarTrasHerramienta, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        separarTrasHerramienta = false
+                        while acumulado.hasSuffix("\n") { acumulado.removeLast() }
+                        if !acumulado.isEmpty { acumulado += "\n\n" }
+                    }
                     acumulado += t
                     // ⚠️ Un ` ```eb-file ` deja de ser texto y pasa a ser tarjeta. Ver
                     // `BloqueEbFile`: es un puente hasta que el relé mande
@@ -1591,6 +1600,7 @@ final class LiveAgentStore: AgentStoring {
                     }
                     pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
                 case .tool(let h):
+                    if !acumulado.isEmpty { separarTrasHerramienta = true }
                     // ACP manda la MISMA herramienta varias veces conforme avanza: se
                     // actualiza en su sitio en vez de duplicarla, y así el spinner se
                     // convierte en palomita sin que la lista salte.

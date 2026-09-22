@@ -37,7 +37,7 @@ struct UserBubble: View {
     }
 }
 
-/// La burbuja del agente renderiza **markdown**, no texto plano: lo que la caja
+/// El agente renderiza **markdown**, no texto plano: lo que la caja
 /// manda trae encabezados, listas, tablas y bloques de código, y verlo con los
 /// asteriscos crudos es exactamente la queja que originó este trabajo.
 extension UserBubble {
@@ -104,6 +104,11 @@ struct AgentBubble: View {
     let tools: ToolRun?
     let trailing: String?
 
+    private var fuentes: [Fuente] {
+        Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
+                   herramientas: tools?.herramientas ?? [])
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
@@ -111,20 +116,20 @@ struct AgentBubble: View {
             // ya habías terminado de leer.
             if let tools { PasosDelAgente(run: tools, abierto: tools.corriendo != nil) }
 
-            if !text.isEmpty { GhostyMarkdown(markdown: text) }
+            if !text.isEmpty { TextoQueAparece(markdown: text) }
 
             if let trailing {
-                GhostyMarkdown(markdown: trailing)
+                TextoQueAparece(markdown: trailing)
             }
+
+            // Debajo de todo, como en Claude: lo que leyó para contestar.
+            BarraDeFuentes(fuentes: fuentes)
         }
-        .padding(15)
-        .background(Color.gBubbleAgent)
-        .clipShape(.rect(topLeadingRadius: Theme.Radius.bubble,
-                         bottomLeadingRadius: 8,
-                         bottomTrailingRadius: Theme.Radius.bubble,
-                         topTrailingRadius: Theme.Radius.bubble,
-                         style: .continuous))
-        .frame(maxWidth: 300, alignment: .leading)
+        // Sin burbuja y a todo lo ancho, como el chat de Claude: la respuesta del agente
+        // es el cuerpo de la conversación —listas, tablas, código—, y meterla en una
+        // burbuja de 300 pt la partía en renglones de tres palabras. La burbuja se queda
+        // sólo para lo que escribe la persona, que es lo que hay que distinguir.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

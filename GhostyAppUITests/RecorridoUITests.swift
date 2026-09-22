@@ -190,6 +190,16 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(ultima.exists && ultima.isHittable, "el botón de ir abajo no bajó al último mensaje")
         XCTAssertFalse(bajar.exists, "el botón de ir abajo sigue tras bajar")
 
+        // 4a. Las fuentes de la última respuesta: la barra tiene que estar Y tiene que
+        //     abrir la hoja. Una barra que no abre nada es el fallo de siempre.
+        let fuentes = app.buttons["barra-de-fuentes"].firstMatch
+        XCTAssertTrue(fuentes.waitForExistence(timeout: 3), "no se pintó la barra de fuentes")
+        fuentes.tap()
+        XCTAssertTrue(app.staticTexts["causo.io"].waitForExistence(timeout: 3),
+                      "la barra de fuentes no abrió la hoja")
+        foto("07a-fuentes")
+        app.buttons["Cerrar"].firstMatch.tap()
+
         // 4b. La conversación con foto: imagen de markdown y tarjeta de entrega. Aquí es
         //     donde se ve si una imagen grande respeta el ancho de la burbuja.
         // Se llega por la lista (la barra de chips ya no existe).

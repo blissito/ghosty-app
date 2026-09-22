@@ -500,7 +500,7 @@ struct ConversationView: View {
             HStack { Spacer(minLength: 40); UserBubble(text: t, adjuntos: adj, vuelo: vuelo) }
         case .agent(let t, let tools, let trailing):
             VStack(alignment: .leading, spacing: 10) {
-                HStack { AgentBubble(text: t, tools: tools, trailing: trailing); Spacer(minLength: 30) }
+                AgentBubble(text: t, tools: tools, trailing: trailing)
                 // Herramientas corriendo y todavía sin texto: la mascota debajo de la
                 // línea de pasos, que es el «sigo en ello» mientras no hay nada que leer.
                 if t.isEmpty, tools?.corriendo != nil {

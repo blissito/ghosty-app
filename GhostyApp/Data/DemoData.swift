@@ -36,7 +36,11 @@ enum DemoData {
             m.append(Message(id: "da\(i)", kind: .agent(
                 text: "Respuesta \(i). Esto es un párrafo con **markdown**, suficientemente "
                     + "largo como para que el hilo tenga que desplazarse y se pueda ver si el "
-                    + "botón de bajar aparece cuando toca.",
+                    + "botón de bajar aparece cuando toca."
+                    // La última lleva citas, para que la barra de fuentes se vea en las
+                    // capturas: sin un mensaje con enlaces no había nada que verificar.
+                    + (i == 12 ? " Según [Causo](https://causo.io/informe) y "
+                               + "[Enginy](https://enginy.com/precios)." : ""),
                 tools: nil, trailing: nil)))
         }
         return m
