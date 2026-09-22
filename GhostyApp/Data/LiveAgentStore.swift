@@ -84,6 +84,11 @@ final class LiveAgentStore: AgentStoring {
         get { hiloActivo?.turno }
         set { hiloActivo?.turno = newValue }
     }
+    /// Tu mensaje clavado arriba del hilo que estás mirando. Ver `Hilo.anclaArriba`.
+    var anclaDelHilo: String? {
+        get { hiloActivo?.anclaArriba }
+        set { hiloActivo?.anclaArriba = newValue }
+    }
     /// El permiso que hay que contestar. Si el que miras no tiene, se enseña el de
     /// CUALQUIER hilo de este agente: un turno detenido esperándote no puede quedar
     /// escondido detrás de la conversación que resulte estar abierta.
@@ -718,7 +723,7 @@ final class LiveAgentStore: AgentStoring {
             // la cola (`tail`), y sacarlo cada vez del «primer mensaje» de esa cola lo
             // hacía cambiar conforme la conversación crecía.
             if let primero = mensajes.first(where: { if case .user = $0.kind { return true } else { return false } }),
-               case .user(let t, _) = primero.kind {
+               case .user(let t, _, _) = primero.kind {
                 titulos.anotarSiFalta(canal.cuenta.id, sid, desde: t)
             }
             aplicarUltimoTurno(ultimo, a: hilo, de: canal)
@@ -997,6 +1002,9 @@ final class LiveAgentStore: AgentStoring {
                     : "Esperando turno · \(cuantas) por delante"
             }
         }
+        await c.alConocerCapacidades { [weak canal] steer in
+            Task { @MainActor in canal?.puedeSteer = steer }
+        }
         await c.alResolverPermiso { [weak self, weak canal] id in
             Task { @MainActor in
                 guard let canal else { return }
@@ -1200,7 +1208,7 @@ final class LiveAgentStore: AgentStoring {
             // ChatGPT, Claude y la propia interfaz de goose. Sale gratis: el replay
             // ya está aquí.
             if let primero = mensajes.first(where: { if case .user = $0.kind { return true } else { return false } }),
-               case .user(let t, _) = primero.kind {
+               case .user(let t, _, _) = primero.kind {
                 titulos.anotarSiFalta(canal.cuenta.id, sesion.id, desde: t)
             }
             guardarHilos(canal)
@@ -1306,6 +1314,19 @@ final class LiveAgentStore: AgentStoring {
         // Último uso AHORA, sin esperar a que el servidor lo diga en la próxima flota: la
         // lista de agentes se ordena por esto y el que acabas de usar sube al instante.
         if let i = agents.firstIndex(where: { $0.id == cuenta.id }) { agents[i].ultimaActividad = Date() }
+        // ── Steer: el turno ya corre y le dices algo más ────────────────────────────
+        // El mensaje ENTRA en el turno en vuelo en vez de cortarlo. No se toca
+        // `hilo.enVuelo`, no se abre otro SSE y no nace otra burbuja: el stream que ya
+        // está escribiendo sigue siendo el bueno.
+        //
+        // ⚠️ Sólo con texto: gs no steerea adjuntos (los excluye por diseño), y sólo si el
+        // agente lo soporta —`puedeSteer`, del evento `caps`—. Quien no, corta y empieza
+        // de nuevo, y eso lo pregunta el compositor antes de llegar aquí.
+        if hilo.turno != nil, adjuntos.isEmpty, !limpio.isEmpty, canal.puedeSteer == true,
+           let sid = hilo.sesionID {
+            await steerear(limpio, hilo: hilo, canal: canal, sid: sid)
+            return
+        }
         // Un turno nuevo borra el fallo del anterior: lo que importa es cómo va ÉSTE.
         hilo.fallo = nil
         // Y manda sobre la recogida de lo anterior: si le vuelves a escribir, lo que sea
@@ -1359,7 +1380,11 @@ final class LiveAgentStore: AgentStoring {
             hilo.mensajes.append(mensaje)
         }
         let idRespuesta = UUID().uuidString
-        hilo.mensajes.append(Message(id: "typing", kind: .typing))
+        // Tu mensaje sube al tope y su respuesta nace debajo, donde estás mirando.
+        // ⚠️ Antes esto lo decidía la vista mirando si el último mensaje era un `.typing`;
+        // ese `.typing` lo borra la primera herramienta y nadie lo repone, así que al
+        // volver de otra pestaña el aire ya no se podía reconstruir.
+        hilo.anclaArriba = mensaje.id
         hilo.sinHerramientas = true
         EasyBitsClient.diag("[envío] hilo=\(hilo.clave.prefix(8)) sesión=\(hilo.sesionID?.prefix(8) ?? "nueva") "
                             + "activa=\(canal.activa?.prefix(8) ?? "-") mensajes=\(hilo.mensajes.count) "
@@ -1621,7 +1646,17 @@ final class LiveAgentStore: AgentStoring {
                     // y no hay nada que deduplicar después.
                     let nueva = "turno-\(id)"
                     if respuesta != nueva {
-                        hilo.mensajes.removeAll { $0.id == respuesta }
+                        // ⚠️ La burbuja anterior se quita SÓLO si está vacía. Cuando gs no
+                        // puede inyectar tu mensaje corta el turno y arranca otro: ese
+                        // turno nuevo llega por aquí, y borrar sin mirar se llevaba por
+                        // delante lo que el agente YA había escrito antes del corte.
+                        if acumulado.isEmpty {
+                            hilo.mensajes.removeAll { $0.id == respuesta }
+                        } else {
+                            acumulado = ""
+                            herramientas = []
+                            separarTrasHerramienta = false
+                        }
                         respuesta = nueva
                     }
                 case .agent(let t):
@@ -1876,6 +1911,47 @@ final class LiveAgentStore: AgentStoring {
             outputTokens: hilo.uso.salida,
             outcome: como,
             replyChars: chars))
+    }
+
+    /// Mete lo que acabas de escribir en el turno que ya corre.
+    ///
+    /// ⚠️ Lo que NO hace es tan importante como lo que hace: no cancela `hilo.enVuelo`, no
+    /// lo espera, no abre SSE y no crea burbuja de respuesta. Todo eso ya existe y sigue
+    /// vivo; duplicarlo escribiría el mismo texto dos veces en la misma burbuja.
+    private func steerear(_ texto: String, hilo: Hilo, canal: Canal, sid: String) async {
+        let mensaje = Message(id: UUID().uuidString, kind: .user(texto, adjuntos: [], steer: true))
+        hilo.mensajes.append(mensaje)
+        hilo.anclaArriba = mensaje.id
+        hilo.tocado = Date()
+        guardarYa(canal)
+        // En la demo no hay servidor: entró y ya. Es lo que deja fotografiar la marca.
+        guard !DemoData.encendido else { return }
+        do {
+            let cliente = try await asegurarSocket(canal)
+            let entro = try await cliente.mandarMas(sessionID: sid, texto: texto)
+            guard !entro else { return }
+            // gs no pudo inyectarlo y cortó el turno para empezar otro. Se dice: el
+            // trabajo anterior se perdió y callarlo es lo que hace que parezca que el
+            // agente «se reinició solo».
+            marcarSinSteer(mensaje.id, en: hilo)
+            hilo.mensajes.append(Message(id: UUID().uuidString,
+                                         kind: .sistema("Empezó de nuevo con lo que acabas de mandar")))
+            // El turno vivo cambió de id: hay que volver a engancharse o el stream viejo
+            // ya no trae nada.
+            hilo.enVuelo?.cancel(); hilo.enVuelo = nil
+            engancharse(hilo, de: canal)
+        } catch {
+            marcarSinSteer(mensaje.id, en: hilo)
+            hilo.envioFallo = true
+            hilo.fallo = "No llegó a salir"
+        }
+    }
+
+    /// Quita la marca de «añadido a lo que hace» cuando resultó que no entró.
+    private func marcarSinSteer(_ id: String, en hilo: Hilo) {
+        guard let i = hilo.mensajes.firstIndex(where: { $0.id == id }),
+              case .user(let t, let adj, _) = hilo.mensajes[i].kind else { return }
+        hilo.mensajes[i] = Message(id: id, kind: .user(t, adjuntos: adj, steer: false))
     }
 
     /// Traduce nuestra decisión al `optionId` que ofreció el agente. Los nombres

@@ -231,6 +231,32 @@ extension LiveAgentStore {
             larga.fallo = nil
             larga.turno = TurnActivity(id: "t2", title: "el informe", detail: "Leyendo",
                                        step: 1, totalSteps: 4, elapsed: "0:12")
+            larga.anclaArriba = larga.mensajes.last(where: \.esDeUsuario)?.id
+        }
+        // `GHOSTY_DEMO_HERRAMIENTAS=1`: el turno SIGUE pero ninguna herramienta corre
+        // ahora mismo —el modelo está pensando la siguiente—. Es el hueco donde antes no
+        // quedaba ningún indicador de carga, y donde más se tarda.
+        if Gancho.valor("GHOSTY_DEMO_HERRAMIENTAS") == "1" {
+            larga.fallo = nil
+            larga.turno = TurnActivity(id: "t3", title: "el informe", detail: "Pensando",
+                                       step: 2, totalSteps: 4, elapsed: "1:08")
+            larga.anclaArriba = larga.mensajes.last(where: \.esDeUsuario)?.id
+            larga.mensajes.append(Message(id: "da-tools", kind: .agent(
+                text: "", tools: ToolRun(herramientas: [
+                    Herramienta(id: "h1", titulo: "Buscar en la web", clase: .search,
+                                estado: .hecha, salida: "3 resultados", donde: nil,
+                                detalle: "conectores populares"),
+                ]), trailing: nil)))
+        }
+        // `GHOSTY_DEMO_STEER=acp|nativo`: si este agente acepta que le mandes algo MÁS
+        // mientras trabaja (acp) o si mandarlo le corta el trabajo (nativo).
+        if let modo = Gancho.valor("GHOSTY_DEMO_STEER") {
+            uno.puedeSteer = modo == "acp"
+            larga.fallo = nil
+            if larga.turno == nil {
+                larga.turno = TurnActivity(id: "t4", title: "el informe", detail: "Leyendo",
+                                           step: 1, totalSteps: 4, elapsed: "0:20")
+            }
         }
         // `GHOSTY_DEMO_INTERRUMPIDO=1`: el hilo que dejaste trabajando y iOS suspendió.
         // Es el estado que hay que poder MIRAR — el cartel de «sigue con esto» y la fila

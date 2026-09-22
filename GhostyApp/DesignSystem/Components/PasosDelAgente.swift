@@ -10,9 +10,16 @@ import SwiftUI
 /// lo que produjo**, en vez de contar cuántas corrieron.
 struct PasosDelAgente: View {
     let run: ToolRun
+    /// ¿El turno sigue vivo? Con las herramientas ya terminadas pero el turno en marcha,
+    /// la línea seguía enseñando el icono de la última — y un icono quieto se lee como
+    /// «terminó», justo cuando el modelo está pensando la siguiente.
+    var vivo: Bool = false
     /// Se conserva por compatibilidad con quien llama; la línea es siempre una y el
     /// detalle vive en el drawer.
-    init(run: ToolRun, abierto: Bool = false) { self.run = run }
+    init(run: ToolRun, abierto: Bool = false, vivo: Bool = false) {
+        self.run = run
+        self.vivo = vivo
+    }
 
     @State private var drawer = false
 
@@ -31,6 +38,10 @@ struct PasosDelAgente: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(Color.gDangerInk)
                     Text("\(run.count) pasos · \(run.fallidas) con problemas").lineLimit(1)
+                } else if vivo, let ultima = run.herramientas.last {
+                    ProgressView().controlSize(.mini)
+                    Text(run.count == 1 ? ultima.rotulo : "\(ultima.rotulo) · \(run.count) pasos")
+                        .lineLimit(1)
                 } else if let ultima = run.herramientas.last {
                     Image(systemName: ultima.clase.icono)
                         .font(.system(size: 11, weight: .semibold))

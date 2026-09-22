@@ -398,6 +398,78 @@ extension RecorridoUITests {
         foto("21-guardadas-remotas")
     }
 
+    /// El indicador entre una herramienta y la siguiente, y al volver de otra pestaña.
+    ///
+    /// ⚠️ Es el fallo que reportó Héctor: el `.typing` lo borraba la primera herramienta y
+    /// lo que quedaba sólo salía mientras una herramienta estaba literalmente corriendo.
+    /// En el hueco —el modelo pensando, que es donde más se tarda— la pantalla parecía
+    /// terminada, y volver de otra pestaña además tiraba el aire que sube tu pregunta.
+    func testSigueTrabajandoEntreHerramientas() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchEnvironment["GHOSTY_DEMO_HERRAMIENTAS"] = "1"
+        app.launch()
+
+        let pensando = app.descendants(matching: .any).matching(identifier: "pensando").firstMatch
+        XCTAssertTrue(pensando.waitForExistence(timeout: 5),
+                      "sin herramienta corriendo no queda ningún indicador de carga")
+        foto("24-entre-herramientas")
+
+        // Y al volver de otra pestaña: el indicador sigue y la pregunta sigue arriba.
+        app.buttons["tab-artifacts"].tap()
+        app.buttons["tab-chat"].tap()
+        XCTAssertTrue(pensando.waitForExistence(timeout: 5),
+                      "al volver al chat se perdió el indicador de carga")
+        foto("25-de-vuelta-al-chat")
+    }
+
+    /// Mandarle algo MÁS mientras trabaja, sin detenerlo.
+    func testMandarMientrasTrabaja() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchEnvironment["GHOSTY_DEMO_STEER"] = "acp"
+        app.launch()
+
+        let campo = app.textFields.firstMatch
+        XCTAssertTrue(campo.waitForExistence(timeout: 5), "no hay compositor")
+        campo.tap()
+        campo.typeText("mejor el de marzo")
+        // Los DOS a la vez: antes con turno vivo sólo existía detener.
+        XCTAssertTrue(app.buttons["detener"].exists, "falta el botón de detener")
+        let enviar = app.windows.firstMatch.buttons["enviar"]
+        XCTAssertTrue(enviar.exists, "con el agente trabajando no se puede mandar nada")
+        foto("26-mandar-mientras-trabaja")
+        enviar.tap()
+        XCTAssertTrue(app.staticTexts["añadido a lo que está haciendo"].waitForExistence(timeout: 3),
+                      "no se dice que el mensaje entró en el turno en marcha")
+        foto("27-steer-hecho")
+    }
+
+    /// Y con un agente que NO sabe steerear: se avisa antes de tirarle el trabajo.
+    func testMandarleAUnAgenteQueNoSteerea() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchEnvironment["GHOSTY_DEMO_STEER"] = "nativo"
+        app.launch()
+
+        let campo = app.textFields.firstMatch
+        XCTAssertTrue(campo.waitForExistence(timeout: 5), "no hay compositor")
+        campo.tap()
+        campo.typeText("mejor el de marzo")
+        app.windows.firstMatch.buttons["enviar"].tap()
+        XCTAssertTrue(app.buttons["Mandar y empezar de nuevo"].waitForExistence(timeout: 3),
+                      "se le tiró el trabajo al agente sin avisar")
+        foto("28-aviso-de-corte")
+        // ⚠️ El botón de cancelar lo LOCALIZA iOS por su cuenta (rol `.cancel`), así que
+        // su texto depende del idioma del teléfono: se busca por rol, no por palabra.
+        let cancelar = app.buttons.matching(
+            NSPredicate(format: "label IN {'Cancelar', 'Cancel'}")).firstMatch
+        XCTAssertTrue(cancelar.exists, "el aviso no ofrece salida")
+        cancelar.tap()
+        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 3),
+                      "cancelar no devolvió al compositor")
+    }
+
     func testVisorCierra() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
         app.buttons["tab-conversations"].tap()

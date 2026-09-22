@@ -11,8 +11,23 @@ struct UserBubble: View {
     var adjuntos: [Adjunto] = []
     /// El espacio donde vuela una nota de voz recién soltada. Ver `ConversationView`.
     var vuelo: Namespace.ID
+    /// Se mandó con el turno ya corriendo y ENTRÓ en él. Se dice, porque no abrió un turno
+    /// nuevo: corrigió el que había, y si no se dijera parecería que se ignoró.
+    var steer = false
 
     var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            burbuja
+            if steer {
+                Text("añadido a lo que está haciendo")
+                    .gMeta().foregroundStyle(Color.gInk3)
+                    .padding(.trailing, 4)
+            }
+        }
+        .frame(maxWidth: 268, alignment: .trailing)
+    }
+
+    private var burbuja: some View {
         VStack(alignment: .trailing, spacing: 8) {
             if !adjuntos.isEmpty { loMandado }
             // Mandar SÓLO una foto es normal: sin esto quedaría un hueco de texto vacío
@@ -32,7 +47,6 @@ struct UserBubble: View {
                              bottomTrailingRadius: 8,
                              topTrailingRadius: Theme.Radius.bubble,
                              style: .continuous))
-            .frame(maxWidth: 268, alignment: .trailing)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -103,6 +117,9 @@ struct AgentBubble: View {
     let text: String
     let tools: ToolRun?
     let trailing: String?
+    /// ¿Hay turno vivo? Lo necesita la línea de pasos para no parecer terminada entre una
+    /// herramienta y la siguiente.
+    var vivo: Bool = false
 
     private var fuentes: [Fuente] {
         Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
@@ -114,7 +131,7 @@ struct AgentBubble: View {
             // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
             // trabaja, después contesta. Debajo se leían como una nota al pie de algo que
             // ya habías terminado de leer.
-            if let tools { PasosDelAgente(run: tools, abierto: tools.corriendo != nil) }
+            if let tools { PasosDelAgente(run: tools, abierto: tools.corriendo != nil, vivo: vivo) }
 
             if !text.isEmpty { TextoQueAparece(markdown: text) }
 

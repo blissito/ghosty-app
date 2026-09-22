@@ -293,6 +293,12 @@ actor ClienteGS: TransporteDeAgente {
     private var alCaerse: (@Sendable () -> Void)?
     func alPerderse(_ handler: @escaping @Sendable () -> Void) { alCaerse = handler }
 
+    /// Lo que este agente SABE hacer, según el servidor. Llega por el SSE al suscribirse.
+    private var alSaberCapacidades: (@Sendable (Bool) -> Void)?
+    func alConocerCapacidades(_ handler: @escaping @Sendable (Bool) -> Void) {
+        alSaberCapacidades = handler
+    }
+
     /// Manda el turno y escucha lo que gs vaya emitiendo.
     ///
     /// ⚠️ Se escucha ANTES de encargar, y así no hay ninguna ventana en la que el turno
@@ -310,9 +316,9 @@ actor ClienteGS: TransporteDeAgente {
             let tarea = Task {
                 do {
                     try await self.escuchar(sessionID, cont, esperandoTurno: true)
-                    let turnId = try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos)
+                    let encargo = try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos)
                     // La burbuja se llama como el turno desde el primer momento.
-                    cont.yield(.turno(turnId))
+                    cont.yield(.turno(encargo.turnId))
                 } catch {
                     cont.finish(throwing: error)
                 }
@@ -380,8 +386,16 @@ actor ClienteGS: TransporteDeAgente {
         throw ACPClient.Fallo.noConectado
     }
 
-    @discardableResult
-    private func encargar(_ sesion: String, texto: String, adjuntos: [Adjunto]) async throws -> String {
+    /// Lo que contesta gs al encargar un turno.
+    struct Encargo: Sendable {
+        let turnId: String
+        /// El mensaje entró en el turno que ya corría: no hay turno nuevo, y el stream
+        /// abierto sigue siendo el bueno.
+        let inyectado: Bool
+        let enCola: Int
+    }
+
+    private func encargar(_ sesion: String, texto: String, adjuntos: [Adjunto]) async throws -> Encargo {
         // ⚠️ Los adjuntos van en base64 y gs decide qué entra inline y qué se le entrega
         // al agente como URL con su comando (`attachments.server.ts`). Es lo mismo que
         // hacía `BloqueDeAdjuntos` en el teléfono, pero del lado que conoce a la caja.
@@ -413,7 +427,16 @@ actor ClienteGS: TransporteDeAgente {
         // espera se lee como «se colgó». Medido en la caja de alguien: cinco turnos en
         // cola detrás de dos que se quedaron atascados, y la app enseñando «Trabajando…».
         if enCola > 0 { alEsperar?(enCola) }
-        return (r["turnId"] as? String) ?? turnId
+        return Encargo(turnId: (r["turnId"] as? String) ?? turnId,
+                       inyectado: r["inyectado"] as? Bool == true, enCola: enCola)
+    }
+
+    /// Un mensaje MÁS para el turno que ya corre («steer»).
+    ///
+    /// ⚠️ No abre SSE: el que escucha el turno en vuelo ya está abierto y es el que va a
+    /// traer la respuesta. Abrir otro duplicaría el texto en la misma burbuja.
+    nonisolated func mandarMas(sessionID: String, texto: String) async throws -> Bool {
+        try await encargar(sessionID, texto: texto, adjuntos: []).inyectado
     }
 
     /// Abre el SSE y traduce lo que llega.
@@ -573,9 +596,14 @@ actor ClienteGS: TransporteDeAgente {
             cont.yield(.cerrado(p["turnId"] as? String ?? ""))
             alCambiarEstado?(sesion, "reposo")
             return false
+        case "caps":
+            // ⚠️ `steer` es el que importa aquí: dice si un mensaje mandado con el turno en
+            // vuelo ENTRA en él o lo CORTA. Sin saberlo no se puede avisar antes, sólo
+            // después — cuando el trabajo ya se tiró.
+            alSaberCapacidades?(p["steer"] as? Bool == true)
         default:
-            // `title`, `caps`, `status`, `models`… todavía no se usan. No se tiran a la
-            // basura en silencio: que aparezca uno nuevo tiene que poder verse.
+            // `title`, `status`, `models`… todavía no se usan. No se tiran a la basura en
+            // silencio: que aparezca uno nuevo tiene que poder verse.
             EasyBitsClient.diag("[gs] evento sin usar: \(evento)")
         }
         return false

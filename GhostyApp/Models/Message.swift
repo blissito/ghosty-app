@@ -49,7 +49,9 @@ struct Message: Identifiable, Equatable, Sendable {
         /// ⚠️ Van los ADJUNTOS, no sus nombres. Enseñar «`foto-1.jpg`» en la burbuja no dice
         /// qué mandaste —de tres fotos del carrete no distingues cuál— y además los backticks
         /// salían literales, porque la burbuja del usuario es texto plano, no Markdown.
-        case user(String, adjuntos: [Adjunto] = [])
+        /// `steer` = se mandó con el turno ya corriendo y ENTRÓ en él. Se dice en la
+        /// burbuja porque no es un mensaje normal: no abre turno, corrige el que hay.
+        case user(String, adjuntos: [Adjunto] = [], steer: Bool = false)
         case agent(text: String, tools: ToolRun?, trailing: String?)
         case prCard(PullRequestCard)
         /// Algo que el agente hizo llegar: un archivo o un artefacto. Ver `Entregas.swift`.

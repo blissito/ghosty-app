@@ -47,6 +47,13 @@ protocol TransporteDeAgente: Actor {
     /// Cuántas conversaciones hay por delante cuando el turno tiene que esperar ranura.
     func alHacerCola(_ handler: @escaping @Sendable (Int) -> Void)
 
+    /// Qué sabe hacer este agente. Por ahora sólo si acepta «steer»: que un mensaje
+    /// mandado con el turno en vuelo ENTRE en él en vez de cortarlo.
+    func alConocerCapacidades(_ handler: @escaping @Sendable (Bool) -> Void)
+
+    /// Un mensaje más para el turno que ya corre. Devuelve si de verdad entró.
+    func mandarMas(sessionID: String, texto: String) async throws -> Bool
+
     func cancelar(_ sessionID: String) async
 
     func borrarSesion(_ id: String) async throws

@@ -22,6 +22,8 @@ struct ConversationView: View {
     /// ¿Está abierta la fila de tres tarjetas del `+`?
     @State private var adjuntando = false
     @State private var subiendo = false
+    /// Mandar esto le corta el trabajo al agente: se pregunta antes.
+    @State private var avisoDeCorte = false
     @State private var grabador = GrabadorDeVoz()
     /// Cuánto se ha arrastrado desde el micrófono. Izquierda cancela, arriba bloquea.
     @State private var arrastre: CGSize = .zero
@@ -49,10 +51,8 @@ struct ConversationView: View {
     private static let fondo = "fondo-del-hilo"
     /// El mensaje que acabas de mandar, para clavarlo ARRIBA de la pantalla mientras el
     /// agente contesta debajo (como Claude). `nil` = hilo abierto normal, anclado al final.
-    @State private var anclaArriba: String?
     /// «El próximo mensaje de usuario que aparezca es el mío»: `send` es asíncrono y el id
     /// lo pone el store, así que se espera a verlo en la lista.
-    @State private var esperandoMiMensaje = false
     /// Alto de lo que va desde el mensaje anclado hasta el final, y alto visible del
     /// hilo: la diferencia es el aire que se pone debajo para que el mensaje QUEPA arriba.
     @State private var altoDeLaCola: CGFloat = 0
@@ -308,7 +308,11 @@ struct ConversationView: View {
         .onChange(of: store.messages.count) { _, _ in llegoMensaje(lector) }
         // Y al aparecer: la sonda de desarrollo manda antes de que la vista exista, y el
         // `onChange` de arriba no ve ese cambio.
-        .onAppear { llegoMensaje(lector) }
+        //
+        // ⚠️ SIN animar. Volver de otra pestaña construye la vista de cero (`RootView` es
+        // un `switch`), y animar aquí se ve como un salto del hilo entero al entrar. El
+        // ancla ya está en el hilo: sólo hay que volver a ella.
+        .onAppear { reanclar(lector) }
         .onChange(of: textoDelUltimo) { _, _ in seguir() }
         // Una tarjeta que se midió tarde (video, imagen): si seguías el final, abajo.
         .onReceive(NotificationCenter.default.publisher(for: .hiloCrecio)) { _ in
@@ -319,14 +323,14 @@ struct ConversationView: View {
             }
         }
         // Cambiar de conversación es una pantalla nueva: empieza por el final.
-        .onChange(of: hiloVisible) { _, _ in anclaArriba = nil; esperandoMiMensaje = false; irAbajo() }
+        .onChange(of: hiloVisible) { _, _ in irAbajo() }
         // ⚠️ El aire de abajo vive SÓLO mientras el turno corre. Dejarlo después —como hace
         // Claude— aquí era un hueco por el que se arrastraba la conversación entera fuera
         // de la pantalla (medido en el iPhone): al cerrar el turno se recoge, animado, y
         // el hilo vuelve a su ancla de siempre.
         .onChange(of: store.currentTurn == nil) { _, enReposo in
-            guard enReposo, anclaArriba != nil else { return }
-            withAnimation(.easeInOut(duration: 0.35)) { anclaArriba = nil }
+            guard enReposo, store.anclaDelHilo != nil else { return }
+            withAnimation(.easeInOut(duration: 0.35)) { store.anclaDelHilo = nil }
         }
         // Un mensaje que se mandó y la app murió antes de que existiera la
         // conversación vuelve al compositor, con el aviso, en vez de desaparecer.
@@ -344,6 +348,20 @@ struct ConversationView: View {
         }
         .sheet(isPresented: $abrirAgenda) {
             if let agenda { AgendaSheet(agenda: agenda) }
+        }
+        // ⚠️ Se dice lo que CUESTA, no «¿estás seguro?». Este agente no sabe meter tu
+        // mensaje en lo que ya hace (o le mandas un archivo, que no se puede inyectar):
+        // mandarlo ahora tira lo que lleva. Quien sí sabe, no pregunta nada.
+        //
+        // ⚠️ `alert` y no `confirmationDialog`: la hoja de abajo se ancla sobre el
+        // compositor y su botón de cancelar quedaba FUERA de la pantalla —un aviso
+        // destructivo del que sólo se veía la opción destructiva—. Lo cazó el recorrido.
+        .alert("\(store.selectedAgent?.name ?? "Tu agente") está con lo anterior",
+               isPresented: $avisoDeCorte) {
+            Button("Mandar y empezar de nuevo", role: .destructive) { mandarYa() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Pierde lo que lleva hecho y arranca otra vez con lo que acabas de escribir.")
         }
         } // ScrollViewReader
     }
@@ -368,6 +386,7 @@ struct ConversationView: View {
             // hilo vuelve a comportarse como siempre.
             VStack(spacing: 14) {
                 ForEach(desdeElAncla) { mensaje in filaAnimada(mensaje) }
+                pieDeTrabajo
             }
             .background(GeometryReader { g in
                 Color.clear.preference(key: AltoDeLaCola.self, value: g.size.height)
@@ -377,7 +396,7 @@ struct ConversationView: View {
             // de golpe es un salto seco por mucho `scrollTo` animado que venga después;
             // si la ALTURA anima de 0 al aire, el anclaje de abajo la sigue y la subida se
             // ve.
-            Color.clear.frame(height: anclaArriba == nil ? 0 : aireDebajo)
+            Color.clear.frame(height: store.anclaDelHilo == nil ? 0 : aireDebajo)
             // El fondo de verdad: a donde se baja. Un mensaje largo que crece
             // con el streaming no cambia de id, y «bajar» a un id que ya es
             // el ancla no mueve nada.
@@ -405,31 +424,57 @@ struct ConversationView: View {
         .onPreferenceChange(AltoDeLaCola.self) { altoDeLaCola = $0 }
     }
 
-    /// Llegó un mensaje: si es el que acabas de mandar, se clava arriba; si no, se
-    /// sigue el final como siempre.
-    private func llegoMensaje(_ lector: ScrollViewProxy) {
-        // También cuando el envío no pasó por `enviar` (la sonda de desarrollo, la flota):
-        // «tu mensaje y el typing detrás» sólo lo produce un envío desde aquí.
-        let reciénMandado = mensajesÚnicos.last?.kind == .typing
-            && mensajesÚnicos.dropLast().last?.esDeUsuario == true
-        if esperandoMiMensaje || reciénMandado,
-           let mio = mensajesÚnicos.last(where: { $0.esDeUsuario })?.id, mio != anclaArriba {
-            esperandoMiMensaje = false
-            withAnimation(.easeOut(duration: 0.4)) { anclaArriba = mio }
-            // El aire de abajo aún no está medido en este mismo pintado: el re-anclaje
-            // lo hace `AltoDelHilo` cuando el contenido crezca, animado por `animarSubida`.
-            return
+    /// Que el agente SIGUE, al final del hilo y bajo la última respuesta.
+    ///
+    /// ⚠️ Esto era un mensaje (`.typing`) metido en el hilo por `send`, y la PRIMERA
+    /// herramienta lo borraba para siempre (`pintarRespuesta`). Lo que quedaba era una
+    /// mascota dentro de la burbuja que pedía `tools.corriendo != nil`: entre una
+    /// herramienta y la siguiente —el modelo pensando, que es donde más se tarda— no había
+    /// absolutamente nada, y volver de otra pestaña dejaba la pantalla como si hubiera
+    /// terminado. Ahora sale del TURNO, que es lo que el servidor confirma y lo único que
+    /// sobrevive a que la vista se destruya.
+    @ViewBuilder
+    private var pieDeTrabajo: some View {
+        if store.currentTurn != nil {
+            MascotaPensando(tone: store.selectedAgent?.tone ?? .lila, texto: textoDelPie)
+                // ⚠️ `combine` ANTES del identificador: sin eso el `HStack` no es un
+                // elemento de accesibilidad y el identificador no existe para nadie —ni
+                // para VoiceOver ni para el recorrido que comprueba que el indicador sigue.
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("pensando")
+                .transition(.opacity)
         }
+    }
+
+    /// Lo que hace, salvo que la línea de pasos ya lo esté diciendo: dos frases para el
+    /// mismo hecho, una encima de otra, es de lo que más ensucia esta pantalla.
+    private var textoDelPie: String? {
+        if case .agent(_, let tools, _) = mensajesÚnicos.last?.kind, tools?.corriendo != nil {
+            return nil
+        }
+        return store.currentTurn?.detail ?? "Pensando…"
+    }
+
+    /// Llegó un mensaje: se sigue el final.
+    ///
+    /// ⚠️ Aquí se decidía TAMBIÉN qué mensaje clavar arriba, adivinándolo de la forma del
+    /// hilo («tu mensaje y un `.typing` detrás»). Ese `.typing` lo borraba la primera
+    /// herramienta, así que en cuanto el agente usaba una, el aire ya no se podía
+    /// reconstruir —y volver de otra pestaña lo perdía—. Ahora lo pone `send`, que es
+    /// quien sabe de verdad qué acabas de mandar, y vive en el hilo.
+    private func llegoMensaje(_ lector: ScrollViewProxy) {
         seguir(animado: true)
     }
 
     /// Los mensajes antes de tu último envío, y desde él (inclusive).
     private var antesDelAncla: [Message] {
-        guard let anclaArriba, let i = mensajesÚnicos.firstIndex(where: { $0.id == anclaArriba }) else { return mensajesÚnicos }
+        guard let ancla = store.anclaDelHilo,
+              let i = mensajesÚnicos.firstIndex(where: { $0.id == ancla }) else { return mensajesÚnicos }
         return Array(mensajesÚnicos[..<i])
     }
     private var desdeElAncla: [Message] {
-        guard let anclaArriba, let i = mensajesÚnicos.firstIndex(where: { $0.id == anclaArriba }) else { return [] }
+        guard let ancla = store.anclaDelHilo,
+              let i = mensajesÚnicos.firstIndex(where: { $0.id == ancla }) else { return [] }
         return Array(mensajesÚnicos[i...])
     }
     /// A dónde se «sigue el final». Con un mensaje recién mandado que aún cabe con su
@@ -438,8 +483,8 @@ struct ConversationView: View {
     /// mano el mensaje se metía bajo la cabecera en el iPhone y quedaba corto en el
     /// simulador. Cuando la cola ya no cabe, se vuelve al fondo como siempre.
     private func reanclar(_ lector: ScrollViewProxy) {
-        if let anclaArriba, altoDeLaCola + 57 < altoVisible {
-            lector.scrollTo(anclaArriba, anchor: .top)
+        if let ancla = store.anclaDelHilo, altoDeLaCola + 57 < altoVisible {
+            lector.scrollTo(ancla, anchor: .top)
         } else {
             lector.scrollTo(Self.fondo, anchor: .bottom)
         }
@@ -496,17 +541,17 @@ struct ConversationView: View {
     @ViewBuilder
     private func fila(_ mensaje: Message) -> some View {
         switch mensaje.kind {
-        case .user(let t, let adj):
-            HStack { Spacer(minLength: 40); UserBubble(text: t, adjuntos: adj, vuelo: vuelo) }
-        case .agent(let t, let tools, let trailing):
-            VStack(alignment: .leading, spacing: 10) {
-                AgentBubble(text: t, tools: tools, trailing: trailing)
-                // Herramientas corriendo y todavía sin texto: la mascota debajo de la
-                // línea de pasos, que es el «sigo en ello» mientras no hay nada que leer.
-                if t.isEmpty, tools?.corriendo != nil {
-                    MascotaPensando(tone: store.selectedAgent?.tone ?? .lila, texto: nil)
-                }
+        case .user(let t, let adj, let steer):
+            HStack {
+                Spacer(minLength: 40)
+                UserBubble(text: t, adjuntos: adj, vuelo: vuelo, steer: steer)
             }
+        case .agent(let t, let tools, let trailing):
+            // ⚠️ Aquí había una segunda mascota para cuando no hay texto y sí herramienta
+            // corriendo. La quita `pieDeTrabajo`, que cubre TODO el turno y no sólo ese
+            // instante; con las dos salían dos mascotas en la misma pantalla.
+            AgentBubble(text: t, tools: tools, trailing: trailing,
+                        vivo: store.currentTurn != nil && mensaje.id == mensajesÚnicos.last?.id)
         case .entrega(let e):
             HStack {
                 EntregaCard(entrega: e)
@@ -719,27 +764,37 @@ struct ConversationView: View {
         grabador.grabando && !vozBloqueada ? min(1, max(0, Double(-arrastre.width) / 90)) : 0
     }
 
-    /// El control de la derecha: enviar, parar, o el micrófono que late con tu voz.
+    /// Los controles de la derecha: detener lo que hace y, si escribiste, mandar.
+    ///
+    /// ⚠️ Los DOS a la vez mientras trabaja. Antes era uno solo —con turno vivo sólo había
+    /// detener— y para decirle algo más había que pararlo primero, aunque el servidor sepa
+    /// meter el mensaje en el turno en marcha. Detener va a la izquierda y mandar pegado al
+    /// borde: el botón de mandar no cambia de sitio nunca, que es lo que aprende el dedo.
     @ViewBuilder
     private var control: some View {
-        // ⚠️ Mientras contesta, el control de la derecha es DETENER. No lo había en el
-        // compositor: había que ir a la lista de conversaciones o al panel de actividad
-        // para parar un turno, que es justo lo que no haces cuando quieres pararlo ya.
-        // Es lo mismo que hacen todos —el micrófono se convierte en cuadrado— y no ocupa
-        // sitio nuevo.
-        if store.currentTurn != nil && !grabador.grabando {
-            Button { Task { await store.stopTurn() } } label: {
-                RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
-                    .fill(Color.gInk)
-                    .frame(width: 30, height: 30)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 2.5).fill(Color.white)
-                            .frame(width: 9, height: 9)
-                    }
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("detener")
-        } else if grabador.grabando && vozBloqueada {
+        HStack(spacing: 8) {
+            if store.currentTurn != nil && !grabador.grabando { botonDetener }
+            controlPrincipal
+        }
+    }
+
+    private var botonDetener: some View {
+        Button { Task { await store.stopTurn() } } label: {
+            RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
+                .fill(Color.gInk)
+                .frame(width: 30, height: 30)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 2.5).fill(Color.white)
+                        .frame(width: 9, height: 9)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("detener")
+    }
+
+    @ViewBuilder
+    private var controlPrincipal: some View {
+        if grabador.grabando && vozBloqueada {
             Button(action: soltarVoz) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))
@@ -762,9 +817,11 @@ struct ConversationView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("enviar")
             .disabled(subiendo)
-        } else {
+        } else if store.currentTurn == nil || grabador.grabando {
             microfono
         }
+        // Con turno vivo y sin nada escrito, el único control es detener: un micrófono al
+        // lado invita a grabar encima de lo que el agente está haciendo.
     }
 
     /// ⚠️ **Late con tu voz.** Un micrófono que no reacciona no dice si te está oyendo, y
@@ -849,12 +906,16 @@ struct ConversationView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("adjuntar")
+            // Un archivo no se puede meter en el turno en marcha (gs steerea texto, no
+            // adjuntos): mientras trabaja, adjuntar sólo llevaría a cortarle el trabajo.
+            .disabled(store.currentTurn != nil)
+            .opacity(store.currentTurn != nil ? 0.35 : 1)
 
             // ⚠️ Aquí NO va "nueva conversación". Estuvo, y eran dos entradas para lo
             // mismo: la barra de conversaciones de justo encima ya la lista todas y
             // termina en su «+», que es donde uno la busca — al final de la lista.
 
-            TextField("Mensaje", text: $borrador, axis: .vertical)
+            TextField(store.currentTurn == nil ? "Mensaje" : "Dile algo más…", text: $borrador, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .lineLimit(1...4)
@@ -876,19 +937,39 @@ struct ConversationView: View {
         !borrador.trimmingCharacters(in: .whitespaces).isEmpty || !adjuntos.isEmpty
     }
 
+    /// ¿Mandar esto ahora mismo le tira al agente el trabajo que lleva?
+    ///
+    /// Con el turno vivo hay dos caminos: el mensaje ENTRA en él («steer») o lo corta y
+    /// empieza de nuevo. Sólo entra si el agente lo soporta y si no van adjuntos —gs no
+    /// steerea archivos—.
+    ///
+    /// ⚠️ Si todavía no sabemos qué soporta (`puedeSteer == nil`, las `caps` no han
+    /// llegado), se trata como que NO: preguntar de más cuesta un toque, darlo por hecho
+    /// cuesta el turno que el agente llevaba media hora trabajando.
+    private var mandarCortaElTurno: Bool {
+        guard store.currentTurn != nil else { return false }
+        return !adjuntos.isEmpty || store.canalActivo?.puedeSteer != true
+    }
+
     private func enviar() {
         guard hayQueMandar, !subiendo else { return }
-        // ⚠️ Con un turno en curso NO se manda, y el texto se queda donde está. El
-        // servidor, al recibir un segundo mensaje en la misma conversación, CANCELA el
-        // anterior y espera a que muera antes de arrancar el nuevo — así que mandar aquí
-        // tiraba el trabajo en marcha sin decir nada, y si la caja tardaba en morir, el
-        // nuevo turno tampoco arrancaba. Se veía como «mando otro y se cuelgan los dos».
-        //
-        // La salida es explícita: detener es un botón, no un efecto secundario de escribir.
-        if store.currentTurn != nil {
-            fallo = "Tu agente está con lo anterior. Detenlo si quieres mandarle esto."
+        // ⚠️ Aquí había un candado: con turno vivo no se mandaba nada y había que detener
+        // primero. Lo justificaba el gs de entonces, que cancelaba el turno anterior sin
+        // avisar. Hoy gs sabe INYECTAR el mensaje en el turno en vuelo, así que el candado
+        // se cambió por lo único que hacía falta: avisar cuando de verdad va a cortar.
+        if mandarCortaElTurno {
+            // ⚠️ El teclado PRIMERO. Con el teclado arriba, el diálogo sale encima de él y
+            // su botón de cancelar queda debajo: un aviso destructivo del que sólo se ve
+            // la opción destructiva. Lo cazó el recorrido, no un ojo.
+            escribiendo = false
+            avisoDeCorte = true
             return
         }
+        mandarYa()
+    }
+
+    /// Lo de mandar, ya sin preguntas.
+    private func mandarYa() {
         let texto = borrador
         let envio = adjuntos
         borrador = ""
@@ -898,7 +979,6 @@ struct ConversationView: View {
         // Acabas de escribir: se sigue el final aunque estuvieras arriba. El mensaje se
         // añade después (el envío es asíncrono) y `seguir` lo baja al llegar.
         pegadoAbajo = true
-        esperandoMiMensaje = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             adjuntos = []
             adjuntando = false

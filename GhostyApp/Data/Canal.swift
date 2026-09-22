@@ -63,6 +63,15 @@ final class Hilo {
     var inicio: Date?
 
     var trabajando: Bool { turno != nil }
+
+    /// Tu mensaje clavado arriba: el que sube al tope de la pantalla al mandarlo, con aire
+    /// debajo para que su respuesta nazca donde estás mirando.
+    ///
+    /// ⚠️ Vive en el HILO y no en la vista. `RootView` es un `switch`, no un `TabView`, así
+    /// que salir del chat a otra pestaña **destruye** `ConversationView` y con ella todo su
+    /// `@State`: al volver, el aire había desaparecido y tu pregunta caía al fondo. El
+    /// ancla es un hecho de la conversación, no de la instancia de la vista.
+    var anclaArriba: String?
     /// ¿La caja no ha mandado ninguna herramienta en este turno? Entonces lo único que
     /// sabemos es cuánto lleva, y el estado lo pone el cronómetro.
     var sinHerramientas = true
@@ -142,7 +151,7 @@ final class Hilo {
         // ⚠️ Primero el fijado. `mensajes` es la COLA que manda el servidor, así que su
         // «primer mensaje» va cambiando conforme la conversación crece: el título mutaba.
         if let sesionID, let fijo = TitleStore.compartido.titulo(agenteID, sesionID) { return Self.limpio(fijo) }
-        for m in mensajes { if case .user(let t, _) = m.kind, !t.isEmpty { return Self.limpio(t) } }
+        for m in mensajes { if case .user(let t, _, _) = m.kind, !t.isEmpty { return Self.limpio(t) } }
         // Sólo mientras el mensaje va en camino y todavía no está en la lista.
         if !prompt.isEmpty { return Self.limpio(prompt) }
         return "Conversación nueva"
@@ -191,6 +200,15 @@ final class Canal {
         }
     }
     var estadoHilos: EstadoHilos = .sinPedir
+
+    /// ¿Este agente acepta que le mandes algo MÁS mientras trabaja, metiéndolo en el turno
+    /// en vuelo? Lo dice el servidor (evento `caps` del SSE).
+    ///
+    /// ⚠️ `nil` = todavía no lo sabemos, y se trata como «no»: un aviso de más cuesta un
+    /// toque, y dar por hecho que sí corta el trabajo del agente sin avisar. Hoy lo dan
+    /// los agentes ACP (goose); los del pool —claude, codex, gemini— cortan y empiezan de
+    /// nuevo.
+    var puedeSteer: Bool?
     var infoDeLaCaja: String?
     /// ¿Se está despertando la caja ahora mismo? Sin esto la app se siente colgada:
     /// levantar una caja dormida tarda segundos y no había nada que lo dijera.

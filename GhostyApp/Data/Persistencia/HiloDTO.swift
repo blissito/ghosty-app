@@ -106,7 +106,7 @@ struct MensajeGuardado: Codable {
         adjuntos = []
         herramientas = []
         switch m.kind {
-        case .user(let t, let adj):
+        case .user(let t, let adj, _):
             quien = .usuario
             texto = t
             adjuntos = adj.map(AdjuntoGuardado.init)

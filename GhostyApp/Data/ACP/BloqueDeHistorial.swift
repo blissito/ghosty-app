@@ -50,7 +50,7 @@ enum BloqueDeHistorial {
 
     private static func frase(_ m: Message) -> String? {
         switch m.kind {
-        case .user(let t, let adjuntos):
+        case .user(let t, let adjuntos, _):
             let cuerpo = recorte(t)
             let conQue = adjuntos.isEmpty ? "" : " (con \(adjuntos.count) adjunto(s))"
             return cuerpo.isEmpty && conQue.isEmpty ? nil : "Persona: \(cuerpo)\(conQue)"
