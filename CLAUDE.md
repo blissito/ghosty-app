@@ -55,6 +55,13 @@ De ahí salen las reglas que quedan:
   nada ni apuntar deudas. Se quitaron ~900 líneas que existían para eso.
 - **El estado lo dice el servidor** (evento `status`), no se infiere de si queda un turno
   local. Inferirlo ponía «Sigue trabajando…» encima de conversaciones en reposo.
+  ⚠️ Y eso incluye **lo que pasa en otras superficies**: el mismo agente se usa desde la
+  Mac y desde la web. El estado del agente salía de `canal.enCurso` —los turnos que abrió
+  ESTE teléfono—, así que un turno encargado desde la Mac llegaba como push y la lista
+  seguía diciendo «En reposo». Ahora sale de la lista (`ultimoTurno`, `permisoPendiente`);
+  ver `NOTAS-DEL-RELE.md`. Reglas que quedan: **nunca se nombra el dispositivo** (gs manda
+  `canal: "chat"` para los tres), todo «trabajando» **caduca** a los 15 min sin confirmar,
+  y **no hay temporizadores**: se repregunta al volver del fondo y al entrar a la lista.
 - **Nadie cambia de conversación por debajo.** Eso se veía como «se borró el historial al
   enviar»: no se borraba, cambiaba el hilo y el mensaje se quedaba en el anterior.
 - Ver `NOTAS-DEL-RELE.md` para el contrato y los filos del SSE.
@@ -73,6 +80,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_CONECTORES=demo` | llena Integraciones para poder mirarla |
 | `GHOSTY_CORTAR=8` | mata el socket a los 8 s, como hace iOS al suspender la app |
 | `GHOSTY_DEMO_INTERRUMPIDO=1` | pinta un hilo cortado por la suspensión (con el cartel) |
+| `GHOSTY_DEMO_REMOTO=1` | el agente trabajando **desde otra superficie**: una conversación corriendo, una muda de hace 3 h (para ver la caducidad), una que contestó sin abrirse y una detenida por un permiso |
 | `GHOSTY_PUSH=1` | se registra en APNs sin esperar al diálogo del permiso |
 | `GHOSTY_SILENCIO=20` | da el turno por cortado tras 20 s sin eventos (por defecto, 8 min) |
 | `GHOSTY_NUEVA=1` | arranca en una conversación nueva (crear sesión + primer turno) |

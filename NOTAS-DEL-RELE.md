@@ -22,7 +22,7 @@ volver a los 40 → la respuesta está entera.
 | El hilo | `GET …/conversations/:sid?tail=N` → `{messages, saltados}` |
 | Permiso | `POST …/conversations/:sid/permission` `{id, optionId}` |
 | Detener | `POST …/conversations/:sid/cancel` |
-| Conversaciones | `GET`/`POST …/conversations`, `DELETE …/:sid` — cada fila y el hilo llevan `ultimoTurno {turnId, state, error, startedAt, endedAt}` (persistido en `TurnRecord`) |
+| Conversaciones | `GET`/`POST …/conversations`, `DELETE …/:sid` — cada fila y el hilo llevan `ultimoTurno {turnId, state, error, startedAt, endedAt}` (persistido en `TurnRecord`) y `permisoPendiente {id, title}` o `null` (de MEMORIA, ver abajo) |
 
 Eventos: `chunk`, `thought`, `tool`, `artifact`, `usage`, `permission`,
 `permission-resolved`, `status`, `caps`, `title`, `done`, `error`.
@@ -36,6 +36,30 @@ Eventos: `chunk`, `thought`, `tool`, `artifact`, `usage`, `permission`,
    cada reenganche pinta otra tarjeta del mismo pedido.
 3. **El backlog no sustituye a `?tail=N`.** Dura unos minutos y vive en memoria de gs: para
    «me fui un rato» hay que PEDIR la conversación.
+
+### La lista es el único estado que hay de las otras superficies
+
+gs **no tiene stream por cuenta ni por agente**: todo SSE es `(agentId, sessionId)`. Así
+que lo que el agente hace desde la Mac o desde la web sólo se sabe por
+`GET /conversations`, y de ahí salen dos cosas distintas:
+
+- **`ultimoTurno`** es HISTORIAL (`TurnRecord`, en la DB). Su `startedAt` es lo que deja
+  caducar un `running`: la app deja de creérselo a los 15 min (`UltimoTurno.frescura`).
+  ⚠️ Sin `startedAt` la app **no afirma nada** — un servidor que no manda la fecha no la
+  autoriza a inventar trabajo en curso.
+- **`permisoPendiente`** es ESTADO de un turno vivo (`permisosAbiertosDe`, memoria de gs,
+  no se persiste). Existe porque «espera tu visto bueno» sólo salía por el SSE de esa
+  conversación: un permiso pedido desde la Mac llegaba al teléfono como push y la lista no
+  podía decir nada hasta abrir el hilo, siendo el estado más urgente que hay — el turno
+  está DETENIDO. ⚠️ Es memoria de la instancia: con blue/green sólo la activa ve los suyos.
+
+El push **nunca** puede encender «trabajando»: es siempre `alert` y sólo sale al TERMINAR
+el turno o al pedir permiso, nunca al arrancar. Por eso la app repregunta al volver del
+fondo y al entrar a la lista (con freno de 30 s), y no hay ningún temporizador.
+
+⚠️ gs **no distingue la superficie**: web, Mac y teléfono son todos `canal: "chat"`. Por
+eso la app dice «Trabajando en otra conversación…» y nunca «desde tu Mac», que sería
+inventado. Para poder decirlo habría que mandar `source` en el POST y persistirlo.
 
 ### `usage`
 
@@ -72,8 +96,14 @@ distinguir «cero» de «no lo sé».
   nuevo. ⚠️ El loader del chat web hace el mismo `loadHistory`: un F5 a media respuesta
   debería reproducirlo — pendiente del lado web/Teams.
 
-- **Lease con vencimiento por turno** (`PROMPT_TIMEOUT_MS` existe y no se usa). Un turno
-  vivo pero mudo no tiene tope; es lo que llenó las ranuras de zombis.
+- ~~**Lease con vencimiento por turno**~~ **hecho**. `PROMPT_TIMEOUT_MS` nunca existió en
+  gs (era de otro repo; esta nota mandó a buscar donde no había). Lo que sí hay, en
+  `turns.server.ts`: `TURN_SILENCE_MS` = 10 min sin emitir NADA —rearmado en cada evento—
+  y `TURN_HARD_CAP_MS` = 1 h de tope duro. Queda el residuo: `acquire` hace `busy++`
+  siempre y sólo el `finally` lo libera (un turno que no llega ahí deja la ranura inflada
+  para siempre), el tope duro sólo hace `abort()` y no llama a `transportFor(fa).cancel`
+  como sí hace `stopTurn`, y `stopTurn` exige `userId` así que un reaper de sistema no lo
+  puede usar tal cual.
 - **Un cursor de verdad** en el hilo (`?since=`), en vez de `tail`.
 - `loadHistory` concatena mensajes consecutivos del mismo rol sin separador: dos envíos
   seguidos salen pegados («entrega el docentrega el doc»).
@@ -98,5 +128,7 @@ distinguir «cero» de «no lo sé».
   la conversación del aviso antes de pedirla. **Verificado en producción** (15:05):
   POST doble con el mismo `turnId` → `repetido: true`; restart con un turno en vuelo →
   `[drain] SIGTERM con 1 turno(s)`, el turno cerró con push y sólo entonces reinició.
-- **Conversaciones que quedan «trabajando» para siempre**. Ya hay un botón «Detener» en el
-  cartel, pero la causa está en el servidor: sin lease por turno, un turno mudo no se muere.
+- ~~**Conversaciones que quedan «trabajando» para siempre»**~~: el lease de gs las mata a
+  los 10 min de silencio, y desde el 2026-09-22 la app además las caduca por su cuenta —una
+  fila que dice `running` desde hace horas se pinta «Sin noticias · hace 3 h» en vez de
+  repetir una mentira que desde el teléfono nadie puede desmentir.
