@@ -87,6 +87,7 @@ enum BloqueEbFile {
                         forma: .archivo, titulo: nombre, recibida: Date(),
                         contenido: nil, datos: nil)
         e.url = url
+        e.mime = (j["mime"] as? String) ?? (j["mimeType"] as? String) ?? (j["type"] as? String)
         e.bytesRemotos = (j["size"] as? Int) ?? (j["bytes"] as? Int)
         return e
     }

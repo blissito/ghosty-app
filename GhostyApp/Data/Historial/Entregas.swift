@@ -49,6 +49,9 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// sin bytes es válida: se baja cuando hace falta, y de paso no engorda el JSON —que
     /// guarda los bytes en base64— con megas que no hacen falta ahí. Ver `BloqueEbFile`.
     var url: String?
+    /// MIME que anunció el agente (`mime` del ```eb-file```). Manda sobre el sufijo del
+    /// título: un PDF llamado «Cotización» a secas sigue siendo PDF.
+    var mime: String?
     /// Lo que dijo que pesaba, para poder decirlo sin bajarlo.
     var bytesRemotos: Int?
     /// Su id en los archivos de la CUENTA. Desde que gs guarda las entregas (2026-09-16),
@@ -152,7 +155,27 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// con qué abrirlo, el icono sale genérico y la vista previa intenta leerlo como texto
     /// —enseñando `%PDF-1.7 %µ¶` en la tarjeta—. Es UN solo sitio a propósito: cuando esto
     /// vivía repartido, cada consumidor acertaba o fallaba por su cuenta.
+    /// Extensión canónica para los MIME que las tarjetas distinguen; nil = decidir por el nombre.
+    static func `extension`(porMime mime: String) -> String? {
+        switch mime.split(separator: ";").first.map({ $0.trimmingCharacters(in: .whitespaces).lowercased() }) ?? "" {
+        case "application/pdf": return "pdf"
+        case "image/png": return "png"
+        case "image/jpeg": return "jpg"
+        case "image/webp": return "webp"
+        case "image/gif": return "gif"
+        case "audio/mpeg": return "mp3"
+        case "audio/ogg": return "ogg"
+        case "video/mp4": return "mp4"
+        case "application/vnd.openxmlformats-officedocument.wordprocessingml.document": return "docx"
+        case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": return "xlsx"
+        case "text/csv": return "csv"
+        case "text/markdown": return "md"
+        default: return nil
+        }
+    }
+
     var tipo: String? {
+        if let mime, let ext = Self.extension(porMime: mime) { return ext }
         if let punto = titulo.lastIndex(of: "."), punto != titulo.startIndex {
             let ext = String(titulo[titulo.index(after: punto)...]).lowercased()
             if !ext.isEmpty, ext.count <= 5 { return ext }
