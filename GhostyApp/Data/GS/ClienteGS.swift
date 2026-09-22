@@ -146,9 +146,11 @@ actor ClienteGS: TransporteDeAgente {
         return (r["conversaciones"] as? [[String: Any]] ?? []).compactMap { c in
             guard let id = c["id"] as? String else { return nil }
             let f = (c["actualizada"] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
+            let permiso = (c["permisoPendiente"] as? [String: Any])?["title"] as? String
             return ACPClient.Session(id: id, title: c["titulo"] as? String ?? "Conversación",
                                      cwd: "/data/work", updatedAt: f, messageCount: nil,
-                                     ultimoTurno: ACPClient.UltimoTurno.desde(c["ultimoTurno"]))
+                                     ultimoTurno: ACPClient.UltimoTurno.desde(c["ultimoTurno"]),
+                                     permisoPendiente: permiso)
         }
     }
 

@@ -16,6 +16,13 @@ enum ACPClient {
         /// Cómo acabó el último turno, según el SERVIDOR. Es lo que hace de la lista un
         /// buzón aunque la respuesta llegara con la app cerrada.
         var ultimoTurno: UltimoTurno?
+        /// Lo que esta conversación te está pidiendo ahora mismo, si algo.
+        ///
+        /// ⚠️ Es ESTADO de un turno vivo, no historial: sale de la memoria de gs, no de
+        /// `TurnRecord`. Existe para que un permiso pedido desde otra superficie se vea en
+        /// la lista; antes sólo salía por el SSE de esa conversación y había que abrir el
+        /// hilo para enterarse de que el agente llevaba rato detenido esperándote.
+        var permisoPendiente: String?
     }
 
     struct UltimoTurno: Sendable, Equatable {

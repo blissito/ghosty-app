@@ -269,6 +269,13 @@ final class Canal {
     /// stream por agente— y sale de la lista que ya se pide en `ponerseAlDia`.
     /// ⚠️ Se descuentan las que tienen turno LOCAL vivo: ésas las cuenta `enCurso`, y
     /// sumarlas dos veces decía «trabajando en 2 conversaciones» con una sola.
+    /// Las conversaciones que están DETENIDAS esperando que contestes, según el servidor,
+    /// y que no tienes abiertas aquí. Un permiso pedido desde la Mac también te toca a ti.
+    var permisoRemoto: [ACPClient.Session] {
+        let abiertas = Set(hilos.compactMap(\.sesionID))
+        return hilosRemotos.filter { $0.permisoPendiente != nil && !abiertas.contains($0.id) }
+    }
+
     var trabajoRemoto: [ACPClient.Session] {
         let locales = Set(enCurso.compactMap(\.sesionID))
         return hilosRemotos.filter { ($0.ultimoTurno?.sigueVivo ?? false) && !locales.contains($0.id) }

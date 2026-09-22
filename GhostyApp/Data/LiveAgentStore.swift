@@ -1231,7 +1231,9 @@ final class LiveAgentStore: AgentStoring {
     /// delante. Lo que no se guarda no puede contradecir a lo que pasa.
     func estado(de agentID: String) -> AgentStatus {
         guard let canal = canales[agentID] else { return .idle(since: "listo") }
-        if !canal.esperandoPermiso.isEmpty { return .awaitingApproval }
+        // Gana sobre cualquier trabajo, aquí o allá: es lo único que está DETENIDO
+        // esperándote. Incluye el permiso que se pidió desde otra superficie.
+        if !canal.esperandoPermiso.isEmpty || !canal.permisoRemoto.isEmpty { return .awaitingApproval }
         if let vivo = canal.enCurso.last {
             return .working(task: vivo.turno?.detail ?? "Trabajando…")
         }

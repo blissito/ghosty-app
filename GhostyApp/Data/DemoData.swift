@@ -171,6 +171,12 @@ enum DemoData {
             ACPClient.Session(id: "s-zombi", title: "Turno mudo", cwd: "/data/work",
                               updatedAt: Date().addingTimeInterval(-10_800), messageCount: 2,
                               ultimoTurno: turno("tr2", "running", inicio: -10_800)),
+            // Pidió permiso desde otro lado: está DETENIDA esperándote y la lista tiene
+            // que decirlo sin que abras el hilo.
+            ACPClient.Session(id: "s-permiso-fuera", title: "Publicar el recorte",
+                              cwd: "/data/work", updatedAt: Date(), messageCount: 4,
+                              ultimoTurno: turno("tr4", "running", inicio: -240),
+                              permisoPendiente: "Publicar en el sitio"),
             // Contestó desde otro lado y nunca la abriste aquí: enciende el punto.
             ACPClient.Session(id: "s-contesto-fuera", title: "Cotización de abril",
                               cwd: "/data/work", updatedAt: Date().addingTimeInterval(-300),

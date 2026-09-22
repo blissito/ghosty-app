@@ -403,6 +403,8 @@ struct ConversacionesView: View {
     }
 
     private func detalle(_ s: ACPClient.Session) -> String {
+        // Antes que nada: esta conversación está detenida hasta que alguien conteste.
+        if let p = s.permisoPendiente { return "Espera tu visto bueno · \(p)" }
         // Primero cómo acabó su último turno, que lo dice el servidor: es lo que hace de
         // la lista un buzón aunque la respuesta llegara con la app cerrada.
         if let u = s.ultimoTurno {

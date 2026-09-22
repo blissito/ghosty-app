@@ -376,10 +376,12 @@ extension RecorridoUITests {
         app.launch()
 
         // 1. La cabecera del agente lo dice, aunque el turno no lo abrimos aquí.
+        // ⚠️ El permiso GANA sobre el trabajo: es lo único detenido esperándote, y ahora
+        // también cuenta el que se pidió desde otra superficie.
         let estado = app.staticTexts["estado-demo-1"]
         XCTAssertTrue(estado.waitForExistence(timeout: 5), "no se pintó el estado del agente")
-        XCTAssertTrue(estado.label.contains("otra conversación"),
-                      "la cabecera no dice que trabaja desde otro lado: «\(estado.label)»")
+        XCTAssertTrue(estado.label.contains("visto bueno"),
+                      "un permiso pedido desde otro lado no sale en la lista: «\(estado.label)»")
         foto("20-estado-remoto")
 
         // 2. Las guardadas: la que corre dice «Trabajando…» y la que lleva tres horas
@@ -390,6 +392,9 @@ extension RecorridoUITests {
         let sinNoticias = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH 'Sin noticias'")).firstMatch
         XCTAssertTrue(sinNoticias.exists, "el turno mudo de hace tres horas sigue diciendo que trabaja")
+        let permiso = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH 'Espera tu visto bueno'")).firstMatch
+        XCTAssertTrue(permiso.exists, "la conversación detenida por un permiso no lo dice")
         foto("21-guardadas-remotas")
     }
 
