@@ -66,7 +66,7 @@ CONTACTO = {
     "contactFirstName": "Hector",
     "contactLastName": "Campos",
     "contactEmail": "rotcehcm@hotmail.com",
-    "contactPhone": os.environ.get("ASC_PHONE", ""),
+    "contactPhone": os.environ.get("ASC_PHONE", "+527712412825"),
 }
 
 
