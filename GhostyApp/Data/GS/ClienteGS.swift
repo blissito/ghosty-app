@@ -177,6 +177,19 @@ actor ClienteGS: TransporteDeAgente {
         let r = try await pedir(c.url!)
         saltados[id] = r["saltados"] as? Int ?? 0
         ultimos[id] = ACPClient.UltimoTurno.desde(r["ultimoTurno"])
+        // ⚠️ `enCurso: true` NO es «esta conversación está vacía»: es «hay un turno vivo y
+        // no te doy el historial», porque pedirlo con un turno en marcha deja mudo al
+        // agente (ver `NOTAS-DEL-RELE.md`). gs da por hecho que quien pregunta ya tiene lo
+        // anterior, y eso es falso justo cuando llegas por un push a una conversación que
+        // este teléfono nunca abrió: se quedaba en blanco. Se distingue de una respuesta
+        // vacía de verdad devolviendo `nil`, que quien llama ya sabe tratar como «todavía
+        // no hay nada que pintar» en vez de como «no hay nada».
+        if r["enCurso"] as? Bool == true {
+            EasyBitsClient.diag("[hilo] \(id): turno vivo, el servidor no da historial; lo trae el SSE")
+            sinHistorial.insert(id)
+            return nil
+        }
+        sinHistorial.remove(id)
         // ⚠️ Cada mensaje de la copia va precedido de una frontera `.turno("m<i>")`: el
         // conversor pega trozos consecutivos del mismo rol (existe para los `*_chunk` de
         // ACP), y sin frontera dos mensajes seguidos del mismo lado salían fundidos en una
@@ -224,6 +237,12 @@ actor ClienteGS: TransporteDeAgente {
     /// Cómo acabó el último turno de cada conversación, según el último `cargar`.
     private var ultimos: [String: ACPClient.UltimoTurno] = [:]
     func ultimoTurno(de sesion: String) async -> ACPClient.UltimoTurno? { ultimos[sesion] }
+
+    /// Conversaciones cuyo historial NO se pudo traer porque había un turno vivo. Lo que
+    /// falta llega por el SSE, pero lo de ANTES sigue sin pedirse: hay que volver cuando
+    /// el turno cierre.
+    private var sinHistorial: Set<String> = []
+    func faltaHistorial(de sesion: String) async -> Bool { sinHistorial.contains(sesion) }
 
     /// Cuántos mensajes quedaron atrás en el último `cargar`. Es lo que permite ofrecer
     /// «ver lo anterior» en vez de fingir que la conversación empieza ahí.

@@ -24,6 +24,10 @@ protocol TransporteDeAgente: Actor {
     /// `nil` = el transporte no lo sabe (el WebSocket directo no lo sabe).
     func ultimoTurno(de sesion: String) async -> ACPClient.UltimoTurno?
 
+    /// ¿Se quedó sin traer el historial de esa conversación porque había un turno vivo?
+    /// Quien llama tiene que volver a pedirlo cuando el turno cierre.
+    func faltaHistorial(de sesion: String) async -> Bool
+
     func nuevaSesion(cwd: String) async throws -> (id: String, modos: ACPClient.Modos?)
 
     func fijarModo(_ modo: String, sessionID: String) async throws

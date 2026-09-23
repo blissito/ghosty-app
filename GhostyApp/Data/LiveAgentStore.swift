@@ -605,6 +605,16 @@ final class LiveAgentStore: AgentStoring {
                 let vivas = Set(frescas.map(\.id))
                 for h in canal.hilos where h.turno == nil {
                     guard let sid = h.sesionID, !vivas.contains(sid) else { continue }
+                    // ⚠️ La que ESTÁS MIRANDO no se cierra aunque no venga en la lista.
+                    // La lista de gs excluye las conversaciones sin mensajes todavía
+                    // (`conversationWhereFor`), así que una recién nacida en la Mac —a la
+                    // que acabas de llegar tocando su push— no aparece: se cerraba delante
+                    // de ti y, si era la única, se abría otra en blanco. Tocabas el aviso
+                    // de una respuesta y acababas en una conversación nueva y vacía.
+                    guard h.clave != canal.activa else {
+                        EasyBitsClient.diag("[hilos] \(sid) no está en la lista pero la estás mirando: se respeta")
+                        continue
+                    }
                     EasyBitsClient.diag("[hilos] \(sid) ya no está en el servidor: se cierra")
                     self.cache.olvidarAbierta(sid, de: canal.cuenta.id)
                     canal.cerrar(h)
@@ -682,7 +692,14 @@ final class LiveAgentStore: AgentStoring {
         let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
-            guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else { return }
+            guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else {
+                // Sin historial porque hay un turno vivo: lo que pasa AHORA lo trae el
+                // SSE, así que hay que estar escuchando aunque no haya nada que pintar
+                // todavía. Sin esto, llegar por un push a una conversación que este
+                // teléfono nunca abrió dejaba la pantalla en blanco.
+                if await cliente.faltaHistorial(de: sid) { engancharse(hilo, de: canal) }
+                return
+            }
             let archivos = await GhostyAPI.archivosDe(sesion: sid)
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
             // Las entregas se cosen aquí: el hilo que devuelve el servidor es texto, y la
@@ -2025,6 +2042,19 @@ final class LiveAgentStore: AgentStoring {
             if !hilo.visto { Avisos.sonarFin() }
         }
         refrescarEstado(canal)
+        // Si se llegó a esta conversación con el turno YA corriendo —un push de algo que
+        // el agente hacía desde la Mac—, el servidor no dio el historial y sólo se pintó
+        // lo que trajo el SSE. Ahora que el turno cerró sí se puede pedir lo de antes,
+        // que si no falta para siempre.
+        if let sid = hilo.sesionID {
+            Task { [weak self, weak canal] in
+                guard let self, let canal,
+                      let cliente = try? await self.asegurarSocket(canal),
+                      await cliente.faltaHistorial(de: sid) else { return }
+                EasyBitsClient.diag("[hilo] \(sid): el turno cerró, ahora sí pido lo de antes")
+                await self.traerLaConversacion(hilo, de: canal)
+            }
+        }
         // El turno acabó: es el momento en que la conversación está completa y vale la
         // pena escribirla. Guardar en cada trozo del streaming sería escribir el archivo
         // decenas de veces por respuesta.
