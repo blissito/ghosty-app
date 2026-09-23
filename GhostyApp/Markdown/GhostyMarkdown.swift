@@ -41,6 +41,9 @@ struct GhostyMarkdown: View {
     var body: some View {
         Markdown(Self.imagenesAparte(markdown))
             .markdownTheme(MarkdownUI.Theme.ghosty)
+            // Toque largo → «Copiar» del párrafo. La respuesta entera la copia el botón
+            // de `AgentBubble`.
+            .textSelection(.enabled)
             .markdownTextStyle {
                 FontSize(16)
                 ForegroundColor(.gInk)

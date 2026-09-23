@@ -324,14 +324,10 @@ struct ConversationView: View {
         }
         // Cambiar de conversación es una pantalla nueva: empieza por el final.
         .onChange(of: hiloVisible) { _, _ in irAbajo() }
-        // ⚠️ El aire de abajo vive SÓLO mientras el turno corre. Dejarlo después —como hace
-        // Claude— aquí era un hueco por el que se arrastraba la conversación entera fuera
-        // de la pantalla (medido en el iPhone): al cerrar el turno se recoge, animado, y
-        // el hilo vuelve a su ancla de siempre.
-        .onChange(of: store.currentTurn == nil) { _, enReposo in
-            guard enReposo, store.anclaDelHilo != nil else { return }
-            withAnimation(.easeInOut(duration: 0.35)) { store.anclaDelHilo = nil }
-        }
+        // ⚠️ Al cerrar el turno el ancla NO se suelta: el par pregunta/respuesta se queda
+        // tal como se generó. Soltarla recogía el aire y el hilo se reajustaba al final
+        // —la pregunta se iba por arriba justo al terminar de leer—. La cambia el
+        // siguiente envío, que pone la suya.
         // Un mensaje que se mandó y la app murió antes de que existiera la
         // conversación vuelve al compositor, con el aviso, en vez de desaparecer.
         .task(id: store.selectedAgentID) {
@@ -408,6 +404,9 @@ struct ConversationView: View {
                 ForEach(desdeElAncla) { mensaje in filaAnimada(mensaje) }
                 pieDeTrabajo
             }
+            // El indicador entra sin prisa: la respuesta tarda segundos de todos modos.
+            // Antes no había animación que recogiera el `.transition` y salía de golpe.
+            .animation(.easeOut(duration: 0.5), value: store.currentTurn != nil)
             .background(GeometryReader { g in
                 Color.clear.preference(key: AltoDeLaCola.self, value: g.size.height)
             })
@@ -416,7 +415,9 @@ struct ConversationView: View {
             // de golpe es un salto seco por mucho `scrollTo` animado que venga después;
             // si la ALTURA anima de 0 al aire, el anclaje de abajo la sigue y la subida se
             // ve.
-            Color.clear.frame(height: store.anclaDelHilo == nil ? 0 : aireDebajo)
+            // Sin el mensaje ancla en el hilo (se recargó con otros ids) no hay nada que
+            // clavar: el aire sería la pantalla entera en blanco.
+            Color.clear.frame(height: desdeElAncla.isEmpty ? 0 : aireDebajo)
             // El fondo de verdad: a donde se baja. Un mensaje largo que crece
             // con el streaming no cambia de id, y «bajar» a un id que ya es
             // el ancla no mueve nada.
@@ -462,7 +463,7 @@ struct ConversationView: View {
                 // para VoiceOver ni para el recorrido que comprueba que el indicador sigue.
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("pensando")
-                .transition(.opacity)
+                .transition(.opacity.combined(with: .offset(y: 6)))
         }
     }
 

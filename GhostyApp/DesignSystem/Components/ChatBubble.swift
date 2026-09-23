@@ -126,6 +126,10 @@ struct AgentBubble: View {
                    herramientas: tools?.herramientas ?? [])
     }
 
+    private var textoCompleto: String {
+        [text, trailing ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
@@ -141,12 +145,46 @@ struct AgentBubble: View {
 
             // Debajo de todo, como en Claude: lo que leyó para contestar.
             BarraDeFuentes(fuentes: fuentes)
+
+            // Copiar la respuesta entera, como en Claude. Sólo cuando ya terminó: copiar
+            // media respuesta que sigue creciendo no sirve de nada.
+            if !vivo, !textoCompleto.isEmpty { BotonCopiar(texto: textoCompleto) }
         }
         // Sin burbuja y a todo lo ancho, como el chat de Claude: la respuesta del agente
         // es el cuerpo de la conversación —listas, tablas, código—, y meterla en una
         // burbuja de 300 pt la partía en renglones de tres palabras. La burbuja se queda
         // sólo para lo que escribe la persona, que es lo que hay que distinguir.
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Copia el markdown de la respuesta y confirma con una palomita un momento.
+private struct BotonCopiar: View {
+    let texto: String
+    @State private var copiado = false
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = texto
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.snappy(duration: 0.2)) { copiado = true }
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                withAnimation(.snappy(duration: 0.2)) { copiado = false }
+            }
+        } label: {
+            Image(systemName: copiado ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(copiado ? Color.gPrimary : Color.gInk3)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("copiar-respuesta")
+        .accessibilityLabel(copiado ? "Copiado" : "Copiar respuesta")
+        .padding(.leading, -6)
+        .padding(.top, -6)
     }
 }
 

@@ -190,6 +190,15 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(ultima.exists && ultima.isHittable, "el botón de ir abajo no bajó al último mensaje")
         XCTAssertFalse(bajar.exists, "el botón de ir abajo sigue tras bajar")
 
+        // 4-bis. Copiar la última respuesta: el botón tiene que estar y confirmar.
+        let copiar = app.buttons.matching(identifier: "copiar-respuesta").allElementsBoundByIndex
+            .last { $0.isHittable }
+        XCTAssertNotNil(copiar, "no hay botón de copiar bajo la respuesta")
+        copiar?.tap()
+        XCTAssertTrue(app.buttons["Copiado"].waitForExistence(timeout: 2),
+                      "copiar la respuesta no confirmó nada")
+        foto("07-bis-copiado")
+
         // 4a. Las fuentes de la última respuesta: la barra tiene que estar Y tiene que
         //     abrir la hoja. Una barra que no abre nada es el fallo de siempre.
         let fuentes = app.buttons["barra-de-fuentes"].firstMatch
