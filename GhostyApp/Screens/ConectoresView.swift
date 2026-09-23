@@ -131,7 +131,7 @@ struct ConectoresPane: View {
                     Button("Archivos") { conectar(c) }
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.gPrimary)
-                        .accessibilityIdentifier("conector-archivos-\(c.id)")
+                        .accessibilityIdentifier("connector-files-\(c.id)")
                 }
                 Button("Quitar") { Task { await desconectar(c) } }
                     .font(.system(size: 14, weight: .semibold))
@@ -151,7 +151,7 @@ struct ConectoresPane: View {
     private func conectar(_ c: Conector) {
         // Ya conectado = sólo se cambian los archivos elegidos. Las tools los leen en cada
         // llamada, así que no hay por qué cortar la conversación.
-        let yaEstaba = c.conectado
+        let wasConnected = c.conectado
         trabajando = c.id
         fallo = nil
         Task {
@@ -172,14 +172,14 @@ struct ConectoresPane: View {
                     trabajando = nil
                     // Cancelar en Google (`detalle=cancelado`) es lo mismo que cerrar la hoja:
                     // no es un fallo. Cualquier otro motivo se dice tal cual lo manda gs.
-                    if let volvio, Self.detalle(volvio) != "cancelado" {
-                        fallo = Self.detalle(volvio).map { "No se pudo conectar \(c.nombre): \($0)." }
+                    if let volvio, Self.failureDetail(volvio) != "cancelado" {
+                        fallo = Self.failureDetail(volvio).map { "No se pudo conectar \(c.nombre): \($0)." }
                             ?? "No se pudo conectar \(c.nombre)."
                     }
                     Task { await store.cargarConectores() }
                     return
                 }
-                if yaEstaba {
+                if wasConnected {
                     Task {
                         await store.cargarConectores()
                         trabajando = nil
@@ -213,7 +213,7 @@ struct ConectoresPane: View {
     }
 
     /// El motivo que gs pone en `detalle` cuando no salió bien.
-    private static func detalle(_ url: URL) -> String? {
+    private static func failureDetail(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "detalle" }?.value
     }

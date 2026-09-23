@@ -126,7 +126,7 @@ struct AgentBubble: View {
                    herramientas: tools?.herramientas ?? [])
     }
 
-    private var textoCompleto: String {
+    private var fullText: String {
         [text, trailing ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
@@ -148,7 +148,7 @@ struct AgentBubble: View {
 
             // Copiar la respuesta entera, como en Claude. Sólo cuando ya terminó: copiar
             // media respuesta que sigue creciendo no sirve de nada.
-            if !vivo, !textoCompleto.isEmpty { BotonCopiar(texto: textoCompleto) }
+            if !vivo, !fullText.isEmpty { CopyButton(text: fullText) }
         }
         // Sin burbuja y a todo lo ancho, como el chat de Claude: la respuesta del agente
         // es el cuerpo de la conversación —listas, tablas, código—, y meterla en una
@@ -159,30 +159,30 @@ struct AgentBubble: View {
 }
 
 /// Copia el markdown de la respuesta y confirma con una palomita un momento.
-private struct BotonCopiar: View {
-    let texto: String
-    @State private var copiado = false
+private struct CopyButton: View {
+    let text: String
+    @State private var copied = false
 
     var body: some View {
         Button {
-            UIPasteboard.general.string = texto
+            UIPasteboard.general.string = text
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            withAnimation(.snappy(duration: 0.2)) { copiado = true }
+            withAnimation(.snappy(duration: 0.2)) { copied = true }
             Task {
                 try? await Task.sleep(for: .seconds(1.5))
-                withAnimation(.snappy(duration: 0.2)) { copiado = false }
+                withAnimation(.snappy(duration: 0.2)) { copied = false }
             }
         } label: {
-            Image(systemName: copiado ? "checkmark" : "doc.on.doc")
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(copiado ? Color.gPrimary : Color.gInk3)
+                .foregroundStyle(copied ? Color.gPrimary : Color.gInk3)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("copiar-respuesta")
-        .accessibilityLabel(copiado ? "Copiado" : "Copiar respuesta")
+        .accessibilityIdentifier("copy-response")
+        .accessibilityLabel(copied ? "Copiado" : "Copiar respuesta")
         .padding(.leading, -6)
         .padding(.top, -6)
     }

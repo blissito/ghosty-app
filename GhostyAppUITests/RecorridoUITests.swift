@@ -191,10 +191,10 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertFalse(bajar.exists, "el botón de ir abajo sigue tras bajar")
 
         // 4-bis. Copiar la última respuesta: el botón tiene que estar y confirmar.
-        let copiar = app.buttons.matching(identifier: "copiar-respuesta").allElementsBoundByIndex
+        let copyButton = app.buttons.matching(identifier: "copy-response").allElementsBoundByIndex
             .last { $0.isHittable }
-        XCTAssertNotNil(copiar, "no hay botón de copiar bajo la respuesta")
-        copiar?.tap()
+        XCTAssertNotNil(copyButton, "no hay botón de copiar bajo la respuesta")
+        copyButton?.tap()
         XCTAssertTrue(app.buttons["Copiado"].waitForExistence(timeout: 2),
                       "copiar la respuesta no confirmó nada")
         foto("07-bis-copiado")
