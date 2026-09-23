@@ -366,12 +366,32 @@ struct ConversationView: View {
         } // ScrollViewReader
     }
 
+    /// Lo que se ve mientras la conversación viene en camino. No dice «vacío», que sería
+    /// mentira, ni finge mensajes: dice que está llegando.
+    private var trayendoElHilo: some View {
+        VStack(spacing: 12) {
+            ProgressView().controlSize(.small)
+            Text("Trayendo la conversación…").gMeta()
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("trayendo-el-hilo")
+    }
+
     /// El contenido del scroll, aparte: dentro del `body` el compilador no lo tipaba.
     @ViewBuilder
     private func contenidoDelHilo(_ lector: ScrollViewProxy) -> some View {
                 VStack(spacing: 14) {
             if mensajesÚnicos.isEmpty {
-                primeraVez.padding(.top, 90)
+                // ⚠️ Una conversación que YA EXISTE en el servidor y todavía no se ha
+                // traído NO es una conversación nueva. Llegando por un push tarda un par
+                // de segundos en llegar, y durante ese rato se pintaba «¿En qué te
+                // ayudo?»: tocabas el aviso de una respuesta y aparecías en lo que parecía
+                // un hilo en blanco. Medido en el iPhone: 2.7 s de «conversación nueva».
+                if store.hiloActivo?.sesionID != nil {
+                    trayendoElHilo.padding(.top, 90)
+                } else {
+                    primeraVez.padding(.top, 90)
+                }
             }
             Color.clear.frame(height: 0)
                 .onAppear { EasyBitsClient.diag("[vista] pintando \(store.messages.count) mensajes de \(store.claveDelHilo.prefix(8))") }

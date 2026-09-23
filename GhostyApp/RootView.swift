@@ -69,6 +69,11 @@ struct RootView: View {
         // teléfono y había que salvarlo al dormirse. El turno es del servidor: irse no
         // requiere hacer nada, y al volver sólo hay que preguntar qué pasó.
         .onChange(of: fase) { _, nueva in
+            // ⚠️ El registro se vuelca al IRSE. Su comentario decía que ya pasaba, pero
+            // `volcar()` sólo lo llamaba el botón de compartir de Ajustes: lo que no
+            // hubieras exportado a mano se perdía al cerrar la app. Se perdieron varias
+            // reproducciones así, la última la del push que abría una conversación vacía.
+            if nueva != .active { Bitacora.volcar() }
             guard nueva == .active else { return }
             Task { await store.volverDelFondo() }
         }

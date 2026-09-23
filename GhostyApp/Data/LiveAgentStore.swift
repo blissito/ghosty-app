@@ -687,8 +687,20 @@ final class LiveAgentStore: AgentStoring {
     ///
     /// ⚠️ NO pisa lo que hay si viene vacío ni si el hilo creció mientras preguntábamos:
     /// las dos cosas dejaron una conversación en blanco alguna vez.
+    /// Conversaciones que ya se están trayendo ahora mismo.
+    ///
+    /// ⚠️ Al llegar por un push se pedía la MISMA conversación cuatro veces seguidas
+    /// (medido: 26.885, 27.038, 27.272 y 27.287): el aviso la pide, `ponerseAlDia` la
+    /// pide otra vez por ser la visible, y el refresco de la lista otra por cada vuelta.
+    /// Como el cliente es un actor, esas copias se ponen en fila y retrasan justo lo que
+    /// la persona está esperando ver.
+    private var trayendo: Set<String> = []
+
     private func traerLaConversacion(_ hilo: Hilo, de canal: Canal) async {
         guard let sid = hilo.sesionID else { return }
+        guard !trayendo.contains(sid) else { return }
+        trayendo.insert(sid)
+        defer { trayendo.remove(sid) }
         let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
