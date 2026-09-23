@@ -432,12 +432,16 @@ extension RecorridoUITests {
 
         let campo = app.textFields.firstMatch
         XCTAssertTrue(campo.waitForExistence(timeout: 5), "no hay compositor")
+        // Con el campo VACÍO y el agente trabajando, el control es detener.
+        XCTAssertTrue(app.buttons["detener"].exists, "con el campo vacío falta el detener")
         campo.tap()
         campo.typeText("mejor el de marzo")
-        // Los DOS a la vez: antes con turno vivo sólo existía detener.
-        XCTAssertTrue(app.buttons["detener"].exists, "falta el botón de detener")
+        // Y en cuanto escribes, ese mismo sitio pasa a mandar: un solo control.
         let enviar = app.windows.firstMatch.buttons["enviar"]
-        XCTAssertTrue(enviar.exists, "con el agente trabajando no se puede mandar nada")
+        XCTAssertTrue(enviar.waitForExistence(timeout: 2),
+                      "con el agente trabajando no se puede mandar nada")
+        XCTAssertFalse(app.buttons["detener"].exists,
+                       "con texto escrito no debería quedar el botón de detener")
         foto("26-mandar-mientras-trabaja")
         enviar.tap()
         XCTAssertTrue(app.staticTexts["añadido a lo que está haciendo"].waitForExistence(timeout: 3),

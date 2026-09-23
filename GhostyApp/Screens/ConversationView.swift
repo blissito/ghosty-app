@@ -508,8 +508,14 @@ struct ConversationView: View {
     }
 
     /// Si sigues el final, quédate en él.
+    ///
+    /// ⚠️ Exige las DOS condiciones. `siguiendoElFinal` lo apaga tu dedo al arrastrar
+    /// hacia arriba; `pegadoAbajo` lo deduce el sistema del ancla del scroll. Aquí sólo
+    /// se miraba la segunda, y con el aire del final el ancla se quedaba en el último
+    /// mensaje aunque hubieras subido: cada trozo de la respuesta te devolvía al fondo y
+    /// no había forma de leer hacia arriba mientras el agente escribía. El dedo manda.
     private func seguir(animado: Bool = false) {
-        guard pegadoAbajo, !mensajesÚnicos.isEmpty else { return }
+        guard siguiendoElFinal, pegadoAbajo, !mensajesÚnicos.isEmpty else { return }
         bajarAnimado = animado
         bajar += 1
     }
@@ -764,16 +770,23 @@ struct ConversationView: View {
         grabador.grabando && !vozBloqueada ? min(1, max(0, Double(-arrastre.width) / 90)) : 0
     }
 
-    /// Los controles de la derecha: detener lo que hace y, si escribiste, mandar.
+    /// El control de la derecha, UNO solo: manda si escribiste, detiene si no.
     ///
-    /// ⚠️ Los DOS a la vez mientras trabaja. Antes era uno solo —con turno vivo sólo había
-    /// detener— y para decirle algo más había que pararlo primero, aunque el servidor sepa
-    /// meter el mensaje en el turno en marcha. Detener va a la izquierda y mandar pegado al
-    /// borde: el botón de mandar no cambia de sitio nunca, que es lo que aprende el dedo.
+    /// ⚠️ Estuvieron los dos a la vez —detener y mandar— mientras el agente trabajaba, y
+    /// se sentía cargado: dos círculos pegados compitiendo por el mismo pulgar. Es lo que
+    /// hacen ChatGPT y Claude: un control multiplexado.
+    ///
+    /// ⚠️ El precio, dicho: **con algo escrito no se puede detener sin borrarlo primero**.
+    /// Apple desaconseja los botones de doble propósito justo por esto (el botón cambia
+    /// bajo el dedo), y en ChatGPT hay quejas de que el «parar» acaba mandando. Si estorba
+    /// en uso real, la vuelta atrás es separarlos otra vez, pero con 44 pt de área táctil
+    /// y aire entre ellos — que es lo que hacen las apps de agentes, y sin eso un toque
+    /// que iba a mandar mata el turno.
     @ViewBuilder
     private var control: some View {
-        HStack(spacing: 8) {
-            if store.currentTurn != nil && !grabador.grabando { botonDetener }
+        if store.currentTurn != nil && !grabador.grabando && !hayQueMandar {
+            botonDetener
+        } else {
             controlPrincipal
         }
     }
@@ -817,11 +830,9 @@ struct ConversationView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("enviar")
             .disabled(subiendo)
-        } else if store.currentTurn == nil || grabador.grabando {
+        } else {
             microfono
         }
-        // Con turno vivo y sin nada escrito, el único control es detener: un micrófono al
-        // lado invita a grabar encima de lo que el agente está haciendo.
     }
 
     /// ⚠️ **Late con tu voz.** Un micrófono que no reacciona no dice si te está oyendo, y
