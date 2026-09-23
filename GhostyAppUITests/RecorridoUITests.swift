@@ -22,6 +22,8 @@ final class RecorridoUITests: XCTestCase {
         continueAfterFailure = true
         app = XCUIApplication()
         app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        // El permiso de IA de terceros, dado: el recorrido prueba el chat, no la hoja.
+        app.launchArguments += ["-ai.consentGiven", "YES"]
         app.launch()
     }
 

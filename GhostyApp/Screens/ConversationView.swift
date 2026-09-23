@@ -62,6 +62,9 @@ struct ConversationView: View {
     /// `(agente, sesión)`, y una conversación nueva sin `sessionId` no tiene agenda aún.
     @State private var agenda: Agenda?
     @State private var abrirAgenda = false
+    /// Permiso de IA de terceros (5.1.2(i)): sin él, el envío abre la hoja y espera.
+    @AppStorage(AIConsentSheet.key) private var consentGiven = false
+    @State private var pendingSend: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -344,6 +347,10 @@ struct ConversationView: View {
         }
         .sheet(isPresented: $abrirAgenda) {
             if let agenda { AgendaSheet(agenda: agenda) }
+        }
+        .sheet(isPresented: Binding(get: { pendingSend != nil },
+                                    set: { if !$0 { pendingSend = nil } })) {
+            AIConsentSheet(onAccept: { [pendingSend] in pendingSend?() })
         }
         // ⚠️ Se dice lo que CUESTA, no «¿estás seguro?». Este agente no sabe meter tu
         // mensaje en lo que ya hace (o le mandas un archivo, que no se puede inyectar):
@@ -985,6 +992,13 @@ struct ConversationView: View {
 
     private func enviar() {
         guard hayQueMandar, !subiendo else { return }
+        // Sin permiso de IA de terceros no sale nada: la hoja pregunta y, si aceptas,
+        // retoma este mismo envío. El borrador se queda donde estaba si dices que no.
+        guard consentGiven else {
+            escribiendo = false
+            pendingSend = { enviar() }
+            return
+        }
         // ⚠️ Aquí había un candado: con turno vivo no se mandaba nada y había que detener
         // primero. Lo justificaba el gs de entonces, que cancelaba el turno anterior sin
         // avisar. Hoy gs sabe INYECTAR el mensaje en el turno en vuelo, así que el candado
@@ -1059,6 +1073,14 @@ struct ConversationView: View {
         }
         guard let clip = grabador.terminar() else { grabador.cancelar(); return }
         let nota = Adjunto(voz: clip)
+        guard consentGiven else {
+            pendingSend = { mandarNota(nota) }
+            return
+        }
+        mandarNota(nota)
+    }
+
+    private func mandarNota(_ nota: Adjunto) {
         // Se marca ANTES de mandar: cuando el store añada el mensaje, el destino ya existe
         // y las dos vistas comparten id.
         enVuelo = nota.id

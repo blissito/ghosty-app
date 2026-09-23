@@ -2,6 +2,8 @@ Cómo entrar: en la pantalla inicial toca «Continuar con correo» y usa la cuen
 
 La primera vez, la app enseña «Tu agente se está preparando» durante un minuto aproximadamente mientras se enciende la computadora del agente. Después aparece el chat.
 
+Permiso de IA de terceros (5.1.2(i)): al mandar el primer mensaje aparece la hoja «Tu agente usa IA de terceros», que explica qué se envía (mensajes, adjuntos, notas de voz) y a quién (Anthropic; OpenAI, Google o DeepSeek si la persona los configura). Hay que tocar «Aceptar y continuar» para mandar. Se revisa o retira en la pantalla de cuenta → «IA de terceros».
+
 Qué probar:
 - Escribe «hola, ¿qué puedes hacer?» y el agente contesta en unos segundos.
 - Escribe «hazme un PDF de una página con tres consejos para dormir mejor» y en un momento aparece una tarjeta con el PDF dentro de la conversación.

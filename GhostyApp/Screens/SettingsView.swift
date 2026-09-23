@@ -14,6 +14,8 @@ struct SettingsView: View {
     @State private var confirmarBorrado = false
     @State private var borrando = false
     @State private var falloAlBorrar: String?
+    @AppStorage(AIConsentSheet.key) private var consentGiven = false
+    @State private var abrirConsentimiento = false
 
     private var resumenDeConectores: String {
         let n = store.conectores.filter(\.conectado).count
@@ -126,6 +128,30 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                             .padding(.vertical, 4)
                         }
+                    }
+
+                    // 5.1.2(i): el permiso de IA de terceros se revisa y se retira aquí.
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Privacidad").gSectionTitle()
+                        Button { abrirConsentimiento = true } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("IA de terceros")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(Color.gInk)
+                                    Text(consentGiven ? "Permitido: qué se envía y a quién" : "No permitido")
+                                        .gMeta()
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Color.gInk3)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 4)
+                        .accessibilityIdentifier("ai-consent-settings")
+                        .sheet(isPresented: $abrirConsentimiento) { AIConsentSheet() }
                     }
 
                     if let a = store.almacenamiento {
