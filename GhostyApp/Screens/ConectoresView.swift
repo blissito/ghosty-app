@@ -124,6 +124,15 @@ struct ConectoresPane: View {
             } else if trabajando == c.id {
                 ProgressView().controlSize(.small)
             } else if c.conectado {
+                // Drive sólo ve lo que eliges en el selector de Google: sin esta puerta,
+                // agregar una hoja desde el teléfono obligaba a desconectar y volver a
+                // conectar. `/start` de un Drive ya conectado devuelve el selector.
+                if c.id == "google-drive" {
+                    Button("Archivos") { conectar(c) }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.gPrimary)
+                        .accessibilityIdentifier("conector-archivos-\(c.id)")
+                }
                 Button("Quitar") { Task { await desconectar(c) } }
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.gInk3)
@@ -140,6 +149,9 @@ struct ConectoresPane: View {
     }
 
     private func conectar(_ c: Conector) {
+        // Ya conectado = sólo se cambian los archivos elegidos. Las tools los leen en cada
+        // llamada, así que no hay por qué cortar la conversación.
+        let yaEstaba = c.conectado
         trabajando = c.id
         fallo = nil
         Task {
@@ -158,8 +170,20 @@ struct ConectoresPane: View {
                 // Sin URL de vuelta = canceló. No se toca nada.
                 guard let volvio, Self.salioBien(volvio) else {
                     trabajando = nil
-                    if volvio != nil { fallo = "No se pudo conectar \(c.nombre)." }
+                    // Cancelar en Google (`detalle=cancelado`) es lo mismo que cerrar la hoja:
+                    // no es un fallo. Cualquier otro motivo se dice tal cual lo manda gs.
+                    if let volvio, Self.detalle(volvio) != "cancelado" {
+                        fallo = Self.detalle(volvio).map { "No se pudo conectar \(c.nombre): \($0)." }
+                            ?? "No se pudo conectar \(c.nombre)."
+                    }
                     Task { await store.cargarConectores() }
+                    return
+                }
+                if yaEstaba {
+                    Task {
+                        await store.cargarConectores()
+                        trabajando = nil
+                    }
                     return
                 }
                 // ⚠️ El servidor acaba de reiniciar la caja para meterle la llave, y una
@@ -186,6 +210,12 @@ struct ConectoresPane: View {
     private static func salioBien(_ url: URL) -> Bool {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "estado" }?.value == "ok"
+    }
+
+    /// El motivo que gs pone en `detalle` cuando no salió bien.
+    private static func detalle(_ url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "detalle" }?.value
     }
 
     private func desconectar(_ c: Conector) async {
