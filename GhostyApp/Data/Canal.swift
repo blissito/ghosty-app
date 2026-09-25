@@ -189,7 +189,21 @@ final class Canal {
     /// Las conversaciones abiertas, la más reciente al final.
     var hilos: [Hilo] = []
     /// Cuál se está mirando (su `clave`).
-    var activa: String?
+    var activa: String? { didSet { recordarActiva() } }
+
+    /// Dónde se guarda, por agente, la conversación que se estaba mirando.
+    static func llaveActiva(_ agentID: String) -> String { "app.hiloActivo.\(agentID)" }
+
+    /// Guarda la conversación que se mira para volver a ella al abrir la app.
+    ///
+    /// ⚠️ Antes no se guardaba en ningún lado: al arrancar se tomaba la «última» de las
+    /// guardadas, que salen de un DICCIONARIO (sin orden), así que cada instalación o
+    /// arranque en frío te dejaba en una conversación al azar (2026-09-25). Una nueva sin
+    /// `sesionID` todavía no se anota; se anota cuando el hilo se guarda con su id.
+    func recordarActiva() {
+        guard let sid = hilo?.sesionID else { return }
+        UserDefaults.standard.set(sid, forKey: Self.llaveActiva(cuenta.id))
+    }
 
     var hilosRemotos: [ACPClient.Session] = [] {
         // El título que manda gs pisa el local: es el mismo que ven la web y la Mac.

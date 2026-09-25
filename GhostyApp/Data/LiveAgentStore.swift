@@ -1314,6 +1314,9 @@ final class LiveAgentStore: AgentStoring {
 
     /// Vuelca a disco las conversaciones abiertas de un agente.
     private func guardarHilos(_ canal: Canal) {
+        // Una conversación nueva recibe su `sesionID` después de volverse la activa: aquí
+        // ya lo tiene.
+        canal.recordarActiva()
         cache.guardarAbiertos(canal.hilos.compactMap { h in
             guard let sid = h.sesionID, !h.mensajes.isEmpty else { return nil }
             return (sid, h.mensajes)
@@ -2273,6 +2276,8 @@ final class LiveAgentStore: AgentStoring {
                 canal.hilosRemotos = hilos
                 canal.estadoHilos = .listo
             }
+            // Se lee ANTES de abrir nada: cada `abrir` cambia `activa` y la volvería a anotar.
+            let recordada = UserDefaults.standard.string(forKey: Canal.llaveActiva(c.id))
             for guardado in cache.abiertos(c.id) {
                 let h = canal.abrir(guardado.sesionID)
                 h.mensajes = guardado.mensajes
@@ -2281,7 +2286,12 @@ final class LiveAgentStore: AgentStoring {
             // Siempre hay una conversación donde escribir: si no había ninguna guardada,
             // se abre una vacía. Sin esto el compositor no tendría a qué mandar.
             if canal.hilos.isEmpty { canal.abrir() }
-            canal.activa = canal.hilos.last?.clave
+            // La que se estaba mirando; si no hay, la más reciente según la lista de gs
+            // guardada. ⚠️ `hilos.last` a secas era al azar: `abiertos` sale de un diccionario.
+            let reciente = hilos.filter { canal.hilo(sesion: $0.id) != nil }
+                .max { ($0.updatedAt ?? .distantPast) < ($1.updatedAt ?? .distantPast) }
+                .flatMap { canal.hilo(sesion: $0.id) }
+            canal.activa = (recordada.flatMap { canal.hilo(sesion: $0) } ?? reciente ?? canal.hilos.last)?.clave
             canales[c.id] = canal
             // ⚠️ Al ARRANCAR también hay que volver a escuchar. Si el turno siguió
             // mientras la app estaba cerrada —que es justo lo que se compró con este
