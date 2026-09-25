@@ -147,41 +147,45 @@ enum ReplayToMessages {
             }
         }
         cerrar()
-        // Un ```eb-file``` cuyo objeto gs ya registró en la cuenta se pinta con la fila de
-        // la cuenta (firma fresca) EN SU SITIO. Antes salían las dos: la del texto con su
-        // URL de 7 días y la de la cuenta amontonada al final del hilo (2026-09-25).
-        let delAgente = archivos.values.filter { $0.origen == "agente" }
-        func registrado(_ e: Entrega) -> GhostyAPI.ArchivoDeSesion? {
-            guard let url = e.url?.removingPercentEncoding else { return nil }
-            return delAgente.first { f in
-                guard let k = f.objectKey, !k.isEmpty else { return false }
-                return url.contains("/\(k)")
-            }
+        // Un ```eb-file``` cuyo objeto gs ya registró en la cuenta: la tarjeta se queda en
+        // su sitio y CON SU ID (`eb<hash>`, el mismo que en vivo y en el caché del hilo);
+        // sólo gana `remotoID` para firmar fresco al tocar. Y esa fila de la cuenta ya no
+        // se añade al final. ⚠️ Cambiarle el id a `f-…` hacía que SwiftUI quitara y pusiera
+        // las tarjetas (reacomodo) y que las entregas locales volvieran al final (2026-09-25).
+        var porClave: [String: GhostyAPI.ArchivoDeSesion] = [:]
+        for f in archivos.values where f.origen == "agente" {
+            guard let k = f.objectKey, !k.isEmpty else { continue }
+            // Determinista: con dos filas del mismo objeto gana la más vieja.
+            if let otro = porClave[k], (otro.creado ?? .distantPast, otro.id) <= (f.creado ?? .distantPast, f.id) { continue }
+            porClave[k] = f
         }
+        var usadas = Set<String>()
         // Las tarjetas se cosen al final, de atrás hacia delante para no mover índices.
         for (donde, original) in entregasDelReplay.reversed() {
             var e = original
-            if let f = registrado(original) {
-                e = Entrega.fromAccountFile(f)
-                e.agentID = ""
+            if let url = e.url?.removingPercentEncoding,
+               let (k, f) = porClave.first(where: { url.contains("/\($0.key)") }) {
+                usadas.insert(k)
+                e.remotoID = f.id
+                if e.mime == nil, f.mime != "application/octet-stream" { e.mime = f.mime }
             }
             let id = "entrega-\(e.id)"
             guard !mensajes.contains(where: { $0.id == id }) else { continue }
             let sitio = min(donde + 1, mensajes.count)
             mensajes.insert(Message(id: id, kind: .entrega(e)), at: sitio)
         }
-        // Lo que el agente ENTREGÓ y gs guardó en los archivos de la cuenta. Es lo que
-        // hace que una tarjeta vuelva en otro teléfono o tras reinstalar: el replay de la
-        // caja no trae entregas. El replay tampoco trae fechas, así que van al final, en
-        // el orden en que se guardaron; el mismo id que en vivo (`f-<fileId>`) evita la
-        // doble tarjeta cuando el teléfono ya la tenía.
-        let delServidor = delAgente
-            .sorted { ($0.creado ?? .distantPast) < ($1.creado ?? .distantPast) }
+        // Lo que el agente ENTREGÓ y gs guardó en los archivos de la cuenta y que el texto
+        // del hilo NO nombra (llegó por `artifact`, no por ```eb-file```). El replay no trae
+        // fechas, así que van al final, en el orden en que se guardaron; el mismo id que en
+        // vivo (`f-<fileId>`) evita la doble tarjeta.
+        let delServidor = archivos.values.filter { f in
+            f.origen == "agente" && !(f.objectKey.map { usadas.contains($0) } ?? false)
+        }
+        .sorted { ($0.creado ?? .distantPast, $0.id) < ($1.creado ?? .distantPast, $1.id) }
         for f in delServidor {
             let id = "entrega-f-\(f.id)"
             guard !mensajes.contains(where: { $0.id == id }) else { continue }
             var e = Entrega.fromAccountFile(f)
-            // El agente de la fila no viaja aquí: el hilo ya es de un agente concreto.
             e.agentID = ""
             mensajes.append(Message(id: id, kind: .entrega(e)))
         }
