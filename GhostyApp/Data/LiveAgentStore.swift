@@ -230,6 +230,25 @@ final class LiveAgentStore: AgentStoring {
     enum EstadoArchivos: Equatable { case sinPedir, cargando, listo, noPermitido, fallo(String) }
     var estadoArchivos: EstadoArchivos = .sinPedir
 
+    /// Los archivos de la CUENTA en gs: lo subido, lo entregado y las descargas de video,
+    /// desde cualquier app (iOS, Mac, /c). Es lo que hace que Artefactos deje de ser «sólo
+    /// lo que pasó por este teléfono».
+    var accountFiles: [Entrega] = []
+    /// `true` cuando gs contestó al menos una vez (lista vacía incluida).
+    var accountFilesLoaded = false
+    /// Las mismas filas en crudo, por id: hacen falta para reconocer duplicados (`isShadowed`).
+    var accountFileRecords: [String: GhostyAPI.ArchivoDeSesion] = [:]
+
+    /// Lo que enseña Artefactos: la biblioteca de la cuenta + lo que llegó en vivo a este
+    /// teléfono y todavía no está en ella, sin repetir el mismo archivo dos veces.
+    func artifactsList(for agentID: String?) -> [Entrega] {
+        let local = entregas.de(agentID).filter { e in
+            !accountFiles.contains { $0.id == e.id || ($0.remotoID != nil && $0.remotoID == e.remotoID) }
+                && !Self.isShadowed(e, by: accountFileRecords)
+        }
+        return (local + accountFiles).sorted { $0.recibida > $1.recibida }
+    }
+
     /// Los hilos que viven EN LA CAJA, no en este teléfono. Vienen por WebSocket
     /// (`session/list`), así que sobreviven a reinstalar la app y los comparten
     /// todos los clientes del agente.
@@ -412,6 +431,49 @@ final class LiveAgentStore: AgentStoring {
             estadoArchivos = .listo
         } catch {
             estadoArchivos = .fallo(error.localizedDescription)
+        }
+    }
+
+    /// Trae la biblioteca de la cuenta. Best-effort: sin red se queda la última lista.
+    func loadAccountFiles() async {
+        guard !DemoData.encendido else { return }
+        guard let files = await GhostyAPI.accountFiles() else { return }
+        accountFiles = files.map(Entrega.fromAccountFile)
+        accountFileRecords = Dictionary(files.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        accountFilesLoaded = true
+    }
+
+    /// Borra un archivo de la cuenta (y su tarjeta en los hilos de este teléfono).
+    ///
+    /// ⚠️ Si gs no lo borró, NO se quita de la lista: dejar la fila fuera y el objeto dentro
+    /// es el huérfano que el borrado viene a evitar.
+    @discardableResult
+    func deleteAccountFile(_ e: Entrega) async -> Bool {
+        guard let remoteID = e.remotoID else { borrarEntrega(e.id); return true }
+        switch await GhostyAPI.borrarArchivo(remoteID) {
+        case .hecho:
+            withAnimation(Self.alBorrar) { accountFiles.removeAll { $0.remotoID == remoteID } }
+            borrarEntrega(e.id)
+            falloAlBorrar = nil
+            return true
+        case .sinSoporte:
+            falloAlBorrar = "Tu servidor todavía no sabe borrar archivos. No se tocó nada."
+            return false
+        case .fallo(let motivo):
+            falloAlBorrar = motivo
+            return false
+        }
+    }
+
+    /// ¿Esta entrega local es la MISMA que un archivo de la cuenta? Una descarga de video
+    /// llega primero como ```eb-file``` con URL de 7 días, y gs la registra con la key que
+    /// va dentro de esa URL. Sin esto el hilo enseñaba dos tarjetas, y la vieja dejaba de
+    /// abrir a la semana.
+    static func isShadowed(_ e: Entrega, by files: [String: GhostyAPI.ArchivoDeSesion]) -> Bool {
+        guard e.remotoID == nil, let url = e.url?.removingPercentEncoding else { return false }
+        return files.values.contains { f in
+            guard let key = f.objectKey, !key.isEmpty else { return false }
+            return url.contains("/\(key)")
         }
     }
 
@@ -719,7 +781,7 @@ final class LiveAgentStore: AgentStoring {
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
             // Las entregas se cosen aquí: el hilo que devuelve el servidor es texto, y la
             // foto que te entregó el agente vive en este teléfono.
-            for e in entregas.deSesion(sid, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
+            for e in entregas.deSesion(sid, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // El servidor es la verdad del hilo: se SUSTITUYE, no se compara. Aquí hubo
@@ -1218,7 +1280,7 @@ final class LiveAgentStore: AgentStoring {
             // —el relé las empuja en vivo y no las guarda—, así que sin esto la foto que
             // te entregó el agente desaparecía del hilo al reabrirlo: seguía en
             // Artefactos, pero la conversación se quedaba con el texto solo.
-            for e in entregas.deSesion(sesion.id, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) {
+            for e in entregas.deSesion(sesion.id, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // ⚠️⚠️ Tres motivos para NO pisar lo que hay, y los tres pasaron:

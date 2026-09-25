@@ -99,7 +99,9 @@ struct RootView: View {
             // enseña en Ajustes.
             async let almacen: Void = store.cargarAlmacenamiento()
             async let integraciones: Void = store.cargarConectores()
-            _ = await (almacen, integraciones)
+            // La biblioteca de la cuenta decide si la pestaña Artefactos aparece.
+            async let archivosDeCuenta: Void = store.loadAccountFiles()
+            _ = await (almacen, integraciones, archivosDeCuenta)
             // Sonda de desarrollo: con GHOSTY_PROBE puesta manda ese texto al
             // arrancar. Es lo que deja verificar el turno y el markdown sin
             // depender de que alguien teclee en el simulador.
@@ -173,7 +175,8 @@ struct RootView: View {
         // está" detrás no se lee como beta, se lee como rota — es justo por lo que se
         // quitaron Ideas y Metas.
         var lista: [GhostyTab] = [.conversations, .chat]
-        if store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty {
+        if store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty
+            || !store.accountFiles.isEmpty {
             lista.append(.artifacts)
         }
         // Integraciones se enseña SIEMPRE, aunque el servidor todavía no las sirva: la

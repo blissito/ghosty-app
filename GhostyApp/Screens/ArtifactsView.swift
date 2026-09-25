@@ -100,27 +100,31 @@ struct ArtifactsView: View {
                 if store.puedeVerArchivos { contenido.padding(.top, 16) }
             }
         }
-        .task(id: store.selectedAgentID) { await store.cargarArchivos() }
+        .task(id: store.selectedAgentID) {
+            async let cuenta: Void = store.loadAccountFiles()
+            await store.cargarArchivos()
+            await cuenta
+        }
+        .refreshable { await store.loadAccountFiles() }
     }
 
-    /// Las entregas de este agente.
+    /// Lo entregado y lo guardado en la CUENTA.
     ///
-    /// ⚠️ Son las que pasaron por ESTE teléfono. La entrega es un empujón en vivo por el
-    /// socket del turno, no un estado que se pueda consultar después, así que lo que el
-    /// agente entregó desde otro cliente no está aquí. Se dice, en vez de dejar creer que
-    /// es todo lo que hizo.
+    /// Desde el 2026-09-25 la lista sale de gs (`/me/files`): lo subido, lo que entregó
+    /// cualquier agente y las descargas de video, desde cualquier app. Lo que llegó en vivo
+    /// a este teléfono y gs no tiene (entregas viejas) se suma sin repetirse.
     @ViewBuilder
     private var entregadas: some View {
-        let todo = store.entregas.de(store.selectedAgentID)
+        let todo = store.artifactsList(for: store.selectedAgentID)
         let lista = filtro.map { c in todo.filter { $0.categoria == c } } ?? todo
         if todo.isEmpty {
             EmptyState(icon: "tray",
                        title: "Todavía nada",
-                       detail: "Lo que el agente te entregue —un archivo, un documento, una página— se queda aquí.")
+                       detail: "Lo que subas o te entregue un agente —un archivo, un video, un documento— se queda aquí.")
                 .padding(.top, 50)
         } else {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Lo que te entregó").gSectionTitle()
+                Text("Tus archivos").gSectionTitle()
                     .padding(.horizontal, Theme.Space.screenH)
                 filtros(de: todo)
                 VStack(spacing: 10) {
@@ -128,13 +132,15 @@ struct ArtifactsView: View {
                         EntregaCard(entrega: e)
                             .transition(.scale(scale: 0.94).combined(with: .opacity))
                             .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
-                                                 consecuencia: "Se quita de aquí y de la conversación donde te la entregó. Vive sólo en este teléfono.") {
-                                store.borrarEntrega(e.id)
+                                                 consecuencia: e.remotoID != nil
+                                                    ? "Se borra de tu cuenta: deja de verse en el teléfono, la Mac y la web."
+                                                    : "Se quita de aquí y de la conversación donde te la entregó. Vive sólo en este teléfono.") {
+                                Task { await store.deleteAccountFile(e) }
                             }
                     }
                 }
                 .padding(.horizontal, Theme.Space.screenH)
-                Text("Sólo lo entregado por este teléfono. Lo que el agente haga desde otro cliente no se ve aquí.")
+                Text("Lo de tu cuenta, desde cualquier app: el teléfono, la Mac y la web.")
                     .gCaption()
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, Theme.Space.screenH)
