@@ -260,6 +260,9 @@ enum GhostyAPI {
         /// dentro de la URL de 7 días del ```eb-file```, así que es lo que deja reconocer que
         /// la tarjeta vieja y la del servidor son el MISMO archivo.
         var objectKey: String? = nil
+        /// Una descarga/montaje de video (`VideoRun`): el agente la entrega SIEMPRE en el texto
+        /// del hilo (```eb-file```), así que no se cose al final.
+        var videoRunID: String? = nil
     }
 
     /// Baja un archivo de la cuenta.
@@ -425,6 +428,7 @@ enum GhostyAPI {
             a.titulo = meta["titulo"] as? String
             a.agentID = meta["agentId"] as? String
             a.objectKey = meta["objectKey"] as? String
+            a.videoRunID = meta["videoRunId"] as? String
             a.sessionID = f["sessionId"] as? String
             a.creado = parseDate(f["createdAt"] as? String)
             result.append(a)

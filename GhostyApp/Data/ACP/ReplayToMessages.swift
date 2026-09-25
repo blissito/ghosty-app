@@ -179,7 +179,9 @@ enum ReplayToMessages {
         // fechas, así que van al final, en el orden en que se guardaron; el mismo id que en
         // vivo (`f-<fileId>`) evita la doble tarjeta.
         let delServidor = archivos.values.filter { f in
-            f.origen == "agente" && !(f.objectKey.map { usadas.contains($0) } ?? false)
+            // ⚠️ Ni los videos de `VideoRun`: van en el texto, y si su mensaje quedó fuera de
+            // la cola que se pidió (`tail`), se amontonaban todos al final del hilo.
+            f.origen == "agente" && f.videoRunID == nil && !(f.objectKey.map { usadas.contains($0) } ?? false)
         }
         .sorted { ($0.creado ?? .distantPast, $0.id) < ($1.creado ?? .distantPast, $1.id) }
         for f in delServidor {
