@@ -17,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.1</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -39,10 +39,10 @@
 	<string>Para tomar una foto y mandársela a tu agente.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Para grabar notas de voz y mandárselas a tu agente.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Para que puedas mandarle una foto a tu agente.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Para guardar en tu galería los videos e imágenes que te entrega tu agente.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Para que puedas mandarle una foto a tu agente.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

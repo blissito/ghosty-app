@@ -61,6 +61,9 @@ targets:
       path: GhostyApp/Info.plist
       properties:
         CFBundleDisplayName: Ghosty
+        # ⚠️ Sin esto XcodeGen escribe «1.0» fijo en el Info.plist e ignora MARKETING_VERSION:
+        # con la 1.0 aprobada en la tienda, Apple rechaza toda build nueva (2026-09-25).
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         # El scheme que cierra la hoja del login. Sin esta declaración,
         # ASWebAuthenticationSession no reconoce el callback y la sesión no termina.
         CFBundleURLTypes:
