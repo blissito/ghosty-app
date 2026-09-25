@@ -125,7 +125,11 @@ actor ClienteGS: TransporteDeAgente {
         // ⚠️ Con reintentos, como el turno. Un deploy de gs (dos reinicios en cinco
         // minutos, medido el 2026-09-16) contestaba 502 aquí y el envío moría en «No
         // llegó a salir» sin que el servidor llegara a ver nada.
-        _ = try await conReintentos { try await self.pedir(self.base("/conversations")) }
+        // ⚠️ Ya NO se hace el viaje de prueba (GET de la lista entera). Iba ANTES de todo
+        // lo demás, así que abrir un hilo —también al entrar por un push— esperaba primero
+        // a que llegara la lista de conversaciones que nadie había pedido: un viaje de
+        // más en frío, y el más pesado (2026-09-25). Cada llamada ya sabe reintentar un
+        // 5xx y refrescar un 401 por su cuenta, que era lo único que aportaba la prueba.
         return "gs"
     }
 

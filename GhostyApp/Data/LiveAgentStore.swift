@@ -704,6 +704,9 @@ final class LiveAgentStore: AgentStoring {
         let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
+            // Los archivos de la sesión viajan EN PARALELO con el hilo: iban detrás, y cada
+            // viaje a gs es tiempo con el hilo sin pintar.
+            async let archivosEnCamino = GhostyAPI.archivosDe(sesion: sid)
             guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else {
                 // Sin historial porque hay un turno vivo: lo que pasa AHORA lo trae el
                 // SSE, así que hay que estar escuchando aunque no haya nada que pintar
@@ -712,7 +715,7 @@ final class LiveAgentStore: AgentStoring {
                 if await cliente.faltaHistorial(de: sid) { engancharse(hilo, de: canal) }
                 return
             }
-            let archivos = await GhostyAPI.archivosDe(sesion: sid)
+            let archivos = await archivosEnCamino
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
             // Las entregas se cosen aquí: el hilo que devuelve el servidor es texto, y la
             // foto que te entregó el agente vive en este teléfono.
@@ -1200,6 +1203,7 @@ final class LiveAgentStore: AgentStoring {
         let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
+            async let archivosEnCamino = GhostyAPI.archivosDe(sesion: sesion.id)
             guard let replay = try await cliente.cargar(sesion.id, cwd: sesion.cwd) else { return }
             // Y engancharse a lo que esté pasando ahí ahora mismo: abrir una conversación
             // con un turno vivo tiene que enseñar lo que el agente está escribiendo, no
@@ -1208,7 +1212,7 @@ final class LiveAgentStore: AgentStoring {
             // Los archivos que se subieron EN esta conversación. Es lo que devuelve a la
             // vida sus adjuntos: el replay de ACP trae sólo texto. Best-effort — si no
             // contesta, el hilo se abre igual y los adjuntos salen nombrados.
-            let archivos = await GhostyAPI.archivosDe(sesion: sesion.id)
+            let archivos = await archivosEnCamino
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
             // ⚠️ Las entregas se vuelven a coser AQUÍ. El replay de la caja no las trae
             // —el relé las empuja en vivo y no las guarda—, así que sin esto la foto que
