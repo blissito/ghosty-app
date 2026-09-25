@@ -147,8 +147,24 @@ enum ReplayToMessages {
             }
         }
         cerrar()
+        // Un ```eb-file``` cuyo objeto gs ya registró en la cuenta se pinta con la fila de
+        // la cuenta (firma fresca) EN SU SITIO. Antes salían las dos: la del texto con su
+        // URL de 7 días y la de la cuenta amontonada al final del hilo (2026-09-25).
+        let delAgente = archivos.values.filter { $0.origen == "agente" }
+        func registrado(_ e: Entrega) -> GhostyAPI.ArchivoDeSesion? {
+            guard let url = e.url?.removingPercentEncoding else { return nil }
+            return delAgente.first { f in
+                guard let k = f.objectKey, !k.isEmpty else { return false }
+                return url.contains("/\(k)")
+            }
+        }
         // Las tarjetas se cosen al final, de atrás hacia delante para no mover índices.
-        for (donde, e) in entregasDelReplay.reversed() {
+        for (donde, original) in entregasDelReplay.reversed() {
+            var e = original
+            if let f = registrado(original) {
+                e = Entrega.fromAccountFile(f)
+                e.agentID = ""
+            }
             let id = "entrega-\(e.id)"
             guard !mensajes.contains(where: { $0.id == id }) else { continue }
             let sitio = min(donde + 1, mensajes.count)
@@ -159,7 +175,7 @@ enum ReplayToMessages {
         // caja no trae entregas. El replay tampoco trae fechas, así que van al final, en
         // el orden en que se guardaron; el mismo id que en vivo (`f-<fileId>`) evita la
         // doble tarjeta cuando el teléfono ya la tenía.
-        let delServidor = archivos.values.filter { $0.origen == "agente" }
+        let delServidor = delAgente
             .sorted { ($0.creado ?? .distantPast) < ($1.creado ?? .distantPast) }
         for f in delServidor {
             let id = "entrega-f-\(f.id)"
