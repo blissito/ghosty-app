@@ -253,6 +253,13 @@ enum GhostyAPI {
         var subtipo: String? = nil
         var titulo: String? = nil
         var creado: Date? = nil
+        /// Conversación y agente de origen, para poder volver al hilo desde la lista.
+        var sessionID: String? = nil
+        var agentID: String? = nil
+        /// La key del objeto en el bucket cuando es una descarga de video registrada. Viene
+        /// dentro de la URL de 7 días del ```eb-file```, así que es lo que deja reconocer que
+        /// la tarjeta vieja y la del servidor son el MISMO archivo.
+        var objectKey: String? = nil
     }
 
     /// Baja un archivo de la cuenta.
@@ -352,10 +359,36 @@ enum GhostyAPI {
     /// sólo texto, así que sin esto una nota de voz vuelve como una línea muerta. Se cruza
     /// por NOMBRE, que dentro de una sesión es único (los de voz llevan marca de tiempo).
     static func archivosDe(sesion: String) async -> [String: ArchivoDeSesion] {
+        var mapa: [String: ArchivoDeSesion] = [:]
+        for a in await accountFiles(query: [URLQueryItem(name: "sesion", value: sesion)]) ?? [] {
+            // ⚠️ Una entrega del agente puede repetir nombre (dos «informe.pdf»): la clave
+            // lleva el id para no perder ninguna. Los adjuntos de la persona siguen por nombre.
+            mapa[a.origen == "agente" ? "\(a.nombre)#\(a.id)" : a.nombre] = a
+        }
+        return mapa
+    }
+
+    /// TODOS los archivos de la cuenta (lo subido, lo entregado y las descargas de video),
+    /// de cualquier conversación y cualquier app. `nil` = no se pudo preguntar, que no es
+    /// lo mismo que una cuenta vacía.
+    static func accountFiles(kind: String? = nil) async -> [ArchivoDeSesion]? {
+        await accountFiles(query: kind.map { [URLQueryItem(name: "kind", value: $0)] } ?? [])
+    }
+
+    /// `createdAt` llega con milisegundos (`toISOString`), y el `ISO8601DateFormatter` por
+    /// defecto NO los acepta: devolvía `nil` y todas las entregas caían sin fecha.
+    private static func parseDate(_ s: String?) -> Date? {
+        guard let s else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return withFraction.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    }
+
+    private static func accountFiles(query: [URLQueryItem]) async -> [ArchivoDeSesion]? {
         var comp = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/files"),
                                  resolvingAgainstBaseURL: false)
-        comp?.queryItems = [URLQueryItem(name: "sesion", value: sesion)]
-        guard let url = comp?.url, let token = try? await Session.accessToken() else { return [:] }
+        if !query.isEmpty { comp?.queryItems = query }
+        guard let url = comp?.url, let token = try? await Session.accessToken() else { return nil }
         var req = URLRequest(url: url)
         req.assumesHTTP3Capable = false
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -363,9 +396,9 @@ enum GhostyAPI {
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
               let lista = j["files"] as? [[String: Any]]
-        else { return [:] }
+        else { return nil }
 
-        var mapa: [String: ArchivoDeSesion] = [:]
+        var result: [ArchivoDeSesion] = []
         for f in lista {
             guard let id = f["id"] as? String, let nombre = f["name"] as? String else { continue }
             // ⚠️ El `meta` puede no estar: los archivos anteriores a que se guardara nacieron
@@ -390,12 +423,13 @@ enum GhostyAPI {
             a.tipo = meta["tipo"] as? String
             a.subtipo = meta["subtipo"] as? String
             a.titulo = meta["titulo"] as? String
-            a.creado = (f["createdAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
-            // ⚠️ Una entrega del agente puede repetir nombre (dos «informe.pdf»): la clave
-            // lleva el id para no perder ninguna. Los adjuntos de la persona siguen por nombre.
-            mapa[a.origen == "agente" ? "\(nombre)#\(id)" : nombre] = a
+            a.agentID = meta["agentId"] as? String
+            a.objectKey = meta["objectKey"] as? String
+            a.sessionID = f["sessionId"] as? String
+            a.creado = parseDate(f["createdAt"] as? String)
+            result.append(a)
         }
-        return mapa
+        return result
     }
 
     /// Cuánto almacenamiento lleva usado la cuenta.

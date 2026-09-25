@@ -164,16 +164,9 @@ enum ReplayToMessages {
         for f in delServidor {
             let id = "entrega-f-\(f.id)"
             guard !mensajes.contains(where: { $0.id == id }) else { continue }
-            let forma: Entrega.Forma
-            switch (f.tipo, f.subtipo) {
-            case ("artefacto", "doc"?):   forma = .doc
-            case ("artefacto", "sheet"?): forma = .sheet
-            case ("artefacto", _):        forma = .artifact
-            default:                      forma = .archivo
-            }
-            let e = Entrega(id: "f-\(f.id)", agentID: "", forma: forma,
-                            titulo: f.titulo ?? f.nombre, recibida: f.creado ?? Date(),
-                            bytesRemotos: f.bytes, remotoID: f.id)
+            var e = Entrega.fromAccountFile(f)
+            // El agente de la fila no viaja aquí: el hilo ya es de un agente concreto.
+            e.agentID = ""
             mensajes.append(Message(id: id, kind: .entrega(e)))
         }
         return mensajes

@@ -71,6 +71,26 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         self.url = url; self.bytesRemotos = bytesRemotos
     }
 
+    /// Una entrega a partir de un archivo de la CUENTA en gs (la lista de `/me/files`).
+    ///
+    /// ⚠️ Lleva el `mime` del servidor. Sin él, un archivo sin extensión en el nombre
+    /// («Cotización 260923-001», una descarga de video) no tenía tipo hasta bajarlo entero:
+    /// caía en «Otros», sin reproductor y sin vista previa.
+    static func fromAccountFile(_ f: GhostyAPI.ArchivoDeSesion) -> Entrega {
+        let forma: Forma
+        switch (f.tipo, f.subtipo) {
+        case ("artefacto", "doc"?):   forma = .doc
+        case ("artefacto", "sheet"?): forma = .sheet
+        case ("artefacto", _):        forma = .artifact
+        default:                      forma = .archivo
+        }
+        var e = Entrega(id: "f-\(f.id)", agentID: f.agentID ?? "", sesionID: f.sessionID,
+                        forma: forma, titulo: f.titulo ?? f.nombre, recibida: f.creado ?? Date(),
+                        bytesRemotos: f.bytes, remotoID: f.id)
+        if f.mime != "application/octet-stream" { e.mime = f.mime }
+        return e
+    }
+
     // MARK: - Los bytes, en disco
 
     /// Dónde viven los bytes de las entregas.
@@ -256,11 +276,12 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// ⚠️ Sale del TIPO real —que ya se deduce de los bytes cuando el título no ayuda— y
     /// no del nombre: un agente entrega «SFX cómic 08» sin extensión y eso no dice nada.
     enum Categoria: String, CaseIterable, Identifiable {
-        case imagen, audio, documento, otro
+        case imagen, video, audio, documento, otro
         var id: String { rawValue }
         var nombre: String {
             switch self {
             case .imagen:    return "Imágenes"
+            case .video:     return "Video"
             case .audio:     return "Audio"
             case .documento: return "Documentos"
             case .otro:      return "Otros"
@@ -269,6 +290,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         var icono: String {
             switch self {
             case .imagen:    return "photo"
+            case .video:     return "film"
             case .audio:     return "waveform"
             case .documento: return "doc.text"
             case .otro:      return "paperclip"
@@ -277,6 +299,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     }
 
     var categoria: Categoria {
+        if esVideo { return .video }
         if esAudio { return .audio }
         switch tipo {
         case "png", "jpg", "jpeg", "heic", "gif", "webp": return .imagen
