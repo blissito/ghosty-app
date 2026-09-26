@@ -211,7 +211,7 @@ final class Canal {
     var hilosRemotos: [ACPClient.Session] = [] {
         // El título que manda gs pisa el local: es el mismo que ven la web y la Mac.
         didSet {
-            for s in hilosRemotos where !ConversacionesView.esGenerico(s.title) {
+            for s in hilosRemotos where !TitleStore.isGeneric(s.title) {
                 TitleStore.compartido.anotar(cuenta.id, s.id, titulo: s.title)
             }
         }

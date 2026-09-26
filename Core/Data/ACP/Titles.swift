@@ -41,6 +41,12 @@ final class TitleStore {
     /// Un título que gs bautizó con el bloque de contexto delante («[CONVERSACIÓN PREVIA
     /// DE ESTE MISMO HILO…»). gs ya no los produce, pero los que quedaron guardados aquí
     /// y en su tabla no dicen nada: se tratan como sin título.
+    /// Los nombres que pone la caja o gs cuando aún no hay bautizo.
+    static func isGeneric(_ t: String) -> Bool {
+        t.isEmpty || t == "New Chat" || t == "Sin título" || t == "Conversación" || t == "Conversación nueva"
+            || esFontaneria(t)
+    }
+
     static func esFontaneria(_ t: String) -> Bool {
         t.hasPrefix("[CONVERSACIÓN PREVIA") || t.hasPrefix("[ADJUNTOS DE ESTE MENSAJE")
     }

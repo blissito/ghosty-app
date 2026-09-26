@@ -29,8 +29,12 @@ targets:
   GhostyApp:
     type: application
     platform: iOS
+    # `Core/` es el núcleo que comparten las apps (Personal hoy, Work después): datos,
+    # cliente de gs, hilo, markdown y el sistema de diseño. Lo de ESTA app —pantallas,
+    # RootView, icono— se queda en `GhostyApp/`.
     sources:
       - path: GhostyApp
+      - path: Core
     dependencies:
       - package: MarkdownUI
     # ⚠️ El xcconfig ya NO lleva credenciales: se entra con la cuenta de
@@ -113,6 +117,22 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: primary
         TARGETED_DEVICE_FAMILY: "1"
 
+  # ⚠️ No se instala ni se distribuye: existe para que `Core/` compile SOLO. Si algo del
+  # núcleo empieza a depender de una pantalla de la app, este target se pone rojo antes
+  # de que la segunda app lo descubra.
+  GhostyCore:
+    type: framework
+    platform: iOS
+    sources:
+      - path: Core
+    dependencies:
+      - package: MarkdownUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostycore
+        GENERATE_INFOPLIST_FILE: YES
+        SKIP_INSTALL: YES
+
   # ⚠️ Existe para poder TOCAR la pantalla. Se enviaron cinco builds seguidas con fallos
   # de interacción —una fila que no responde, un botón que no hace nada— porque lo único
   # que se verificaba era que compilara. Corre contra el modo demo (`GHOSTY_DEMO=1`), que
@@ -131,6 +151,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:
+  GhostyCore:
+    build:
+      targets:
+        GhostyCore: all
   GhostyApp:
     build:
       targets:

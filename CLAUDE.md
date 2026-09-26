@@ -42,6 +42,18 @@ conclusiones equivocadas por eso.
 La API (`scripts/asc.py builds`) **no lista** lo que está procesando, así que "no aparece"
 no distingue entre procesando, rechazado y nunca llegado.
 
+## El núcleo: `Core/` vs `GhostyApp/`
+
+Una sola base para dos apps: **Personal** (esta, en tienda) y **Work** (Teams + Sales, aún no
+existe). `Core/` es lo compartido: datos, cliente de gs, hilo, markdown, sistema de diseño,
+colores y la pantalla de chat (`Core/Chat/`). `GhostyApp/` es sólo el esqueleto de Personal:
+navegación, login, ajustes, listas e icono.
+
+- **Nada de `Core/` puede tocar algo de `GhostyApp/`.** El target `GhostyCore` compila
+  `Core/` solo y se pone rojo si pasa:
+  `xcodebuild -scheme GhostyCore -destination 'generic/platform=iOS Simulator' build`.
+- Si algo nuevo sirve a las dos apps, va en `Core/`; si es de Personal, en `GhostyApp/`.
+
 ## El turno es del SERVIDOR, no del teléfono
 
 La app habla HTTP+SSE con gs (`ClienteGS`), no WebSocket con la caja. Eso no es un detalle
