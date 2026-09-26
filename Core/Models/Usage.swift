@@ -6,6 +6,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     struct Plan: Decodable, Equatable, Sendable {
         let key: String
         let name: String
+        /// «low» | «high». nil = gs viejo: se deduce del plan.
+        var imageQuality: String? = nil
     }
     struct Window: Decodable, Equatable, Sendable {
         /// nil = el plan no tiene tope en esta ventana (Gratis sólo tiene semana).
@@ -21,6 +23,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     let imagesWeek: Int?
     /// Cuántas más alcanzan con lo que queda (salen del mismo presupuesto que el chat).
     let imagesLeft: Int?
+    /// Conteo semanal de imágenes (early adopters, ajustes). nil = sólo el presupuesto.
+    var imagesCap: Int? = nil
     /// Agente de workspace (y eres miembro): la barra del espacio, la misma de Teams.
     let workspace: WorkspaceUsage?
 

@@ -40,7 +40,8 @@ struct UsagePane: View {
                             .entrance(appeared, order: 2)
                     }
                     if let n = u.imagesWeek {
-                        ImagesCard(made: n, left: u.imagesLeft, highQuality: ["power", "max"].contains(u.plan.key)).entrance(appeared, order: 3)
+                        ImagesCard(made: n, left: u.imagesLeft, cap: u.imagesCap,
+                                   highQuality: u.plan.imageQuality.map { $0 == "high" } ?? ["power", "max"].contains(u.plan.key)).entrance(appeared, order: 3)
                     }
                 }
             } else if loaded {
@@ -88,7 +89,18 @@ struct UsagePane: View {
         }
     }
 
-    private static let demo = PersonalUsage(
+    private static var demo: PersonalUsage {
+        if Gancho.valor("GHOSTY_DEMO_PLAN") == "power" {
+            return PersonalUsage(
+                plan: .init(key: "power", name: "Power · cortesía", imageQuality: "high"),
+                week: .init(pct: 0.12, resetsAt: Date().addingTimeInterval(2 * 86400)),
+                month: .init(pct: 0.04, resetsAt: Date().addingTimeInterval(20 * 86400)),
+                applies: true, imagesWeek: 3, imagesLeft: 31, workspace: nil)
+        }
+        return demoFree
+    }
+
+    private static let demoFree = PersonalUsage(
         plan: .init(key: "free", name: "Gratis"),
         week: .init(pct: 0.23, resetsAt: Date().addingTimeInterval(2 * 86400)),
         month: .init(pct: nil, resetsAt: Date().addingTimeInterval(20 * 86400)),
@@ -176,6 +188,8 @@ private struct UsageCard: View {
 private struct ImagesCard: View {
     let made: Int
     let left: Int?
+    /// Conteo semanal fijo, si lo hay: «Llevas 3 de 8».
+    var cap: Int? = nil
     /// Gratis y Pro generan en calidad estándar (`personal-plans.ts`, `imageQuality`).
     let highQuality: Bool
     @State private var lit = 0
@@ -201,12 +215,13 @@ private struct ImagesCard: View {
                             .padding(.horizontal, 7).padding(.vertical, 2)
                             .background(Color.gSalmon.opacity(0.25), in: Capsule())
                     }
-                    Text(made == 1 ? "Llevas 1 esta semana" : "Llevas \(made) esta semana").gCaption()
+                    Text(cap.map { "Llevas \(made) de \($0) esta semana" } ?? "Llevas \(made) esta semana").gCaption()
                 }
                 Spacer()
                 if let left {
                     VStack(alignment: .trailing, spacing: 0) {
-                        Text(left == 0 ? "0" : "~\(left)")
+                        // Con conteo fijo el número es exacto; con presupuesto, estimado.
+                        Text(left == 0 || cap != nil ? "\(left)" : "~\(left)")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(left == 0 ? Color.gDanger : Color.gInk)
