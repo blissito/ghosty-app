@@ -90,6 +90,9 @@ final class Hilo {
     /// —«5 mensajes»— así que había que entrar a cada una para descubrir cuál había
     /// fallado. Y con varias a la vez, eso es justo lo que no puedes hacer.
     var fallo: String?
+    /// No se pudo traer el hilo del servidor y no hay nada que enseñar. Sin esto la vista
+    /// se quedaba en «Trayendo la conversación…» para siempre.
+    var loadError: String?
     /// El agente sigue con esto, pero ya no lo estamos oyendo: se cayó nuestra conexión,
     /// casi siempre porque el teléfono se durmió.
     ///

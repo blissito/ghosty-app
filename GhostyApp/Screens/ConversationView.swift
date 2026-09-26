@@ -380,6 +380,17 @@ struct ConversationView: View {
         .accessibilityIdentifier("trayendo-el-hilo")
     }
 
+    /// El hilo no llegó: se dice y se ofrece otra vez, en vez de girar para siempre.
+    private func loadFailed(_ error: String, _ hilo: Hilo) -> some View {
+        VStack(spacing: 12) {
+            Text(error).gMeta()
+            Button("Reintentar") { store.retryLoad(hilo) }
+                .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("hilo-no-llego")
+    }
+
     /// El contenido del scroll, aparte: dentro del `body` el compilador no lo tipaba.
     @ViewBuilder
     private func contenidoDelHilo(_ lector: ScrollViewProxy) -> some View {
@@ -390,7 +401,9 @@ struct ConversationView: View {
                 // de segundos en llegar, y durante ese rato se pintaba «¿En qué te
                 // ayudo?»: tocabas el aviso de una respuesta y aparecías en lo que parecía
                 // un hilo en blanco. Medido en el iPhone: 2.7 s de «conversación nueva».
-                if store.hiloActivo?.sesionID != nil {
+                if let hilo = store.hiloActivo, hilo.sesionID != nil, let error = hilo.loadError {
+                    loadFailed(error, hilo).padding(.top, 90)
+                } else if store.hiloActivo?.sesionID != nil {
                     trayendoElHilo.padding(.top, 90)
                 } else {
                     primeraVez.padding(.top, 90)

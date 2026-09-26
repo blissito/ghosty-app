@@ -630,6 +630,16 @@ final class LiveAgentStore: AgentStoring {
         }
     }
 
+    /// Vuelve a pedir el hilo que no se pudo traer (botón «Reintentar» de la vista).
+    func retryLoad(_ hilo: Hilo) {
+        guard let canal = canalDe(hilo) else { return }
+        Task { [weak self, weak canal] in
+            guard let self, let canal else { return }
+            await self.traerLaConversacion(hilo, de: canal)
+            self.engancharse(hilo, de: canal)
+        }
+    }
+
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
     private var avisoPendiente: (agente: String, sesion: String)?
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
@@ -763,6 +773,7 @@ final class LiveAgentStore: AgentStoring {
         guard !trayendo.contains(sid) else { return }
         trayendo.insert(sid)
         defer { trayendo.remove(sid) }
+        hilo.loadError = nil
         let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
@@ -824,6 +835,7 @@ final class LiveAgentStore: AgentStoring {
             guardarHilos(canal)
         } catch {
             EasyBitsClient.diag("[hilo] no pude traer \(sid): \(error)")
+            if hilo.mensajes.isEmpty { hilo.loadError = "No pude traer la conversación." }
             // Un 404 no es «sin red»: el hilo ya no existe o ya no es tuyo (agente
             // compartido: cada quien ve sólo sus hilos). Se cierra en vez de dejar el
             // caché abierto como si nada.

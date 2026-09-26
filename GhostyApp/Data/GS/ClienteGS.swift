@@ -59,6 +59,12 @@ actor ClienteGS: TransporteDeAgente {
         // turno se queda colgado SIN error. Ya mordió en dos clientes de este repo.
         r.assumesHTTP3Capable = false
         if sse { r.setValue("text/event-stream", forHTTPHeaderField: "Accept") }
+        // ⚠️ Una LECTURA no hereda los 600 s de la sesión (existen para el SSE). Al volver
+        // del fondo por un push, URLSession reusa una conexión que murió dormida y el GET
+        // se queda colgado sin error: «Trayendo la conversación…» ≥ 54 s contra 0.6 s del
+        // servidor (medido 2026-09-25). Con tope corto falla pronto y el reintento abre
+        // conexión nueva.
+        else if metodo == "GET" { r.timeoutInterval = 15 }
         if let cuerpo {
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             r.httpBody = try JSONSerialization.data(withJSONObject: cuerpo)
@@ -178,7 +184,7 @@ actor ClienteGS: TransporteDeAgente {
     func cargar(_ id: String, cwd: String) async throws -> [ACPClient.Replay]? {
         var c = URLComponents(url: base("/conversations/\(id)"), resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "tail", value: "\(Self.cola)")]
-        let r = try await pedir(c.url!)
+        let r = try await leerConReintento(c.url!)
         saltados[id] = r["saltados"] as? Int ?? 0
         ultimos[id] = ACPClient.UltimoTurno.desde(r["ultimoTurno"])
         // ⚠️ `enCurso: true` NO es «esta conversación está vacía»: es «hay un turno vivo y
@@ -215,6 +221,19 @@ actor ClienteGS: TransporteDeAgente {
             let visible = Self.sinReglasDeAgenda(limpio.isEmpty ? t : limpio)
             return [.turno("m\(i)"), .user(visible)]
         }
+    }
+
+    /// Un GET que reintenta si la conexión se cayó o no contestó a tiempo. Sin aviso en
+    /// pantalla (eso es de `conReintentos`, que habla del envío): aquí sólo se lee.
+    private func leerConReintento(_ url: URL) async throws -> [String: Any] {
+        let reintentables: [URLError.Code] = [.networkConnectionLost, .timedOut, .cannotConnectToHost]
+        for intento in 1...2 {
+            do { return try await pedir(url) }
+            catch let e as URLError where reintentables.contains(e.code) {
+                EasyBitsClient.diag("[gs] leer \(url.lastPathComponent): \(e.code.rawValue), reintento \(intento)")
+            }
+        }
+        return try await pedir(url)
     }
 
     /// Sólo la causa de un mensaje de plataforma «⏰ … (causa). …»: en minúsculas; si no

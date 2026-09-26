@@ -394,6 +394,9 @@ enum GhostyAPI {
         guard let url = comp?.url, let token = try? await Session.accessToken() else { return nil }
         var req = URLRequest(url: url)
         req.assumesHTTP3Capable = false
+        // El hilo espera a esta lista antes de pintarse: con los 60 s por defecto, una
+        // conexión muerta tras dormir retenía la conversación entera.
+        req.timeoutInterval = 15
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let (datos, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
