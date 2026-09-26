@@ -162,7 +162,7 @@ struct RootView: View {
             AgentSheetView(agent: agente, store: store,
                            onAjustes: { hoja = nil; ajustes = true })
                 #if os(iOS)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(Theme.Radius.sheet)
                 #endif
