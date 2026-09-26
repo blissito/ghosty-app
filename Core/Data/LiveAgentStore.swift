@@ -1237,7 +1237,7 @@ final class LiveAgentStore: AgentStoring {
             kind: .publish,
             agentName: canal.cuenta.name,
             question: "¿Puedo usar \(p.titulo)?",
-            detail: "Me quedo en pausa hasta que me digas.",
+            detail: "Eso ya no se puede deshacer, por eso te pregunto. Me espero a que me digas.",
             attachment: nil)
     }
 

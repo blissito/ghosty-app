@@ -209,9 +209,9 @@ extension LiveAgentStore {
         let foto = uno.abrir("s-foto"); foto.mensajes = DemoData.conFoto()
         // Ésta espera permiso: es el estado que la app nunca llegaba a pintar.
         foto.permisoPendiente = PermissionRequest(
-            id: "demo-permiso", kind: .publish, agentName: "Ghosty",
-            question: "¿Puedo publicar el recorte?",
-            detail: "Me quedo en pausa hasta que me digas.", attachment: nil)
+            id: "demo-permiso", kind: .email, agentName: "Ghosty",
+            question: "¿Le mando el correo a Laura?",
+            detail: "Eso ya no se puede deshacer, por eso te pregunto. Me espero a que me digas.", attachment: nil)
         // Una que ya contestó y no has visto: es el estado que la lista no sabía decir.
         foto.termino = Date().addingTimeInterval(-120)
         foto.visto = false
