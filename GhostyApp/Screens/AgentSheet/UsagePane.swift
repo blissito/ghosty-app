@@ -95,7 +95,7 @@ struct UsagePane: View {
                 plan: .init(key: "power", name: "Power · cortesía", imageQuality: "high"),
                 week: .init(pct: 0.12, resetsAt: Date().addingTimeInterval(2 * 86400)),
                 month: .init(pct: 0.04, resetsAt: Date().addingTimeInterval(20 * 86400)),
-                applies: true, imagesWeek: 3, imagesLeft: 262, imagesLeftHd: 31, workspace: nil)
+                applies: true, imagesWeek: 3, imagesLeft: 256, imagesLeftHd: 30, workspace: nil)
         }
         return demoFree
     }

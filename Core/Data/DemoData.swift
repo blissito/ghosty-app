@@ -20,7 +20,8 @@ enum DemoData {
     }
 
     static let cuentas: [AgentAccount] = [
-        AgentAccount(id: "demo-1", token: "gat_demo1", name: "Ghosty", host: nil, motor: "ghosty-lite", space: .personal, model: "DeepSeek Flash"),
+        AgentAccount(id: "demo-1", token: "gat_demo1", name: "Ghosty", host: nil, motor: "ghosty-lite", space: .personal,
+                     model: Gancho.valor("GHOSTY_DEMO_PLAN") == "power" ? "Claude Sonnet 5" : "DeepSeek Flash"),
         // De un workspace: es lo que hace que la lista enseñe secciones en el recorrido.
         AgentAccount(id: "demo-2", token: "gat_demo2", name: "Nube", host: nil, motor: "goose",
                      space: AgentSpace(kind: .workspace, id: "ws-demo", name: "business", combo: "teams")),
