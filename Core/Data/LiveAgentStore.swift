@@ -96,6 +96,10 @@ final class LiveAgentStore: AgentStoring {
         get { hiloActivo?.permisoPendiente ?? canalActivo?.esperandoPermiso.first?.permisoPendiente }
         set { hiloActivo?.permisoPendiente = newValue }
     }
+    /// El permiso de la conversación ABIERTA y nada más: la tarjeta del chat. Enseñar el de
+    /// otra conversación ahí la pegaba en todas; ésas se ven en la lista («Espera tu visto
+    /// bueno») y llegan por push.
+    var threadPermission: PermissionRequest? { hiloActivo?.permisoPendiente }
     var hilosRemotos: [ACPClient.Session] {
         get { canalActivo?.hilosRemotos ?? [] }
         set { canalActivo?.hilosRemotos = newValue }
