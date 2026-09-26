@@ -25,6 +25,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     let imagesLeft: Int?
     /// Conteo semanal de imágenes (early adopters, ajustes). nil = sólo el presupuesto.
     var imagesCap: Int? = nil
+    /// Cuántas quedarían si todas fueran HD (sólo si el plan deja pedir HD).
+    var imagesLeftHd: Int? = nil
     /// Agente de workspace (y eres miembro): la barra del espacio, la misma de Teams.
     let workspace: WorkspaceUsage?
 

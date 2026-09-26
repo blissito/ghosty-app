@@ -40,7 +40,7 @@ struct UsagePane: View {
                             .entrance(appeared, order: 2)
                     }
                     if let n = u.imagesWeek {
-                        ImagesCard(made: n, left: u.imagesLeft, cap: u.imagesCap,
+                        ImagesCard(made: n, left: u.imagesLeft, cap: u.imagesCap, leftHd: u.imagesLeftHd,
                                    highQuality: u.plan.imageQuality.map { $0 == "high" } ?? ["power", "max"].contains(u.plan.key)).entrance(appeared, order: 3)
                     }
                 }
@@ -95,7 +95,7 @@ struct UsagePane: View {
                 plan: .init(key: "power", name: "Power · cortesía", imageQuality: "high"),
                 week: .init(pct: 0.12, resetsAt: Date().addingTimeInterval(2 * 86400)),
                 month: .init(pct: 0.04, resetsAt: Date().addingTimeInterval(20 * 86400)),
-                applies: true, imagesWeek: 3, imagesLeft: 31, workspace: nil)
+                applies: true, imagesWeek: 3, imagesLeft: 262, imagesLeftHd: 31, workspace: nil)
         }
         return demoFree
     }
@@ -190,6 +190,8 @@ private struct ImagesCard: View {
     let left: Int?
     /// Conteo semanal fijo, si lo hay: «Llevas 3 de 8».
     var cap: Int? = nil
+    /// Si todas fueran HD: el default es normal y HD se pide, así que va aparte.
+    var leftHd: Int? = nil
     /// Gratis y Pro generan en calidad estándar (`personal-plans.ts`, `imageQuality`).
     let highQuality: Bool
     @State private var lit = 0
@@ -209,7 +211,8 @@ private struct ImagesCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text("Imágenes").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
-                        Text(highQuality ? "Alta calidad" : "Calidad estándar")
+                        // HD es un DERECHO a pedirla, no el default: todas salen normales.
+                        Text(highQuality ? "HD si la pides" : "Calidad estándar")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x9A5A36))
                             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -226,6 +229,9 @@ private struct ImagesCard: View {
                             .monospacedDigit()
                             .foregroundStyle(left == 0 ? Color.gDanger : Color.gInk)
                         Text(left == 1 ? "te queda" : "te quedan").gCaption()
+                        if let leftHd, cap == nil {
+                            Text("o ~\(leftHd) en HD").gCaption()
+                        }
                     }
                 }
             }
