@@ -196,8 +196,15 @@ enum Avisos {
         -> UNNotificationPresentationOptions {
             let info = n.request.content.userInfo
             let sesion = (info["sessionId"] as? String) ?? (info["sesion"] as? String)
-            let mirando = await MainActor.run { LiveAgentStore.compartido.hiloActivo?.sesionID }
-            if let sesion, let mirando, sesion == mirando { return [] }
+            let agente = (info["agentID"] as? String) ?? (info["agentId"] as? String)
+            // ⚠️ AGENTE + sesión. Los ids de gs (`20260926_4`) se repiten entre agentes: con
+            // sólo la sesión, mirar la `20260926_4` de un agente se tragaba el push de la
+            // `20260926_4` de OTRO (medido 2026-09-26: el recordatorio de Moon nunca se vio).
+            let (mirandoSesion, mirandoAgente) = await MainActor.run {
+                let s = LiveAgentStore.compartido
+                return (s.hiloActivo?.sesionID, s.canalActivo?.cuenta.id)
+            }
+            if let sesion, sesion == mirandoSesion, agente == nil || agente == mirandoAgente { return [] }
             return [.banner, .sound]
         }
 
