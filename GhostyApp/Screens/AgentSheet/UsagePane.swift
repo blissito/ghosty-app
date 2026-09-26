@@ -196,8 +196,14 @@ private struct ImagesCard: View {
     let highQuality: Bool
     @State private var lit = 0
 
-    /// Con muchas, los puntos ya no se leen: sólo números.
-    private var showDots: Bool { made + (left ?? 0) <= 24 }
+    /// Con muchas, cada punto es una parte proporcional: nunca más de 20 puntos, y si ya
+    /// hiciste alguna, al menos uno lleno.
+    private var total: Int { made + (left ?? 0) }
+    private var dots: Int { min(total, 20) }
+    private var filledDots: Int {
+        guard total > 20 else { return made }
+        return made == 0 ? 0 : max(1, Int((Double(made) / Double(total) * 20).rounded()))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -223,23 +229,24 @@ private struct ImagesCard: View {
                 Spacer()
                 if let left {
                     VStack(alignment: .trailing, spacing: 0) {
+                        // Se lee de arriba abajo: «te quedan / 256 / o ~30 en HD».
+                        Text(left == 1 ? "te queda" : "te quedan").gCaption()
                         // Con conteo fijo el número es exacto; con presupuesto, estimado.
                         Text(left == 0 || cap != nil ? "\(left)" : "~\(left)")
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(left == 0 ? Color.gDanger : Color.gInk)
-                        Text(left == 1 ? "te queda" : "te quedan").gCaption()
                         if let leftHd, cap == nil {
                             Text("o ~\(leftHd) en HD").gCaption()
                         }
                     }
                 }
             }
-            if showDots, let left, made + left > 0 {
+            if left != nil, dots > 0 {
                 HStack(spacing: 5) {
-                    ForEach(0..<(made + left), id: \.self) { i in
+                    ForEach(0..<dots, id: \.self) { i in
                         Circle()
-                            .fill(i < made ? Color.gSalmon : Color.gSalmon.opacity(0.25))
+                            .fill(i < filledDots ? Color.gSalmon : Color.gSalmon.opacity(0.25))
                             .frame(width: 10, height: 10)
                             .scaleEffect(i < lit ? 1 : 0.2)
                             .opacity(i < lit ? 1 : 0)
@@ -253,7 +260,7 @@ private struct ImagesCard: View {
         .task {
             // Uno tras otro: primero las hechas, luego las que quedan.
             try? await Task.sleep(for: .milliseconds(350))
-            for _ in 0..<(made + (left ?? 0)) {
+            for _ in 0..<dots {
                 withAnimation(.spring(duration: 0.35, bounce: 0.5)) { lit += 1 }
                 try? await Task.sleep(for: .milliseconds(45))
             }
