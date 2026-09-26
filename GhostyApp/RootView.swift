@@ -69,7 +69,8 @@ struct RootView: View {
             if config.shouldSuggestUpdate {
                 UpdateSuggestionBanner { withAnimation { config.dismissSuggestion() } }
                     .frame(maxHeight: .infinity, alignment: .top)
-                    .padding(.top, 4)
+                    // Debajo de la cabecera del chat (el nombre del agente), no encima.
+                    .padding(.top, 60)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             if config.mustUpdate {
