@@ -32,7 +32,7 @@ struct UsagePane: View {
                             .entrance(appeared, order: 2)
                     }
                     if let n = u.imagesWeek {
-                        ImagesCard(made: n, left: u.imagesLeft).entrance(appeared, order: 3)
+                        ImagesCard(made: n, left: u.imagesLeft, highQuality: ["power", "max"].contains(u.plan.key)).entrance(appeared, order: 3)
                     }
                 }
             } else if loaded {
@@ -158,6 +158,8 @@ private struct UsageCard: View {
 private struct ImagesCard: View {
     let made: Int
     let left: Int?
+    /// Gratis y Pro generan en calidad estándar (`personal-plans.ts`, `imageQuality`).
+    let highQuality: Bool
     @State private var lit = 0
 
     /// Con muchas, los puntos ya no se leen: sólo números.
@@ -173,7 +175,14 @@ private struct ImagesCard: View {
                     .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .symbolEffect(.bounce, value: lit)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Imágenes").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
+                    HStack(spacing: 6) {
+                        Text("Imágenes").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
+                        Text(highQuality ? "Alta calidad" : "Calidad estándar")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.gPrimary)
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(Color.gPrimaryTint, in: Capsule())
+                    }
                     Text(made == 1 ? "Llevas 1 esta semana" : "Llevas \(made) esta semana").gCaption()
                 }
                 Spacer()
