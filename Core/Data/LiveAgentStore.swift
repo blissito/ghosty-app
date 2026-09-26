@@ -605,6 +605,14 @@ final class LiveAgentStore: AgentStoring {
     func irA(agente: String, sesion: String) {
         avisoPendiente = (agente, sesion)
         aplicarAvisoPendiente()
+        // ⚠️ Un agente creado DESPUÉS de la última carga (en la web, en otra superficie)
+        // no está en `cuentas`: el aviso se quedaba guardado esperando un `montarCanales`
+        // que no llega hasta reabrir la app, y tocar el push no hacía nada. Con la app ya
+        // lista se vuelve a pedir la flota; la carga en frío lo resuelve sola.
+        if avisoPendiente != nil, case .lista = conexion, !DemoData.encendido {
+            EasyBitsClient.diag("[push] \(agente.prefix(9)) no está en la lista; la vuelvo a pedir")
+            Task { await cargar() }
+        }
     }
 
     /// Si hay destino y ya existen las cuentas y el canal, se va. Si no, se queda
