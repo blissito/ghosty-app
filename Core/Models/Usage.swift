@@ -21,6 +21,14 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     let imagesWeek: Int?
     /// Cuántas más alcanzan con lo que queda (salen del mismo presupuesto que el chat).
     let imagesLeft: Int?
+    /// Agente de workspace (y eres miembro): la barra del espacio, la misma de Teams.
+    let workspace: WorkspaceUsage?
+
+    struct WorkspaceUsage: Decodable, Equatable, Sendable {
+        let name: String
+        let pct: Double
+        let resetsAt: Date
+    }
 
     static func decode(_ data: Data) -> PersonalUsage? {
         let d = JSONDecoder()

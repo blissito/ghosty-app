@@ -15,7 +15,13 @@ struct UsagePane: View {
         VStack(alignment: .leading, spacing: 12) {
             planCard.entrance(appeared, order: 0)
             if let u = usage {
-                if u.applies == false {
+                if u.applies == false, let ws = u.workspace {
+                    UsageCard(title: "Uso del espacio \(ws.name.prefix(1).uppercased() + ws.name.dropFirst())",
+                              icon: "person.3.fill", accent: .gBrand,
+                              pct: ws.pct, resetsAt: ws.resetsAt, delay: 0.15,
+                              note: "Lo comparten todos los agentes del espacio; no cuenta en tu plan personal.")
+                        .entrance(appeared, order: 1)
+                } else if u.applies == false {
                     Text(agent.space?.kind == .workspace
                          ? "Este agente es del espacio \(agent.space?.title ?? "de equipo"): su uso lo cubre ese espacio, no tu plan personal."
                          : "Este agente es de otra cuenta; su uso no cuenta en tu plan.")
@@ -23,12 +29,12 @@ struct UsagePane: View {
                         .padding(.horizontal, 4)
                         .entrance(appeared, order: 1)
                 } else {
-                    UsageCard(title: "Uso de esta semana", pct: u.week.pct ?? 0,
+                    UsageCard(title: "Uso de esta semana", icon: "calendar", accent: .gSky, pct: u.week.pct ?? 0,
                               resetsAt: u.week.resetsAt, delay: 0.15)
                         .entrance(appeared, order: 1)
                     // Gratis no tiene tope mensual: sólo semana, y así se dice.
                     if let pct = u.month.pct {
-                        UsageCard(title: "Uso de este mes", pct: pct, resetsAt: u.month.resetsAt, delay: 0.3)
+                        UsageCard(title: "Uso de este mes", icon: "calendar.circle.fill", accent: .gGrass, pct: pct, resetsAt: u.month.resetsAt, delay: 0.3)
                             .entrance(appeared, order: 2)
                     }
                     if let n = u.imagesWeek {
@@ -84,36 +90,45 @@ struct UsagePane: View {
         plan: .init(key: "free", name: "Gratis"),
         week: .init(pct: 0.23, resetsAt: Date().addingTimeInterval(2 * 86400)),
         month: .init(pct: nil, resetsAt: Date().addingTimeInterval(20 * 86400)),
-        applies: true, imagesWeek: 4, imagesLeft: 6)
+        applies: true, imagesWeek: 4, imagesLeft: 6, workspace: nil)
 }
 
 /// Una ventana de uso: el % grande cuenta hacia arriba mientras la barra se llena.
 private struct UsageCard: View {
     let title: String
+    let icon: String
+    /// El color de la tarjeta; al 80% pasa a `bird` y al 100% a rojo, como en la web.
+    let accent: Color
     let pct: Double
     let resetsAt: Date
     let delay: Double
+    var note: String? = nil
     @State private var shown = 0.0
 
     private var target: Double { min(1, max(0, pct)) }
-    private var tint: Color { target >= 1 ? .gDanger : target >= 0.8 ? .orange : .gPrimary }
+    private var tint: Color { target >= 1 ? .gDanger : target >= 0.8 ? .gBird : accent }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(tint, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk2)
                 Spacer()
                 Text("\(Int((shown * 100).rounded()))%")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: shown))
-                    .foregroundStyle(target >= 0.8 ? tint : Color.gInk)
+                    .foregroundStyle(target >= 1 ? Color.gDanger : Color.gInk)
             }
             GeometryReader { g in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.gSeparator)
+                    Capsule().fill(tint.opacity(0.18))
                     Capsule()
-                        .fill(target >= 0.8 ? AnyShapeStyle(tint) : AnyShapeStyle(Theme.primaryGradient))
+                        .fill(tint)
                         .frame(width: shown > 0 ? max(8, g.size.width * shown) : 0)
                 }
             }
@@ -123,6 +138,7 @@ private struct UsageCard: View {
                 Text("Se renueva el \(Self.date(resetsAt)) · \(Self.relative(resetsAt))")
             }
             .gCaption()
+            if let note { Text(note).gCaption() }
         }
         .padding(16)
         .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -170,18 +186,18 @@ private struct ImagesCard: View {
             HStack(spacing: 12) {
                 Image(systemName: "photo.stack")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.gPrimary)
+                    .foregroundStyle(.white)
                     .frame(width: 38, height: 38)
-                    .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.gSalmon, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .symbolEffect(.bounce, value: lit)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text("Imágenes").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
                         Text(highQuality ? "Alta calidad" : "Calidad estándar")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.gPrimary)
+                            .foregroundStyle(Color(hex: 0x9A5A36))
                             .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(Color.gPrimaryTint, in: Capsule())
+                            .background(Color.gSalmon.opacity(0.25), in: Capsule())
                     }
                     Text(made == 1 ? "Llevas 1 esta semana" : "Llevas \(made) esta semana").gCaption()
                 }
@@ -200,7 +216,7 @@ private struct ImagesCard: View {
                 HStack(spacing: 5) {
                     ForEach(0..<(made + left), id: \.self) { i in
                         Circle()
-                            .fill(i < made ? AnyShapeStyle(Theme.primaryGradient) : AnyShapeStyle(Color.gPrimary.opacity(0.22)))
+                            .fill(i < made ? Color.gSalmon : Color.gSalmon.opacity(0.25))
                             .frame(width: 10, height: 10)
                             .scaleEffect(i < lit ? 1 : 0.2)
                             .opacity(i < lit ? 1 : 0)

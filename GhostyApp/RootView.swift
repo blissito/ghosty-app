@@ -236,7 +236,8 @@ struct RootView: View {
         case .conversations:
             ConversacionesView(store: store,
                                onCuenta: { ajustes = true },
-                               onAbrir: { tab = .chat })
+                               onAbrir: { tab = .chat },
+                               onAgente: { hoja = $0 })
                 .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
         case .connectors:
             ConectoresPane(store: store)

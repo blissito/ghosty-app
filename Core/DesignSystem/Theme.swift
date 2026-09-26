@@ -34,6 +34,14 @@ extension Color {
     static let gGreen        = Color(hex: 0x6AB94E)
     static let gGreenTint    = Color(hex: 0xE8F3E4)
     static let gGreenInk     = Color(hex: 0x3F7A2A)
+    // La paleta oficial de la web (gs `app.css`): mismos nombres, mismos hex.
+    static let gBird         = Color(hex: 0xEDC75A)
+    static let gSky          = Color(hex: 0x76D3CB)
+    static let gCloud        = Color(hex: 0x8AD7C9)
+    static let gGrass        = Color(hex: 0x7FBE60)
+    static let gLime         = Color(hex: 0xBFDD78)
+    static let gSalmon       = Color(hex: 0xE4AE8E)
+    static let gBrand        = Color(hex: 0x9A99EA)
 }
 
 enum Theme {
