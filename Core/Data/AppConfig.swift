@@ -40,7 +40,9 @@ final class AppConfig {
 
     private static let cacheKey = "appConfig.v1"
     private static let dismissedKey = "appConfig.dismissedSuggest"
-    static let storeURL = URL(string: "https://apps.apple.com/app/id6810017404")!
+    /// `itms-apps://` abre la App Store directo, sin pasar por Safari. ⚠️ El simulador no tiene
+    /// App Store: ahí el botón «no hace nada» y es normal.
+    static let storeURL = URL(string: "itms-apps://apps.apple.com/app/id6810017404")!
 
     static var currentBuild: Int {
         Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0
