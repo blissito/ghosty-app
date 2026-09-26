@@ -1609,6 +1609,20 @@ final class LiveAgentStore: AgentStoring {
                 self.cerrarTurno(canal, hilo)
             }
         }
+        // Gancho de desarrollo: `GHOSTY_AL_DIA=6` corre `ponerseAlDia` a los 6 s del envío,
+        // con el turno propio escribiendo. Es la carrera del arranque (abrir la app y mandar
+        // el primer mensaje enseguida) hecha determinista: sin el arreglo del consumidor
+        // reemplazado repetía la respuesta desde cero (el «vibrado» de la build 47).
+        #if DEBUG
+        if let s = Gancho.valor("GHOSTY_AL_DIA"), let seg = Int(s) {
+            Task { [weak self, weak canal] in
+                try? await Task.sleep(for: .seconds(seg))
+                guard let self, let canal else { return }
+                EasyBitsClient.diag("[dev] AL_DIA: ponerseAlDia con el turno escribiendo")
+                self.ponerseAlDia(canal)
+            }
+        }
+        #endif
     }
 
     /// El turno por WebSocket.
@@ -1733,6 +1747,23 @@ final class LiveAgentStore: AgentStoring {
         // trozos quedaban pegados en el mismo párrafo («…ahora reviso.Listo, encontré…»),
         // que es lo que en la web y en la app de escritorio sí se separa.
         var separarTrasHerramienta = false
+        // ⚠️ El SSE de gs REPITE el turno desde el principio a quien se suscribe, y a un
+        // turno ya pintado se le vuelve a suscribir (al volver del fondo, al reengancharse).
+        // Ese replay escribe en la MISMA burbuja `turno-<id>` empezando de cero: pintarlo
+        // tal cual encogía la respuesta y la volvía a escribir —el «vibrado» que vio David
+        // en la build 47—. Así que no se repinta la burbuja hasta que lo acumulado ALCANZA
+        // lo que ya enseña; a partir de ahí crece normal. No se quita nada: sólo se difiere.
+        var caughtUpWithShown = false
+        func canRepaint() -> Bool {
+            if caughtUpWithShown { return true }
+            if let m = hilo.mensajes.first(where: { $0.id == respuesta }),
+               case .agent(let shownText, let shownTools, _) = m.kind,
+               acumulado.count < shownText.count || herramientas.count < (shownTools?.herramientas.count ?? 0) {
+                return false
+            }
+            caughtUpWithShown = true
+            return true
+        }
 
         do {
             for try await evento in flujo {
@@ -1781,6 +1812,7 @@ final class LiveAgentStore: AgentStoring {
                             separarTrasHerramienta = false
                         }
                         respuesta = nueva
+                        caughtUpWithShown = false
                     }
                 case .agent(let t):
                     if separarTrasHerramienta, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1805,7 +1837,9 @@ final class LiveAgentStore: AgentStoring {
                             }
                         }
                     }
-                    pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+                    if canRepaint() {
+                        pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+                    }
                 case .tool(let h):
                     if !acumulado.isEmpty { separarTrasHerramienta = true }
                     // ACP manda la MISMA herramienta varias veces conforme avanza: se
@@ -1838,7 +1872,9 @@ final class LiveAgentStore: AgentStoring {
                     }
                     hilo.turno?.step = herramientas.filter { !$0.esperando }.count
                     hilo.turno?.totalSteps = herramientas.count
-                    pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+                    if canRepaint() {
+                        pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+                    }
                 case .usage(let entrada, let salida):
                     hilo.uso = (entrada, salida)
                 case .entrega(var e):
@@ -1892,11 +1928,15 @@ final class LiveAgentStore: AgentStoring {
                     break
                 }
             }
-            // ⚠️ Un vigilante CANCELADO (lo cancela `send` para arrancar el turno propio)
-            // sale del bucle limpio —el stream devuelve nil, no lanza— y llegaba aquí a
-            // borrar el typing y a cerrar el turno que `send` acababa de arrancar: la
-            // conversación quedaba «En reposo» sin respuesta. No es su turno: se va.
-            if Task.isCancelled && enganchado && acumulado.isEmpty && herramientas.isEmpty { return }
+            // ⚠️ Un consumidor CANCELADO sale del bucle limpio —el stream devuelve nil, no
+            // lanza— y NO es quien cierra nada. Todo el que cancela `hilo.enVuelo` o pone
+            // otro consumidor en su lugar (`send`, `engancharse`) o cierra el turno él mismo
+            // (`detener`, `traerLaConversacion` cuando el servidor ya lo cerró).
+            // Antes esto sólo cubría al vigilante vacío. Un consumidor con texto reemplazado
+            // por `engancharse` llegaba a `cerrarTurno`, que pedía el hilo, veía el turno
+            // vivo y volvía a engancharse: un ping-pong que repetía la respuesta desde cero
+            // varias veces por segundo (build 47, el «vibrado»).
+            if Task.isCancelled { return }
             // ⚠️ Un turno que acaba sin texto NO deja rastro. Aquí se pintaba «El turno
             // cerró sin texto», y salía en sitios donde no era verdad: al engancharse a
             // una conversación en reposo, o cuando la respuesta llegaba por el otro flujo.
@@ -1915,16 +1955,15 @@ final class LiveAgentStore: AgentStoring {
             //
             // Así que se marca que sigue trabajando —ahora es verdad— y se vuelve a
             // escuchar. Lo que ya se había escrito se conserva.
-            EasyBitsClient.diag("[turno] \(sid) se cortó: \(error)")
+            // Cancelado = reemplazado o detenido por quien sí cierra (ver arriba): se va
+            // sin tocar el hilo. Repintar aquí `acumulado` podía además ENCOGER la burbuja
+            // si este consumidor era un replay a medio camino.
             if Task.isCancelled {
-                hilo.interrumpido = false
-                hilo.fallo = nil
-                // ⚠️ Un VIGILANTE cancelado (lo cancela `send` para arrancar el turno propio)
-                // no toca el typing: es el que acaba de poner ese `send`. Borrarlo aquí
-                // dejaba el hilo sin «pensando» durante toda la respuesta.
-                if acumulado.isEmpty { if !enganchado { hilo.mensajes.removeAll { $0.kind == .typing } } }
-                else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
-            } else {
+                EasyBitsClient.diag("[turno] \(sid) consumidor reemplazado; lo sigue otro")
+                return
+            }
+            EasyBitsClient.diag("[turno] \(sid) se cortó: \(error)")
+            do {
                 // ⚠️ «Sigue trabajando» SÓLO si había trabajo. Un vigilante sobre una
                 // conversación en reposo también se corta (bloquear el teléfono, cambiar
                 // de red, un deploy de gs) y aquí se marcaba interrumpido igual: el cartel
@@ -1936,7 +1975,7 @@ final class LiveAgentStore: AgentStoring {
                 hilo.fallo = nil
                 hilo.reenganches += 1
                 if acumulado.isEmpty { hilo.mensajes.removeAll { $0.kind == .typing } }
-                else { pintarRespuesta(hilo, id: respuesta, texto: acumulado) }
+                else if canRepaint() { pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas) }
                 engancharse(hilo, de: canal, ponerseAlDia: habiaTrabajo)
                 // Y sin trabajo no hay turno que cerrar: `cerrarTurno` habría marcado
                 // «contestó» (con sonido) por la última burbuja del agente, que era vieja.
@@ -2119,6 +2158,11 @@ final class LiveAgentStore: AgentStoring {
     private func pintarRespuesta(_ hilo: Hilo, id: String, texto: String,
                                  herramientas: [Herramienta] = []) {
         hilo.mensajes.removeAll { $0.kind == .typing }
+        // Nunca debería pasar desde `puedePintar` en `consumir`: es la prueba de que no volvió.
+        if let m = hilo.mensajes.first(where: { $0.id == id }), case .agent(let previous, _, _) = m.kind,
+           texto.count < previous.count {
+            EasyBitsClient.diag("[hilo] encoge \(id): \(previous.count)→\(texto.count)")
+        }
         let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)
         hilo.poner(Message(id: id, kind: .agent(text: texto, tools: tools, trailing: nil)))
     }
