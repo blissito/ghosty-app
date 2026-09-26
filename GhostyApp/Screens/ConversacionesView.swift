@@ -40,13 +40,44 @@ struct ConversacionesView: View {
         return soloFavoritos && !favs.isEmpty ? favs : favs + resto
     }
 
+    /// Los agentes agrupados por espacio: «Tuyos», cada workspace por nombre y al final
+    /// «Compartidos contigo». Dentro de cada grupo, el orden de `agentesOrdenados`.
+    /// ⚠️ Un agente sin espacio (gs viejo, EasyBits) cuenta como tuyo.
+    private var seccionesPorEspacio: [(space: AgentSpace, agentes: [Agent])] {
+        var grupos: [AgentSpace: [Agent]] = [:]
+        var orden: [AgentSpace] = []
+        for a in agentesOrdenados {
+            let e = a.space ?? .personal
+            if grupos[e] == nil { orden.append(e) }
+            grupos[e, default: []].append(a)
+        }
+        func rango(_ e: AgentSpace) -> Int {
+            switch e.kind { case .personal: return 0; case .workspace: return 1; case .shared: return 2 }
+        }
+        return orden
+            .sorted { rango($0) != rango($1) ? rango($0) < rango($1)
+                      : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { ($0, grupos[$0] ?? []) }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 cabecera
-                ForEach(agentesOrdenados) { agente in
-                    if let canal = store.canales[agente.id] {
-                        grupo(agente, canal)
+                let secciones = seccionesPorEspacio
+                ForEach(secciones, id: \.space) { seccion in
+                    // Con UN solo espacio no hay título: la lista se ve como siempre.
+                    if secciones.count > 1 {
+                        Text(seccion.space.title)
+                            .gSectionTitle()
+                            .padding(.horizontal, 4)
+                            .padding(.top, 6)
+                            .accessibilityIdentifier("seccion-\(seccion.space.title)")
+                    }
+                    ForEach(seccion.agentes) { agente in
+                        if let canal = store.canales[agente.id] {
+                            grupo(agente, canal)
+                        }
                     }
                 }
                 Text("Tus agentes salen de tu cuenta de Ghosty Studio. Para crear o configurar uno, entra desde la web.")

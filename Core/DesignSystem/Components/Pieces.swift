@@ -172,6 +172,15 @@ struct ArtifactRow: View {
 /// el punto de estado y su nombre siempre a la vista, no 46 pt de mascota: aquí cabe en
 /// una fila de 36 pt y el hilo gana esa altura.
 struct AgentHeader: View {
+    /// Motor y, si no es tuyo, de dónde es: cuatro «Ghosty» no se distinguen por el nombre.
+    static func subtitle(_ agent: Agent) -> String {
+        switch agent.space?.kind {
+        case .workspace?: return "\(agent.engine) · \(agent.space!.name)"
+        case .shared?: return "\(agent.engine) · compartido"
+        default: return agent.compartidoPor != nil ? "\(agent.engine) · compartido" : agent.engine
+        }
+    }
+
     let agent: Agent
     /// El estado se PREGUNTA al store: guardado en el `Agent` se desincroniza del turno.
     var estado: AgentStatus?
@@ -215,7 +224,7 @@ struct AgentHeader: View {
                         .foregroundStyle(Color.gInk)
                         .lineLimit(1)
                     // Motor y «compartido»: cuatro «Ghosty» no se distinguen por el nombre.
-                    Text(agent.compartidoPor != nil ? "\(agent.engine) · compartido" : agent.engine)
+                    Text(Self.subtitle(agent))
                         .font(.system(size: 11)).foregroundStyle(Color.gInk3)
                         .lineLimit(1)
                 }

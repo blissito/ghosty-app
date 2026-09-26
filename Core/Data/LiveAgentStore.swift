@@ -376,7 +376,8 @@ final class LiveAgentStore: AgentStoring {
                   status: antes.first(where: { $0.id == c.id })?.status ?? .idle(since: "listo"),
                   engine: c.motor ?? (c.esAgenteNativo ? "Ghosty Studio" : "EasyBits"),
                   compartidoPor: c.compartidoPor,
-                  ultimaActividad: c.ultimaActividad)
+                  ultimaActividad: c.ultimaActividad,
+                  space: c.space)
         }
     }
 

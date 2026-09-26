@@ -513,7 +513,8 @@ enum GhostyAPI {
                 host: tipo == "acp" ? cx?["host"] as? String : nil,
                 motor: a["motor"] as? String,
                 compartidoPor: a["compartidoPor"] as? String,
-                ultimaActividad: ultima
+                ultimaActividad: ultima,
+                space: AgentSpace(json: a["espacio"] as? [String: Any])
             ))
         }
 

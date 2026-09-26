@@ -20,6 +20,8 @@ struct AgentAccount: Identifiable, Codable, Equatable {
     var compartidoPor: String? = nil
     /// Último turno MÍO con este agente, para ordenar por último uso.
     var ultimaActividad: Date? = nil
+    /// De qué espacio es. Opcional: el caché guardado antes de esto sigue decodificando.
+    var space: AgentSpace? = nil
 
     var esCompartido: Bool { compartidoPor != nil }
     /// «Ghosty · claude»: el nombre solo no distingue cuatro «Ghosty».
