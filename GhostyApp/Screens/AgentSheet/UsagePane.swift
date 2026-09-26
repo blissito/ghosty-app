@@ -17,7 +17,7 @@ struct UsagePane: View {
             if let u = usage {
                 if u.applies == false {
                     Text(agent.space?.kind == .workspace
-                         ? "El uso de este agente lo cubre su espacio de equipo."
+                         ? "Este agente es del espacio \(agent.space?.title ?? "de equipo"): su uso lo cubre ese espacio, no tu plan personal."
                          : "Este agente es de otra cuenta; su uso no cuenta en tu plan.")
                         .gMeta()
                         .padding(.horizontal, 4)
