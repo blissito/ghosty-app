@@ -71,11 +71,20 @@ struct TextoQueAparece: View {
                                    || l.dropFirst(cabeza.count).hasPrefix(") "))
     }
 
+    /// Sólo la prosa se revela palabra por palabra. En una lista cada renglón es un `Text`
+    /// aparte que cuenta sus letras desde cero, y el barrido se desfasaría entre renglones;
+    /// código y tablas se leen mejor enteros. Ésos siguen entrando por bloque.
+    private func esProsa(_ bloque: String) -> Bool {
+        let l = bloque.trimmingCharacters(in: .whitespaces)
+        return !(l.hasPrefix("```") || l.hasPrefix("|") || l.hasPrefix(">") || esDeLista(l))
+    }
+
     var body: some View {
         let bloques = parrafos
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(bloques.enumerated()), id: \.offset) { i, bloque in
-                GhostyMarkdown(markdown: bloque)
+                GrowingBlock(markdown: bloque, sweeps: esProsa(bloque),
+                             animated: i >= (yaEstaban ?? 0))
                     .transition(.modifier(active: Aparicion(entrando: true),
                                           identity: Aparicion(entrando: false)))
                     .id(i)
@@ -98,5 +107,89 @@ private struct Aparicion: ViewModifier {
             .opacity(entrando ? 0 : 1)
             .blur(radius: entrando ? 3 : 0)
             .offset(y: entrando ? 4 : 0)
+    }
+}
+
+/// Un bloque que, mientras crece, revela sus letras nuevas con un barrido suave: las ya
+/// dichas quedan firmes y las que llegan suben de transparentes a opacas en una ventana de
+/// ~12 letras. Es el efecto de claude.ai.
+///
+/// ⚠️ Cuenta letras del texto YA pintado (sin la sintaxis de markdown), porque el renderer
+/// numera glifos, no caracteres de la fuente. `AttributedString(markdown:)` quita lo mismo
+/// que MarkdownUI en una línea de prosa; una diferencia de un par de letras sólo corre el
+/// borde del barrido, nunca esconde texto: al terminar la animación `shown` es el total.
+private struct GrowingBlock: View {
+    let markdown: String
+    let sweeps: Bool
+    /// Falso = el bloque ya estaba al abrir la conversación: se pinta completo, sin barrido.
+    let animated: Bool
+
+    @State private var shown: Double?
+
+    private var total: Double {
+        let plano = (try? AttributedString(markdown: markdown,
+                                           options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            .map { String($0.characters) } ?? markdown
+        // + la ventana: el barrido tiene que pasarse del final, o las últimas letras se
+        // quedarían a medio aparecer para siempre.
+        return Double(plano.count) + SweepWindow.letters
+    }
+
+    var body: some View {
+        if #available(iOS 18.0, *), sweeps {
+            GhostyMarkdown(markdown: markdown)
+                .textRenderer(SweepRenderer(shown: shown ?? total))
+                .onAppear {
+                    guard shown == nil else { return }
+                    if animated {
+                        shown = 0
+                        reveal(to: total)
+                    } else {
+                        shown = total
+                    }
+                }
+                .onChange(of: markdown) { reveal(to: total) }
+        } else {
+            GhostyMarkdown(markdown: markdown)
+        }
+    }
+
+    /// Más letras nuevas = un poco más de tiempo, con techo: un trozo grande del stream no
+    /// puede tardar en aparecer más de lo que tardó en llegar el siguiente.
+    private func reveal(to target: Double) {
+        let delta = max(0, target - (shown ?? 0))
+        withAnimation(.easeOut(duration: min(0.9, 0.25 + delta / 160))) { shown = target }
+    }
+}
+
+/// Letras que ocupa el degradado del borde del barrido.
+private enum SweepWindow { static let letters = 12.0 }
+
+@available(iOS 18.0, *)
+private struct SweepRenderer: TextRenderer {
+    var shown: Double
+
+    var animatableData: Double {
+        get { shown }
+        set { shown = newValue }
+    }
+
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+        var i = 0.0
+        for line in layout {
+            for run in line {
+                for glyph in run {
+                    let alpha = min(1, max(0, (shown - i) / SweepWindow.letters))
+                    if alpha >= 1 {
+                        ctx.draw(glyph)
+                    } else if alpha > 0 {
+                        var c = ctx
+                        c.opacity = alpha
+                        c.draw(glyph)
+                    }
+                    i += 1
+                }
+            }
+        }
     }
 }
