@@ -22,6 +22,8 @@ struct AgentAccount: Identifiable, Codable, Equatable {
     var ultimaActividad: Date? = nil
     /// De qué espacio es. Opcional: el caché guardado antes de esto sigue decodificando.
     var space: AgentSpace? = nil
+    /// Modelo legible («DeepSeek Flash»), para la hoja del agente.
+    var model: String? = nil
 
     var esCompartido: Bool { compartidoPor != nil }
     /// «Ghosty · claude»: el nombre solo no distingue cuatro «Ghosty».

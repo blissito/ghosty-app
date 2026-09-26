@@ -38,6 +38,8 @@ struct Agent: Identifiable, Equatable, Sendable {
     var ultimaActividad: Date? = nil
     /// De qué espacio es (lo dice gs). nil = gs viejo o EasyBits: cuenta como personal.
     var space: AgentSpace? = nil
+    /// Modelo legible («DeepSeek Flash»). nil = gs viejo.
+    var model: String? = nil
 }
 
 /// El espacio de un agente: la lista se agrupa por esto cuando hay más de uno. Un agente

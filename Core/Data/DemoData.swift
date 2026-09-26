@@ -20,7 +20,7 @@ enum DemoData {
     }
 
     static let cuentas: [AgentAccount] = [
-        AgentAccount(id: "demo-1", token: "gat_demo1", name: "Ghosty", host: nil, motor: "claude", space: .personal),
+        AgentAccount(id: "demo-1", token: "gat_demo1", name: "Ghosty", host: nil, motor: "ghosty-lite", space: .personal, model: "DeepSeek Flash"),
         // De un workspace: es lo que hace que la lista enseñe secciones en el recorrido.
         AgentAccount(id: "demo-2", token: "gat_demo2", name: "Nube", host: nil, motor: "goose",
                      space: AgentSpace(kind: .workspace, id: "ws-demo", name: "business", combo: "teams")),
@@ -199,7 +199,7 @@ extension LiveAgentStore {
         let tonos: [AgentTone] = [.lila, .azul]
         agents = DemoData.cuentas.enumerated().map { i, c in
             Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
-                  status: .idle(since: "listo"), engine: "Ghosty Studio", space: c.space)
+                  status: .idle(since: "listo"), engine: c.motor ?? "Ghosty Studio", space: c.space, model: c.model)
         }
         selectedAgentID = DemoData.cuentas[0].id
 

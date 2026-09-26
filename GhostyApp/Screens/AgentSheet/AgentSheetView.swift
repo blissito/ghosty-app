@@ -8,20 +8,20 @@ enum SheetPane: String, CaseIterable, Identifiable, Hashable {
     // ⚠️ Eran cuatro. `history` se fue a su propia PESTAÑA —donde una lista de
     // conversaciones se lee de un vistazo en vez de a dos toques— y `memory` era un
     // cascarón que decía "todavía no está", igual que Ideas y Metas antes de quitarlas.
-    case activity, permissions
+    case usage, permissions
     var id: String { rawValue }
 
     /// El nombre del panel. Se usa para VoiceOver: el segmentado es sólo iconos.
     var nombre: String {
         switch self {
-        case .activity:    return "Actividad"
+        case .usage:       return "Uso"
         case .permissions: return "Permisos"
         }
     }
 
     var icon: String {
         switch self {
-        case .activity:    return "waveform.path.ecg"
+        case .usage:       return "gauge.with.dots.needle.33percent"
         case .permissions: return "checkmark.shield"
         }
     }
@@ -42,7 +42,7 @@ struct AgentSheetView: View {
 
     /// El panel abierto, RECORDADO entre aperturas y entre arranques.
     ///
-    /// ⚠️ Era `@State` a secas y por eso siempre volvía a Actividad: `.sheet(item:)`
+    /// ⚠️ Era `@State` a secas y por eso siempre volvía al primero: `.sheet(item:)`
     /// construye la vista de nuevo cada vez que se abre, así que el estado local nace
     /// virgen. Quien estaba mirando el historial tenía que volver a buscarlo.
     ///
@@ -57,7 +57,7 @@ struct AgentSheetView: View {
     @State private var panelActual: SheetPane =
         panelForzado
         ?? SheetPane(rawValue: UserDefaults.standard.string(forKey: llaveDelPanel) ?? "")
-        ?? .activity
+        ?? .usage
 
     /// Gancho de desarrollo: el simulador no acepta toques por script, así que sin esto
     /// no hay forma de verificar un panel que no sea el primero. Gana sobre lo guardado.
@@ -125,7 +125,7 @@ struct AgentSheetView: View {
             ScrollView {
                 Group {
                     switch pane.wrappedValue {
-                    case .activity:    ActivityPane(store: store)
+                    case .usage:       UsagePane(agent: agent)
                     case .permissions: PermissionsPane(store: store)
                     }
                 }

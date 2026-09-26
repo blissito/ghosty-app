@@ -377,7 +377,8 @@ final class LiveAgentStore: AgentStoring {
                   engine: c.motor ?? (c.esAgenteNativo ? "Ghosty Studio" : "EasyBits"),
                   compartidoPor: c.compartidoPor,
                   ultimaActividad: c.ultimaActividad,
-                  space: c.space)
+                  space: c.space,
+                  model: c.model)
         }
     }
 

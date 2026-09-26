@@ -439,6 +439,19 @@ enum GhostyAPI {
         return result
     }
 
+    /// El plan personal, su uso y si le aplica a `agentId`. nil = sin red o gs viejo.
+    static func usage(agentId: String) async -> PersonalUsage? {
+        var comps = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/usage"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "agente", value: agentId)]
+        var req = URLRequest(url: comps.url!)
+        req.assumesHTTP3Capable = false
+        guard let token = try? await Session.accessToken() else { return nil }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return PersonalUsage.decode(data)
+    }
+
     /// Cuánto almacenamiento lleva usado la cuenta.
     static func almacenamiento() async throws -> Almacenamiento? {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files"))
@@ -514,7 +527,8 @@ enum GhostyAPI {
                 motor: a["motor"] as? String,
                 compartidoPor: a["compartidoPor"] as? String,
                 ultimaActividad: ultima,
-                space: AgentSpace(json: a["espacio"] as? [String: Any])
+                space: AgentSpace(json: a["espacio"] as? [String: Any]),
+                model: a["modelo"] as? String
             ))
         }
 
