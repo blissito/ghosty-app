@@ -120,6 +120,10 @@ struct AgentBubble: View {
     /// ¿Hay turno vivo? Lo necesita la línea de pasos para no parecer terminada entre una
     /// herramienta y la siguiente.
     var vivo: Bool = false
+    /// El botón de copiar va sólo en la ÚLTIMA respuesta, como en claude.ai: uno bajo
+    /// cada mensaje se volvía una columna de iconos. Las demás se copian por párrafo con
+    /// toque largo.
+    var showCopy: Bool = true
 
     private var fuentes: [Fuente] {
         Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
@@ -148,7 +152,7 @@ struct AgentBubble: View {
 
             // Copiar la respuesta entera, como en Claude. Sólo cuando ya terminó: copiar
             // media respuesta que sigue creciendo no sirve de nada.
-            if !vivo, !fullText.isEmpty { CopyButton(text: fullText) }
+            if showCopy, !vivo, !fullText.isEmpty { CopyButton(text: fullText) }
         }
         // Sin burbuja y a todo lo ancho, como el chat de Claude: la respuesta del agente
         // es el cuerpo de la conversación —listas, tablas, código—, y meterla en una
