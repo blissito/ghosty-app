@@ -6,6 +6,7 @@
 build/
 # Salida del simulador y de las capturas: pesa cientos de megas y se regenera.
 build-sim/
+build2/
 .spm/
 DerivedData/
 xcuserdata/
