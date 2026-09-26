@@ -766,13 +766,22 @@ final class LiveAgentStore: AgentStoring {
     /// pide otra vez por ser la visible, y el refresco de la lista otra por cada vuelta.
     /// Como el cliente es un actor, esas copias se ponen en fila y retrasan justo lo que
     /// la persona está esperando ver.
+    ///
+    /// ⚠️ La llave es AGENTE + sesión. Los ids de gs (`20260926_4`) se REPITEN entre agentes:
+    /// con sólo la sesión, traer la `20260926_4` de un agente saltaba en silencio la del
+    /// otro, y abrir su push se quedaba en «Trayendo la conversación…» para siempre
+    /// (medido 2026-09-26: Moon y Flicker-test, mismo día, mismo número).
     private var trayendo: Set<String> = []
 
     private func traerLaConversacion(_ hilo: Hilo, de canal: Canal) async {
         guard let sid = hilo.sesionID else { return }
-        guard !trayendo.contains(sid) else { return }
-        trayendo.insert(sid)
-        defer { trayendo.remove(sid) }
+        let llave = "\(canal.cuenta.id)|\(sid)"
+        guard !trayendo.contains(llave) else {
+            EasyBitsClient.diag("[hilo] \(sid): ya se está trayendo, no pido otra vez")
+            return
+        }
+        trayendo.insert(llave)
+        defer { trayendo.remove(llave) }
         hilo.loadError = nil
         let antes = hilo.mensajes.count
         do {
@@ -785,6 +794,7 @@ final class LiveAgentStore: AgentStoring {
                 // SSE, así que hay que estar escuchando aunque no haya nada que pintar
                 // todavía. Sin esto, llegar por un push a una conversación que este
                 // teléfono nunca abrió dejaba la pantalla en blanco.
+                EasyBitsClient.diag("[hilo] \(sid): sin historial (¿turno vivo?); me engancho al SSE")
                 if await cliente.faltaHistorial(de: sid) { engancharse(hilo, de: canal) }
                 return
             }
@@ -801,7 +811,10 @@ final class LiveAgentStore: AgentStoring {
             // conserva es la burbuja del turno EN CURSO (`turno-<id>`), que el servidor
             // todavía no ha cerrado; si el historial ya trae su texto parcial como último
             // mensaje del agente, se quita esa copia y gana la que sigue creciendo.
-            guard !mensajes.isEmpty else { return }
+            guard !mensajes.isEmpty else {
+                EasyBitsClient.diag("[hilo] \(sid): el servidor no trajo mensajes")
+                return
+            }
             // ⚠️ Si el SERVIDOR dice que el último turno ya acabó, el turno local es un
             // fantasma: la app se durmió a media respuesta y nadie lo cerró. Con él vivo,
             // lo de abajo QUITABA la respuesta de verdad para conservar la burbuja local
