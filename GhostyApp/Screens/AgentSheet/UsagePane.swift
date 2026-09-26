@@ -32,7 +32,7 @@ struct UsagePane: View {
                             .entrance(appeared, order: 2)
                     }
                     if let n = u.imagesWeek {
-                        ImagesCard(count: n).entrance(appeared, order: 3)
+                        ImagesCard(made: n, left: u.imagesLeft).entrance(appeared, order: 3)
                     }
                 }
             } else if loaded {
@@ -84,7 +84,7 @@ struct UsagePane: View {
         plan: .init(key: "free", name: "Gratis"),
         week: .init(pct: 0.23, resetsAt: Date().addingTimeInterval(2 * 86400)),
         month: .init(pct: nil, resetsAt: Date().addingTimeInterval(20 * 86400)),
-        applies: true, imagesWeek: 4)
+        applies: true, imagesWeek: 4, imagesLeft: 6)
 }
 
 /// Una ventana de uso: el % grande cuenta hacia arriba mientras la barra se llena.
@@ -153,32 +153,62 @@ private struct UsageCard: View {
     }
 }
 
-/// Cuántas imágenes lleva la semana; el número cuenta hacia arriba.
+/// Las imágenes de la semana: cuántas llevas y cuántas más te alcanzan. Los puntos
+/// llenos son las hechas y los claros las que quedan; se encienden uno tras otro.
 private struct ImagesCard: View {
-    let count: Int
-    @State private var shown = 0
+    let made: Int
+    let left: Int?
+    @State private var lit = 0
+
+    /// Con muchas, los puntos ya no se leen: sólo números.
+    private var showDots: Bool { made + (left ?? 0) <= 24 }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "photo.stack")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.gPrimary)
-                .frame(width: 38, height: 38)
-                .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .symbolEffect(.bounce, value: shown)
-            Text("Imágenes esta semana").font(.system(size: 15, weight: .medium)).foregroundStyle(Color.gInk)
-            Spacer()
-            Text("\(shown)")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .contentTransition(.numericText(value: Double(shown)))
-                .foregroundStyle(Color.gInk)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "photo.stack")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.gPrimary)
+                    .frame(width: 38, height: 38)
+                    .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .symbolEffect(.bounce, value: lit)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Imágenes").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
+                    Text(made == 1 ? "Llevas 1 esta semana" : "Llevas \(made) esta semana").gCaption()
+                }
+                Spacer()
+                if let left {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(left == 0 ? "0" : "~\(left)")
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(left == 0 ? Color.gDanger : Color.gInk)
+                        Text(left == 1 ? "te alcanza" : "te alcanzan").gCaption()
+                    }
+                }
+            }
+            if showDots, let left, made + left > 0 {
+                HStack(spacing: 5) {
+                    ForEach(0..<(made + left), id: \.self) { i in
+                        Circle()
+                            .fill(i < made ? AnyShapeStyle(Theme.primaryGradient) : AnyShapeStyle(Color.gPrimary.opacity(0.22)))
+                            .frame(width: 10, height: 10)
+                            .scaleEffect(i < lit ? 1 : 0.2)
+                            .opacity(i < lit ? 1 : 0)
+                    }
+                }
+            }
         }
         .padding(14)
         .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: .black.opacity(0.05), radius: 10, y: 3)
-        .onAppear {
-            withAnimation(.spring(duration: 0.9).delay(0.45)) { shown = count }
+        .task {
+            // Uno tras otro: primero las hechas, luego las que quedan.
+            try? await Task.sleep(for: .milliseconds(350))
+            for _ in 0..<(made + (left ?? 0)) {
+                withAnimation(.spring(duration: 0.35, bounce: 0.5)) { lit += 1 }
+                try? await Task.sleep(for: .milliseconds(45))
+            }
         }
         .accessibilityElement(children: .combine)
     }

@@ -19,6 +19,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     /// ¿El plan personal cubre a ESTE agente? false = es de un workspace o compartido.
     let applies: Bool?
     let imagesWeek: Int?
+    /// Cuántas más alcanzan con lo que queda (salen del mismo presupuesto que el chat).
+    let imagesLeft: Int?
 
     static func decode(_ data: Data) -> PersonalUsage? {
         let d = JSONDecoder()
