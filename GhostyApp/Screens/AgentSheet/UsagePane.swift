@@ -24,7 +24,9 @@ struct UsagePane: View {
                 } else if u.applies == false {
                     Text(agent.space?.kind == .workspace
                          ? "Este agente es del espacio \(agent.space?.title ?? "de equipo"): su uso lo cubre ese espacio, no tu plan personal."
-                         : "Este agente es de otra cuenta; su uso no cuenta en tu plan.")
+                         : agent.compartidoPor != nil
+                            ? "Este agente es de \(agent.compartidoPor!); su uso cuenta en su plan, no en el tuyo."
+                            : "Su uso no cuenta en tu plan personal.")
                         .gMeta()
                         .padding(.horizontal, 4)
                         .entrance(appeared, order: 1)
