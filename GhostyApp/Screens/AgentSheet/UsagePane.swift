@@ -183,7 +183,7 @@ private struct ImagesCard: View {
                             .font(.system(size: 26, weight: .bold, design: .rounded))
                             .monospacedDigit()
                             .foregroundStyle(left == 0 ? Color.gDanger : Color.gInk)
-                        Text(left == 1 ? "te alcanza" : "te alcanzan").gCaption()
+                        Text(left == 1 ? "te queda" : "te quedan").gCaption()
                     }
                 }
             }
