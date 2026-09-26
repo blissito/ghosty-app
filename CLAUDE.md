@@ -88,7 +88,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_PROBE="texto"` | manda ese mensaje al arrancar |
 | `GHOSTY_ADJUNTOS=imagen\|archivo\|ambos` | lo manda CON adjuntos sintéticos |
 | `GHOSTY_TAB=chat\|conversations\|artifacts\|connectors` | abre esa pestaña (`fleet` ya no existe) |
-| `GHOSTY_SHEET=1` + `GHOSTY_PANE=usage\|permissions` | abre la hoja del agente en ese panel |
+| `GHOSTY_SHEET=1` | abre la hoja del agente (su plan y uso) |
 | `GHOSTY_CONECTORES=demo` | llena Integraciones para poder mirarla |
 | `GHOSTY_CORTAR=8` | mata el socket a los 8 s, como hace iOS al suspender la app |
 | `GHOSTY_DEMO_INTERRUMPIDO=1` | pinta un hilo cortado por la suspensión (con el cartel) |

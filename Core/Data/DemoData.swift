@@ -210,8 +210,8 @@ extension LiveAgentStore {
         // Ésta espera permiso: es el estado que la app nunca llegaba a pintar.
         foto.permisoPendiente = PermissionRequest(
             id: "demo-permiso", kind: .publish, agentName: "Ghosty",
-            question: "¿Dejas que publique el recorte?",
-            detail: "El turno está detenido hasta que contestes.", attachment: nil)
+            question: "¿Puedo publicar el recorte?",
+            detail: "Me quedo en pausa hasta que me digas.", attachment: nil)
         // Una que ya contestó y no has visto: es el estado que la lista no sabía decir.
         foto.termino = Date().addingTimeInterval(-120)
         foto.visto = false

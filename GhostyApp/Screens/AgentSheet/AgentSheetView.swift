@@ -1,78 +1,13 @@
 import SwiftUI
 
-enum SheetPane: String, CaseIterable, Identifiable, Hashable {
-    // ⚠️ Las integraciones NO están aquí, y es a propósito: son de la CUENTA, no del
-    // agente. La tabla es `gc_user_connectors` con clave `(sub, provider)` y el agente usa
-    // la conexión de quien lo invoca. Dentro del panel del agente parecería que cada uno
-    // tiene las suyas. Viven en su propia pestaña.
-    // ⚠️ Eran cuatro. `history` se fue a su propia PESTAÑA —donde una lista de
-    // conversaciones se lee de un vistazo en vez de a dos toques— y `memory` era un
-    // cascarón que decía "todavía no está", igual que Ideas y Metas antes de quitarlas.
-    case usage, permissions
-    var id: String { rawValue }
-
-    /// El nombre del panel. Se usa para VoiceOver: el segmentado es sólo iconos.
-    var nombre: String {
-        switch self {
-        case .usage:       return "Uso"
-        case .permissions: return "Permisos"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .usage:       return "gauge.with.dots.needle.33percent"
-        case .permissions: return "checkmark.shield"
-        }
-    }
-}
-
-/// La hoja del agente. Se abre al tocar el avatar y **no tiene barra de pestañas**:
-/// aquí la navegación es el segmentado de cuatro. Meter las dos era navegación
-/// duplicada, y era el error que había en la primera versión del diseño.
+/// La hoja del agente. Se abre al tocar el avatar: su plan y cuánto va.
+/// ⚠️ Tuvo pestañas de Actividad y Permisos. Actividad era ruido; el permiso vive ahora
+/// en el chat, encima del compositor (`PermissionCard`), que es donde se contesta.
 struct AgentSheetView: View {
     let agent: Agent
     let store: LiveAgentStore
     var onAjustes: () -> Void
-    var onNuevaConversacion: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-
-    /// Cuál se está mirando. La clave de lo guardado; se lee al construir la vista.
-    private static let llaveDelPanel = "ghosty.panelDeLaHoja"
-
-    /// El panel abierto, RECORDADO entre aperturas y entre arranques.
-    ///
-    /// ⚠️ Era `@State` a secas y por eso siempre volvía al primero: `.sheet(item:)`
-    /// construye la vista de nuevo cada vez que se abre, así que el estado local nace
-    /// virgen. Quien estaba mirando el historial tenía que volver a buscarlo.
-    ///
-    /// ⚠️ Y fue `@AppStorage`, que arregló eso y **rompió la animación**: el valor da la
-    /// vuelta por `UserDefaults` y vuelve en otro ciclo, o sea FUERA de la transacción del
-    /// `withAnimation` que lanzó el toque. La cápsula del segmentado no podía deslizarse
-    /// —su `matchedGeometryEffect` necesita que quitarla y ponerla ocurran en la MISMA
-    /// animación—, así que desaparecía de un sitio y aparecía en el otro.
-    ///
-    /// La memoria y la animación se separan: manda el `@State` (animable) y lo guardado es
-    /// una consecuencia.
-    @State private var panelActual: SheetPane =
-        panelForzado
-        ?? SheetPane(rawValue: UserDefaults.standard.string(forKey: llaveDelPanel) ?? "")
-        ?? .usage
-
-    /// Gancho de desarrollo: el simulador no acepta toques por script, así que sin esto
-    /// no hay forma de verificar un panel que no sea el primero. Gana sobre lo guardado.
-    private static let panelForzado =
-        SheetPane(rawValue: Gancho.valor("GHOSTY_PANE") ?? "")
-
-    private var pane: Binding<SheetPane> {
-        Binding(
-            get: { panelActual },
-            set: { nuevo in
-                panelActual = nuevo
-                UserDefaults.standard.set(nuevo.rawValue, forKey: Self.llaveDelPanel)
-            },
-        )
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,37 +33,8 @@ struct AgentSheetView: View {
             }
             .padding(.top, 10)
 
-            if let onNuevaConversacion {
-                Button {
-                    onNuevaConversacion()
-                    dismiss()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("Nueva conversación").font(.system(size: 15, weight: .semibold))
-                    }
-                    .foregroundStyle(Color.gPrimary)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(Color.gPrimaryTint)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, Theme.Space.screenH)
-                .padding(.top, 18)
-            }
-
-            SegmentedIconBar(items: SheetPane.allCases, icon: \.icon, label: \.nombre, selection: pane)
-                .padding(.horizontal, Theme.Space.screenH)
-                .padding(.top, 16)
-
             ScrollView {
-                Group {
-                    switch pane.wrappedValue {
-                    case .usage:       UsagePane(agent: agent)
-                    case .permissions: PermissionsPane(store: store)
-                    }
-                }
+                UsagePane(agent: agent)
                 // El contenido de la hoja no debe quedar pegado al borde inferior:
                 // con varios turnos el último se leía a medias.
                 .padding(.bottom, 28)

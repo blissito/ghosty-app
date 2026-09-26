@@ -115,6 +115,11 @@ struct ConversationView: View {
 
             // Lo que el agente hará solo, si hay algo: es lo que convierte «trabaja en
             // esto por días» en algo que se ve sin abrir ninguna hoja.
+            if let p = store.pendingPermission {
+                PermissionCard(request: p) { d in Task { await store.decide(p, d) } }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if let agenda { AgendaStrip(agenda: agenda) { abrirAgenda = true } }
 
             // ⚠️ Aquí vivió la barra de chips de conversaciones con su «+». Se fue: la

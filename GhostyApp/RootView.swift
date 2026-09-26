@@ -160,10 +160,9 @@ struct RootView: View {
         }
         .sheet(item: $hoja) { agente in
             AgentSheetView(agent: agente, store: store,
-                           onAjustes: { hoja = nil; ajustes = true },
-                           onNuevaConversacion: { store.nuevaConversacion() })
+                           onAjustes: { hoja = nil; ajustes = true })
                 #if os(iOS)
-                .presentationDetents([.large])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.hidden)
                 .presentationCornerRadius(Theme.Radius.sheet)
                 #endif

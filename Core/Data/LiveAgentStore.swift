@@ -1236,10 +1236,8 @@ final class LiveAgentStore: AgentStoring {
             id: "\(p.id)",
             kind: .publish,
             agentName: canal.cuenta.name,
-            question: "¿Dejas que use \(p.titulo)?",
-            detail: p.opciones.isEmpty
-                ? "El agente espera tu respuesta para seguir."
-                : "El turno está detenido hasta que contestes.",
+            question: "¿Puedo usar \(p.titulo)?",
+            detail: "Me quedo en pausa hasta que me digas.",
             attachment: nil)
     }
 
