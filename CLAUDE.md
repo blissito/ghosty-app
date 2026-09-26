@@ -95,6 +95,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_DEMO_REMOTO=1` | el agente trabajando **desde otra superficie**: una conversación corriendo, una muda de hace 3 h (para ver la caducidad), una que contestó sin abrirse y una detenida por un permiso |
 | `GHOSTY_PUSH=1` | se registra en APNs sin esperar al diálogo del permiso |
 | `GHOSTY_AL_DIA=6` | corre `ponerseAlDia` a los 6 s del envío, con el turno escribiendo: la carrera de «abrir la app y mandar el primer mensaje» hecha determinista (el «vibrado» de la build 47) |
+| `GHOSTY_CONFIG='{"minBuild":99}'` | finge la config remota de gs (`AppConfig`): `minBuild`, `suggestBuild`, `flags` (`voice`, `agenda`). En Debug la compuerta de versión SÓLO se aplica con este gancho |
 | `GHOSTY_SILENCIO=20` | da el turno por cortado tras 20 s sin eventos (por defecto, 8 min) |
 | `GHOSTY_NUEVA=1` | arranca en una conversación nueva (crear sesión + primer turno) |
 | `GHOSTY_TOKEN=<bearer>` | presta una sesión sin pasar por el login (sólo Debug) |

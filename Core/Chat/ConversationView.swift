@@ -697,7 +697,7 @@ struct ConversationView: View {
             tarjeta("Foto", "photo") { abrirFotos = true }
             tarjeta("Documento", "paperclip") { abrirArchivos = true }
             // Programar sólo tiene sentido con una conversación que ya existe en gs.
-            if agenda != nil {
+            if agenda != nil && AppConfig.shared.isOn("agenda") {
                 tarjeta("Programar", "clock.badge.checkmark") { abrirAgenda = true }
             }
         }
@@ -857,7 +857,9 @@ struct ConversationView: View {
                     .background(Theme.primaryGradient, in: Circle())
             }
             .buttonStyle(.plain)
-        } else if hayQueMandar {
+        } else if hayQueMandar || !AppConfig.shared.isOn("voice") {
+            // Con la voz apagada desde gs (`flags.voice`), el botón de enviar ocupa el lugar
+            // del micrófono, inactivo mientras no haya nada que mandar.
             Button(action: enviar) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .bold))
@@ -870,7 +872,7 @@ struct ConversationView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("enviar")
-            .disabled(subiendo)
+            .disabled(subiendo || !hayQueMandar)
         } else {
             microfono
         }

@@ -17,6 +17,7 @@ struct RootView: View {
     /// ⚠️ La app no miraba si volvía del fondo, así que un turno interrumpido por la
     /// suspensión se quedaba pintado como un fallo para siempre. Ver `volverDelFondo`.
     @Environment(\.scenePhase) private var fase
+    private var config = AppConfig.shared
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -63,6 +64,17 @@ struct RootView: View {
                     }
                     .onAppear { if !pestanas.contains(tab) { tab = .chat } }
             }
+
+            // La config remota (`AppConfig`): el aviso arriba, la compuerta encima de todo.
+            if config.shouldSuggestUpdate {
+                UpdateSuggestionBanner { withAnimation { config.dismissSuggestion() } }
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            if config.mustUpdate {
+                UpdateRequiredView().transition(.opacity)
+            }
         }
         // ⚠️ Sólo al VOLVER. Aquí hubo tres ramas —anotar el fondo, cerrar sockets con
         // tiempo de gracia, marcar turnos como interrumpidos— porque el turno era del
@@ -76,6 +88,7 @@ struct RootView: View {
             if nueva != .active { Bitacora.volcar() }
             guard nueva == .active else { return }
             Task { await store.volverDelFondo() }
+            Task { await AppConfig.shared.refresh() }
         }
         // Entrar a la lista es pedirle cuentas a TODOS los agentes: es la pantalla donde
         // se ve lo que el agente está haciendo desde otra superficie, y ese estado vive
@@ -94,6 +107,8 @@ struct RootView: View {
         .task {
             // Lo primero, y barato: tirar las imágenes viejas del caché de disco.
             CacheDeImagenes.purgar()
+            // Sin await: la config nunca retrasa el arranque, llega cuando llegue.
+            Task { await AppConfig.shared.refresh() }
             await store.cargar()
             // En paralelo: ninguna de las dos bloquea la pantalla y las dos deciden qué se
             // enseña en Ajustes.
