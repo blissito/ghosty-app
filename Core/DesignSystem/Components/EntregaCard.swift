@@ -29,10 +29,17 @@ struct EntregaCard: View {
     /// previa es una fila con un nombre: no dice si el documento salió bien, que es
     /// justamente lo que uno quiere saber de un entregable. PDFKit lo hace nativo y ya
     /// tenemos los bytes en la mano.
+    ///
+    /// Decodificada UNA vez y guardada en `MiniaturasEnMemoria`: volver a la tarjeta la pinta
+    /// en el mismo fotograma, y el cuerpo ya no renderiza la portada en cada pasada.
     private var imagen: UIImage? {
-        guard entrega.forma == .archivo, let d = datos else { return nil }
-        if entrega.tipo == "pdf" { return Self.portada(d) }
-        return UIImage(data: d)
+        guard entrega.forma == .archivo else { return nil }
+        let clave = "entrega:" + (entrega.remotoID ?? entrega.id)
+        if let ya = MiniaturasEnMemoria.imagen(clave) { return ya }
+        guard let d = datos else { return nil }
+        let img = entrega.tipo == "pdf" ? Self.portada(d) : UIImage(data: d)
+        if let img { MiniaturasEnMemoria.guardar(img, clave: clave) }
+        return img
     }
 
     /// La primera página de un PDF como imagen.
@@ -112,9 +119,18 @@ struct EntregaCard: View {
             // ⚠️ El PDF también: su vista previa es la primera página, y sin bajarlo la
             // tarjeta es una fila con un nombre. Se acota por peso —lo que dijo el
             // anuncio— para no traerse un documento enorme sólo por la miniatura.
+            // Ya pintada desde memoria: no hace falta ni el disco.
+            if MiniaturasEnMemoria.imagen("entrega:" + (entrega.remotoID ?? entrega.id)) != nil { return }
             let conVistaPrevia = ["png", "jpg", "jpeg", "heic", "gif", "webp", "pdf", "csv"]
-            guard conVistaPrevia.contains(ext) else { return }
+            // El texto chico también: su asomo es la vista previa. Uno grande espera al toque.
+            let textoChico = entrega.esTexto && (entrega.bytesRemotos ?? .max) < 200_000
+            guard conVistaPrevia.contains(ext) || textoChico else { return }
             if let peso = entrega.bytesRemotos, peso > 8 * 1024 * 1024 { return }
+            // Lo que está en el disco sale sin spinner; sólo la red enseña el cargando.
+            if let id = entrega.remotoID, ArchivosEnDisco.hay(id), let d = await ArchivosEnDisco.leer(id) {
+                bajados = d
+                return
+            }
             await bajar(yAbrir: false)
         }
         .fullScreenCover(item: $mirando) { img in
@@ -171,7 +187,7 @@ struct EntregaCard: View {
         return filas.count > 1 && (filas.first?.count ?? 0) > 1 ? filas : nil
     }
 
-    private var tieneVistaPrevia: Bool { imagen != nil || Self.asomo(entrega) != nil }
+    private var tieneVistaPrevia: Bool { imagen != nil || Self.asomo(entrega, datos: datos) != nil }
 
     static func sinExtension(_ titulo: String) -> String {
         guard let punto = titulo.lastIndex(of: "."), punto != titulo.startIndex else { return titulo }
@@ -191,7 +207,7 @@ struct EntregaCard: View {
                 .frame(maxWidth: .infinity, maxHeight: 180,
                        alignment: entrega.tipo == "pdf" ? .top : .center)
                 .clipped()
-        } else if let texto = Self.asomo(entrega) {
+        } else if let texto = Self.asomo(entrega, datos: datos) {
             Text(texto)
                 .gMono(size: 11.5)
                 .foregroundStyle(Color.gInk2)
@@ -253,12 +269,12 @@ struct EntregaCard: View {
     ///
     /// ⚠️ Sólo si es texto DE VERDAD: un binario decodificado como UTF-8 da o basura o
     /// `nil`, y enseñar basura es peor que no enseñar nada.
-    private static func asomo(_ e: Entrega) -> String? {
+    private static func asomo(_ e: Entrega, datos: Data?) -> String? {
         let crudo: String?
         if let c = e.contenido { crudo = c }
         // ⚠️ `esTexto`, no "decodifica como UTF-8": la cabecera de un PDF decodifica
         // perfectamente y se pintó `%PDF-1.7 %µ¶ % Written by MuPDF` en la tarjeta.
-        else if e.esTexto, let d = e.datos, d.count < 200_000 { crudo = String(data: d, encoding: .utf8) }
+        else if e.esTexto, let d = datos, d.count < 200_000 { crudo = String(data: d, encoding: .utf8) }
         else { crudo = nil }
         guard let crudo, !crudo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return crudo.split(separator: "\n", omittingEmptySubsequences: false)

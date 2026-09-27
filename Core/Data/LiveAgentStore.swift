@@ -243,11 +243,34 @@ final class LiveAgentStore: AgentStoring {
     /// Los archivos de la CUENTA en gs: lo subido, lo entregado y las descargas de video,
     /// desde cualquier app (iOS, Mac, /c). Es lo que hace que Artefactos deje de ser «sólo
     /// lo que pasó por este teléfono».
-    var accountFiles: [Entrega] = []
+    ///
+    /// Arranca con la última lista guardada en disco: Archivos se pinta al instante y
+    /// `loadAccountFiles()` la refresca en segundo plano.
+    var accountFiles: [Entrega] = LiveAgentStore.guardadosDeCuenta?.map(Entrega.fromAccountFile) ?? []
     /// `true` cuando gs contestó al menos una vez (lista vacía incluida).
     var accountFilesLoaded = false
+    /// Hay una lista de la cuenta que enseñar, aunque sea la de disco: sin ella y sin
+    /// respuesta todavía, Archivos enseña el cargando en vez de «Todavía nada».
+    var accountFilesCached = LiveAgentStore.guardadosDeCuenta != nil
+    /// Se está preguntando a gs por la biblioteca de la cuenta.
+    var cargandoAccountFiles = false
+    /// Ya se preguntó al menos una vez (contestara o no): sin red, el cargando no puede
+    /// quedarse girando para siempre.
+    var accountFilesIntentado = false
+
+    /// Archivos no tiene nada que enseñar todavía y está por llegar: sólo entonces hay
+    /// cargando. Con algo en disco, nunca.
+    var accountFilesEsperando: Bool {
+        !accountFilesCached && !accountFilesLoaded && (cargandoAccountFiles || !accountFilesIntentado)
+    }
     /// Las mismas filas en crudo, por id: hacen falta para reconocer duplicados (`isShadowed`).
-    var accountFileRecords: [String: GhostyAPI.ArchivoDeSesion] = [:]
+    var accountFileRecords: [String: GhostyAPI.ArchivoDeSesion] =
+        Dictionary((LiveAgentStore.guardadosDeCuenta ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+    /// La biblioteca de la cuenta que quedó en disco (nada en modo demo).
+    private static var guardadosDeCuenta: [GhostyAPI.ArchivoDeSesion]? {
+        DemoData.encendido ? nil : GhostyAPI.accountFilesGuardados()
+    }
 
     /// Lo que enseña Artefactos: la biblioteca de la cuenta + lo que llegó en vivo a este
     /// teléfono y todavía no está en ella, sin repetir el mismo archivo dos veces.
@@ -400,6 +423,14 @@ final class LiveAgentStore: AgentStoring {
         for c in canales.values { c.soltar() }
         canales = [:]
         cache.limpiar()
+        accountFiles = []
+        accountFileRecords = [:]
+        accountFilesLoaded = false
+        accountFilesCached = false
+        accountFilesIntentado = false
+        archivos = []
+        documentos = []
+        estadoArchivos = .sinPedir
         correo = nil
         conexion = .sinLlave
     }
@@ -433,26 +464,41 @@ final class LiveAgentStore: AgentStoring {
         guard cuenta.esLlaveDeCuenta else { estadoArchivos = .noPermitido; return }
         guard estadoArchivos != .cargando else { return }
 
-        estadoArchivos = .cargando
+        // Con lista ya enseñada se refresca en silencio: pasar por `.cargando` escondía la
+        // sección entera y la volvía a pintar.
+        let yaHabia = estadoArchivos == .listo
+        if !yaHabia { estadoArchivos = .cargando }
         let cliente = EasyBitsClient(apiKey: cuenta.token)
         do {
             async let a = cliente.files(limit: 50)
             async let d = cliente.documents(limit: 50)
-            archivos = try await a
-            documentos = try await d
+            let (nuevosA, nuevosD) = try await (a, d)
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                archivos = nuevosA
+                documentos = nuevosD
+            }
             estadoArchivos = .listo
         } catch {
-            estadoArchivos = .fallo(error.localizedDescription)
+            if !yaHabia { estadoArchivos = .fallo(error.localizedDescription) }
         }
     }
 
     /// Trae la biblioteca de la cuenta. Best-effort: sin red se queda la última lista.
+    /// Lo guardado ya está pintado (ver `accountFiles`): esto sólo refresca, y los cambios
+    /// entran animados en vez de repintar la lista.
     func loadAccountFiles() async {
         guard !DemoData.encendido else { return }
+        guard !cargandoAccountFiles else { return }
+        cargandoAccountFiles = true
+        defer { cargandoAccountFiles = false; accountFilesIntentado = true }
         guard let files = await GhostyAPI.accountFiles() else { return }
-        accountFiles = files.map(Entrega.fromAccountFile)
+        let nuevas = files.map(Entrega.fromAccountFile)
+        // Las filas van por id: lo que no cambió se queda quieto y sólo se animan las altas,
+        // bajas y reordenamientos.
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { accountFiles = nuevas }
         accountFileRecords = Dictionary(files.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         accountFilesLoaded = true
+        accountFilesCached = true
     }
 
     /// Borra un archivo de la cuenta (y su tarjeta en los hilos de este teléfono).
@@ -465,6 +511,7 @@ final class LiveAgentStore: AgentStoring {
         switch await GhostyAPI.borrarArchivo(remoteID) {
         case .hecho:
             withAnimation(Self.alBorrar) { accountFiles.removeAll { $0.remotoID == remoteID } }
+            CacheDeImagenes.olvidar(remoteID)
             borrarEntrega(e.id)
             falloAlBorrar = nil
             return true

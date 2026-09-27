@@ -138,7 +138,13 @@ struct ArtifactsView: View {
             case .subidos: !e.generada
             }
         }
-        if visibles.isEmpty {
+        if todo.isEmpty, store.accountFilesEsperando, !DemoData.encendido {
+            // Sólo la primera vez, sin nada en disco: con caché la lista sale al instante.
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 60)
+                .transition(.opacity)
+        } else if visibles.isEmpty {
             vacio(hayAlgo: !todo.isEmpty)
                 .padding(.top, 40)
                 .transition(.opacity)

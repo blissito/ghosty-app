@@ -8,72 +8,59 @@ import SwiftUI
 /// desaparecía al cambiar de conversación y volver, dejando sólo el texto.
 /// Aquí se baja por su id, igual que ya hace la nota de voz con su audio.
 enum CacheDeImagenes {
-    /// Dos niveles: memoria para lo de esta sesión, disco para que cerrar la app no
+    /// Dos niveles: memoria (`MiniaturasEnMemoria`, ya decodificada) para pintar en el
+    /// mismo fotograma, y disco (`ArchivosEnDisco`, por id) para que cerrar la app no
     /// obligue a bajarlo todo otra vez.
-    private static var cache: [String: UIImage] = [:]
-    private static var enVuelo: [String: Task<UIImage?, Never>] = [:]
+    @MainActor private static var enVuelo: [String: Task<UIImage?, Never>] = [:]
 
-    /// Cuánto puede ocupar el caché en disco antes de purgar por lo más viejo.
-    private static let topeBytes = 80 * 1024 * 1024
-
-    private static var carpeta: URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "imagenes")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+    /// Lo que ya está en memoria, sin esperar: para el primer pintado.
+    @MainActor
+    static func enMemoria(_ adjunto: Adjunto) -> UIImage? {
+        guard adjunto.datos.isEmpty, let id = adjunto.remoto?.id else { return nil }
+        return MiniaturasEnMemoria.imagen(id)
     }
 
     @MainActor
     static func imagen(_ adjunto: Adjunto) async -> UIImage? {
-        if let i = UIImage(data: adjunto.datos) { return i }
+        if !adjunto.datos.isEmpty, let i = UIImage(data: adjunto.datos) { return i }
         guard let id = adjunto.remoto?.id else { return nil }
-        if let ya = cache[id] { return ya }
+        if let ya = MiniaturasEnMemoria.imagen(id) { return ya }
         if let tarea = enVuelo[id] { return await tarea.value }
 
-        let destino = carpeta.appending(path: id)
-        if let d = try? Data(contentsOf: destino), let img = UIImage(data: d) {
-            cache[id] = img
-            return img
-        }
-
+        // `bajar` mira primero el disco; sólo va a la red si no está.
         let tarea = Task<UIImage?, Never> {
             guard let d = try? await GhostyAPI.bajar(id) else { return nil }
-            try? d.write(to: destino, options: .atomic)
-            return UIImage(data: d)
+            return await Task.detached(priority: .userInitiated) { UIImage(data: d)?.preparingForDisplay() ?? UIImage(data: d) }.value
         }
         enVuelo[id] = tarea
         let img = await tarea.value
         enVuelo[id] = nil
-        if let img { cache[id] = img }
+        if let img { MiniaturasEnMemoria.guardar(img, clave: id) }
         return img
     }
 
     /// Tira la copia de UNA imagen. Se llama al borrar su archivo de la cuenta: si no,
     /// la miniatura seguiría saliendo de un archivo que ya no existe.
     static func olvidar(_ id: String) {
-        cache[id] = nil
-        try? FileManager.default.removeItem(at: carpeta.appending(path: id))
+        MiniaturasEnMemoria.olvidar(id)
+        ArchivosEnDisco.olvidar(id)
     }
 
-    /// Purga lo más viejo si el caché se pasó del tope. Se llama al arrancar: hacerlo en
-    /// cada escritura costaría un listado del directorio por cada imagen que baja.
+    /// El caché viejo de imágenes vivía en Application Support con su propio tope. Ahora
+    /// todo va a `Caches/archivos`: se tira la carpeta vieja y se purga la nueva.
     static func purgar() {
-        let claves: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
-        guard let archivos = try? FileManager.default.contentsOfDirectory(
-            at: carpeta, includingPropertiesForKeys: claves) else { return }
+        let vieja = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "imagenes")
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.removeItem(at: vieja)
+            ArchivosEnDisco.purgar()
+        }
+    }
 
-        let conDatos = archivos.compactMap { url -> (URL, Date, Int)? in
-            guard let v = try? url.resourceValues(forKeys: Set(claves)),
-                  let fecha = v.contentModificationDate, let peso = v.fileSize else { return nil }
-            return (url, fecha, peso)
-        }
-        var total = conDatos.reduce(0) { $0 + $1.2 }
-        guard total > topeBytes else { return }
-        for (url, _, peso) in conDatos.sorted(by: { $0.1 < $1.1 }) {
-            guard total > topeBytes else { break }
-            try? FileManager.default.removeItem(at: url)
-            total -= peso
-        }
+    static func borrarTodo() {
+        let vieja = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "imagenes")
+        try? FileManager.default.removeItem(at: vieja)
     }
 }
 
@@ -89,7 +76,8 @@ struct ImagenDeAdjunto<Contenido: View>: View {
 
     var body: some View {
         Group {
-            if let imagen {
+            // La de memoria se pinta YA: sin un fotograma de hueco al volver al hilo.
+            if let imagen = imagen ?? CacheDeImagenes.enMemoria(adjunto) {
                 contenido(imagen)
                     // La foto que mandaste también se abre: se ve a 238 puntos y a veces
                     // lo que quieres es mirarla.

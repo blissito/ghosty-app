@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import SwiftUI
 import AVKit
 import Photos
@@ -130,10 +131,20 @@ struct ReproductorDeVideo: View {
     private func preparar() async {
         guard player == nil else { return }
         var url: URL?
-        if let id = entrega.remotoID, let firmada = try? await GhostyAPI.urlDe(id) { url = URL(string: firmada) }
+        var opciones: [String: Any]?
+        // Ya bajado (se guardó o compartió antes): se reproduce del disco. Si no, se
+        // TRANSMITE con firma fresca; un video no se baja entero sólo para cachearlo.
+        if let id = entrega.remotoID, ArchivosEnDisco.hay(id) {
+            url = ArchivosEnDisco.url(id)
+            ArchivosEnDisco.tocar(url!)
+            // Sin extensión en el nombre, AVFoundation necesita que le digan qué es.
+            let mime = entrega.mime ?? entrega.tipo.flatMap { UTType(filenameExtension: $0)?.preferredMIMEType } ?? "video/mp4"
+            opciones = [AVURLAssetOverrideMIMETypeKey: mime]
+        }
+        else if let id = entrega.remotoID, let firmada = try? await GhostyAPI.urlDe(id) { url = URL(string: firmada) }
         else if let u = entrega.url { url = URL(string: u) }
         guard let url else { fallo = "No encuentro el video."; return }
-        let asset = AVURLAsset(url: url)
+        let asset = AVURLAsset(url: url, options: opciones)
         // ⚠️ Si el asset no carga (firma caducada, red), NO se monta un reproductor
         // mudo: se dice y se puede reintentar con una URL fresca tocando el cuadro. Era
         // el «a veces reproduce y a veces no».

@@ -182,6 +182,7 @@ enum Session {
         let refresh = leer()?.refresh
         cerrar()
         UsoEnDisco.borrarTodo()
+        CacheDeArchivos.borrarTodo()
         guard let refresh else { return }
         var req = URLRequest(url: base.appendingPathComponent("oauth2/revoke"))
         req.httpMethod = "POST"

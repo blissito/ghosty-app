@@ -270,7 +270,11 @@ enum GhostyAPI {
     /// ⚠️ Refresca la firma SIEMPRE antes de bajar. La URL que viajó en el prompt caduca a
     /// las 6 h, y una descarga que falla por firma vencida se ve exactamente igual que un
     /// audio corrupto: mismo silencio, causa distinta.
-    static func bajar(_ id: String) async throws -> Data {
+    ///
+    /// Lo ya bajado sale de `ArchivosEnDisco` (por id, no por URL: la firma cambia y el
+    /// contenido no) sin tocar la red; lo nuevo se guarda ahí al llegar.
+    static func bajar(_ id: String, guardar: Bool = true) async throws -> Data {
+        if let d = await ArchivosEnDisco.leer(id) { return d }
         let url = try await urlDe(id)
         guard let u = URL(string: url) else { throw Fallo.mensaje("Ese archivo ya no está.") }
         var req = URLRequest(url: u)
@@ -279,6 +283,7 @@ enum GhostyAPI {
         guard (resp as? HTTPURLResponse)?.statusCode == 200, !datos.isEmpty else {
             throw Fallo.mensaje("No pude bajar el archivo.")
         }
+        if guardar { ArchivosEnDisco.guardar(datos, id: id) }
         return datos
     }
 
@@ -361,9 +366,23 @@ enum GhostyAPI {
     /// Es lo que deja RECONSTRUIR un adjunto al recargar un hilo: el replay de ACP devuelve
     /// sólo texto, así que sin esto una nota de voz vuelve como una línea muerta. Se cruza
     /// por NOMBRE, que dentro de una sesión es único (los de voz llevan marca de tiempo).
+    ///
+    /// Sin red contesta con la última lista guardada de esa conversación: sin ella, un hilo
+    /// abierto sin conexión perdía sus adjuntos aunque ya se hubieran visto.
     static func archivosDe(sesion: String) async -> [String: ArchivoDeSesion] {
+        let q = [URLQueryItem(name: "sesion", value: sesion)]
+        return mapaDeSesion(await accountFiles(query: q) ?? guardados(query: q) ?? [])
+    }
+
+    /// La última lista de una conversación que se guardó en disco, sin red. `nil` = nunca
+    /// se guardó.
+    static func archivosGuardadosDe(sesion: String) -> [String: ArchivoDeSesion]? {
+        guardados(query: [URLQueryItem(name: "sesion", value: sesion)]).map(mapaDeSesion)
+    }
+
+    private static func mapaDeSesion(_ lista: [ArchivoDeSesion]) -> [String: ArchivoDeSesion] {
         var mapa: [String: ArchivoDeSesion] = [:]
-        for a in await accountFiles(query: [URLQueryItem(name: "sesion", value: sesion)]) ?? [] {
+        for a in lista {
             // ⚠️ Una entrega del agente puede repetir nombre (dos «informe.pdf»): la clave
             // lleva el id para no perder ninguna. Los adjuntos de la persona siguen por nombre.
             mapa[a.origen == "agente" ? "\(a.nombre)#\(a.id)" : a.nombre] = a
@@ -376,6 +395,24 @@ enum GhostyAPI {
     /// lo mismo que una cuenta vacía.
     static func accountFiles(kind: String? = nil) async -> [ArchivoDeSesion]? {
         await accountFiles(query: kind.map { [URLQueryItem(name: "kind", value: $0)] } ?? [])
+    }
+
+    /// La última biblioteca de la cuenta guardada en disco, para el primer pintado.
+    static func accountFilesGuardados(kind: String? = nil) -> [ArchivoDeSesion]? {
+        guardados(query: kind.map { [URLQueryItem(name: "kind", value: $0)] } ?? [])
+    }
+
+    /// La llave en disco de una consulta a `/me/files`: `cuenta`, `cuenta-kind-video`,
+    /// `sesion-<id>`. Sin nada de la cuenta: al cerrar sesión se borra todo.
+    private static func claveDeLista(_ query: [URLQueryItem]) -> String {
+        guard !query.isEmpty else { return "cuenta" }
+        return query.map { q in
+            (q.name == "sesion" ? "sesion" : "cuenta-\(q.name)") + "-" + (q.value ?? "")
+        }.joined(separator: "_")
+    }
+
+    private static func guardados(query: [URLQueryItem]) -> [ArchivoDeSesion]? {
+        ListasDeArchivosEnDisco.leer(clave: claveDeLista(query)).flatMap(parsearArchivos)
     }
 
     /// `createdAt` llega con milisegundos (`toISOString`), y el `ISO8601DateFormatter` por
@@ -400,7 +437,14 @@ enum GhostyAPI {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let (datos, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let result = parsearArchivos(datos)
+        else { return nil }
+        ListasDeArchivosEnDisco.guardar(datos, clave: claveDeLista(query))
+        return result
+    }
+
+    private static func parsearArchivos(_ datos: Data) -> [ArchivoDeSesion]? {
+        guard let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
               let lista = j["files"] as? [[String: Any]]
         else { return nil }
 
