@@ -22,130 +22,214 @@ import SwiftUI
 struct ConectoresPane: View {
     let store: LiveAgentStore
     @State private var trabajando: String?
+    /// Hacia dónde va el interruptor mientras se conecta o desconecta: se mueve al tocarlo,
+    /// no cuando contesta el servidor.
+    @State private var destino: Bool?
     @State private var fallo: String?
     @State private var sesion: ASWebAuthenticationSession?
     @State private var ancla = AnclaDeLaSesion()
     /// El nombre del conector cuyo alta está reiniciando el agente, si hay uno.
     @State private var reiniciando: String?
+    /// Apagar pide confirmación: desconectar revoca la llave y el agente deja de poder usarla.
+    @State private var porDesconectar: Conector?
+    @Environment(Toaster.self) private var toaster: Toaster?
 
-    private var conectados: [Conector] { store.conectores.filter(\.conectado) }
-    private var disponibles: [Conector] { store.conectores.filter { !$0.conectado } }
+    private var disponibles: [Conector] {
+        store.conectores.filter(\.disponible).sorted { $0.conectado && !$1.conectado }
+    }
+    private var proximas: [Conector] { store.conectores.filter { !$0.disponible } }
+
+    /// «2 de 5 conectadas. Ghosty solo usa las que actives.»
+    private var resumen: String {
+        let total = disponibles.count
+        guard total > 0 else {
+            return "Se irán activando conforme estén listas. Ghosty solo usa las que actives."
+        }
+        let n = disponibles.filter(\.conectado).count
+        return "\(n) de \(total) conectada\(total == 1 ? "" : "s"). Ghosty solo usa las que actives."
+    }
 
     var body: some View {
-        // ⚠️ Con ScrollView. Sin él la lista no cabía y el VStack se desbordaba por arriba:
-        // el título acababa bajo la isla y las filas salían de la tarjeta. Las otras
-        // pestañas ya lo tienen; ésta nació como panel de una hoja, donde el scroll lo
-        // ponía la hoja.
+        // ⚠️ Con ScrollView. Sin él la lista no cabía y el VStack se desbordaba por arriba.
         ScrollView {
-            contenido.padding(.top, 8)
+            contenido
+                .padding(.horizontal, Theme.Space.screenH)
+                .padding(.top, 14)
+                .padding(.bottom, 20)
         }
         .scrollIndicators(.hidden)
+        .task { await store.cargarConectores() }
+        .confirmationDialog(porDesconectar.map { "¿Desconectar \($0.nombre)?" } ?? "",
+                            isPresented: Binding(get: { porDesconectar != nil },
+                                                 set: { if !$0 { porDesconectar = nil } }),
+                            titleVisibility: .visible) {
+            Button("Desconectar", role: .destructive) {
+                if let c = porDesconectar { Task { await desconectar(c) } }
+                porDesconectar = nil
+            }
+            Button("Cancelar", role: .cancel) { porDesconectar = nil }
+        } message: {
+            Text("Tus agentes dejarán de poder usarla. Puedes volver a conectarla cuando quieras.")
+        }
     }
 
     private var contenido: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Integraciones").gScreenTitle()
-                // ⚠️ Se dice que son TUYAS, no del agente: la conexión cuelga de la persona
-                // y cualquier agente que invoques usa la misma. Sin esta línea, en una app
-                // con varios agentes se lee como que hay que conectarlas una por una.
-                Text("Son de tu cuenta: cualquier agente que uses trabaja con ellas.")
-                    .gMeta()
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, Theme.Space.screenH)
-            .padding(.top, 8)
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Integraciones").gScreenTitle()
+                .padding(.horizontal, 2)
+                .padding(.bottom, 4)
+            // ⚠️ Son de la CUENTA (`gc_user_connectors`, clave `(sub, provider)`): cualquier
+            // agente que invoques usa la misma. El resumen lo dice sin nombrar agente.
+            Text(resumen)
+                .gScreenSubtitle()
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 2)
+                .padding(.bottom, 18)
+                .contentTransition(.numericText())
+                .animation(.snappy, value: resumen)
+                .accessibilityIdentifier("resumen-integraciones")
+
             // El fallo propio de esta pantalla, o el que reportó el store (una recarga que
             // se cayó, una desconexión que no pudo revocar).
             if let aviso = fallo ?? store.falloDeConectores {
-                Text(aviso).gCaption().foregroundStyle(Color.gDangerInk)
-                    .padding(.horizontal, Theme.Space.screenH)
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12))
+                    Text(aviso).font(.system(size: 13))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(Color.gDangerInk)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.gDangerTint,
+                            in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .padding(.bottom, 14)
+                .transition(.gIn)
             }
             if let reiniciando {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    GhostySpinner()
                     Text("Reiniciando tu agente para activar \(reiniciando)…").gCaption()
                 }
-                .padding(.horizontal, Theme.Space.screenH)
-                .transition(.opacity)
+                .padding(.horizontal, 4)
+                .padding(.bottom, 14)
+                .transition(.gIn)
             }
-            if !conectados.isEmpty { seccion("Conectadas", conectados) }
-            if !disponibles.isEmpty {
-                seccion(store.hayConectores ? "Disponibles" : "En camino", disponibles)
-            }
-            if !store.hayConectores {
-                Text("Se irán activando conforme estén listas. Mientras tanto, tu agente ya puede leer y escribir archivos y trabajar con lo que le mandes.")
-                    .gCaption()
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Theme.Space.screenH)
+
+            if !disponibles.isEmpty { lista(disponibles) }
+
+            if !proximas.isEmpty {
+                Text("Muy pronto").gSectionCaps()
+                    .padding(.horizontal, 4)
+                    .padding(.top, disponibles.isEmpty ? 0 : 22)
+                    .padding(.bottom, 8)
+                lista(proximas)
             }
         }
-        .task { await store.cargarConectores() }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: store.conectores)
+        .animation(.easeOut(duration: 0.25), value: reiniciando)
     }
 
-    private func seccion(_ titulo: String, _ lista: [Conector]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(titulo).gSectionTitle().padding(.horizontal, Theme.Space.screenH)
-            VStack(spacing: 0) {
-                ForEach(Array(lista.enumerated()), id: \.element.id) { i, c in
-                    fila(c).ghostySeparator(inset: i == lista.count - 1 ? .infinity : 60)
-                }
+    private func lista(_ conectores: [Conector]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(conectores.enumerated()), id: \.element.id) { i, c in
+                fila(c)
+                    .ghostySeparator(inset: i == conectores.count - 1 ? .infinity : 0)
+                    .gIn(delay: min(Double(i), 8) * 0.03)
             }
-            .padding(.horizontal, Theme.Space.cardH)
-            .ghostyCard()
-            .padding(.horizontal, Theme.Space.screenH)
         }
+        .background(Color.gCard)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.list, style: .continuous))
     }
 
     private func fila(_ c: Conector) -> some View {
         HStack(spacing: 12) {
-            if let marca = c.marca {
-                // La marca va SIN teñir y sin fondo de color: un logo lleva su propia
-                // paleta, y meterlo en una caja morada lo desfigura.
-                Image(marca, bundle: GhostyAssets.bundle)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 34, height: 34)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous))
-            } else {
-                TintedIcon(systemName: c.icono,
-                           tint: c.conectado ? .gPrimary : .gInk2,
-                           background: c.conectado ? .gPrimaryTint : .gFill, size: 34)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(c.nombre).font(.system(size: 15, weight: .medium)).foregroundStyle(Color.gInk)
-                if c.conectado { Text("Conectada").gCaption() }
-            }
-            Spacer(minLength: 8)
-            if !c.disponible {
-                Text("Muy pronto").gCaption()
-            } else if trabajando == c.id {
-                ProgressView().controlSize(.small)
-            } else if c.conectado {
+            insignia(c)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(c.nombre)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                Text(Self.descripcion(c))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.gInk3)
+                    .lineLimit(1)
                 // Drive sólo ve lo que eliges en el selector de Google: sin esta puerta,
                 // agregar una hoja desde el teléfono obligaba a desconectar y volver a
                 // conectar. `/start` de un Drive ya conectado devuelve el selector.
-                if c.id == "google-drive" {
-                    Button("Archivos") { conectar(c) }
-                        .font(.system(size: 14, weight: .semibold))
+                if c.id == "google-drive", c.conectado, trabajando != c.id {
+                    Button("Elegir archivos") { conectar(c) }
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.gPrimary)
+                        .buttonStyle(.gPressPill)
+                        .padding(.top, 3)
                         .accessibilityIdentifier("connector-files-\(c.id)")
                 }
-                Button("Quitar") { Task { await desconectar(c) } }
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.gInk3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if !c.disponible {
+                Text("Muy pronto").gCaption()
             } else {
-                Button("Conectar") { conectar(c) }
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.gPrimary)
+                let cargando = trabajando == c.id
+                InterruptorGhosty(encendido: cargando ? (destino ?? c.conectado) : c.conectado,
+                                  cargando: cargando) {
+                    guard trabajando == nil else { return }
+                    if c.conectado { porDesconectar = c } else { conectar(c) }
+                }
+                .accessibilityLabel(c.nombre)
+                .accessibilityValue(c.conectado ? "Conectada" : "Apagada")
+                .accessibilityIdentifier("switch-\(c.id)")
             }
         }
-        .padding(.vertical, 11)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
         // Lo que todavía no se puede conectar se ve, pero apagado: enseñar lo que viene es
         // útil; dejar que se toque y no pase nada, no.
         .opacity(c.disponible ? 1 : 0.55)
+    }
+
+    /// La marca de casa si la hay; si no, la inicial en el cuadrito de borde del diseño.
+    @ViewBuilder
+    private func insignia(_ c: Conector) -> some View {
+        if let marca = c.marca {
+            // La marca va SIN teñir y sin fondo de color: un logo lleva su propia paleta.
+            Image(marca, bundle: GhostyAssets.bundle)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous))
+        } else {
+            Text(String(c.nombre.prefix(1)).uppercased())
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(light: 0x5E5D6B, dark: 0xA3A2B0))
+                .frame(width: 36, height: 36)
+                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
+                    .strokeBorder(Color.gFillStrong, lineWidth: 1.5))
+        }
+    }
+
+    /// Qué hace cada una, en una línea. Mapa local mientras gs no mande descripción.
+    static func descripcion(_ c: Conector) -> String {
+        switch c.id {
+        case "easybits":                 return "Archivos, documentos y páginas"
+        case "denik":                    return "Agenda y citas"
+        case "mailmask":                 return "Correos y listas de envío"
+        case "github":                   return "Repos, issues y pull requests"
+        case "google", "gmail":          return "Lee y redacta correos"
+        case "google-calendar", "calendar": return "Agenda citas"
+        case "google-drive", "drive":    return "Archivos"
+        case "calendly":                 return "Citas y disponibilidad"
+        case "spotify":                  return "Música y playlists"
+        case "canva":                    return "Diseños y presentaciones"
+        case "odoo":                     return "Ventas, inventario y facturas"
+        case "kommo":                    return "CRM y embudo de ventas"
+        case "whatsapp":                 return "Responde y envía mensajes"
+        case "stripe":                   return "Cobros y cortes"
+        case "notion":                   return "Documentos y bases"
+        case "shopify":                  return "Catálogo y pedidos"
+        default:                         return c.conectado ? "Conectada" : "Disponible"
+        }
     }
 
     private func conectar(_ c: Conector) {
@@ -153,6 +237,7 @@ struct ConectoresPane: View {
         // llamada, así que no hay por qué cortar la conversación.
         let wasConnected = c.conectado
         trabajando = c.id
+        destino = true
         fallo = nil
         Task {
             guard let url = await store.urlDeConexion(c.id) else {
@@ -186,6 +271,7 @@ struct ConectoresPane: View {
                     }
                     return
                 }
+                toaster?.show("\(c.nombre) conectada ✓")
                 // ⚠️ El servidor acaba de reiniciar la caja para meterle la llave, y una
                 // sesión ACP congela sus herramientas al nacer. Si nos quedamos en la
                 // conversación de antes, el agente seguirá sin las tools y lo contará mal
@@ -220,8 +306,45 @@ struct ConectoresPane: View {
 
     private func desconectar(_ c: Conector) async {
         trabajando = c.id
+        destino = false
         await store.desconectar(c.id)
         trabajando = nil
+        if !(store.conectores.first { $0.id == c.id }?.conectado ?? false) {
+            toaster?.show("\(c.nombre) desconectada")
+        }
+    }
+}
+
+/// El interruptor de iOS del diseño: 51×31, perilla blanca de 27 con sombra, morado
+/// `#5B4BD6` encendido y `#E2E1EA` apagado. Mientras el servidor contesta, la perilla
+/// gira (`gspin`).
+struct InterruptorGhosty: View {
+    let encendido: Bool
+    var cargando = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Capsule()
+                .fill(encendido ? Color.gPrimary : Color.gFillStrong)
+                .frame(width: 51, height: 31)
+                .overlay(alignment: encendido ? .trailing : .leading) {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 27, height: 27)
+                        .shadow(color: .black.opacity(0.2), radius: 2, y: 2)
+                        .overlay {
+                            if cargando { GhostySpinner(size: 13, lineWidth: 1.8).transition(.opacity) }
+                        }
+                        .padding(2)
+                }
+                .animation(.spring(response: 0.28, dampingFraction: 0.78), value: encendido)
+                .animation(.easeOut(duration: 0.2), value: cargando)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.gPress(0.95))
+        .disabled(cargando)
+        .accessibilityAddTraits(encendido ? .isSelected : [])
     }
 }
 

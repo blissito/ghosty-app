@@ -58,6 +58,14 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// es lo que las hace volver en otro teléfono: se baja con `GhostyAPI.bajar(id)`,
     /// que acuña una URL firmada fresca (las firmadas caducan; por eso no se guarda una).
     var remotoID: String?
+    /// Quién lo puso en la cuenta: `"agente"` si lo ENTREGÓ un agente (gs lo marca en
+    /// `meta.origen`); `nil` en un archivo de la cuenta = lo subió la persona. Es lo que
+    /// separa «Generados» de «Subidos» en Archivos.
+    var origen: String?
+
+    /// ¿Lo generó un agente? Lo que llegó en vivo por el relé (sin `remotoID`) siempre es
+    /// del agente; lo de la cuenta, según su `origen`.
+    var generada: Bool { remotoID == nil || origen == "agente" }
 
     /// El de siempre. Se escribe a mano porque `init(from:)` propio quita el que Swift
     /// generaba solo.
@@ -87,6 +95,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         var e = Entrega(id: "f-\(f.id)", agentID: f.agentID ?? "", sesionID: f.sessionID,
                         forma: forma, titulo: f.titulo ?? f.nombre, recibida: f.creado ?? Date(),
                         bytesRemotos: f.bytes, remotoID: f.id)
+        e.origen = f.origen
         if f.mime != "application/octet-stream" { e.mime = f.mime }
         return e
     }
@@ -114,7 +123,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// conversación (`MensajeGuardado.entrega`), y si sólo uno de los dos escribiera los
     /// bytes, la foto volvería a desaparecer al recargar el hilo.
     enum CodingKeys: String, CodingKey {
-        case id, agentID, sesionID, forma, titulo, recibida, contenido, url, bytesRemotos, remotoID
+        case id, agentID, sesionID, forma, titulo, recibida, contenido, url, bytesRemotos, remotoID, origen
     }
 
     init(from decoder: Decoder) throws {
@@ -129,6 +138,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         url = try c.decodeIfPresent(String.self, forKey: .url)
         bytesRemotos = try c.decodeIfPresent(Int.self, forKey: .bytesRemotos)
         remotoID = try c.decodeIfPresent(String.self, forKey: .remotoID)
+        origen = try c.decodeIfPresent(String.self, forKey: .origen)
         // Los de siempre, más los del formato viejo: un `entregas.json` escrito antes de
         // esto lleva los bytes dentro, y tirarlos sería perder artefactos que ya tenías.
         if let viejos = try? decoder.container(keyedBy: ClaveVieja.self)
@@ -157,6 +167,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         try c.encodeIfPresent(url, forKey: .url)
         try c.encodeIfPresent(bytesRemotos, forKey: .bytesRemotos)
         try c.encodeIfPresent(remotoID, forKey: .remotoID)
+        try c.encodeIfPresent(origen, forKey: .origen)
     }
 
     var etiqueta: String {

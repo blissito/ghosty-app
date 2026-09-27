@@ -10,21 +10,26 @@ struct CambiarAgenteSheet: View {
     /// Se eligió uno (o el mismo): quien la abrió cierra la hoja y va al chat.
     var onElegido: () -> Void
 
-    /// Uso por agente, cargado al abrir la hoja. Ausente = todavía no llega o falló.
-    @State private var usos: [String: PersonalUsage] = [:]
+    /// Uso por agente, compartido con Perfil: al reabrir la hoja las barras ya están.
+    /// Ausente = todavía no llega o falló.
+    @State private var cache = UsosDeAgentes.compartido
+    private var usos: [String: PersonalUsage] { cache.usos }
 
     var body: some View {
         VStack(spacing: 6) {
-            ForEach(store.agents) { agente in
+            ForEach(Array(store.agents.enumerated()), id: \.element.id) { i, agente in
                 let elegido = agente.id == store.selectedAgentID
                 GhostySheetRow(title: agente.name, subtitle: Self.tipo(agente), selected: elegido,
                                action: { elegir(agente) },
                                leading: { AgentAvatar(tone: agente.tone, size: 40) },
                                extra: { barra(de: agente) })
                     .accessibilityIdentifier("agente-\(agente.id)")
+                    // Las filas entran escalonadas, como el `gin` del prototipo.
+                    .gIn(duration: 0.25, delay: 0.04 + Double(min(i, 6)) * 0.04)
             }
         }
-        .task(id: store.agents.map(\.id)) { await cargarUsos() }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: store.selectedAgentID)
+        .task(id: store.agents.map(\.id)) { await cache.cargar(store.agents) }
     }
 
     /// La línea bajo el nombre: de quién es el agente.
@@ -80,20 +85,5 @@ struct CambiarAgenteSheet: View {
     private func elegir(_ agente: Agent) {
         store.seleccionar(agente.id)
         onElegido()
-    }
-
-    private func cargarUsos() async {
-        if DemoData.encendido {
-            withAnimation { for a in store.agents { usos[a.id] = UsagePane.demo } }
-            return
-        }
-        await withTaskGroup(of: (String, PersonalUsage?).self) { grupo in
-            for a in store.agents where usos[a.id] == nil {
-                grupo.addTask { (a.id, await GhostyAPI.usage(agentId: a.id)) }
-            }
-            for await (id, u) in grupo {
-                if let u { withAnimation(.easeOut(duration: 0.25)) { usos[id] = u } }
-            }
-        }
     }
 }

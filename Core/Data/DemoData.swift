@@ -152,6 +152,34 @@ enum DemoData {
                           updatedAt: Date().addingTimeInterval(-86_400), messageCount: 6),
     ]
 
+    /// Integraciones para mirar la pestaña: dos conectadas, dos por conectar y el resto
+    /// del catálogo «muy pronto».
+    static func conectores(catalogo: [Conector]) -> [Conector] {
+        let conectadas: Set<String> = ["easybits", "google-calendar"]
+        let libres: Set<String> = ["google", "github"]
+        return catalogo.map { c in
+            var c = c
+            c.conectado = conectadas.contains(c.id)
+            c.disponible = conectadas.contains(c.id) || libres.contains(c.id)
+            return c
+        }
+    }
+
+    /// Lo que la persona SUBIÓ a su cuenta (para el filtro «Subidos» de Archivos).
+    static var subidos: [Entrega] {
+        var contrato = Entrega(id: "f-demo-contrato", agentID: "demo-1", forma: .archivo,
+                               titulo: "Contrato_Proveedor.pdf",
+                               recibida: Date().addingTimeInterval(-86_400),
+                               bytesRemotos: 1_260_000, remotoID: "demo-contrato")
+        contrato.mime = "application/pdf"
+        var catalogo = Entrega(id: "f-demo-catalogo", agentID: "demo-1", forma: .archivo,
+                               titulo: "Catalogo_2026.xlsx",
+                               recibida: Date().addingTimeInterval(-3 * 86_400),
+                               bytesRemotos: 348_000, remotoID: "demo-catalogo")
+        catalogo.mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return [contrato, catalogo]
+    }
+
     /// Lo que el agente hace desde OTRO lado: la Mac o la web. gs lo reporta en la lista
     /// y esta app no lo está oyendo — es justo el estado que la lista no sabía pintar.
     ///
@@ -308,6 +336,7 @@ extension LiveAgentStore {
 
         // Artefactos lee del almacén, no del hilo: sin esto la pestaña sale vacía.
         for e in [DemoData.conFotoEntregas()].flatMap({ $0 }) { entregas.registrar(e) }
+        accountFiles = DemoData.subidos
         ponerCanalesDeDemo([DemoData.cuentas[0].id: uno, DemoData.cuentas[1].id: dos])
         conexion = .lista
         aplicarAvisoPendiente()

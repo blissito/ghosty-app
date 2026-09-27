@@ -178,7 +178,11 @@ final class LiveAgentStore: AgentStoring {
     private(set) var falloDeConectores: String?
 
     func cargarConectores() async {
-        guard !DemoData.encendido else { conectores = Self.catalogo; hayConectores = false; return }
+        guard !DemoData.encendido else {
+            // La demo enseña interruptores de verdad: unas conectadas, otras por conectar
+            // y el resto «muy pronto».
+            conectores = DemoData.conectores(catalogo: Self.catalogo); hayConectores = true; return
+        }
         switch await GhostyAPI.conectores() {
         case .servidos(let lista):
             conectores = lista

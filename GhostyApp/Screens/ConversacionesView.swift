@@ -1,23 +1,27 @@
 import SwiftUI
 
-/// Todas tus conversaciones, agrupadas por agente.
+/// «Chats»: todas tus conversaciones, de todos tus agentes, por fecha (diseño 2026-09).
 ///
-/// ⚠️ **Sustituye a la Flota**, no se suma a ella. La Flota era una lista de agentes a la
-/// que se le fue metiendo qué hace cada uno, su cronómetro, detener y «pídele algo»: media
-/// lista de conversaciones con otro nombre. Y las conversaciones se veían en tres sitios
-/// —la barra sobre el compositor, «Abiertas» dentro de la hoja del agente, y de rebote en
-/// la bitácora de Actividad—. Ésta es la lista de verdad; la barra de abajo se queda como
-/// el cambio rápido, que es otra cosa.
+/// ⚠️ Sustituye a la Flota y a la lista agrupada por agente. Lo que se conserva de ellas,
+/// porque tiene función detrás:
+/// - **Estado real** en el subtítulo (`EstadoDelHilo` / el `ultimoTurno` del servidor), no
+///   un resumen inventado, y un icono a la derecha sólo cuando hay algo que ver.
+/// - **Favoritos** (por agente), renombrar, borrar deslizando y detener todo.
+/// - **Espacios**: con más de un agente salen como filtros, ordenados por espacio
+///   (tuyos, cada workspace, compartidos), y cada fila dice de quién es.
+/// - Lo que vive en la caja y no está abierto aquí («guardadas») entra en la misma lista.
 struct ConversacionesView: View {
     let store: LiveAgentStore
     var onCuenta: () -> Void
     /// Tocar una conversación te lleva a ella: quien cambia de pestaña es `RootView`.
     var onAbrir: () -> Void
-    /// Tocar al agente (fantasma o nombre) abre su hoja, igual que en el chat.
+    /// «Ver plan y uso» de un agente.
     var onAgentTap: (Agent) -> Void = { _ in }
 
-    /// Qué agentes tienen desplegadas sus conversaciones guardadas.
-    @State private var desplegados: Set<String> = []
+    @State private var busqueda = ""
+    @FocusState private var buscando: Bool
+    /// El agente por el que se filtra. `nil` = todos.
+    @State private var soloAgente: String?
     /// Favoritos (por teléfono). Estado local para repintar al tocar la estrella.
     @State private var favoritos: Set<String> = Favoritos.ids
     /// Sólo favoritos. Recordado.
@@ -26,10 +30,51 @@ struct ConversacionesView: View {
     @State private var renombrando: (agente: String, sesion: String)?
     @State private var nombreNuevo = ""
 
-    /// Favoritos arriba, luego el resto; cada grupo por último uso (sin uso al final, por
-    /// nombre). Con «sólo favoritos», nada más el primer grupo.
+    // MARK: - Modelo de la lista
+
+    /// Una fila: una conversación abierta en el teléfono o una guardada en la caja.
+    private struct Fila: Identifiable {
+        enum Tipo { case abierta(Hilo, Canal), guardada(ACPClient.Session) }
+        let tipo: Tipo
+        let agente: Agent
+        let titulo: String
+        let fecha: Date
+        var id: String {
+            switch tipo {
+            case .abierta(let h, _): "h-\(h.clave)"
+            case .guardada(let s): "s-\(agente.id)-\(s.id)"
+            }
+        }
+    }
+
+    private enum Grupo: Int, CaseIterable {
+        case hoy, semana, antes
+        var titulo: String {
+            switch self {
+            case .hoy: "Hoy"
+            case .semana: "Esta semana"
+            case .antes: "Antes"
+            }
+        }
+        static func de(_ fecha: Date, ahora: Date = Date()) -> Grupo {
+            let cal = Calendar.current
+            if cal.isDateInToday(fecha) { return .hoy }
+            if let hace = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: ahora)),
+               fecha >= hace { return .semana }
+            return .antes
+        }
+    }
+
+    /// Los agentes por espacio (tuyos, cada workspace, compartidos) y, dentro, favoritos
+    /// primero y luego por último uso.
     private var agentesOrdenados: [Agent] {
-        func porUso(_ a: Agent, _ b: Agent) -> Bool {
+        func rango(_ a: Agent) -> Int {
+            switch (a.space ?? .personal).kind { case .personal: 0; case .workspace: 1; case .shared: 2 }
+        }
+        return store.agents.sorted { a, b in
+            if rango(a) != rango(b) { return rango(a) < rango(b) }
+            let fa = favoritos.contains(a.id), fb = favoritos.contains(b.id)
+            if fa != fb { return fa }
             switch (a.ultimaActividad, b.ultimaActividad) {
             case let (x?, y?): return x > y
             case (_?, nil): return true
@@ -37,63 +82,67 @@ struct ConversacionesView: View {
             default: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
         }
-        let favs = store.agents.filter { favoritos.contains($0.id) }.sorted(by: porUso)
-        let resto = store.agents.filter { !favoritos.contains($0.id) }.sorted(by: porUso)
-        return soloFavoritos && !favs.isEmpty ? favs : favs + resto
     }
 
-    /// Los agentes agrupados por espacio: «Tuyos», cada workspace por nombre y al final
-    /// «Compartidos contigo». Dentro de cada grupo, el orden de `agentesOrdenados`.
-    /// ⚠️ Un agente sin espacio (gs viejo, EasyBits) cuenta como tuyo.
-    private var seccionesPorEspacio: [(space: AgentSpace, agentes: [Agent])] {
-        var grupos: [AgentSpace: [Agent]] = [:]
-        var orden: [AgentSpace] = []
-        for a in agentesOrdenados {
-            let e = a.space ?? .personal
-            if grupos[e] == nil { orden.append(e) }
-            grupos[e, default: []].append(a)
-        }
-        func rango(_ e: AgentSpace) -> Int {
-            switch e.kind { case .personal: return 0; case .workspace: return 1; case .shared: return 2 }
-        }
-        return orden
-            .sorted { rango($0) != rango($1) ? rango($0) < rango($1)
-                      : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .map { ($0, grupos[$0] ?? []) }
+    /// De qué agentes se enseñan conversaciones.
+    private var agentesVisibles: [Agent] {
+        var lista = agentesOrdenados
+        if soloFavoritos, !favoritos.isEmpty { lista = lista.filter { favoritos.contains($0.id) } }
+        if let soloAgente { lista = lista.filter { $0.id == soloAgente } }
+        return lista
     }
+
+    private var filas: [Fila] {
+        var todas: [Fila] = []
+        for agente in agentesVisibles {
+            guard let canal = store.canales[agente.id] else { continue }
+            let remotas = Dictionary(canal.hilosRemotos.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            for h in canal.hilos {
+                // La fecha del servidor, si la conversación también vive allá y es más nueva.
+                let delServidor = h.sesionID.flatMap { remotas[$0]?.updatedAt }
+                let fecha = max(h.tocado, delServidor ?? .distantPast)
+                todas.append(Fila(tipo: .abierta(h, canal), agente: agente, titulo: h.titulo, fecha: fecha))
+            }
+            let abiertas = Set(canal.hilos.compactMap(\.sesionID))
+            for s in canal.hilosRemotos where !abiertas.contains(s.id) {
+                todas.append(Fila(tipo: .guardada(s), agente: agente, titulo: titulo(s, de: agente),
+                                  fecha: s.updatedAt ?? .distantPast))
+            }
+        }
+        let q = busqueda.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty {
+            todas = todas.filter {
+                $0.titulo.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+                    || $0.agente.name.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+        }
+        return todas.sorted { $0.fecha > $1.fecha }
+    }
+
+    private var variosAgentes: Bool { store.agents.count > 1 }
+
+    // MARK: - Pantalla
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                cabecera
-                let secciones = seccionesPorEspacio
-                ForEach(secciones, id: \.space) { seccion in
-                    // Con UN solo espacio no hay título: la lista se ve como siempre.
-                    if secciones.count > 1 {
-                        Text(seccion.space.title)
-                            .gSectionTitle()
-                            .padding(.horizontal, 4)
-                            .padding(.top, 6)
-                            .accessibilityIdentifier("seccion-\(seccion.space.title)")
-                    }
-                    ForEach(seccion.agentes) { agente in
-                        if let canal = store.canales[agente.id] {
-                            grupo(agente, canal)
-                        }
-                    }
-                }
-                Text("Tus agentes salen de tu cuenta de Ghosty Studio. Para crear o configurar uno, entra desde la web.")
-                    .gCaption()
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
-                    .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 0) {
+                cabecera.padding(.bottom, 14)
+                buscador.padding(.bottom, variosAgentes ? 12 : 18)
+                if variosAgentes { filtroDeAgentes.padding(.bottom, 16) }
+                avisos
+                lista
+                pie.padding(.top, 4)
             }
             .padding(.horizontal, Theme.Space.screenH)
-            .padding(.top, 8)
+            .padding(.top, 14)
+            .padding(.bottom, 24)
         }
-        // ⚠️ Entrar ES verlo: apagar el punto de la pestaña vivía SÓLO en la Flota, así que
-        // al sustituirla había que traérselo o el punto no se apagaría nunca.
+        .scrollDismissesKeyboard(.immediately)
+        .scrollIndicators(.hidden)
+        // ⚠️ Entrar ES verlo: el punto del historial se apaga aquí.
         .onAppear { store.vistoTodo() }
+        // Lo guardado del agente activo; los demás vienen del caché y de `repasarLaFlota`.
+        .task { await store.cargarHilos() }
         .alert("Nombre de la conversación", isPresented: Binding(
             get: { renombrando != nil }, set: { if !$0 { renombrando = nil } })) {
             TextField("Lista del súper", text: $nombreNuevo)
@@ -108,321 +157,418 @@ struct ConversacionesView: View {
     }
 
     private var cabecera: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Conversaciones").gScreenTitle()
-                Text(resumen).gMeta()
-            }
+        HStack(alignment: .center, spacing: 4) {
+            Text("Chats").gScreenTitle()
+                .padding(.horizontal, 2)
             Spacer()
-            // Sólo favoritos. Apagado si no hay ninguno marcado.
             if !favoritos.isEmpty || soloFavoritos {
-                Button { soloFavoritos.toggle() } label: {
-                    TintedIcon(systemName: soloFavoritos ? "star.fill" : "star",
-                               tint: soloFavoritos ? Color(hex: 0xF5B300) : .gInk3,
-                               background: .gCard, size: 36)
-                        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+                botonDeIcono(soloFavoritos ? "star.fill" : "star",
+                             tinta: soloFavoritos ? Color(hex: 0xF5B300) : .gInk) {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) { soloFavoritos.toggle() }
                 }
-                .buttonStyle(.plain)
                 .disabled(favoritos.isEmpty)
                 .accessibilityLabel("Sólo favoritos")
             }
-            Button(action: onCuenta) {
-                TintedIcon(systemName: "person.crop.circle", tint: .gInk, background: .gCard, size: 36)
-                    .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("cuenta")
+            botonDeIcono("person.crop.circle", tinta: .gInk, action: onCuenta)
+                .accessibilityLabel("Perfil")
+                .accessibilityIdentifier("cuenta")
+            botonDeIcono("square.and.pencil", tinta: .gInk) { nueva(en: soloAgente ?? store.selectedAgentID) }
+                .accessibilityLabel("Nueva conversación")
+                .accessibilityIdentifier("nueva-conversacion-lista")
         }
     }
 
-    /// Cuántas hay y cuántas están ocupadas. Con trabajo en paralelo es lo que dice
-    /// de un vistazo si hay algo corriendo sin tener que leer la lista entera.
-    private var resumen: String {
-        let abiertas = store.canales.values.reduce(0) { $0 + $1.hilos.count }
-        // ⚠️ Se cuenta TAMBIÉN lo que corre desde otra superficie. Sin eso, el renglón
-        // decía «1 trabajando» justo encima de una cabecera que decía que el agente
-        // trabajaba: dos frases que se contradicen en la misma pantalla.
-        let ocupadas = store.enCurso.count
-            + store.canales.values.reduce(0) { $0 + $1.trabajoRemoto.count }
-        let base = abiertas == 1 ? "1 conversación" : "\(abiertas) conversaciones"
-        guard ocupadas > 0 else { return base }
-        return base + (ocupadas == 1 ? " · 1 trabajando" : " · \(ocupadas) trabajando")
-    }
-
-    // MARK: - Un agente y lo suyo
-
-    private func grupo(_ agente: Agent, _ canal: Canal) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            cabeceraDeAgente(agente, canal)
-                .padding(.vertical, Theme.Space.row)
-                .ghostySeparator(inset: 0)
-
-            // El mismo orden que la barra de abajo: lo más reciente primero.
-            ForEach(Array(canal.recientes.enumerated()), id: \.element.clave) { i, h in
-                filaDeHilo(h, canal: canal, agente: agente)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("conversacion-\(agente.id)-\(i)")
-                    // Se encoge y se desvanece al irse: la fila SALE en vez de dejar de
-                    // estar, que es lo que hace que el borrado se sienta hecho.
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
-                    .ghostySeparator(inset: 0)
-            }
-
-            nuevaConversacion(agente)
-                .padding(.vertical, 10)
-
-            guardadas(agente, canal)
+    private func botonDeIcono(_ simbolo: String, tinta: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: simbolo)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(tinta)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
         }
-        .padding(.horizontal, Theme.Space.cardH)
-        .ghostyCard()
+        .buttonStyle(.gPressIcon)
     }
 
-    private func cabeceraDeAgente(_ agente: Agent, _ canal: Canal) -> some View {
-        HStack(spacing: 12) {
-            Button { onAgentTap(agente) } label: {
-            HStack(spacing: 12) {
-            GhostyMascot(tone: agente.tone, height: 42)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(agente.name).gRowTitle()
-                    // El motor distingue homónimos («Ghosty» ×4); «compartido» dice que
-                    // es de otra cuenta y corre con sus llaves.
-                    Text(agente.engine).gMeta()
-                    if agente.compartidoPor != nil {
-                        Text("compartido").gChip().foregroundStyle(Color.gInk3)
-                    }
-                }
-                StatusLine(status: store.estado(de: agente.id)).lineLimit(1)
-                    .accessibilityIdentifier("estado-\(agente.id)")
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("open-sheet-\(agente.id)")
-
-            // Favorito: arriba de la lista. Toggle sin cambiar de agente.
-            Button {
-                Favoritos.alternar(agente.id)
-                favoritos = Favoritos.ids
-            } label: {
-                Image(systemName: favoritos.contains(agente.id) ? "star.fill" : "star")
-                    .font(.system(size: 15))
-                    .foregroundStyle(favoritos.contains(agente.id) ? Color(hex: 0xF5B300) : Color.gInk3)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(favoritos.contains(agente.id) ? "Quitar de favoritos" : "Marcar favorito")
-
-            if canal.enCurso.count > 1 {
-                Text("\(canal.enCurso.count) en curso").gChip().foregroundStyle(Color.gInk3)
-            }
-            // Detener TODO lo de este agente. Es la única forma de pararlo sin entrar a
-            // cada conversación.
-            if canal.trabajando {
-                Button { store.detenerTodo(canal) } label: {
-                    RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
-                        .fill(Color.gInk)
-                        .frame(width: 32, height: 32)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 2.5).fill(Color.white)
-                                .frame(width: 8, height: 8)
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("detener-\(agente.id)")
-            }
-            // ⚠️ Aquí NO va un «…». Estuvo, y abría Ajustes, donde la lista de agentes es
-            // de sólo lectura: un botón que prometía editar algo que no se puede editar.
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { store.seleccionar(agente.id) }
-    }
-
-    private func filaDeHilo(_ h: Hilo, canal: Canal, agente: Agent) -> some View {
-        let mirando = h.clave == store.hiloActivo?.clave && agente.id == store.selectedAgentID
-        return HStack(alignment: .top, spacing: 11) {
-            icono(h, mirando: mirando)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(h.titulo)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color.gInk)
-                    .lineLimit(1)
-                EstadoDelHilo(hilo: h)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if !h.trabajando, canal.hilos.count > 1 {
-                Button { store.cerrarHilo(h) } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
+    /// «Buscar en tus chats»: por título (y por nombre del agente), en el teléfono.
+    private var buscador: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.gInk3)
+            TextField("", text: $busqueda,
+                      prompt: Text("Buscar en tus chats").foregroundStyle(Color.gInk4))
+                .font(.system(size: 15))
+                .foregroundStyle(Color.gInk)
+                .focused($buscando)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("buscar-chats")
+            if !busqueda.isEmpty {
+                Button { withAnimation(.easeOut(duration: 0.2)) { busqueda = "" } } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
                         .foregroundStyle(Color.gInk4)
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.gPressIcon)
+                .transition(.opacity.combined(with: .scale))
+                .accessibilityLabel("Borrar búsqueda")
             }
         }
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            store.mirar(h, de: agente.id)
-            onAbrir()
+        .padding(.horizontal, 12)
+        .frame(height: 42)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .animation(.easeOut(duration: 0.2), value: busqueda.isEmpty)
+    }
+
+    // MARK: - Agentes (filtro por espacio)
+
+    private var filtroDeAgentes: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                chip(titulo: "Todos", activo: soloAgente == nil, id: "chip-todos") {
+                    soloAgente = nil
+                } icono: { EmptyView() }
+                let agentes = agentesOrdenados
+                ForEach(Array(agentes.enumerated()), id: \.element.id) { i, a in
+                    // Un filete entre espacios: la agrupación sólo se nota donde importa.
+                    if i > 0, (agentes[i - 1].space ?? .personal) != (a.space ?? .personal) {
+                        Rectangle().fill(Color.gFillStrong).frame(width: 1, height: 20)
+                            .padding(.horizontal, 2)
+                    }
+                    chipDeAgente(a)
+                }
+            }
+            .padding(.vertical, 2)
         }
-        // Sólo las que ya existen en el agente se pueden nombrar: una sin sesión no
-        // tiene a qué ponérselo.
+        .scrollClipDisabled()
+    }
+
+    private func chipDeAgente(_ a: Agent) -> some View {
+        let canal = store.canales[a.id]
+        return chip(titulo: a.name, activo: soloAgente == a.id, id: "chip-\(a.id)",
+                    trabajando: canal?.trabajando == true) {
+            soloAgente = soloAgente == a.id ? nil : a.id
+        } icono: {
+            ZStack(alignment: .topTrailing) {
+                AgentAvatar(tone: a.tone, size: 22)
+                if favoritos.contains(a.id) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color(hex: 0xF5B300))
+                        .offset(x: 3, y: -3)
+                }
+            }
+        }
+        .contextMenu {
+            Button {
+                Favoritos.alternar(a.id)
+                withAnimation { favoritos = Favoritos.ids }
+            } label: {
+                Label(favoritos.contains(a.id) ? "Quitar de favoritos" : "Marcar favorito",
+                      systemImage: favoritos.contains(a.id) ? "star.slash" : "star")
+            }
+            Button { nueva(en: a.id) } label: {
+                Label("Nueva conversación", systemImage: "square.and.pencil")
+            }
+            Button { onAgentTap(a) } label: {
+                Label("Plan y uso", systemImage: "chart.bar")
+            }
+            if let canal, canal.trabajando {
+                Button(role: .destructive) { store.detenerTodo(canal) } label: {
+                    Label("Detener todo", systemImage: "stop.fill")
+                }
+            }
+        }
+    }
+
+    private func chip<I: View>(titulo: String, activo: Bool, id: String, trabajando: Bool = false,
+                               action: @escaping () -> Void,
+                               @ViewBuilder icono: () -> I) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { action() }
+        } label: {
+            HStack(spacing: 6) {
+                icono()
+                Text(titulo)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                if trabajando { GhostySpinner(size: 11, lineWidth: 1.5) }
+            }
+            .foregroundStyle(activo ? Color.white : Color.gInk2)
+            .padding(.leading, 10).padding(.trailing, 13)
+            .frame(height: 32)
+            .background(activo ? Color.gDark : Color.gCard, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.gPressPill)
+        .accessibilityAddTraits(activo ? .isSelected : [])
+        .accessibilityIdentifier(id)
+    }
+
+    // MARK: - Lo que está pasando ahora
+
+    /// Los agentes que NO están en reposo: trabajando (aquí o en otra superficie) o
+    /// detenidos esperando tu visto bueno. Con su botón de detener todo.
+    @ViewBuilder
+    private var avisos: some View {
+        let activos = agentesVisibles.filter {
+            if case .idle = store.estado(de: $0.id) { return false }
+            return true
+        }
+        if !activos.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(Array(activos.enumerated()), id: \.element.id) { i, a in
+                    HStack(spacing: 10) {
+                        AgentAvatar(tone: a.tone, size: 26)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(a.name).font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.gInk)
+                            StatusLine(status: store.estado(de: a.id)).lineLimit(1)
+                                .accessibilityIdentifier("estado-\(a.id)")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if let canal = store.canales[a.id], canal.trabajando {
+                            Button { store.detenerTodo(canal) } label: {
+                                Text("Detener")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color.gInk)
+                                    .padding(.horizontal, 11).padding(.vertical, 7)
+                                    .background(Color.gFill, in: Capsule())
+                            }
+                            .buttonStyle(.gPressPill)
+                            .accessibilityIdentifier("detener-\(a.id)")
+                        }
+                    }
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 14)
+                    .ghostySeparator(inset: i == activos.count - 1 ? .infinity : 0)
+                }
+            }
+            .background(Color.gCard)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.list, style: .continuous))
+            .padding(.bottom, 20)
+            .transition(.gIn)
+        }
+    }
+
+    // MARK: - La lista por fecha
+
+    @ViewBuilder
+    private var lista: some View {
+        let todas = filas
+        if todas.isEmpty {
+            EmptyState(icon: busqueda.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass",
+                       title: busqueda.isEmpty ? "Sin conversaciones" : "Nada con «\(busqueda)»",
+                       detail: busqueda.isEmpty
+                        ? "Empieza una y aparecerá aquí."
+                        : "Busca por el título de la conversación o el nombre del agente.")
+                .padding(.vertical, 40)
+        } else {
+            let grupos = Dictionary(grouping: todas) { Grupo.de($0.fecha) }
+            ForEach(Grupo.allCases, id: \.self) { g in
+                if let filasDelGrupo = grupos[g], !filasDelGrupo.isEmpty {
+                    Text(g.titulo).gSectionCaps()
+                        .padding(.horizontal, 4)
+                        .padding(.bottom, 8)
+                    VStack(spacing: 0) {
+                        ForEach(Array(filasDelGrupo.enumerated()), id: \.element.id) { i, f in
+                            fila(f)
+                                .ghostySeparator(inset: i == filasDelGrupo.count - 1 ? .infinity : 16)
+                                .gIn(delay: min(Double(i), 8) * 0.025)
+                                // Se encoge y se desvanece al irse: la fila SALE en vez de
+                                // dejar de estar, que es lo que hace sentir el borrado hecho.
+                                .transition(.scale(scale: 0.94).combined(with: .opacity))
+                        }
+                    }
+                    .background(Color.gCard)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.list, style: .continuous))
+                    .padding(.bottom, 20)
+                }
+            }
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: todas.map(\.id))
+        }
+    }
+
+    @ViewBuilder
+    private func fila(_ f: Fila) -> some View {
+        switch f.tipo {
+        case .abierta(let h, let canal): filaAbierta(h, canal: canal, fila: f)
+        case .guardada(let s): filaGuardada(s, fila: f)
+        }
+    }
+
+    /// El identificador de UI tests de siempre: `conversacion-<agente>-<índice>`.
+    private func idDeFila(_ f: Fila) -> String {
+        guard case .abierta(let h, let canal) = f.tipo,
+              let i = canal.recientes.firstIndex(where: { $0.clave == h.clave }) else {
+            return "guardada-\(f.id)"
+        }
+        return "conversacion-\(f.agente.id)-\(i)"
+    }
+
+    private func filaAbierta(_ h: Hilo, canal: Canal, fila f: Fila) -> some View {
+        let mirando = h.clave == store.hiloActivo?.clave && f.agente.id == store.selectedAgentID
+        return Button {
+            store.mirar(h, de: f.agente.id)
+            onAbrir()
+        } label: {
+            renglon(titulo: f.titulo, agente: f.agente) {
+                EstadoDelHilo(hilo: h).lineLimit(1)
+            } marca: {
+                marca(de: h, mirando: mirando)
+            }
+        }
+        .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gCardPressed))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(idDeFila(f))
+        // Sólo las que ya existen en el agente se pueden nombrar.
         .deslizarParaBorrar("¿Borrar «\(h.titulo)»?",
                              consecuencia: h.sesionID == nil
                                 ? "Todavía no existe en tu agente: se descarta y ya."
                                 : "Se borra también de tu agente. No se puede deshacer.",
-                             alRenombrar: h.sesionID.map { sid in { pedirNombre(agente.id, sid, actual: h.titulo) } }) {
+                             alRenombrar: h.sesionID.map { sid in { pedirNombre(f.agente.id, sid, actual: h.titulo) } }) {
             Task { await store.borrarConversacion(h) }
         }
     }
 
-    private func icono(_ h: Hilo, mirando: Bool) -> some View {
-        Group {
-            if h.trabajando {
-                ProgressView().frame(width: 28, height: 28)
-            } else if h.interrumpido {
-                // ⚠️ Antes de esta rama caía en la palomita de «listo» si la conversación
-                // ya había contestado alguna vez: un hilo cortado a media respuesta se
-                // pintaba con la misma marca que uno terminado. Sigue trabajando allá, y
-                // el icono lo dice sin alarmar.
-                // ⚠️ Un reloj de arena, NO `wifi.slash`: ese decía «te quedaste sin
-                // internet», que es lo contrario de lo que pasa —el agente sigue
-                // trabajando, sólo que allá—. Y salía dos veces, aquí y en el texto.
-                TintedIcon(systemName: "hourglass", tint: .gInk3,
-                           background: .gFill, size: 28)
-            } else if h.fallo != nil {
-                TintedIcon(systemName: "exclamationmark.triangle.fill", tint: .gDangerInk,
-                           background: .gDangerTint, size: 28)
-            } else if h.permisoPendiente != nil {
-                TintedIcon(systemName: "hand.raised.fill", tint: .gDangerInk,
-                           background: .gDangerTint, size: 28)
-            } else if h.termino != nil, !h.visto {
-                TintedIcon(systemName: "checkmark", tint: .gGreenInk,
-                           background: .gGreenTint, size: 28)
-            } else if mirando {
-                TintedIcon(systemName: "checkmark", tint: .gPrimary,
-                           background: .gPrimaryTint, size: 28)
-            } else {
-                TintedIcon(systemName: "bubble.left.and.bubble.right", tint: .gInk3,
-                           background: .gFill, size: 28)
+    private func filaGuardada(_ s: ACPClient.Session, fila f: Fila) -> some View {
+        Button {
+            Task {
+                if f.agente.id != store.selectedAgentID { store.seleccionar(f.agente.id) }
+                await store.abrirHilo(s)
+                onAbrir()
+            }
+        } label: {
+            renglon(titulo: f.titulo, agente: f.agente) {
+                Text(detalle(s)).gMeta().lineLimit(1)
+            } marca: {
+                marca(de: s)
+            }
+        }
+        .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gCardPressed))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(idDeFila(f))
+        .deslizarParaBorrar("¿Borrar esta conversación?",
+                             consecuencia: "Se borra de tu agente. No se puede deshacer.",
+                             alRenombrar: { pedirNombre(f.agente.id, s.id, actual: f.titulo) }) {
+            Task { await store.borrarGuardada(s, de: f.agente.id) }
+        }
+    }
+
+    /// La fila del diseño: título 600 15 y subtítulo 13 gris; con varios agentes y sin
+    /// filtro, el subtítulo empieza por el nombre del agente.
+    private func renglon<S: View, M: View>(titulo: String, agente: Agent,
+                                           @ViewBuilder subtitulo: () -> S,
+                                           @ViewBuilder marca: () -> M) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(titulo)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if variosAgentes, soloAgente == nil {
+                        Text("\(agente.name) ·").gMeta().lineLimit(1).fixedSize()
+                    }
+                    subtitulo()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            marca()
+        }
+        .padding(.vertical, 13)
+        .padding(.horizontal, 16)
+        .contentShape(Rectangle())
+    }
+
+    /// El icono de estado, sólo cuando dice algo: trabajando, cortada, falló, espera
+    /// permiso, contestó sin verse o es la que tienes abierta. (El fallo ya lo dice el
+    /// subtítulo, en rojo y con su triángulo: no se repite.)
+    @ViewBuilder
+    private func marca(de h: Hilo, mirando: Bool) -> some View {
+        if h.trabajando {
+            GhostySpinner()
+        } else if h.permisoPendiente != nil {
+            simbolo("hand.raised.fill", .gDangerInk)
+        } else if h.interrumpido {
+            // ⚠️ Un reloj de arena, NO `wifi.slash`: el agente sigue trabajando allá.
+            simbolo("hourglass", .gInk3)
+        } else if h.termino != nil, !h.visto {
+            Circle().fill(Color.gGreen).frame(width: 8, height: 8)
+                .accessibilityLabel("Sin leer")
+        } else if mirando {
+            CheckIcon()
+                .stroke(Color.gPrimary, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .frame(width: 16, height: 16)
+                .accessibilityLabel("Abierta")
+        }
+    }
+
+    @ViewBuilder
+    private func marca(de s: ACPClient.Session) -> some View {
+        if s.permisoPendiente != nil {
+            simbolo("hand.raised.fill", .gDangerInk)
+        } else if let u = s.ultimoTurno {
+            if (u.estado == "running" || u.estado == "queued") && u.sigueVivo {
+                GhostySpinner()
+            } else if u.estado == "error" {
+                simbolo("exclamationmark.triangle.fill", .gDangerInk)
             }
         }
     }
 
-    /// Empezar una conversación con este agente.
-    ///
-    /// ⚠️ Aquí había un campo «Pídele algo…» que mandaba SIN llevarte al chat, y prometía
-    /// algo que no cumplía: caía en la conversación ACTIVA de ese agente —cuál era, no lo
-    /// decía—, la lista no cambiaba a la vista, y si se pasaba del tope de turnos el aviso
-    /// se quedaba dentro de esa conversación, donde no lo veías. Un botón que crea una
-    /// conversación y te lleva a ella no tiene ninguna de esas dudas.
-    private func nuevaConversacion(_ agente: Agent) -> some View {
+    private func simbolo(_ nombre: String, _ color: Color) -> some View {
+        Image(systemName: nombre)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(color)
+            .frame(width: 18, height: 18)
+    }
+
+    /// Debajo de la lista: pedirle a la caja lo que tiene guardado (cuesta despertarla,
+    /// por eso no se hace para todos los agentes al abrir).
+    @ViewBuilder
+    private var pie: some View {
+        let agente = store.agents.first { $0.id == (soloAgente ?? store.selectedAgentID) }
+        if let agente, let canal = store.canales[agente.id] {
+            if case .cargando = canal.estadoHilos {
+                HStack(spacing: 8) {
+                    GhostySpinner()
+                    Text("Preguntándole a \(agente.name) por sus conversaciones…").gCaption()
+                }
+                .padding(.horizontal, 4)
+            } else if case .fallo = canal.estadoHilos {
+                botonDeGuardadas(agente, texto: "No pude traer las guardadas de \(agente.name). Reintentar")
+            } else if canal.estadoHilos == .sinPedir || agente.id != store.selectedAgentID {
+                botonDeGuardadas(agente, texto: "Buscar más conversaciones de \(agente.name)")
+            }
+        }
+    }
+
+    private func botonDeGuardadas(_ agente: Agent, texto: String) -> some View {
         Button {
-            store.seleccionar(agente.id)
-            store.nuevaConversacion()
-            store.pedirTeclado = true
-            onAbrir()
+            if agente.id != store.selectedAgentID { store.seleccionar(agente.id) }
+            Task { await store.cargarHilos() }
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("Nueva conversación").gChip()
-                Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath").font(.system(size: 12, weight: .semibold))
+                Text(texto).font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(Color.gPrimary)
-            .padding(.horizontal, Theme.Space.cardH - 4)
-            .padding(.vertical, 10)
-            .background(Color.gPrimaryTint,
-                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 8)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("nueva-\(agente.id)")
+        .buttonStyle(.gPressPill)
+        .accessibilityIdentifier("guardadas-\(agente.id)")
     }
 
-    /// Lo que vive en la caja y no tienes abierto.
-    ///
-    /// ⚠️ Plegado y PEREZOSO: pedir la lista cuesta despertar la caja, y hacerlo para
-    /// todos los agentes al abrir esta pantalla sería despertarlas todas cada vez.
-    @ViewBuilder
-    private func guardadas(_ agente: Agent, _ canal: Canal) -> some View {
-        let abiertas = Set(canal.hilos.compactMap(\.sesionID))
-        let lista = canal.hilosRemotos.filter { !abiertas.contains($0.id) }
-        let desplegado = desplegados.contains(agente.id)
+    // MARK: - Acciones
 
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                if desplegado { desplegados.remove(agente.id) }
-                else {
-                    desplegados.insert(agente.id)
-                    if agente.id != store.selectedAgentID { store.seleccionar(agente.id) }
-                    Task { await store.cargarHilos() }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .rotationEffect(.degrees(desplegado ? 90 : 0))
-                    Text(lista.isEmpty && !desplegado ? "Guardadas" : "Guardadas (\(lista.count))")
-                        .gChip()
-                    Spacer()
-                }
-                .foregroundStyle(Color.gInk3)
-                .padding(.vertical, 10)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("guardadas-\(agente.id)")
-
-            if desplegado {
-                if case .cargando = canal.estadoHilos, lista.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.mini)
-                        Text("Preguntándole a tu agente…").gMeta()
-                    }
-                    .padding(.bottom, 10)
-                } else if lista.isEmpty {
-                    Text("No hay más conversaciones guardadas.").gMeta().padding(.bottom, 10)
-                } else {
-                    ForEach(lista) { s in
-                        Button {
-                            Task {
-                                if agente.id != store.selectedAgentID { store.seleccionar(agente.id) }
-                                await store.abrirHilo(s)
-                                onAbrir()
-                            }
-                        } label: {
-                            HStack(spacing: 11) {
-                                TintedIcon(systemName: "clock.arrow.circlepath", tint: .gInk3,
-                                           background: .gFill, size: 28)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(TitleStore.isGeneric(s.title) ? (store.titulos.titulo(agente.id, s.id) ?? nombre(s)) : s.title)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(Color.gInk).lineLimit(1)
-                                    Text(detalle(s)).gMeta()
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color.gInk4)
-                            }
-                            .padding(.vertical, 9)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.scale(scale: 0.94).combined(with: .opacity))
-                        .deslizarParaBorrar("¿Borrar esta conversación?",
-                                             consecuencia: "Se borra de tu agente. No se puede deshacer.",
-                                             alRenombrar: { pedirNombre(agente.id, s.id, actual: nombre(s)) }) {
-                            Task { await store.borrarGuardada(s, de: agente.id) }
-                        }
-                    }
-                }
-            }
-        }
+    /// Empezar una conversación con ese agente y llevarte a ella.
+    private func nueva(en agenteID: String) {
+        if agenteID != store.selectedAgentID { store.seleccionar(agenteID) }
+        store.nuevaConversacion()
+        store.pedirTeclado = true
+        onAbrir()
     }
 
     /// Abre el campo con el nombre que tiene ahora, para corregirlo en vez de reescribirlo.
@@ -431,23 +577,21 @@ struct ConversacionesView: View {
         renombrando = (agente, sesion)
     }
 
-    private func nombre(_ s: ACPClient.Session) -> String {
+    private func titulo(_ s: ACPClient.Session, de agente: Agent) -> String {
         if !TitleStore.isGeneric(s.title) { return s.title }
-        return "Conversación sin abrir"
+        return store.titulos.titulo(agente.id, s.id) ?? "Conversación sin abrir"
     }
 
     private func detalle(_ s: ACPClient.Session) -> String {
         // Antes que nada: esta conversación está detenida hasta que alguien conteste.
         if let p = s.permisoPendiente { return "Espera tu visto bueno · \(p)" }
-        // Primero cómo acabó su último turno, que lo dice el servidor: es lo que hace de
-        // la lista un buzón aunque la respuesta llegara con la app cerrada.
+        // Primero cómo acabó su último turno, que lo dice el servidor.
         if let u = s.ultimoTurno {
             let cuando = u.terminado.map { " · " + Hilo.hace($0) } ?? ""
             switch u.estado {
             case "running", "queued":
                 // ⚠️ Con fecha: un turno que dice «running» desde hace horas no está
-                // trabajando, se quedó colgado. Decirlo es más honesto que un
-                // «Trabajando…» eterno que nadie puede desmentir desde aquí.
+                // trabajando, se quedó colgado.
                 guard u.sigueVivo else {
                     return "Sin noticias" + (u.iniciado.map { " · " + Hilo.hace($0) } ?? "")
                 }
@@ -460,7 +604,6 @@ struct ConversacionesView: View {
         var partes: [String] = []
         if let n = s.messageCount { partes.append(n == 1 ? "1 mensaje" : "\(n) mensajes") }
         if let f = s.updatedAt { partes.append(Hilo.hace(f)) }
-        return partes.joined(separator: " · ")
+        return partes.isEmpty ? "Guardada en tu agente" : partes.joined(separator: " · ")
     }
-
 }

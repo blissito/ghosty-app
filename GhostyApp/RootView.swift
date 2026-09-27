@@ -10,7 +10,14 @@ struct RootView: View {
     @State private var tab: GhostyTab =
         GhostyTab(rawValue: Gancho.valor("GHOSTY_TAB") ?? "") ?? .chat
     @State private var hoja: Agent?
+    /// Perfil como hoja: sólo desde el fallo de conexión (la barra no está ahí).
     @State private var ajustes = false
+    /// El detalle del uso dentro de Perfil (`DetalleDeUso`). Lo abre la tarjeta del plan
+    /// y «Ver mi uso» de la hoja de límite.
+    @State private var verUso = false
+    /// Cuándo se cerró la hoja de límite. Su «Ver mi uso» llama al `onOpenSheet` del chat
+    /// tras cerrarse; si llega justo después, va al uso de Perfil y no a la hoja del agente.
+    @State private var limiteCerradoEn: Date?
     /// El historial de conversaciones. Ya no es pestaña: lo abre el botón de la cabecera
     /// del chat. `GHOSTY_TAB=conversations` (el valor viejo) lo abre al arrancar.
     @State private var historial = Gancho.valor("GHOSTY_TAB") == "conversations"
@@ -158,6 +165,11 @@ struct RootView: View {
                     await store.abrirHilo(primero)
                 }
             }
+            // Gancho: `GHOSTY_USO=1` abre el detalle del uso desde Perfil.
+            if Gancho.valor("GHOSTY_USO") == "1" {
+                tab = .perfil
+                verUso = true
+            }
             if Gancho.valor("GHOSTY_SHEET") == "1" {
                 hoja = store.selectedAgent
             }
@@ -180,8 +192,11 @@ struct RootView: View {
         .fullScreenCover(item: Binding(get: { visor.imagen }, set: { visor.imagen = $0 })) { img in
             VisorDeImagen(imagen: img, titulo: visor.titulo)
         }
+        .onChange(of: store.limitNotice) { antes, ahora in
+            if antes != nil, ahora == nil { limiteCerradoEn = Date() }
+        }
         .sheet(isPresented: $ajustes) {
-            SettingsView(store: store)
+            PerfilView(store: store, enHoja: true, verUso: $verUso)
                 #if os(iOS)
                 .presentationDetents([.large])
                 .presentationCornerRadius(Theme.Radius.sheet)
@@ -205,7 +220,10 @@ struct RootView: View {
         }
         .sheet(item: $hoja) { agente in
             AgentSheetView(agent: agente, store: store,
-                           onAjustes: { hoja = nil; ajustes = true })
+                           onAjustes: {
+                               hoja = nil
+                               withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+                           })
                 #if os(iOS)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
@@ -283,24 +301,35 @@ struct RootView: View {
         switch tab {
         case .chat:
             // El compositor va 10 pt encima de la barra (diseño: `bottom:106` contra 96).
-            ConversationView(store: store, onOpenSheet: abrirHoja,
+            ConversationView(store: store, onOpenSheet: abrirHojaDelChat,
                              onHistorial: { historial = true })
                 .padding(.bottom, holguraDeLaBarra)
         case .connectors:
             ConectoresPane(store: store)
                 .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
         case .artifacts:
-            ArtifactsView(store: store, onOpenSheet: abrirHoja)
+            ArtifactsView(store: store)
                 .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
         case .perfil:
-            // Provisional: la cuenta de siempre, como pestaña, hasta la pantalla de
-            // Perfil del diseño (fase 4).
-            SettingsView(store: store, enPestana: true)
+            PerfilView(store: store, verUso: $verUso)
                 .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
         }
     }
 
     private func abrirHoja() {
         hoja = store.selectedAgent
+    }
+
+    /// El `onOpenSheet` del chat. Si llega justo tras cerrarse la hoja de límite, es su
+    /// «Ver mi uso»: lleva al uso de Perfil (la hoja de límite vive en `Core/Chat` y no
+    /// sabe de pestañas).
+    private func abrirHojaDelChat() {
+        if let t = limiteCerradoEn, Date().timeIntervalSince(t) < 1.5 {
+            limiteCerradoEn = nil
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { verUso = true }
+            return
+        }
+        abrirHoja()
     }
 }
