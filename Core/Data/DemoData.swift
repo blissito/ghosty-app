@@ -260,6 +260,9 @@ extension LiveAgentStore {
                 larga.turno = TurnActivity(id: "t4", title: "el informe", detail: "Leyendo",
                                            step: 1, totalSteps: 4, elapsed: "0:20")
             }
+            larga.respuestaEnCursoID = larga.mensajes.last {
+                if case .agent = $0.kind { true } else { false }
+            }?.id
         }
         // `GHOSTY_DEMO_INTERRUMPIDO=1`: el hilo que dejaste trabajando y iOS suspendió.
         // Es el estado que hay que poder MIRAR — el cartel de «sigue con esto» y la fila

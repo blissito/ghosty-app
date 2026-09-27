@@ -1832,6 +1832,10 @@ final class LiveAgentStore: AgentStoring {
                         respuesta = nueva
                         caughtUpWithShown = false
                     }
+                    // El id ya se conoce incluso si el replay todavía no alcanza el
+                    // texto parcial que la pantalla enseña; un steer en ese intervalo
+                    // también debe quedar antes de esta respuesta.
+                    hilo.respuestaEnCursoID = nueva
                 case .agent(let t):
                     if separarTrasHerramienta, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         separarTrasHerramienta = false
@@ -2116,7 +2120,12 @@ final class LiveAgentStore: AgentStoring {
     /// vivo; duplicarlo escribiría el mismo texto dos veces en la misma burbuja.
     private func steerear(_ texto: String, hilo: Hilo, canal: Canal, sid: String) async {
         let mensaje = Message(id: UUID().uuidString, kind: .user(texto, adjuntos: [], steer: true))
-        hilo.mensajes.append(mensaje)
+        let respuestaOriginal = hilo.respuestaEnCursoID
+        // Si ya hay respuesta parcial, la corrección queda justo antes de ella para que
+        // el texto que siga llegando se lea como la respuesta al steer.
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
+            hilo.ponerSteer(mensaje)
+        }
         hilo.anclaArriba = mensaje.id
         hilo.tocado = Date()
         guardarYa(canal)
@@ -2129,7 +2138,7 @@ final class LiveAgentStore: AgentStoring {
             // gs no pudo inyectarlo y cortó el turno para empezar otro. Se dice: el
             // trabajo anterior se perdió y callarlo es lo que hace que parezca que el
             // agente «se reinició solo».
-            marcarSinSteer(mensaje.id, en: hilo)
+            marcarSinSteer(mensaje.id, en: hilo, despuesDe: respuestaOriginal)
             hilo.mensajes.append(Message(id: UUID().uuidString,
                                          kind: .sistema("Empezó de nuevo con lo que acabas de mandar")))
             // El turno vivo cambió de id: hay que volver a engancharse o el stream viejo
@@ -2137,17 +2146,34 @@ final class LiveAgentStore: AgentStoring {
             hilo.enVuelo?.cancel(); hilo.enVuelo = nil
             engancharse(hilo, de: canal)
         } catch {
-            marcarSinSteer(mensaje.id, en: hilo)
+            marcarSinSteer(mensaje.id, en: hilo, despuesDe: respuestaOriginal)
             hilo.envioFallo = true
             hilo.fallo = "No llegó a salir"
         }
     }
 
     /// Quita la marca de «añadido a lo que hace» cuando resultó que no entró.
-    private func marcarSinSteer(_ id: String, en hilo: Hilo) {
+    private func marcarSinSteer(_ id: String, en hilo: Hilo, despuesDe respuestaID: String?) {
         guard let i = hilo.mensajes.firstIndex(where: { $0.id == id }),
               case .user(let t, let adj, _) = hilo.mensajes[i].kind else { return }
-        hilo.mensajes[i] = Message(id: id, kind: .user(t, adjuntos: adj, steer: false))
+        let mensaje = Message(id: id, kind: .user(t, adjuntos: adj, steer: false))
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.84)) {
+            // Si el servidor no lo inyectó, vuelve a su lugar cronológico: después de la
+            // respuesta parcial que no llegó a modificar.
+            if let respuestaID,
+               respuestaID != id,
+               let respuesta = hilo.mensajes.firstIndex(where: { $0.id == respuestaID }),
+               i < respuesta {
+                hilo.mensajes.remove(at: i)
+                if let respuestaActual = hilo.mensajes.firstIndex(where: { $0.id == respuestaID }) {
+                    hilo.mensajes.insert(mensaje, at: respuestaActual + 1)
+                } else {
+                    hilo.mensajes.append(mensaje)
+                }
+            } else {
+                hilo.mensajes[i] = mensaje
+            }
+        }
     }
 
     /// Traduce nuestra decisión al `optionId` que ofreció el agente. Los nombres
@@ -2192,6 +2218,7 @@ final class LiveAgentStore: AgentStoring {
     private func pintarRespuesta(_ hilo: Hilo, id: String, texto: String,
                                  herramientas: [Herramienta] = []) {
         hilo.mensajes.removeAll { $0.kind == .typing }
+        if hilo.turno != nil { hilo.respuestaEnCursoID = id }
         // Nunca debería pasar desde `puedePintar` en `consumir`: es la prueba de que no volvió.
         if let m = hilo.mensajes.first(where: { $0.id == id }), case .agent(let previous, _, _) = m.kind,
            texto.count < previous.count {
@@ -2218,6 +2245,7 @@ final class LiveAgentStore: AgentStoring {
             && !hilo.interrumpido
         hilo.cronometro?.cancel(); hilo.cronometro = nil
         hilo.turno = nil; hilo.inicio = nil
+        hilo.respuestaEnCursoID = nil
         if hubo {
             hilo.termino = Date()
             // Visto sólo si lo estabas mirando de verdad. Si no, la conversación queda

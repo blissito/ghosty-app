@@ -28,12 +28,27 @@ final class Hilo {
 
     var mensajes: [Message] = []
 
+    /// Respuesta del turno que está escribiéndose ahora. Permite poner un steer antes
+    /// de la respuesta que modifica, aunque esa respuesta ya hubiera empezado a crecer.
+    /// Es transitorio: el identificador se vuelve a conocer al recibir el siguiente SSE.
+    var respuestaEnCursoID: String?
+
     /// Pone un mensaje por su id: si ya está, lo sustituye en su sitio; si no, al final.
-    /// Es la ÚNICA forma sana de añadir: dos mensajes con el mismo id dejan el `ForEach`
-    /// en blanco con el hilo entero dentro.
+    /// Así se evita que dos mensajes con el mismo id dejen el `ForEach` en blanco.
     func poner(_ m: Message) {
         if let i = mensajes.firstIndex(where: { $0.id == m.id }) { mensajes[i] = m }
         else { mensajes.append(m) }
+    }
+
+    /// El steer va antes de la respuesta que está guiando, no debajo de su texto parcial.
+    func ponerSteer(_ m: Message) {
+        guard !mensajes.contains(where: { $0.id == m.id }) else { return }
+        if let id = respuestaEnCursoID,
+           let i = mensajes.firstIndex(where: { $0.id == id }) {
+            mensajes.insert(m, at: i)
+        } else {
+            mensajes.append(m)
+        }
     }
 
     var turno: TurnActivity?
