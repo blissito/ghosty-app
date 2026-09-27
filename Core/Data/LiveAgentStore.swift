@@ -1940,7 +1940,7 @@ final class LiveAgentStore: AgentStoring {
                         try? await Task.sleep(for: .milliseconds(800))
                         await self?.traerLaConversacion(hilo, de: canal)
                     }
-                case .user, .thought:
+                case .user, .userAttachments, .thought:
                     break
                 }
             }

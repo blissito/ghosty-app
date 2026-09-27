@@ -44,7 +44,14 @@ struct Adjunto: Identifiable, Equatable, Sendable {
     var esImagen: Bool { mime.hasPrefix("image/") }
 
     var peso: String {
-        ByteCountFormatter.string(fromByteCount: Int64(datos.count), countStyle: .file)
+        // Reconstruido del historial: los bytes no viajan, pero el servidor sabe cuánto pesa.
+        // Sin ninguno de los dos, el tipo («CSV») y no un «Zero KB» que miente.
+        let n = datos.isEmpty ? (remoto?.bytes ?? 0) : datos.count
+        guard n > 0 else {
+            let ext = (nombre as NSString).pathExtension.uppercased()
+            return ext.isEmpty ? "Archivo" : ext
+        }
+        return ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file)
     }
 
     /// El icono con el que se enseña mientras espera en el compositor.

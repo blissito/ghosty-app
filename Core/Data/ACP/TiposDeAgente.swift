@@ -103,6 +103,9 @@ enum ACPClient {
         /// abrió: entrega de un encargo, agenda). El flujo sigue abierto para el siguiente.
         case cerrado(String)
         case user(String)
+        /// Los adjuntos (nombres) del mensaje del usuario en curso, como DATO: gs los guarda
+        /// aparte del texto (`ConversationMessage.attachments`). Van después de su `.user`.
+        case userAttachments([String])
         case agent(String)
         case thought(String)
         /// Una herramienta que empieza o que cambia. Llega varias veces por la misma:

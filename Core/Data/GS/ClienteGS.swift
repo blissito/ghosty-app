@@ -205,7 +205,9 @@ actor ClienteGS: TransporteDeAgente {
         // ACP), y sin frontera dos mensajes seguidos del mismo lado salían fundidos en una
         // burbuja («baja este videoya?»). El endpoint no devuelve `seq`; la posición basta.
         return (r["messages"] as? [[String: Any]] ?? []).enumerated().flatMap { (i, m) -> [ACPClient.Replay] in
-            guard let t = m["text"] as? String, !t.isEmpty else { return [] }
+            // Una foto sola, sin texto, también es un mensaje.
+            let hasFiles = !((m["attachments"] as? [Any]) ?? []).isEmpty
+            guard let t = m["text"] as? String, !t.isEmpty || hasFiles else { return [] }
             guard m["role"] as? String == "user" else { return [.turno("m\(i)"), .agent(t)] }
             // Un turno abierto por la plataforma (agenda, entrega de un encargo): línea de
             // sistema con la causa, no burbuja de la persona con las instrucciones al modelo.
@@ -221,7 +223,8 @@ actor ClienteGS: TransporteDeAgente {
             // foto desaparecía de tu mensaje en cuanto llegaba la respuesta (2026-09-26).
             // Un turno programado lleva pegadas las instrucciones al agente («nadie está
             // mirando… contesta OK»). Son para él; a la persona se le enseña lo que pidió.
-            return [.turno("m\(i)"), .user(Self.sinReglasDeAgenda(t))]
+            let names = (m["attachments"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+            return [.turno("m\(i)"), .user(Self.sinReglasDeAgenda(t))] + (names.isEmpty ? [] : [.userAttachments(names)])
         }
     }
 

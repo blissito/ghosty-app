@@ -28,11 +28,13 @@ enum ReplayToMessages {
         // Igual que en vivo: lo que el agente escribe DESPUÉS de llamar una herramienta
         // es otro párrafo, no la continuación de la frase anterior.
         var separarTrasHerramienta = false
+        /// Adjuntos que gs guardó como dato (no dentro del texto) para el mensaje en curso.
+        var serverAttachmentNames: [String] = []
 
         enum Quien { case usuario, agente }
 
         func cerrar() {
-            defer { texto = ""; herramientas = []; separarTrasHerramienta = false }
+            defer { texto = ""; herramientas = []; separarTrasHerramienta = false; serverAttachmentNames = [] }
             let limpio = texto.trimmingCharacters(in: .whitespacesAndNewlines)
 
             switch quien {
@@ -47,7 +49,11 @@ enum ReplayToMessages {
                 // el bloque de adjuntos, los `curl` y una URL firmada de varias líneas. Sin
                 // esto, reabrir un hilo con una nota de voz enseñaba un muro de texto con
                 // credenciales dentro donde antes había un reproductor.
-                let (visible, nombres) = BloqueDeAdjuntos.limpiarParaMostrar(limpio)
+                let (visible, fromText) = BloqueDeAdjuntos.limpiarParaMostrar(limpio)
+                // Dos fuentes: el bloque que iba dentro del prompt (hilos viejos, la web) y
+                // lo que gs guarda aparte. Sin repetir, en orden.
+                var nombres: [String] = []
+                for n in fromText + serverAttachmentNames where !nombres.contains(n) { nombres.append(n) }
                 // Se reconstruyen SIN bytes: `remoto` lleva el id con el que bajarlos, y la
                 // duración y la onda vienen del `meta` que se guardó al subir. Con eso
                 // `esVoz` vuelve a ser cierto y la burbuja pinta el reproductor sin que haya
@@ -101,6 +107,10 @@ enum ReplayToMessages {
             case .user(let t):
                 if quien != .usuario { cerrar(); quien = .usuario }
                 texto += t
+
+            case .userAttachments(let names):
+                if quien != .usuario { cerrar(); quien = .usuario }
+                serverAttachmentNames += names
 
             case .agent(let t):
                 if quien != .agente { cerrar(); quien = .agente }
