@@ -22,7 +22,17 @@ struct UsagePane: View {
                               note: "Lo comparten todos los agentes del espacio; no cuenta en tu plan personal.")
                         .entrance(appeared, order: 1)
                 } else if let key = u.ownKey {
-                    OwnKeyCard(key: key).entrance(appeared, order: 1)
+                    // Una llave de OpenAI paga chat E imágenes: todo va en una sola tarjeta. Con
+                    // otra llave (DeepSeek, Claude) las imágenes siguen yendo por la de casa y
+                    // contando del plan, así que van en la suya.
+                    let unified = key.provider == "openai" && u.ownImageKey == true
+                    OwnKeyCard(key: key, imagesWeek: unified ? u.imagesWeek : nil).entrance(appeared, order: 1)
+                    if !unified, let n = u.imagesWeek {
+                        ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap,
+                                   leftHd: u.imagesLeftHd, ownKey: u.ownImageKey == true,
+                                   highQuality: u.plan.imageQuality.map { $0 == "high" } ?? false)
+                            .entrance(appeared, order: 2)
+                    }
                 } else if u.applies == false {
                     Text(agent.space?.kind == .workspace
                          ? "Este agente es del espacio \(agent.space?.title ?? "de equipo"): su uso lo cubre ese espacio, no tu plan personal."
@@ -42,7 +52,8 @@ struct UsagePane: View {
                             .entrance(appeared, order: 2)
                     }
                     if let n = u.imagesWeek {
-                        ImagesCard(made: n, left: u.imagesLeft, cap: u.imagesCap, leftHd: u.imagesLeftHd,
+                        ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap, leftHd: u.imagesLeftHd,
+                                   ownKey: u.ownImageKey == true,
                                    highQuality: u.plan.imageQuality.map { $0 == "high" } ?? ["power", "max"].contains(u.plan.key)).entrance(appeared, order: 3)
                     }
                 }
@@ -92,6 +103,12 @@ struct UsagePane: View {
     }
 
     private static var demo: PersonalUsage {
+        if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok-openai" {
+            var u = demoFree
+            u.ownKey = .init(provider: "openai", turnsWeek: 42, tokensWeek: 1_840_000, dailyTurns: [9, 14, 6, 11, 2, 0, 0])
+            u.ownImageKey = true
+            return u
+        }
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok" {
             var u = demoFree
             u.ownKey = .init(provider: "deepseek", turnsWeek: 42, tokensWeek: 1_840_000, dailyTurns: [9, 14, 6, 11, 2, 0, 0])
@@ -199,6 +216,8 @@ private struct ImagesCard: View {
     var cap: Int? = nil
     /// Si todas fueran HD: el default es normal y HD se pide, así que va aparte.
     var leftHd: Int? = nil
+    /// Con llave propia de OpenAI: sin conteo del plan.
+    var ownKey = false
     /// Gratis y Pro generan en calidad estándar (`personal-plans.ts`, `imageQuality`).
     let highQuality: Bool
     @State private var lit = 0
@@ -231,7 +250,8 @@ private struct ImagesCard: View {
                             .padding(.horizontal, 7).padding(.vertical, 2)
                             .background(Color.gSalmon.opacity(0.25), in: Capsule())
                     }
-                    Text(cap.map { "Llevas \(made) de \($0) esta semana" } ?? "Llevas \(made) esta semana").gCaption()
+                    Text(ownKey ? "Con tu llave de OpenAI · sin límite · llevas \(made)"
+                         : cap.map { "Llevas \(made) de \($0) esta semana" } ?? "Llevas \(made) esta semana").gCaption()
                 }
                 Spacer()
                 if let left {
@@ -280,10 +300,15 @@ private struct ImagesCard: View {
 /// enseña lo que MIDE gs de la semana — sin límite no es sin medir.
 private struct OwnKeyCard: View {
     let key: PersonalUsage.OwnKey
+    /// Con llave de OpenAI también paga las imágenes: su conteo va aquí, como tercer dato.
+    var imagesWeek: Int? = nil
+    @State private var shownImages = 0
     @State private var shownTurns = 0
     @State private var shownTokens = 0.0
     @State private var grown = false
     @State private var keyTurn = false
+    /// La columna tocada: su día y sus turnos salen arriba de la gráfica.
+    @State private var selectedDay: Int?
 
     private var providerName: String {
         switch key.provider {
@@ -297,6 +322,7 @@ private struct OwnKeyCard: View {
 
     private var daily: [Int] { key.dailyTurns ?? [] }
     private static let dayLetters = ["L", "M", "M", "J", "V", "S", "D"]
+    private static let dayNames = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -304,6 +330,9 @@ private struct OwnKeyCard: View {
             HStack(spacing: 10) {
                 stat(title: "Turnos", value: Text("\(shownTurns)").contentTransition(.numericText(value: Double(shownTurns))))
                 stat(title: "Tokens", value: Text(Self.tokens(Int(shownTokens))).contentTransition(.numericText(value: shownTokens)))
+                if imagesWeek != nil {
+                    stat(title: "Imágenes", value: Text("\(shownImages)").contentTransition(.numericText(value: Double(shownImages))))
+                }
             }
             if daily.count == 7 { chart }
         }
@@ -318,6 +347,7 @@ private struct OwnKeyCard: View {
             withAnimation(.spring(duration: 1.1, bounce: 0.1).delay(0.2)) {
                 shownTurns = key.turnsWeek ?? 0
                 shownTokens = Double(key.tokensWeek ?? 0)
+                shownImages = imagesWeek ?? 0
             }
             withAnimation(.spring(duration: 0.6, bounce: 0.3).delay(0.35)) { grown = true }
         }
@@ -335,7 +365,8 @@ private struct OwnKeyCard: View {
                 .background(Color.gGrass, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
                 Text("Con tu llave de \(providerName)").font(.gDisplay(16)).foregroundStyle(Color.gInk)
-                Text("No gasta de tu plan: sin límite de uso ni de modelos.").gCaption()
+                Text(imagesWeek != nil ? "Paga el chat y las imágenes: sin límite de uso, modelos ni imágenes."
+                     : "No gasta de tu plan: sin límite de uso ni de modelos.").gCaption()
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
@@ -360,21 +391,42 @@ private struct OwnKeyCard: View {
     private var chart: some View {
         let top = max(daily.max() ?? 0, 1)
         let today = (Calendar(identifier: .iso8601).component(.weekday, from: Date()) + 5) % 7
-        return HStack(alignment: .bottom, spacing: 8) {
+        let focus = selectedDay ?? today
+        return VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 4) {
+            Text(Self.dayNames[focus].capitalized).font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.gInk)
+            Text("· \(daily[focus]) \(daily[focus] == 1 ? "turno" : "turnos")")
+                .font(.system(size: 13)).foregroundStyle(Color.gInk3)
+                .contentTransition(.numericText(value: Double(daily[focus])))
+        }
+        .animation(.snappy, value: focus)
+        HStack(alignment: .bottom, spacing: 8) {
             ForEach(0..<7, id: \.self) { i in
                 VStack(spacing: 5) {
+                    // El número arriba de cada barra: se lee sin tocar.
+                    Text(daily[i] > 0 ? "\(daily[i])" : "")
+                        .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(i == focus ? Color.gInk : Color.gInk3)
+                        .opacity(grown ? 1 : 0)
                     Capsule()
-                        .fill(i == today ? Color.gGrass : Color.gGrass.opacity(0.45))
+                        .fill(i == focus ? Color.gGrass : Color.gGrass.opacity(0.45))
                         .frame(width: 14, height: grown ? max(4, 54 * CGFloat(daily[i]) / CGFloat(top)) : 4)
                         .animation(.spring(duration: 0.6, bounce: 0.35).delay(0.35 + Double(i) * 0.05), value: grown)
                     Text(Self.dayLetters[i])
-                        .font(.system(size: 11, weight: i == today ? .bold : .medium))
-                        .foregroundStyle(i == today ? Color.gInk : Color.gInk3)
+                        .font(.system(size: 11, weight: i == focus ? .bold : .medium))
+                        .foregroundStyle(i == focus ? Color.gInk : Color.gInk3)
                 }
                 .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    withAnimation(.snappy) { selectedDay = i }
+                }
+                .accessibilityLabel("\(Self.dayNames[i]): \(daily[i]) turnos")
             }
         }
-        .frame(height: 74, alignment: .bottom)
+        .frame(height: 88, alignment: .bottom)
+        }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(Color.gCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }

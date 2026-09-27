@@ -31,6 +31,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     let workspace: WorkspaceUsage?
     /// El agente corre con la llave PROPIA del dueño: no gasta del plan.
     var ownKey: OwnKey? = nil
+    /// Llave propia de OpenAI: las imágenes no gastan del plan ni se cuentan.
+    var ownImageKey: Bool? = nil
 
     struct OwnKey: Decodable, Equatable, Sendable {
         let provider: String
