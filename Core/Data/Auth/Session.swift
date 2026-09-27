@@ -181,6 +181,7 @@ enum Session {
     static func cerrarSesion() async {
         let refresh = leer()?.refresh
         cerrar()
+        UsoEnDisco.borrarTodo()
         guard let refresh else { return }
         var req = URLRequest(url: base.appendingPathComponent("oauth2/revoke"))
         req.httpMethod = "POST"

@@ -6,7 +6,7 @@ import UserNotifications
 @MainActor @Observable
 final class UsosDeAgentes {
     static let compartido = UsosDeAgentes()
-    private(set) var usos: [String: PersonalUsage] = [:]
+    var usos: [String: PersonalUsage] = [:]
     private var pedidoEn: [String: Date] = [:]
 
     /// Pide lo que falte o tenga más de un minuto. Best-effort: lo que falle, no se pinta.
@@ -14,6 +14,10 @@ final class UsosDeAgentes {
         if DemoData.encendido {
             withAnimation(.easeOut(duration: 0.25)) { for a in agentes { usos[a.id] = UsagePane.demo } }
             return
+        }
+        // Lo último que se supo, al instante: la red refresca por detrás sin spinner.
+        for a in agentes where usos[a.id] == nil {
+            if let u = UsoEnDisco.leer(agente: a.id) { usos[a.id] = u }
         }
         let pendientes = agentes.filter { a in
             pedidoEn[a.id].map { Date().timeIntervalSince($0) > 60 } ?? true

@@ -449,7 +449,9 @@ enum GhostyAPI {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return PersonalUsage.decode(data)
+        let uso = PersonalUsage.decode(data)
+        if uso != nil { UsoEnDisco.guardar(data, agente: agentId) }
+        return uso
     }
 
     /// Cuánto almacenamiento lleva usado la cuenta.

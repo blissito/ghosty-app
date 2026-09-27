@@ -82,3 +82,33 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
         return try? d.decode(PersonalUsage.self, from: data)
     }
 }
+
+
+/// El último `/me/usage` de cada agente, en disco: Perfil y la hoja del agente pintan lo
+/// último que supieron al instante y lo refrescan en segundo plano, sin spinner.
+enum UsoEnDisco {
+    private static var carpeta: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("usos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }
+
+    private static func archivo(_ agente: String) -> URL {
+        carpeta.appendingPathComponent(agente.replacingOccurrences(of: "/", with: "_") + ".json")
+    }
+
+    static func guardar(_ data: Data, agente: String) {
+        try? data.write(to: archivo(agente), options: .atomic)
+    }
+
+    static func leer(agente: String) -> PersonalUsage? {
+        guard let data = try? Data(contentsOf: archivo(agente)) else { return nil }
+        return PersonalUsage.decode(data)
+    }
+
+    /// Al cerrar sesión: lo de una cuenta no se le enseña a la siguiente.
+    static func borrarTodo() {
+        try? FileManager.default.removeItem(at: carpeta)
+    }
+}

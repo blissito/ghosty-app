@@ -103,7 +103,15 @@ struct UsagePane: View {
         }
         .padding(.horizontal, Theme.Space.screenH)
         .task {
-            usage = DemoData.encendido ? Self.demo : await GhostyAPI.usage(agentId: agent.id)
+            if DemoData.encendido { usage = Self.demo; return }
+            // Primero lo que ya se sabe (memoria o disco), luego la red en segundo plano.
+            if usage == nil {
+                usage = UsosDeAgentes.compartido.usos[agent.id] ?? UsoEnDisco.leer(agente: agent.id)
+            }
+            if let fresco = await GhostyAPI.usage(agentId: agent.id) {
+                withAnimation(.easeOut(duration: 0.25)) { usage = fresco }
+                UsosDeAgentes.compartido.usos[agent.id] = fresco
+            }
             loaded = true
             withAnimation(.spring(duration: 0.55, bounce: 0.25)) { appeared = true }
         }
