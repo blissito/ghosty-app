@@ -55,6 +55,8 @@ final class LiveAgentStore: AgentStoring {
     /// Pedirle al chat que abra el teclado al llegar. Lo enciende quien te manda allí
     /// —el botón de nueva conversación— y lo apaga el chat al obedecer.
     var pedirTeclado = false
+    /// Un límite del plan frenó el último envío: la conversación lo enseña en una hoja nativa.
+    var limitNotice: String?
 
     func visto(_ id: String) { sinVer.remove(id) }
     func vistoTodo() { sinVer.removeAll() }
@@ -1976,6 +1978,22 @@ final class LiveAgentStore: AgentStoring {
             // si este consumidor era un replay a medio camino.
             if Task.isCancelled {
                 EasyBitsClient.diag("[turno] \(sid) consumidor reemplazado; lo sigue otro")
+                return
+            }
+            // ⚠️ Un límite del plan NO es un corte: el turno nunca empezó. Tratarlo como corte
+            // (volver a escuchar) traía el hilo del servidor —que no guardó tu mensaje— y tu
+            // mensaje desaparecía sin ningún aviso. Se quita lo optimista, el texto vuelve al
+            // compositor (`envioFallo`) y la conversación enseña por qué.
+            if case ACPClient.Fallo.limit(let message) = error {
+                hilo.mensajes.removeAll { $0.id == respuesta || $0.kind == .typing }
+                if let i = hilo.mensajes.lastIndex(where: { if case .user = $0.kind { return true } else { return false } }) {
+                    hilo.mensajes.remove(at: i)
+                }
+                hilo.envioFallo = true
+                hilo.interrumpido = false
+                limitNotice = message
+                anotar(canal, hilo, chars: 0, como: .failed)
+                cerrarTurno(canal, hilo)
                 return
             }
             EasyBitsClient.diag("[turno] \(sid) se cortó: \(error)")

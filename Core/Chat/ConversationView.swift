@@ -341,7 +341,8 @@ struct ConversationView: View {
         .task(id: store.selectedAgentID) {
             if borrador.isEmpty, let perdido = BorradorPendiente.recoger(de: store.selectedAgentID) {
                 borrador = perdido
-                fallo = "No se pudo mandar. Inténtalo otra vez."
+                // Un límite del plan lo explica su hoja; aquí sólo el fallo de verdad.
+                if store.limitNotice == nil { fallo = "No se pudo mandar. Inténtalo otra vez." }
             }
         }
         .task(id: "\(hiloVisible)/\(store.hiloActivo?.sesionID ?? "")") {
@@ -364,6 +365,13 @@ struct ConversationView: View {
         // ⚠️ `alert` y no `confirmationDialog`: la hoja de abajo se ancla sobre el
         // compositor y su botón de cancelar quedaba FUERA de la pantalla —un aviso
         // destructivo del que sólo se veía la opción destructiva—. Lo cazó el recorrido.
+        .sheet(isPresented: Binding(get: { store.limitNotice != nil },
+                                    set: { if !$0 { store.limitNotice = nil } })) {
+            LimitSheet(message: store.limitNotice ?? "") {
+                // Tras cerrar esta hoja: abrir la del agente, donde está el uso.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onOpenSheet() }
+            }
+        }
         .alert("\(store.selectedAgent?.name ?? "Tu agente") está con lo anterior",
                isPresented: $avisoDeCorte) {
             Button("Mandar y empezar de nuevo", role: .destructive) { mandarYa() }

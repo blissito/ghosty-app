@@ -87,6 +87,9 @@ actor ClienteGS: TransporteDeAgente {
             await Self.sessionDead()
             throw Session.Fallo.caducada
         }
+        // 402 = un límite del plan: no es un fallo de red, y tratarlo como tal (volver a
+        // escuchar) hacía desaparecer el mensaje sin decir nada.
+        if codigo == 402 { throw ACPClient.Fallo.limit(mensajeDeError(d, codigo)) }
         guard (200..<300).contains(codigo) else {
             throw ACPClient.Fallo.remoto(mensajeDeError(d, codigo))
         }
