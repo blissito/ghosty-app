@@ -94,7 +94,7 @@ struct UsagePane: View {
     private static var demo: PersonalUsage {
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok" {
             var u = demoFree
-            u.ownKey = .init(provider: "deepseek", turnsWeek: 42, tokensWeek: 1_840_000)
+            u.ownKey = .init(provider: "deepseek", turnsWeek: 42, tokensWeek: 1_840_000, dailyTurns: [9, 14, 6, 11, 2, 0, 0])
             return u
         }
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "power" {
@@ -276,51 +276,114 @@ private struct ImagesCard: View {
     }
 }
 
-/// Corre con tu llave: el plan no se gasta, así que no hay barra que enseñar.
+/// Corre con tu llave: el plan no se gasta, así que en vez de una barra que no se mueve se
+/// enseña lo que MIDE gs de la semana — sin límite no es sin medir.
 private struct OwnKeyCard: View {
     let key: PersonalUsage.OwnKey
-    private var provider: String { key.provider }
+    @State private var shownTurns = 0
+    @State private var shownTokens = 0.0
+    @State private var grown = false
+    @State private var keyTurn = false
+
+    private var providerName: String {
+        switch key.provider {
+        case "anthropic", "anthropic-oauth": return "Claude"
+        case "deepseek": return "DeepSeek"
+        case "openai": return "OpenAI"
+        case "google": return "Google"
+        default: return key.provider.capitalized
+        }
+    }
+
+    private var daily: [Int] { key.dailyTurns ?? [] }
+    private static let dayLetters = ["L", "M", "M", "J", "V", "S", "D"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            HStack(spacing: 10) {
+                stat(title: "Turnos", value: Text("\(shownTurns)").contentTransition(.numericText(value: Double(shownTurns))))
+                stat(title: "Tokens", value: Text(Self.tokens(Int(shownTokens))).contentTransition(.numericText(value: shownTokens)))
+            }
+            if daily.count == 7 { chart }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Color.gGrass.opacity(0.10))
+                .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color.gGrass.opacity(0.25), lineWidth: 1))
+        )
+        .onAppear {
+            withAnimation(.spring(duration: 0.7, bounce: 0.5).delay(0.1)) { keyTurn = true }
+            withAnimation(.spring(duration: 1.1, bounce: 0.1).delay(0.2)) {
+                shownTurns = key.turnsWeek ?? 0
+                shownTokens = Double(key.tokensWeek ?? 0)
+            }
+            withAnimation(.spring(duration: 0.6, bounce: 0.3).delay(0.35)) { grown = true }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "key.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .rotationEffect(.degrees(keyTurn ? 0 : -60))
+                .scaleEffect(keyTurn ? 1 : 0.6)
+                .frame(width: 44, height: 44)
+                .background(Color.gGrass, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Con tu llave de \(providerName)").font(.gDisplay(16)).foregroundStyle(Color.gInk)
+                Text("No gasta de tu plan: sin límite de uso ni de modelos.").gCaption()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Text("∞").font(.gDisplay(22, .bold)).foregroundStyle(Color.gGrass)
+        }
+    }
+
+    private func stat(title: String, value: some View) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            value
+                .font(.gDisplay(28, .bold))
+                .monospacedDigit()
+                .foregroundStyle(Color.gInk)
+            Text("\(title) esta semana").gCaption()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// Siete barras, una por día; crecen una tras otra. La de hoy va en color pleno.
+    private var chart: some View {
+        let top = max(daily.max() ?? 0, 1)
+        let today = (Calendar(identifier: .iso8601).component(.weekday, from: Date()) + 5) % 7
+        return HStack(alignment: .bottom, spacing: 8) {
+            ForEach(0..<7, id: \.self) { i in
+                VStack(spacing: 5) {
+                    Capsule()
+                        .fill(i == today ? Color.gGrass : Color.gGrass.opacity(0.45))
+                        .frame(width: 14, height: grown ? max(4, 54 * CGFloat(daily[i]) / CGFloat(top)) : 4)
+                        .animation(.spring(duration: 0.6, bounce: 0.35).delay(0.35 + Double(i) * 0.05), value: grown)
+                    Text(Self.dayLetters[i])
+                        .font(.system(size: 11, weight: i == today ? .bold : .medium))
+                        .foregroundStyle(i == today ? Color.gInk : Color.gInk3)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: 74, alignment: .bottom)
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
 
     /// 1234567 → «1.2 M», 45300 → «45 k».
     static func tokens(_ n: Int) -> String {
         if n >= 1_000_000 { return String(format: "%.1f M", Double(n) / 1_000_000) }
         if n >= 1_000 { return "\(n / 1_000) k" }
         return "\(n)"
-    }
-
-    private var providerName: String {
-        switch provider {
-        case "anthropic", "anthropic-oauth": return "Claude"
-        case "deepseek": return "DeepSeek"
-        case "openai": return "OpenAI"
-        case "google": return "Google"
-        default: return provider.capitalized
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "key.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 38, height: 38)
-                .background(Color.gGrass, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Con tu llave de \(providerName)").font(.gDisplay(15.5)).foregroundStyle(Color.gInk)
-                Text("Este agente no gasta de tu plan: sin límite de uso ni de modelos.").gCaption()
-                    .fixedSize(horizontal: false, vertical: true)
-                if let turns = key.turnsWeek {
-                    Text("Esta semana: \(turns) \(turns == 1 ? "turno" : "turnos") · \(Self.tokens(key.tokensWeek ?? 0)) tokens")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.gGrass)
-                        .padding(.top, 4)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 10, y: 3)
     }
 }
 

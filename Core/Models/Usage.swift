@@ -37,6 +37,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
         /// Sin límite no es sin medir: lo que lleva esta semana con su llave.
         var turnsWeek: Int? = nil
         var tokensWeek: Int? = nil
+        /// Turnos por día (lunes = 0) para la gráfica de la semana.
+        var dailyTurns: [Int]? = nil
     }
 
     struct WorkspaceUsage: Decodable, Equatable, Sendable {
