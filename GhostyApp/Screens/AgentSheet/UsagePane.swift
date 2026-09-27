@@ -14,6 +14,12 @@ struct UsagePane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             planCard.entrance(appeared, order: 0)
+            if let u = usage, u.modelAllowedInPlan == false {
+                NoticeCard(icon: "exclamationmark.triangle.fill", tint: .gBird,
+                           title: "Este modelo no está incluido en tu plan",
+                           detail: "Cambia de modelo en la conversación para seguir usándolo.")
+                    .entrance(appeared, order: 1)
+            }
             if let u = usage {
                 if u.applies == false, let ws = u.workspace {
                     UsageCard(title: "Uso del espacio \(ws.name.prefix(1).uppercased() + ws.name.dropFirst())",
@@ -35,6 +41,17 @@ struct UsagePane: View {
                                    highQuality: u.plan.imageQuality.map { $0 == "high" } ?? false)
                             .entrance(appeared, order: 2)
                     }
+                } else if u.exempt == true {
+                    NoticeCard(icon: "sparkles", tint: .gBrand,
+                               title: "Sin tope · acceso anticipado",
+                               detail: "Estuviste desde el principio: este agente no tiene límite de uso.")
+                        .entrance(appeared, order: 1)
+                    if let n = u.imagesWeek {
+                        ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap,
+                                   leftHd: u.imagesLeftHd, ownKey: u.ownImageKey == true, hd: u.imagesWeekHd ?? 0,
+                                   highQuality: u.plan.imageQuality.map { $0 == "high" } ?? false)
+                            .entrance(appeared, order: 2)
+                    }
                 } else if u.applies == false {
                     Text(agent.space?.kind == .workspace
                          ? "Este agente es del espacio \(agent.space?.title ?? "de equipo"): su uso lo cubre ese espacio, no tu plan personal."
@@ -46,7 +63,8 @@ struct UsagePane: View {
                         .entrance(appeared, order: 1)
                 } else {
                     UsageCard(title: "Uso de esta semana", icon: "calendar", accent: .gSky, pct: u.week.pct ?? 0,
-                              resetsAt: u.week.resetsAt, delay: 0.15)
+                              resetsAt: u.week.resetsAt, delay: 0.15,
+                              exhausted: u.exhausted == true && (u.week.pct ?? 0) >= 1)
                         .entrance(appeared, order: 1)
                     // Gratis no tiene tope mensual: sólo semana, y así se dice.
                     if let pct = u.month.pct {
@@ -112,6 +130,20 @@ struct UsagePane: View {
             u.imagesWeekHd = 2
             return u
         }
+        if Gancho.valor("GHOSTY_DEMO_PLAN") == "early" {
+            return PersonalUsage(
+                plan: .init(key: "free", name: "Gratis", imageQuality: "low"),
+                week: .init(pct: 0.4, resetsAt: Date().addingTimeInterval(2 * 86400)),
+                month: .init(pct: nil, resetsAt: Date().addingTimeInterval(20 * 86400)),
+                applies: true, imagesWeek: 3, imagesLeft: 5, imagesCap: 8, workspace: nil, exempt: true)
+        }
+        if Gancho.valor("GHOSTY_DEMO_PLAN") == "exhausted" {
+            return PersonalUsage(
+                plan: .init(key: "free", name: "Gratis", imageQuality: "low"),
+                week: .init(pct: 1, resetsAt: Date().addingTimeInterval(2 * 86400)),
+                month: .init(pct: nil, resetsAt: Date().addingTimeInterval(20 * 86400)),
+                applies: true, imagesWeek: 4, imagesLeft: 0, workspace: nil, exhausted: true)
+        }
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok-two" {
             var u = demoFree
             u.ownKey = .init(provider: "anthropic", turnsWeek: 42, tokensWeek: 1_840_000, dailyTurns: [9, 14, 6, 11, 2, 0, 0])
@@ -151,6 +183,8 @@ private struct UsageCard: View {
     let resetsAt: Date
     let delay: Double
     var note: String? = nil
+    /// Se acabó (sin recargas): en vez de «se renueva el…» se dice que está en pausa hasta cuándo.
+    var exhausted = false
     @State private var shown = 0.0
 
     private var target: Double { min(1, max(0, pct)) }
@@ -181,11 +215,20 @@ private struct UsageCard: View {
                 }
             }
             .frame(height: 8)
-            HStack(spacing: 5) {
-                Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .semibold))
-                Text("Se renueva el \(Self.date(resetsAt)) · \(Self.relative(resetsAt))")
+            if exhausted {
+                HStack(spacing: 5) {
+                    Image(systemName: "pause.circle.fill").font(.system(size: 12, weight: .semibold))
+                    Text("Se acabó tu uso de la semana · vuelve el \(Self.date(resetsAt)) (\(Self.relative(resetsAt)))")
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.gDanger)
+            } else {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .semibold))
+                    Text("Se renueva el \(Self.date(resetsAt)) · \(Self.relative(resetsAt))")
+                }
+                .gCaption()
             }
-            .gCaption()
             if let note { Text(note).gCaption() }
         }
         .padding(16)
@@ -467,6 +510,34 @@ private struct OwnKeyCard: View {
         if n >= 1_000_000 { return String(format: "%.1f M", Double(n) / 1_000_000) }
         if n >= 1_000 { return "\(n / 1_000) k" }
         return "\(n)"
+    }
+}
+
+/// Un aviso de una línea con su icono de color: acceso anticipado, modelo fuera del plan.
+private struct NoticeCard: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let detail: String
+    @State private var shown = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(tint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .symbolEffect(.bounce, value: shown)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.gDisplay(15.5)).foregroundStyle(Color.gInk)
+                Text(detail).gCaption().fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onAppear { shown = true }
     }
 }
 

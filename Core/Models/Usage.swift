@@ -35,6 +35,12 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     var ownImageKey: Bool? = nil
     /// Cuántas de las imágenes de la semana salieron en HD.
     var imagesWeekHd: Int? = nil
+    /// Acceso anticipado: el tope de chat no le aplica (el de imágenes sí).
+    var exempt: Bool? = nil
+    /// false = su modelo no está en el plan y el turno se va a frenar.
+    var modelAllowedInPlan: Bool? = nil
+    /// Sin plan y sin recargas.
+    var exhausted: Bool? = nil
 
     struct OwnKey: Decodable, Equatable, Sendable {
         let provider: String
