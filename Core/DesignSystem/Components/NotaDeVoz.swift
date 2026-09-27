@@ -8,7 +8,8 @@ import SwiftUI
 /// micrófono no captó nada.
 struct NotaDeVoz: View {
     let adjunto: Adjunto
-    var claro = false
+    /// Va dentro de la burbuja morada del usuario: play blanco y onda en blanco.
+    var sobreMorado = false
 
     @State private var reproductor: AVAudioPlayer?
     @State private var sonando = false
@@ -19,7 +20,7 @@ struct NotaDeVoz: View {
     @State private var bajando = false
     @State private var fallo: String?
 
-    private var tinta: Color { claro ? .gInk : .gInk }
+    private var tinta: Color { sobreMorado ? .white : .gInk }
 
     /// Cuántas barras se pintan, pase lo que pase.
     ///
@@ -61,13 +62,13 @@ struct NotaDeVoz: View {
         HStack(spacing: 10) {
             Button(action: alternar) {
                 ZStack {
-                    Circle().fill(Theme.primaryGradient).frame(width: 32, height: 32)
+                    Circle().fill(sobreMorado ? Color.white : Color.gPrimary).frame(width: 32, height: 32)
                     if bajando {
-                        ProgressView().controlSize(.small).tint(.white)
+                        ProgressView().controlSize(.small).tint(sobreMorado ? Color.gPrimary : .white)
                     } else {
                         Image(systemName: sonando ? "pause.fill" : "play.fill")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(sobreMorado ? Color.gPrimary : .white)
                     }
                 }
             }
@@ -81,11 +82,11 @@ struct NotaDeVoz: View {
             // Si algo falló, se dice AHÍ: un play que no hace nada se lee como una app
             // rota, y la causa real (el archivo ya no está) es información útil.
             if let fallo {
-                Text(fallo).gCaption().foregroundStyle(Color.gDangerInk)
+                Text(fallo).gCaption().foregroundStyle(sobreMorado ? Color.white : Color.gDangerInk)
             } else {
                 Text(Self.reloj(adjunto.segundos ?? 0))
                     .gMono(size: 12)
-                    .foregroundStyle(Color.gInk2)
+                    .foregroundStyle(sobreMorado ? Color.white.opacity(0.85) : Color.gInk2)
                     .monospacedDigit()
             }
         }
@@ -106,7 +107,9 @@ struct NotaDeVoz: View {
                 ForEach(Array(barras.enumerated()), id: \.offset) { i, v in
                     let pasada = Double(i) / Double(n) <= avance
                     Capsule()
-                        .fill(pasada ? Color.gPrimary : Color.gInk4.opacity(0.55))
+                        .fill(pasada
+                              ? (sobreMorado ? Color.white : Color.gPrimary)
+                              : (sobreMorado ? Color.white.opacity(0.42) : Color.gInk4.opacity(0.55)))
                         // Un mínimo visible: una barra de altura 0 parece un hueco, y el
                         // silencio entre palabras es normal. Sube a 4 para que a esta
                         // anchura se lea como barra y no como punto.

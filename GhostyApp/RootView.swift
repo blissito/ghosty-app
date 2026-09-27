@@ -25,6 +25,8 @@ struct RootView: View {
     @State private var cambiarAgente = Gancho.valor("GHOSTY_AGENTES") == "1"
     /// El toast de la app (`Toaster`), uno para todas las pantallas.
     @State private var toaster = Toaster()
+    /// La hoja «Agregar» y el overlay de voz del chat, pintados encima de la barra.
+    @State private var capaDelChat = CapaDeChat()
     /// Lo que mide el borde seguro de abajo: decide a qué altura flota la barra.
     @State private var bordeInferior: CGFloat = 34
     /// La imagen que se está mirando a pantalla completa. Vive aquí porque quien pide
@@ -110,6 +112,7 @@ struct RootView: View {
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .chat }
             }
         }
+        .capaDeChat(capaDelChat)
         .ghostyToast(toaster)
         // ⚠️ Sólo al VOLVER. Aquí hubo tres ramas —anotar el fondo, cerrar sockets con
         // tiempo de gracia, marcar turnos como interrumpidos— porque el turno era del

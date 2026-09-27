@@ -23,49 +23,94 @@ struct PasosDelAgente: View {
 
     @State private var drawer = false
 
-    /// UNA línea, como Claude: el paso que corre ahora (o el último), con su icono y un
-    /// chevron. Tocarla abre el drawer con la línea de tiempo completa. La lista de
-    /// tarjetas en el hilo ocupaba media pantalla en un turno largo y empujaba la
-    /// respuesta fuera de la vista.
+    /// Cuántos pasos caben en la tarjeta. Un turno largo corre treinta herramientas:
+    /// la tarjeta enseña los últimos y el resto vive en el drawer.
+    private static let visibles = 4
+
+    private var mostrados: [Herramienta] { Array(run.herramientas.suffix(Self.visibles)) }
+    private var ocultos: Int { max(0, run.count - Self.visibles) }
+
+    /// La tarjeta de pasos del diseño: blanca, borde fino, r16, cada paso con su estado —
+    /// palomita verde si terminó, el giro morado si corre, rojo si falló—. Los rótulos
+    /// son los REALES de cada herramienta (`rotulo`); el diseño enseña además pasos
+    /// pendientes, pero ese plan el servidor no lo manda y no se inventa.
+    ///
+    /// Tocarla abre el drawer con la línea de tiempo completa y lo que devolvió cada paso.
     var body: some View {
         Button { drawer = true } label: {
-            HStack(spacing: 8) {
-                if let viva = run.corriendo {
-                    ProgressView().controlSize(.mini)
-                    Text(viva.rotulo).lineLimit(1)
-                } else if run.fallidas > 0 {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.gDangerInk)
-                    Text("\(run.count) pasos · \(run.fallidas) con problemas").lineLimit(1)
-                } else if vivo, let ultima = run.herramientas.last {
-                    ProgressView().controlSize(.mini)
-                    Text(run.count == 1 ? ultima.rotulo : "\(ultima.rotulo) · \(run.count) pasos")
-                        .lineLimit(1)
-                } else if let ultima = run.herramientas.last {
-                    Image(systemName: ultima.clase.icono)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.gInk3)
-                    Text(run.count == 1 ? ultima.rotulo : "\(ultima.rotulo) · \(run.count) pasos")
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 7) {
+                if ocultos > 0 {
+                    Text(ocultos == 1 ? "1 paso antes" : "\(ocultos) pasos antes")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.gInk4)
                 }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color.gInk4)
+                ForEach(mostrados) { h in
+                    FilaDePaso(h: h)
+                        .transition(.gIn)
+                }
+                // Entre una herramienta y la siguiente el modelo PIENSA: sin esta fila la
+                // tarjeta parecía terminada justo cuando más se tarda.
+                if vivo, run.corriendo == nil {
+                    HStack(spacing: 9) {
+                        GhostySpinner()
+                        Text("Pensando el siguiente paso…")
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.gInk3)
+                    .transition(.gIn)
+                }
             }
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(Color.gInk3)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .ghostyCard(radius: Theme.Radius.threadCard)
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.threadCard, style: .continuous))
+            .animation(.easeOut(duration: 0.3), value: run.herramientas.map(\.id))
+            .animation(.easeOut(duration: 0.3), value: vivo)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.gPressRow)
         .accessibilityIdentifier("pasos-del-agente")
+        .accessibilityHint("Abre el detalle de los pasos")
         .sheet(isPresented: $drawer) {
             DrawerDePasos(run: run)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color.gBg)
+        }
+    }
+}
+
+/// Un renglón de la tarjeta: `400 13px #5E5D6B`, icono de 16 a la izquierda.
+private struct FilaDePaso: View {
+    let h: Herramienta
+
+    var body: some View {
+        HStack(spacing: 9) {
+            estado
+            Text(h.rotulo)
+                .font(.system(size: 13))
+                .foregroundStyle(h.estado == .fallida ? Color.gDangerInk : Color(hex: 0x5E5D6B))
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private var estado: some View {
+        switch h.estado {
+        case .corriendo:
+            GhostySpinner()
+        case .hecha:
+            Circle().fill(Color.gGreenTint)
+                .frame(width: 16, height: 16)
+                .overlay { ChatIcons.check.dibujo(Color.gGreen, size: 9, ancho: 2) }
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
+        case .fallida:
+            Circle().fill(Color.gDangerTint)
+                .frame(width: 16, height: 16)
+                .overlay {
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(Color.gDanger)
+                }
         }
     }
 }

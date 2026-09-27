@@ -19,14 +19,18 @@ struct UserBubble: View {
         VStack(alignment: .trailing, spacing: 4) {
             burbuja
             if steer {
-                Text("añadido a lo que está haciendo")
-                    .gMeta().foregroundStyle(Color.gInk3)
+                Label("Añadido a lo que está haciendo", systemImage: "arrow.turn.down.right")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.gInk3)
                     .padding(.trailing, 4)
             }
         }
-        .frame(maxWidth: 268, alignment: .trailing)
+        // `max-width: 78%` del hilo.
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { ancho, _ in ancho * 0.78 }
     }
 
+    /// `#5B4BD6`, blanco `400 15px/1.4`, padding 10/14 y radios 20/20/6/20: la esquina
+    /// de abajo a la derecha apunta a quien habló.
     private var burbuja: some View {
         VStack(alignment: .trailing, spacing: 8) {
             if !adjuntos.isEmpty { loMandado }
@@ -34,17 +38,19 @@ struct UserBubble: View {
             // debajo de la miniatura.
             if !text.isEmpty {
                 Text(text)
-                    .gBody()
+                    .font(.system(size: 15))
                     .lineSpacing(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(.white)
+                    .tint(.white)
+                    .textSelection(.enabled)
             }
         }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 12)
-            .background(Color.gBubbleUser)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.gPrimary)
             .clipShape(.rect(topLeadingRadius: Theme.Radius.bubble,
                              bottomLeadingRadius: Theme.Radius.bubble,
-                             bottomTrailingRadius: 8,
+                             bottomTrailingRadius: 6,
                              topTrailingRadius: Theme.Radius.bubble,
                              style: .continuous))
             .fixedSize(horizontal: false, vertical: true)
@@ -91,39 +97,48 @@ extension UserBubble {
                 }
             }
             ForEach(voces) { a in
-                NotaDeVoz(adjunto: a, claro: true)
+                NotaDeVoz(adjunto: a, sobreMorado: true)
                     // El DESTINO del vuelo: la barra de grabación que acabas de soltar se
                     // convierte en esta burbuja en vez de desaparecer y reaparecer.
                     .matchedGeometryEffect(id: "voz-\(a.id)", in: vuelo, isSource: true)
             }
             ForEach(otros) { a in
+                // Sobre el morado: icono en blanco con tinta morada y el texto en blanco.
                 HStack(spacing: 9) {
-                    TintedIcon(systemName: a.icono, tint: .gPrimary, background: .gCard, size: 30)
+                    TintedIcon(systemName: a.icono, tint: .gPrimary, background: .white, size: 30)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(a.nombre)
-                            .font(.system(size: 13.5, weight: .medium))
-                            .foregroundStyle(Color.gInk)
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(.white)
                             .lineLimit(1)
-                        Text(a.peso).gCaption()
+                        Text(a.peso)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.72))
                     }
                     Spacer(minLength: 0)
                 }
+                .padding(8)
+                .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
     }
 }
 
+/// La respuesta del agente: columna con su avatar de 28 y, a la derecha, lo que hizo
+/// (tarjeta de pasos) y lo que dijo (markdown a lo ancho, `400 15px/1.5`).
 struct AgentBubble: View {
     let text: String
     let tools: ToolRun?
     let trailing: String?
-    /// ¿Hay turno vivo? Lo necesita la línea de pasos para no parecer terminada entre una
-    /// herramienta y la siguiente.
+    /// ¿Hay turno vivo? Lo necesita la tarjeta de pasos para no parecer terminada entre
+    /// una herramienta y la siguiente.
     var vivo: Bool = false
     /// El botón de copiar va sólo en la ÚLTIMA respuesta, como en claude.ai: uno bajo
     /// cada mensaje se volvía una columna de iconos. Las demás se copian por párrafo con
     /// toque largo.
     var showCopy: Bool = true
+    /// El avatar de la columna. `nil` = sin avatar (la columna queda, para alinear).
+    var tone: AgentTone? = .lila
 
     private var fuentes: [Fuente] {
         Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
@@ -135,30 +150,42 @@ struct AgentBubble: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
-            // trabaja, después contesta. Debajo se leían como una nota al pie de algo que
-            // ya habías terminado de leer.
-            if let tools { PasosDelAgente(run: tools, abierto: tools.corriendo != nil, vivo: vivo) }
+        HStack(alignment: .top, spacing: 10) {
+            ColumnaDelAgente(tone: tone)
+            VStack(alignment: .leading, spacing: 10) {
+                // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
+                // trabaja, después contesta.
+                if let tools, tools.count > 0 {
+                    PasosDelAgente(run: tools, abierto: tools.corriendo != nil, vivo: vivo)
+                }
 
-            if !text.isEmpty { TextoQueAparece(markdown: text) }
+                if !text.isEmpty { TextoQueAparece(markdown: text) }
 
-            if let trailing {
-                TextoQueAparece(markdown: trailing)
+                if let trailing {
+                    TextoQueAparece(markdown: trailing)
+                }
+
+                // Debajo de todo, como en Claude: lo que leyó para contestar.
+                BarraDeFuentes(fuentes: fuentes)
+
+                // Copiar la respuesta entera. Sólo cuando ya terminó: copiar media
+                // respuesta que sigue creciendo no sirve de nada.
+                if showCopy, !vivo, !fullText.isEmpty { CopyButton(text: fullText) }
             }
-
-            // Debajo de todo, como en Claude: lo que leyó para contestar.
-            BarraDeFuentes(fuentes: fuentes)
-
-            // Copiar la respuesta entera, como en Claude. Sólo cuando ya terminó: copiar
-            // media respuesta que sigue creciendo no sirve de nada.
-            if showCopy, !vivo, !fullText.isEmpty { CopyButton(text: fullText) }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // Sin burbuja y a todo lo ancho, como el chat de Claude: la respuesta del agente
-        // es el cuerpo de la conversación —listas, tablas, código—, y meterla en una
-        // burbuja de 300 pt la partía en renglones de tres palabras. La burbuja se queda
-        // sólo para lo que escribe la persona, que es lo que hay que distinguir.
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// La columna del agente: su avatar de 28, o el hueco si no toca pintarlo.
+struct ColumnaDelAgente: View {
+    var tone: AgentTone?
+    var body: some View {
+        Group {
+            if let tone { AgentAvatar(tone: tone, size: 28) } else { Color.clear }
+        }
+        .frame(width: 28, height: 28)
     }
 }
 
@@ -192,29 +219,25 @@ private struct CopyButton: View {
     }
 }
 
-/// Los tres puntos. Se anima con opacidad y no con escala para que no salte la
-/// altura de la fila mientras el agente piensa.
+/// «Pensando»: la columna del agente con los tres puntos morados (`gdot`) y, si la hay,
+/// una línea con lo que hace. Es el indicador del turno vivo al pie del hilo.
 struct TypingBubble: View {
-    @State private var fase = 0
+    var tone: AgentTone? = .lila
+    var texto: String?
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(Color.gInk4)
-                    .frame(width: 6, height: 6)
-                    .opacity(fase == i ? 1 : 0.35)
+        HStack(alignment: .center, spacing: 10) {
+            ColumnaDelAgente(tone: tone)
+            GhostyDots()
+            if let texto {
+                Text(texto)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.gInk3)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: texto)
             }
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 34)
-        .background(Color.gBubbleAgent)
-        .clipShape(Capsule())
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(320))
-                withAnimation(.easeInOut(duration: 0.28)) { fase = (fase + 1) % 3 }
-            }
+            Spacer(minLength: 0)
         }
     }
 }

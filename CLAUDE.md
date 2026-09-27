@@ -125,6 +125,9 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_SOLO_AGENTE=<id>` | la app sólo ve ESE agente |
 | `GHOSTY_AUTO_PERMISO=1` | contesta los permisos solo, para poder probar el camino entero |
 | `GHOSTY_AVISO=<agente>/<sesion>` | simula tocar un push con la app CERRADA (el push del simulador arranca sin variables) |
+| `GHOSTY_DEMO_CHAT=1\|tabla\|vacio` | (con `GHOSTY_DEMO=1`) el hilo del prototipo con pasos, tabla y PDF; `tabla` corta en la tabla; `vacio` abre el chat vacío |
+| `GHOSTY_AGREGAR=1` | abre la hoja «Agregar» del compositor |
+| `GHOSTY_VOZ=1` | pinta el overlay «Te escucho…» (sin grabar) |
 
 ⚠️ **Los cuatro últimos juntos son lo que permite verificar la app contra el servidor de
 verdad sin la sesión de nadie.** Un token de la cuenta real alcanza a TODOS sus agentes,

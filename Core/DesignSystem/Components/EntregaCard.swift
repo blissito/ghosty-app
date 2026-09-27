@@ -91,7 +91,13 @@ struct EntregaCard: View {
         // toque en cualquier sitio del hilo lo suelta y vuelve a abrir el visor —medido:
         // cerrar la imagen y dar play a la nota de voz de al lado reabría la imagen—.
         Group {
-            if entrega.esAudio || entrega.esVideo {
+            if let filas = filasDeTabla {
+                // Una tabla entregada (CSV) se LEE en el hilo, con su Excel y su copiar:
+                // abrirla en el visor del sistema para ver cuatro filas era un paso de más.
+                TablaCard(filas: filas, nombre: Self.sinExtension(entrega.titulo),
+                          titulo: entrega.titulo)
+                    .frame(maxWidth: 360, alignment: .leading)
+            } else if entrega.esAudio || entrega.esVideo {
                 tarjeta
             } else {
                 tarjeta.contentShape(Rectangle()).onTapGesture(perform: abrir)
@@ -106,7 +112,7 @@ struct EntregaCard: View {
             // ⚠️ El PDF también: su vista previa es la primera página, y sin bajarlo la
             // tarjeta es una fila con un nombre. Se acota por peso —lo que dijo el
             // anuncio— para no traerse un documento enorme sólo por la miniatura.
-            let conVistaPrevia = ["png", "jpg", "jpeg", "heic", "gif", "webp", "pdf"]
+            let conVistaPrevia = ["png", "jpg", "jpeg", "heic", "gif", "webp", "pdf", "csv"]
             guard conVistaPrevia.contains(ext) else { return }
             if let peso = entrega.bytesRemotos, peso > 8 * 1024 * 1024 { return }
             await bajar(yAbrir: false)
@@ -133,6 +139,8 @@ struct EntregaCard: View {
         else { compartiendo = conBytes()?.aDisco() }
     }
 
+    /// La tarjeta del diseño: blanca, borde fino, r16. Arriba la vista previa (imagen,
+    /// portada del PDF, asomo de texto) o el reproductor; abajo la fila compacta.
     private var tarjeta: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Un video se ve aquí, con su cuadro reservado; un audio se oye aquí.
@@ -144,13 +152,30 @@ struct EntregaCard: View {
                     ReproductorDeEntrega(entrega: entrega)
                 } else {
                     fila
+                        .overlay(alignment: .top) {
+                            if tieneVistaPrevia { Rectangle().fill(Color.gHairline).frame(height: 1) }
+                        }
                 }
             }
         }
-        .frame(maxWidth: 300, alignment: .leading)
-        .background(Color.gCard)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-        .shadow(color: .black.opacity(0.06), radius: 5, y: 2)
+        .frame(maxWidth: 320, alignment: .leading)
+        .ghostyCard(radius: Theme.Radius.threadCard)
+    }
+
+    /// Las filas, si lo entregado es una tabla que ya tenemos en la mano.
+    private var filasDeTabla: [[String]]? {
+        guard entrega.forma == .sheet || entrega.tipo == "csv" else { return nil }
+        let texto = entrega.contenido ?? datos.flatMap { $0.count < 400_000 ? String(data: $0, encoding: .utf8) : nil }
+        guard let texto else { return nil }
+        let filas = Tabular.deCSV(texto)
+        return filas.count > 1 && (filas.first?.count ?? 0) > 1 ? filas : nil
+    }
+
+    private var tieneVistaPrevia: Bool { imagen != nil || Self.asomo(entrega) != nil }
+
+    static func sinExtension(_ titulo: String) -> String {
+        guard let punto = titulo.lastIndex(of: "."), punto != titulo.startIndex else { return titulo }
+        return String(titulo[..<punto])
     }
 
     // MARK: - Piezas
@@ -185,45 +210,43 @@ struct EntregaCard: View {
         }
     }
 
+    /// La fila compacta del diseño: insignia del tipo (40×48, r8), nombre `600 14`,
+    /// meta `400 12` y «Compartir» morado.
     private var fila: some View {
         HStack(spacing: 12) {
-            TintedIcon(systemName: entrega.icono, tint: tinte.fg,
-                       background: tinte.bg, size: 38)
-            VStack(alignment: .leading, spacing: 3) {
+            InsigniaDeTipo(ext: entrega.tipo)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(entrega.titulo)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.gInk)
                     .lineLimit(1)
+                    .truncationMode(.middle)
                 if let falloAlBajar {
-                    Text(falloAlBajar).gCaption().foregroundStyle(Color.gDangerInk)
+                    Text(falloAlBajar).font(.system(size: 12)).foregroundStyle(Color.gDangerInk)
                 } else {
                     Text([entrega.etiqueta, entrega.peso].compactMap { $0 }.joined(separator: " · "))
-                        .gCaption()
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.gInk3)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if bajando { ProgressView().controlSize(.small) }
-            Image(systemName: "arrow.up.right")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.gInk3)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-
-    /// Color por tipo. Un PDF rojo se reconoce sin leer el nombre; todo morado, no.
-    private var tinte: (fg: Color, bg: Color) {
-        switch entrega.forma {
-        case .sheet:    return (.gGreenInk, .gGreenTint)
-        case .artifact: return (.gPrimary, .gPrimaryTint)
-        case .doc:      return (.gPrimary, .gPrimaryTint)
-        case .archivo:
-            switch entrega.tipo {
-            case "pdf": return (.gDangerInk, .gDangerTint)
-            case "csv", "xlsx", "numbers": return (.gGreenInk, .gGreenTint)
-            default: return (.gInk2, .gFill)
+            if bajando {
+                ProgressView().controlSize(.small)
+            } else {
+                ShareLink(item: EntregaCompartible(entrega: conBytes() ?? entrega),
+                          preview: SharePreview(entrega.titulo)) {
+                    Text("Compartir")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.gPressPill)
+                .accessibilityIdentifier("compartir-entrega")
             }
         }
+        .padding(12)
     }
 
     /// Las primeras líneas de lo entregado, para la vista previa.
@@ -244,4 +267,66 @@ struct EntregaCard: View {
     }
 
 
+}
+
+/// La insignia del tipo de archivo del diseño: 40×48, r8, las letras abajo en mono 700 10.
+/// Rojo para PDF, verde para hojas, morado para imágenes; el resto en gris.
+struct InsigniaDeTipo: View {
+    let ext: String?
+    var ancho: CGFloat = 40
+    var alto: CGFloat = 48
+
+    static func rotulo(_ ext: String?) -> String {
+        switch ext?.lowercased() {
+        case "pdf"?: return "PDF"
+        case "xlsx"?, "xls"?, "csv"?, "numbers"?: return "XLS"
+        case "png"?, "jpg"?, "jpeg"?, "heic"?, "gif"?, "webp"?: return "IMG"
+        case "doc"?, "docx"?: return "DOC"
+        case "mp3"?, "m4a"?, "wav"?, "aac"?, "ogg"?: return "AUD"
+        case "mp4"?, "mov"?, "m4v"?, "webm"?: return "VID"
+        case let e?: return String(e.prefix(4)).uppercased()
+        case nil: return "FILE"
+        }
+    }
+
+    static func tinte(_ ext: String?) -> (fondo: Color, tinta: Color) {
+        switch rotulo(ext) {
+        case "PDF": return (.gDangerTint, .gDanger)
+        case "XLS": return (.gGreenTint, .gGreen)
+        case "IMG": return (.gPrimaryTint, .gPrimary)
+        default:    return (.gFill, .gInk2)
+        }
+    }
+
+    var body: some View {
+        let t = Self.tinte(ext)
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(t.fondo)
+            .frame(width: ancho, height: alto)
+            .overlay(alignment: .bottom) {
+                Text(Self.rotulo(ext))
+                    .font(.system(size: ancho >= 40 ? 10 : 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(t.tinta)
+                    .padding(.bottom, ancho >= 40 ? 6 : 5)
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// Lo entregado como archivo para la hoja de compartir. Se baja AL COMPARTIR si hace
+/// falta: bajar cada PDF del hilo sólo por si alguien le da a «Compartir» sería caro.
+struct EntregaCompartible: Transferable {
+    let entrega: Entrega
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .data) { c in
+            var e = c.entrega
+            if e.hayQueBajar {
+                if let id = e.remotoID { e.datos = try await GhostyAPI.bajar(id) }
+                else if let s = e.url, let u = URL(string: s) { e.datos = await Descargas.bytes(u) }
+            }
+            guard let url = e.aDisco() else { throw CocoaError(.fileWriteUnknown) }
+            return SentTransferredFile(url)
+        }
+    }
 }

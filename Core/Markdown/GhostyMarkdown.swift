@@ -44,9 +44,9 @@ struct GhostyMarkdown: View {
             // Toque largo → «Copiar» del párrafo. La respuesta entera la copia el botón
             // de `AgentBubble`.
             .textSelection(.enabled)
+            // El cuerpo del diseño: sistema 15, tinta #15141B (Source Serif salió del chat).
             .markdownTextStyle {
-                FontFamily(.custom("Source Serif 4"))
-                FontSize(17)
+                FontSize(15)
                 ForegroundColor(.gInk)
             }
             // ⚠️ Las imágenes del markdown salían **a tamaño real**: una foto de 1200 px
@@ -80,10 +80,9 @@ extension MarkdownUI.Theme {
     private static func inline(_ t: MarkdownUI.Theme) -> MarkdownUI.Theme {
         t
             .text {
-                // La respuesta en serifa (Source Serif 4) y lo tuyo en Inter, como claude.ai:
-                // se distingue quién habla sin mirar el lado. Encabezados en Poppins.
-                FontFamily(.custom("Source Serif 4"))
-                FontSize(17)
+                // Rediseño 2026-09: `400 15px/1.5` del sistema, como el prototipo. Quién
+                // habla ya lo dice la columna del avatar, no la tipografía.
+                FontSize(15)
                 ForegroundColor(.gInk)
             }
             .code {
@@ -100,17 +99,17 @@ extension MarkdownUI.Theme {
             .heading1 { config in
                 config.label
                     .markdownMargin(top: 6, bottom: 4)
-                    .markdownTextStyle { FontFamily(.custom("Poppins-SemiBold")); FontSize(21) }
+                    .markdownTextStyle { FontWeight(.bold); FontSize(19) }
             }
             .heading2 { config in
                 config.label
                     .markdownMargin(top: 6, bottom: 4)
-                    .markdownTextStyle { FontFamily(.custom("Poppins-SemiBold")); FontSize(19) }
+                    .markdownTextStyle { FontWeight(.bold); FontSize(17) }
             }
             .heading3 { config in
                 config.label
                     .markdownMargin(top: 4, bottom: 2)
-                    .markdownTextStyle { FontFamily(.custom("Poppins-SemiBold")); FontSize(17) }
+                    .markdownTextStyle { FontWeight(.semibold); FontSize(15) }
             }
     }
 
@@ -118,11 +117,23 @@ extension MarkdownUI.Theme {
         t
             .paragraph { config in
                 config.label
-                    .relativeLineSpacing(.em(0.2))
+                    // `line-height: 1.5` sobre 15 pt.
+                    .relativeLineSpacing(.em(0.3))
                     .markdownMargin(top: 0, bottom: 10)
             }
+            // Viñetas del diseño: `400 14px/1.45 #2A2933`, 6 pt entre renglones y un punto
+            // morado de 5 pt en vez del disco negro.
             .listItem { config in
-                config.label.markdownMargin(top: 4)
+                config.label
+                    .markdownTextStyle { FontSize(14); ForegroundColor(.gInkBody) }
+                    .relativeLineSpacing(.em(0.3))
+                    .markdownMargin(top: 6)
+            }
+            .bulletedListMarker { _ in
+                Circle()
+                    .fill(Color.gPrimary)
+                    .frame(width: 5, height: 5)
+                    .relativeFrame(minWidth: .em(0.9), alignment: .leading)
             }
             .blockquote { config in
                 HStack(alignment: .top, spacing: 11) {
@@ -177,23 +188,30 @@ extension MarkdownUI.Theme {
     private static func tabla(_ t: MarkdownUI.Theme) -> MarkdownUI.Theme {
         t
             .table { config in
-                // La tabla es el bloque que más se rompe en un teléfono: sin scroll,
-                // tres columnas ya desbordan y el texto se apila.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    config.label
-                        .fixedSize(horizontal: true, vertical: false)
-                        .markdownTableBorderStyle(
-                            .init(color: .gSeparator, strokeStyle: .init(lineWidth: 1))
-                        )
+                // La tarjeta de tabla del diseño, con «Exportar a Excel» y «Copiar». Se
+                // arma de las FILAS (no de la vista de MarkdownUI) porque el Excel y el
+                // copiar necesitan los datos, y así la tarjeta y el archivo dicen lo mismo.
+                let filas = Tabular.deMarkdown(config.content.renderMarkdown())
+                if filas.count > 1 {
+                    TablaCard(filas: filas)
+                        .markdownMargin(top: 4, bottom: 10)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        config.label
+                            .fixedSize(horizontal: true, vertical: false)
+                            .markdownTableBorderStyle(
+                                .init(color: .gSeparator, strokeStyle: .init(lineWidth: 1))
+                            )
+                    }
+                    .markdownMargin(top: 4, bottom: 10)
                 }
-                .markdownMargin(top: 4, bottom: 10)
             }
             .tableCell { config in
                 config.label
                     .markdownTextStyle {
-                        FontSize(14)
+                        FontSize(13)
                         if config.row == 0 { FontWeight(.semibold) }
-                        ForegroundColor(config.row == 0 ? .gInk : .gInk2)
+                        ForegroundColor(config.row == 0 ? .gInk3 : .gInk)
                     }
                     .frame(minWidth: 92, alignment: .leading)
                     .padding(.horizontal, 12)

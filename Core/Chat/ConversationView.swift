@@ -21,8 +21,17 @@ struct ConversationView: View {
     @State private var abrirFotos = false
     @State private var abrirArchivos = false
     @State private var abrirCamara = false
-    /// ¿Está abierta la fila de tres tarjetas del `+`?
-    @State private var adjuntando = false
+    /// La hoja «Agregar» y el overlay de voz se pintan en la raíz (ver `CapaDeChat`).
+    @Environment(CapaDeChat.self) private var capa: CapaDeChat?
+    /// ¿La grabación en curso es la del overlay «Te escucho…» (un toque al micrófono)?
+    @State private var vozConOverlay = false
+    /// Cuándo empezó el toque al micrófono: menos de ~0.35 s sin arrastrar es un TOQUE.
+    @State private var inicioDelToque: Date?
+    /// Los mensajes que ya estaban en pantalla: sólo los NUEVOS entran con `gin`. Sin esto
+    /// abrir un hilo largo lo hacía aparecer entero, y cada envío —que mueve mensajes de
+    /// un contenedor a otro alrededor del ancla— los volvía a animar.
+    @State private var yaVistos: Set<String> = []
+    @State private var semillaDeVistos = ""
     @State private var subiendo = false
     /// Mandar esto le corta el trabajo al agente: se pregunta antes.
     @State private var avisoDeCorte = false
@@ -76,8 +85,6 @@ struct ConversationView: View {
                             onNueva: { store.nuevaConversacion() },
                             onHistorial: onHistorial.map { abrir in { escribiendo = false; abrir() } },
                             puntoHistorial: store.hayPendientes)
-                    .padding(.top, 4)
-                    .padding(.bottom, 12)
             }
 
             // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y
@@ -148,58 +155,177 @@ struct ConversationView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: adjuntos.count)
         .sensoryFeedback(.start, trigger: grabador.grabando)
         .sensoryFeedback(.impact(weight: .medium), trigger: vozBloqueada)
+        // El overlay de voz sigue a la grabación: si ésta acaba por otro lado, se va.
+        .onChange(of: grabador.grabando) { _, graba in if !graba { cerrarOverlayDeVoz() } }
+        .onDisappear {
+            if vozConOverlay { cancelarVoz(); cerrarOverlayDeVoz() }
+        }
+        // Lo que ya estaba al abrir no entra animado; lo que llega, sí (`gin`).
+        .onAppear { sembrarVistos() }
+        .onChange(of: hiloVisible) { _, _ in sembrarVistos() }
+        .onChange(of: store.messages.count) { _, _ in
+            Task { @MainActor in sembrarVistos() }
+        }
+        .task { await ganchosDelChat() }
     }
 
-    /// Ejemplos de lo que se le puede pedir. Al tocarlos se escriben en el campo —no se
-    /// envían— para que la persona pueda cambiarlos antes de mandarlos.
-    private static let ejemplos = [
-        "Resume este PDF",
-        "Búscame precios y hazme una tabla",
-        "Arma una cotización en PDF",
+    /// Ganchos de desarrollo para poder MIRAR el chat en el simulador sin tocarlo:
+    /// `GHOSTY_DEMO_CHAT=1` (pasos, tabla y archivo) o `=vacio` (el chat vacío), `GHOSTY_AGREGAR=1` (la hoja) y
+    /// `GHOSTY_VOZ=1` (el overlay «Te escucho…», sin grabar).
+    private func ganchosDelChat() async {
+        if DemoData.encendido {
+            switch Gancho.valor("GHOSTY_DEMO_CHAT") {
+            case "1"?: store.hiloActivo?.mensajes = DemoDelChat.mensajes()
+            // Hasta la tabla: para fotografiarla sin poder hacer scroll.
+            case "tabla"?: store.hiloActivo?.mensajes = Array(DemoDelChat.mensajes().prefix(4))
+            case "vacio"?: store.nuevaConversacion()
+            default: break
+            }
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        if Gancho.valor("GHOSTY_AGREGAR") == "1" { abrirAgregar() }
+        if Gancho.valor("GHOSTY_VOZ") == "1" {
+            vozConOverlay = true
+            capa?.cubrir(OverlayDeVoz(grabador: grabador,
+                                      alTerminar: { cerrarOverlayDeVoz() },
+                                      alDescartar: { cerrarOverlayDeVoz() }))
+        }
+    }
+
+    /// Lo que se le puede encargar, del diseño. Tocar una la MANDA (el prototipo lo hace
+    /// así: el vacío es el onboarding y la sugerencia es el primer encargo). La del PDF
+    /// no tiene sentido sin un PDF: abre «Agregar» con el texto ya puesto.
+    private struct Sugerencia: Identifiable {
+        let titulo: String
+        let sub: String
+        let encargo: String
+        let icono: GhostyStrokeIcon
+        var pideArchivo = false
+        var id: String { titulo }
+    }
+
+    private static let sugerencias = [
+        Sugerencia(titulo: "Resume este PDF", sub: "Sube un archivo y te lo explico",
+                   encargo: "Resume este PDF", icono: ChatIcons.pdf, pideArchivo: true),
+        Sugerencia(titulo: "Búscame precios", sub: "Comparo proveedores en una tabla",
+                   encargo: "Búscame precios y hazme una tabla", icono: ChatIcons.tabla),
+        Sugerencia(titulo: "Arma una cotización", sub: "Con tu catálogo, lista en PDF",
+                   encargo: "Arma una cotización en PDF", icono: ChatIcons.cotizacion),
     ]
 
-    /// El vacío del hilo.
+    /// El vacío del hilo: la mascota con su aro, «¿Qué le encargamos hoy?» y las
+    /// sugerencias, pegado ABAJO (junto al compositor), como el prototipo.
     ///
-    /// ⚠️ NO explica cómo funciona por dentro. Decía "este hilo habla con tu caja de verdad
-    /// y lo que contesta se pinta como markdown": la caja es vocabulario NUESTRO —nadie de
-    /// fuera sabe qué es— y el markdown es un detalle de implementación que no le resuelve
-    /// nada a quien abre la app por primera vez. Lo que esa persona necesita saber es qué
-    /// pedirle, así que el vacío ES el onboarding. Es lo que hace Muse con su pestaña de
-    /// ideas y lo que hacen todos los demás.
-    ///
-    /// Dónde SÍ se nombra la máquina: en Ajustes, en posesivo y como promesa ("vive en tu
-    /// propia computadora en la nube"), que es exactamente el molde de Meta — primero lo
-    /// que es tuyo, después, y sólo si hace falta, lo técnico.
+    /// ⚠️ NO explica cómo funciona por dentro («tu caja», «markdown»): quien abre la app
+    /// por primera vez necesita saber qué pedirle, no cómo está hecha.
     private var primeraVez: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "bubble.left.and.text.bubble.right")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(Color.gInk4)
-            Text("¿En qué te ayudo?")
-                .font(.system(size: 17, weight: .semibold))
+        VStack(alignment: .leading, spacing: 0) {
+            // 76 con aro de 8 (`#ECEAFB`) y la sombra morada `0 10px 30px rgba(91,75,214,.25)`.
+            AgentAvatar(tone: store.selectedAgent?.tone ?? .lila, size: 76)
+                .background(Circle().fill(Color.gPrimaryRing).padding(-8))
+                .shadow(color: Theme.Shadow.morado.opacity(0.25), radius: 15, y: 10)
+                .padding(.leading, 8 + 8)
+                .padding(.top, 8)
+                .padding(.bottom, 26)
+                .gIn()
+
+            Text("¿Qué le encargamos hoy?")
+                .font(.system(size: 32, weight: .heavy))
+                .tracking(-0.96)
+                .lineSpacing(-2)
+                .foregroundStyle(Color.gInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .gIn(delay: 0.04)
+            Text("No solo contesta: opera tus herramientas y te avisa cuando termina.")
+                .font(.system(size: 15))
+                .lineSpacing(3)
                 .foregroundStyle(Color.gInk2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.top, 10)
+                .padding(.bottom, 22)
+                .gIn(delay: 0.08)
 
             VStack(spacing: 8) {
-                ForEach(Self.ejemplos, id: \.self) { texto in
-                    Button {
-                        borrador = texto
-                        escribiendo = true
-                    } label: {
-                        Text(texto)
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.gInk)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.gCard, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                ForEach(Array(Self.sugerencias.enumerated()), id: \.element.id) { i, s in
+                    tarjetaDeSugerencia(s)
+                        .gIn(delay: 0.12 + Double(i) * 0.05)
                 }
             }
-            .padding(.top, 2)
         }
-        .frame(maxWidth: 300)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
+        .padding(.bottom, 16)
+        // Pegado abajo: el vacío ocupa lo que se ve del hilo y se alinea al fondo. Lo que
+        // el hilo pone debajo (cinco huecos de 14, el fondo y el `padding` de 28) es
+        // invisible: se le come con padding negativo para que el vacío quede junto al
+        // compositor, como el prototipo, y sin sobrar scroll.
+        .frame(minHeight: altoVisible, alignment: .bottom)
+        .padding(.bottom, -(5 * 14 + 1 + 28))
+        .accessibilityIdentifier("chat-vacio")
+    }
+
+    private func tarjetaDeSugerencia(_ s: Sugerencia) -> some View {
+        Button { usarSugerencia(s) } label: {
+            HStack(spacing: 12) {
+                s.icono.dibujo(Color.gPrimary, size: 22, ancho: 1.7)
+                    .frame(width: 36, height: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.titulo)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                    Text(s.sub)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.gInk3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                ChatIcons.chevronDerecha.dibujo(Color.gChevron, size: 16)
+            }
+            .padding(.vertical, 13)
+            .padding(.leading, 10).padding(.trailing, 14)
+            .ghostyCard(radius: Theme.Radius.card)
+            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        }
+        .buttonStyle(GhostyPressStyle(scale: 0.98, pressedBackground: nil))
+        .accessibilityIdentifier("sugerencia-\(s.titulo)")
+    }
+
+    private func usarSugerencia(_ s: Sugerencia) {
+        borrador = s.encargo
+        if s.pideArchivo && adjuntos.isEmpty {
+            abrirAgregar()
+        } else {
+            enviar()
+        }
+    }
+
+    /// «N herramientas conectadas»: las integraciones REALES de la cuenta. Lleva a la
+    /// pestaña de Integraciones. Sin ninguna conectada, invita a conectar.
+    private var chipDeHerramientas: some View {
+        let n = store.conectores.filter(\.conectado).count
+        return Button { store.pestanaPedida = .connectors } label: {
+            HStack(spacing: 6) {
+                Circle().fill(n > 0 ? Color.gGreen : Color.gInk4).frame(width: 7, height: 7)
+                Text(n == 0 ? "Conecta tus herramientas"
+                     : n == 1 ? "1 herramienta conectada" : "\(n) herramientas conectadas")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.gInk2)
+                ChatIcons.chevronChico.dibujo(Color.gInk3, size: 10, ancho: 1.6)
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.gPressPill)
+        .padding(.leading, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("chip-herramientas")
+        .transition(.opacity)
+    }
+
+    /// ¿Se enseña el vacío? Sin mensajes y sin conversación que traer del servidor.
+    private var esVacio: Bool {
+        mensajesÚnicos.isEmpty && store.hiloActivo?.sesionID == nil
     }
 
     private func esEntrega(_ m: Message) -> Bool {
@@ -293,14 +419,7 @@ struct ConversationView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: alFinal)
         .scrollDismissesKeyboard(.interactively)
         .simultaneousGesture(
-            TapGesture().onEnded {
-                escribiendo = false
-                if adjuntando {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                        adjuntando = false
-                    }
-                }
-            }
+            TapGesture().onEnded { escribiendo = false }
         )
         // El dedo manda: el ancla la mueve el sistema al hacer scroll, y de ahí sale
         // si sigues el final o subiste a releer.
@@ -423,7 +542,7 @@ struct ConversationView: View {
                 } else if store.hiloActivo?.sesionID != nil {
                     trayendoElHilo.padding(.top, 90)
                 } else {
-                    primeraVez.padding(.top, 90)
+                    primeraVez
                 }
             }
             Color.clear.frame(height: 0)
@@ -460,7 +579,7 @@ struct ConversationView: View {
             // el ancla no mueve nada.
             Color.clear.frame(height: 1).id(Self.fondo)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 18)
         // ⚠️ Aire al final, que es el «siempre esconde contenido»: sin esto la
         // última línea queda justo debajo de la barra de conversaciones y hay que
         // adivinar que sigue ahí.
@@ -494,7 +613,10 @@ struct ConversationView: View {
     @ViewBuilder
     private var pieDeTrabajo: some View {
         if store.currentTurn != nil {
-            MascotaPensando(tone: store.selectedAgent?.tone ?? .lila, texto: textoDelPie)
+            // Los tres puntos (`gdot`) en la columna del agente. Si lo último ya es suyo,
+            // su avatar está justo arriba: no se repite.
+            TypingBubble(tone: ultimoEsDelAgente ? nil : (store.selectedAgent?.tone ?? .lila),
+                         texto: textoDelPie)
                 // ⚠️ `combine` ANTES del identificador: sin eso el `HStack` no es un
                 // elemento de accesibilidad y el identificador no existe para nadie —ni
                 // para VoiceOver ni para el recorrido que comprueba que el indicador sigue.
@@ -504,10 +626,16 @@ struct ConversationView: View {
         }
     }
 
+    private var ultimoEsDelAgente: Bool {
+        if case .agent = mensajesÚnicos.last?.kind { return true }
+        return false
+    }
+
     /// Lo que hace, salvo que la línea de pasos ya lo esté diciendo: dos frases para el
     /// mismo hecho, una encima de otra, es de lo que más ensucia esta pantalla.
     private var textoDelPie: String? {
-        if case .agent(_, let tools, _) = mensajesÚnicos.last?.kind, tools?.corriendo != nil {
+        // La tarjeta de pasos ya lo dice (corriendo o «pensando el siguiente paso»).
+        if case .agent(_, let tools, _) = mensajesÚnicos.last?.kind, (tools?.count ?? 0) > 0 {
             return nil
         }
         return store.currentTurn?.detail ?? "Pensando…"
@@ -557,12 +685,20 @@ struct ConversationView: View {
     @ViewBuilder
     private func filaAnimada(_ mensaje: Message) -> some View {
         fila(mensaje).id(mensaje.id)
-            // Sólo la entrega se anima al entrar: llega a mitad del turno
-            // y aparecer de golpe se lee como un salto. Animar CADA trozo
-            // del streaming haría temblar el hilo entero.
+            // `gin .3s`: todo mensaje NUEVO entra subiendo 8 pt con fade, como el
+            // prototipo. Los que ya estaban al abrir el hilo no (ver `yaVistos`), y la
+            // animación es de la FILA al nacer, no de cada trozo del streaming.
+            .modifier(EntradaGin(animar: semillaDeVistos == hiloVisible && !yaVistos.contains(mensaje.id)))
             .transition(esEntrega(mensaje)
                         ? .scale(scale: 0.94).combined(with: .opacity)
                         : .identity)
+    }
+
+    /// Da por vistos los mensajes que hay ahora. Al abrir un hilo, todos; después, cada
+    /// vez que llega uno (ya nació animado, y así no se re-anima al moverse de sitio).
+    private func sembrarVistos() {
+        yaVistos.formUnion(store.messages.map(\.id))
+        semillaDeVistos = hiloVisible
     }
 
     /// Si sigues el final, quédate en él.
@@ -611,8 +747,8 @@ struct ConversationView: View {
     private func fila(_ mensaje: Message) -> some View {
         switch mensaje.kind {
         case .user(let t, let adj, let steer):
-            HStack {
-                Spacer(minLength: 40)
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
                 UserBubble(text: t, adjuntos: adj, vuelo: vuelo, steer: steer)
             }
         case .agent(let t, let tools, let trailing):
@@ -621,23 +757,27 @@ struct ConversationView: View {
             // instante; con las dos salían dos mascotas en la misma pantalla.
             AgentBubble(text: t, tools: tools, trailing: trailing,
                         vivo: store.currentTurn != nil && mensaje.id == mensajesÚnicos.last?.id,
-                        showCopy: mensaje.id == lastReplyID)
+                        showCopy: mensaje.id == lastReplyID,
+                        tone: store.selectedAgent?.tone ?? .lila)
         case .entrega(let e):
-            HStack {
+            // En la columna del agente (38 = avatar 28 + 10): lo entregó él.
+            HStack(spacing: 0) {
                 EntregaCard(entrega: e)
                     .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
-                                         consecuencia: "Se quita de esta conversación y de Artefactos. Vive sólo en este teléfono.") {
+                                         consecuencia: "Se quita de esta conversación y de Archivos. Vive sólo en este teléfono.") {
                         store.borrarEntrega(e.id)
                     }
-                Spacer(minLength: 30)
+                Spacer(minLength: 0)
             }
+            .padding(.leading, 38)
         case .prCard(let card):
-            HStack {
+            HStack(spacing: 0) {
                 PRCard(card: card,
                        onApprove:        { Task { await store.respondToPR(card, approve: true) } },
                        onRequestChanges: { Task { await store.respondToPR(card, approve: false) } })
                 Spacer(minLength: 30)
             }
+            .padding(.leading, 38)
         case .sistema(let causa):
             HStack {
                 Spacer()
@@ -652,8 +792,9 @@ struct ConversationView: View {
         case .typing:
             // La mascota pensando y, al lado, lo que está haciendo en una línea. Es el
             // indicador de carga del hilo (como el spinner de Claude bajo la herramienta).
-            MascotaPensando(tone: store.selectedAgent?.tone ?? .lila,
-                            texto: store.hiloActivo?.turno?.detail ?? "Pensando…")
+            TypingBubble(tone: store.selectedAgent?.tone ?? .lila,
+                         texto: store.hiloActivo?.turno?.detail ?? "Pensando…")
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("pensando")
         }
     }
@@ -672,11 +813,13 @@ struct ConversationView: View {
     private var compositor: some View {
         VStack(spacing: 8) {
             if !adjuntos.isEmpty || fallo != nil { antesDeMandar }
+            // «N herramientas conectadas», sólo en el vacío (como el prototipo).
+            if esVacio && adjuntos.isEmpty && fallo == nil { chipDeHerramientas }
             capsula
-            if adjuntando { tarjetasDeAdjuntar }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.bottom, 6)
+        .animation(.easeOut(duration: 0.2), value: esVacio)
         .photosPicker(isPresented: $abrirFotos, selection: $fotos, maxSelectionCount: 4,
                       matching: .images)
         .onChange(of: fotos) { _, nuevas in
@@ -708,53 +851,42 @@ struct ConversationView: View {
         }
     }
 
-    /// De dónde sacar lo que se manda.
+    /// La hoja «Agregar» del diseño: Foto, Cámara, Archivo y, con su flag, Programar.
     ///
-    /// ⚠️ Era un `Menu` nativo de iOS: tres renglones grises con iconos diminutos, que
-    /// aparecían flotando encima del compositor tapándolo. Tres tarjetas grandes debajo
-    /// son un blanco de dedo de verdad, se leen de un vistazo y no esconden lo que estabas
-    /// escribiendo. Son las mismas tres puertas de siempre — los pickers no se tocaron.
-    private var tarjetasDeAdjuntar: some View {
-        HStack(spacing: 8) {
-            tarjeta("Cámara", "camera") { abrirCamara = true }
-            tarjeta("Foto", "photo") { abrirFotos = true }
-            tarjeta("Documento", "paperclip") { abrirArchivos = true }
-            // Programar sólo tiene sentido con una conversación que ya existe en gs.
-            if agenda != nil && AppConfig.shared.isOn("agenda") {
-                tarjeta("Programar", "clock.badge.checkmark") { abrirAgenda = true }
+    /// ⚠️ Fue una fila de tres tarjetas debajo del compositor (y antes un `Menu`). El
+    /// diseño la pasa a hoja: es la misma para todo lo que «se agrega» y deja el
+    /// compositor en su sitio. Los pickers son los mismos de siempre.
+    private func abrirAgregar() {
+        escribiendo = false
+        guard let capa else { abrirArchivos = true; return }
+        let programar = agenda != nil && AppConfig.shared.isOn("agenda")
+        capa.abrirHoja("Agregar", identificador: "hoja-agregar") {
+            VStack(spacing: 6) {
+                filaDeAgregar("Foto", "De tu galería", ChatIcons.foto) { abrirFotos = true }
+                filaDeAgregar("Cámara", "Toma una foto o escanea", ChatIcons.camara) { abrirCamara = true }
+                filaDeAgregar("Archivo", "PDF, Excel, Word", ChatIcons.documento) { abrirArchivos = true }
+                // Programar sólo tiene sentido con una conversación que ya existe en gs.
+                if programar {
+                    filaDeAgregar("Programar", "Que lo haga solo, más tarde", ChatIcons.reloj) {
+                        abrirAgenda = true
+                    }
+                }
             }
         }
-        .transition(.asymmetric(
-            insertion: .move(edge: .bottom).combined(with: .opacity),
-            removal: .opacity))
     }
 
-    private func tarjeta(_ nombre: String, _ icono: String, _ accion: @escaping () -> Void) -> some View {
-        Button {
-            // Se cierra al elegir: la fila ya cumplió y dejarla abierta detrás del picker
-            // significa encontrarla puesta al volver, sin que nadie la haya pedido.
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { adjuntando = false }
-            accion()
-        } label: {
-            VStack(spacing: 7) {
-                Image(systemName: icono)
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundStyle(Color.gInk)
-                Text(nombre)
-                    .gChip()
-                    .foregroundStyle(Color.gInk)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, Theme.Space.cardH)
-            // ⚠️ El MISMO radio y la MISMA sombra que la cápsula que tienen encima. Con un
-            // 16 inventado convivían tres radios distintos en cuatro dedos de pantalla
-            // —16, 18 y el 19 del tab bar—, y sin sombra parecían recortes de papel
-            // debajo de una cápsula que sí flota.
-            .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
+    private func filaDeAgregar(_ titulo: String, _ sub: String, _ icono: GhostyStrokeIcon,
+                               _ accion: @escaping () -> Void) -> some View {
+        GhostySheetRow(title: titulo, subtitle: sub, action: {
+            capa?.cerrarHoja()
+            // El picker del sistema sale cuando la hoja ya se está yendo: presentarlo
+            // encima de la animación de salida lo hacía aparecer a medias.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { accion() }
+        }) {
+            icono.dibujo(Color.gInk, size: 22, ancho: 1.7)
+                .frame(width: 36, height: 36)
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("adjuntar-\(nombre)")
+        .accessibilityIdentifier("adjuntar-\(titulo)")
     }
 
     /// Los adjuntos que esperan, y el aviso si algo falló.
@@ -773,39 +905,60 @@ struct ConversationView: View {
                         }
                     }
                     .padding(.horizontal, 2)
+                    .padding(.vertical, 4)
                 }
-                .frame(height: 52)
+                .frame(height: 58)
             }
             if let fallo {
-                Text(fallo).gCaption().foregroundStyle(Color.gDangerInk)
-                    .padding(.horizontal, 4)
+                // El envío que no salió: el texto y los adjuntos ya volvieron al
+                // compositor; aquí se dice y se ofrece mandarlo otra vez.
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.gDanger)
+                    Text(fallo)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.gDangerInk)
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    if hayQueMandar {
+                        Button("Reintentar", action: enviar)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.gPrimary)
+                            .accessibilityIdentifier("reintentar-envio")
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(Color.gDangerTint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .transition(.gIn)
             }
         }
         .transition(.opacity)
     }
 
-    /// UNA sola cápsula que se transforma por dentro.
+    /// UNA sola cápsula que se transforma por dentro: blanca, r28, padding 6, borde fino
+    /// y la sombra suave del diseño.
     ///
     /// ⚠️ Primero puse una cápsula distinta para grabar, y estaba mal: son dos vistas que
     /// se sustituyen, o sea un salto. Lo que hace WhatsApp —y lo correcto— es que el
     /// compositor SIGA siendo el mismo y le cambie el contenido, con el control de la
     /// derecha en su sitio todo el rato.
     private var capsula: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 6) {
             if grabador.grabando {
                 BarraDeGrabacion(segundos: grabador.segundos,
                                  onda: grabador.enVivo,
                                  haciaCancelar: haciaCancelar,
                                  bloqueado: vozBloqueada,
                                  alCancelar: { cancelarVoz() })
+                    .padding(.leading, 8)
                     // El ORIGEN del vuelo. Con el mismo id que la burbuja y en la misma
                     // transacción animada, SwiftUI interpola una en la otra: lo que sueltas
                     // SE CONVIERTE en el mensaje, en vez de desaparecer para que aparezca
                     // otra cosa.
                     .matchedGeometryEffect(id: enVuelo.map { "voz-\($0)" } ?? "voz-ninguna",
                                            in: vuelo, isSource: false)
-                    // Entra por la derecha, de donde viene el micrófono. Un fundido no dice
-                    // de dónde salió esto; el deslizamiento sí, y es lo que hace WhatsApp.
+                    // Entra por la derecha, de donde viene el micrófono.
                     .transition(.asymmetric(
                         insertion: .move(edge: .trailing).combined(with: .opacity),
                         removal: .opacity))
@@ -816,15 +969,19 @@ struct ConversationView: View {
             }
             control
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 46)
-        .background(Color.gCard)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.06), radius: 6, y: 3)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: hayQueMandar)
+        .padding(6)
+        .frame(minHeight: 56)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: Theme.Radius.composer, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Radius.composer, style: .continuous)
+                .strokeBorder(Color.gSeparator, lineWidth: 1)
+        }
+        .ghostySoftShadow()
         // Se tiñe de rojo según te acercas a cancelar: el aviso llega ANTES de soltar, que
         // es cuando todavía se puede rectificar.
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.Radius.composer, style: .continuous)
                 .fill(Color.gDanger.opacity(haciaCancelar * 0.12))
                 .allowsHitTesting(false)
         }
@@ -837,35 +994,36 @@ struct ConversationView: View {
     /// El control de la derecha, UNO solo: manda si escribiste, detiene si no.
     ///
     /// ⚠️ Estuvieron los dos a la vez —detener y mandar— mientras el agente trabajaba, y
-    /// se sentía cargado: dos círculos pegados compitiendo por el mismo pulgar. Es lo que
-    /// hacen ChatGPT y Claude: un control multiplexado.
-    ///
-    /// ⚠️ El precio, dicho: **con algo escrito no se puede detener sin borrarlo primero**.
-    /// Apple desaconseja los botones de doble propósito justo por esto (el botón cambia
-    /// bajo el dedo), y en ChatGPT hay quejas de que el «parar» acaba mandando. Si estorba
-    /// en uso real, la vuelta atrás es separarlos otra vez, pero con 44 pt de área táctil
-    /// y aire entre ellos — que es lo que hacen las apps de agentes, y sin eso un toque
-    /// que iba a mandar mata el turno.
+    /// se sentía cargado. Es lo que hacen ChatGPT y Claude: un control multiplexado.
+    /// El precio: con algo escrito no se puede detener sin borrarlo primero.
     @ViewBuilder
     private var control: some View {
-        if store.currentTurn != nil && !grabador.grabando && !hayQueMandar {
-            botonDetener
-        } else {
-            controlPrincipal
+        Group {
+            if store.currentTurn != nil && !grabador.grabando && !hayQueMandar {
+                botonDetener
+            } else {
+                controlPrincipal
+            }
         }
+        .transition(.scale(scale: 0.6).combined(with: .opacity))
+    }
+
+    /// Botón redondo de 44 del diseño.
+    private func circulo<Fondo: ShapeStyle>(_ fondo: Fondo, @ViewBuilder _ icono: () -> some View) -> some View {
+        Circle().fill(fondo)
+            .frame(width: 44, height: 44)
+            .overlay { icono() }
     }
 
     private var botonDetener: some View {
         Button { Task { await store.stopTurn() } } label: {
-            RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
-                .fill(Color.gInk)
-                .frame(width: 30, height: 30)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 2.5).fill(Color.white)
-                        .frame(width: 9, height: 9)
-                }
+            circulo(Color.gDark) {
+                RoundedRectangle(cornerRadius: 3).fill(Color.white)
+                    .frame(width: 12, height: 12)
+            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.gPressPrimary)
+        .accessibilityLabel("Detener")
         .accessibilityIdentifier("detener")
     }
 
@@ -873,27 +1031,20 @@ struct ConversationView: View {
     private var controlPrincipal: some View {
         if grabador.grabando && vozBloqueada {
             Button(action: soltarVoz) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(Theme.primaryGradient, in: Circle())
+                circulo(Color.gDark) { ChatIcons.enviar.dibujo(.white, size: 18, ancho: 2) }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.gPressPrimary)
+            .accessibilityLabel("Mandar nota de voz")
         } else if hayQueMandar || !AppConfig.shared.isOn("voice") {
-            // Con la voz apagada desde gs (`flags.voice`), el botón de enviar ocupa el lugar
-            // del micrófono, inactivo mientras no haya nada que mandar.
+            // Enviar: `#15141B` con la flecha. Con la voz apagada desde gs (`flags.voice`)
+            // ocupa el sitio del micrófono, inactivo mientras no haya nada que mandar.
             Button(action: enviar) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(subiendo
-                                ? AnyShapeStyle(Color.gInk4.opacity(0.45))
-                                : AnyShapeStyle(Theme.primaryGradient))
-                    .clipShape(Circle())
+                circulo(subiendo || !hayQueMandar ? Color.gInk4.opacity(0.45) : Color.gDark) {
+                    ChatIcons.enviar.dibujo(.white, size: 18, ancho: 2)
+                }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.gPressPrimary)
+            .accessibilityLabel("Enviar")
             .accessibilityIdentifier("enviar")
             .disabled(subiendo || !hayQueMandar)
         } else {
@@ -901,48 +1052,48 @@ struct ConversationView: View {
         }
     }
 
-    /// ⚠️ **Late con tu voz.** Un micrófono que no reacciona no dice si te está oyendo, y
-    /// eso es lo primero que uno quiere saber al grabar. El nivel sale del medidor del
-    /// grabador, el mismo que dibuja la onda.
+    /// El micrófono morado del diseño. Dos gestos en uno:
+    /// - **Un toque** abre «Te escucho…» y graba; otro toque en el overlay termina y manda.
+    /// - **Mantener** graba en el compositor, como WhatsApp: izquierda cancela, arriba
+    ///   bloquea, soltar manda. Es donde viven el deslizar-para-cancelar y el vuelo.
+    ///
+    /// ⚠️ **Late con tu voz.** Un micrófono que no reacciona no dice si te está oyendo.
     private var microfono: some View {
         let nivel = Double(grabador.onda.last ?? 0)
-        return Image(systemName: "mic.fill")
-            .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: 30, height: 30)
-            .background {
-                Circle()
-                    .fill(grabador.grabando
-                          ? AnyShapeStyle(Color.gDanger)
-                          : AnyShapeStyle(Theme.primaryGradient))
-                    // El halo crece con la voz; el círculo sólo un poco, o el icono baila.
-                    .overlay {
-                        Circle()
-                            .stroke(Color.gDanger.opacity(grabador.grabando ? 0.35 : 0), lineWidth: 3)
-                            .scaleEffect(1 + nivel * 0.9)
-                    }
-            }
-            // Sigue al DEDO. Es la mitad de la sensación: sin esto el gesto es un umbral
-            // invisible y el botón se queda quieto mientras arrastras.
-            .offset(x: grabador.grabando && !vozBloqueada ? min(0, arrastre.width) : 0,
-                    y: grabador.grabando && !vozBloqueada ? min(0, max(-70, arrastre.height)) : 0)
-            // Y se encoge conforme se acerca al bote, como si lo fuera a soltar dentro.
-            .scaleEffect(grabador.grabando ? (1 + nivel * 0.18) * (1 - haciaCancelar * 0.35) : 1)
-            .opacity(1 - haciaCancelar * 0.4)
-            .animation(.easeOut(duration: 0.08), value: nivel)
-            .contentShape(Circle())
-            .gesture(gestoDeVoz)
+        return circulo(grabador.grabando ? Color.gDanger : Color.gPrimary) {
+            ChatIcons.microfono.dibujo(.white, size: 18, ancho: 1.9)
+        }
+        .background {
+            // El halo crece con la voz; el círculo sólo un poco, o el icono baila.
+            Circle()
+                .stroke(Color.gDanger.opacity(grabador.grabando ? 0.35 : 0), lineWidth: 3)
+                .scaleEffect(1 + nivel * 0.9)
+        }
+        .ghostyPrimaryShadow()
+        // Sigue al DEDO: sin esto el gesto es un umbral invisible.
+        .offset(x: grabador.grabando && !vozBloqueada ? min(0, arrastre.width) : 0,
+                y: grabador.grabando && !vozBloqueada ? min(0, max(-70, arrastre.height)) : 0)
+        // Y se encoge conforme se acerca al bote, como si lo fuera a soltar dentro.
+        .scaleEffect(grabador.grabando ? (1 + nivel * 0.18) * (1 - haciaCancelar * 0.35) : 1)
+        .opacity(1 - haciaCancelar * 0.4)
+        .animation(.easeOut(duration: 0.08), value: nivel)
+        .contentShape(Circle())
+        .gesture(gestoDeVoz)
+        .accessibilityElement()
+        .accessibilityLabel("Nota de voz")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { empezarConOverlay() }
+        .accessibilityIdentifier("microfono")
     }
 
     private var gestoDeVoz: some Gesture {
         // Un solo `DragGesture` desde 0: tocar empieza a grabar, arrastrar decide, soltar
-        // manda. Encadenar LongPress con Drag —lo que había— hacía que el primer instante
-        // no respondiera y que el arrastre llegara en otro sistema de coordenadas: el gesto
-        // se sentía muerto.
+        // manda (o abre el overlay si fue un toque).
         DragGesture(minimumDistance: 0)
             .onChanged { v in
                 if !grabador.grabando {
                     escribiendo = false
+                    inicioDelToque = Date()
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                         grabador.empezar()
                     }
@@ -950,7 +1101,18 @@ struct ConversationView: View {
                 arrastre = v.translation
             }
             .onEnded { v in
-                if v.translation.width < -90 { cancelarVoz() }
+                let duro = Date().timeIntervalSince(inicioDelToque ?? .distantPast)
+                inicioDelToque = nil
+                let quieto = abs(v.translation.width) < 12 && abs(v.translation.height) < 12
+                if quieto && duro < 0.35 {
+                    // Un TOQUE: «Te escucho…». La grabación ya empezó; se sigue en manos
+                    // libres y el overlay la termina.
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        vozBloqueada = true
+                        arrastre = .zero
+                    }
+                    mostrarOverlayDeVoz()
+                } else if v.translation.width < -90 { cancelarVoz() }
                 // Arriba = manos libres, como WhatsApp: sigue grabando y aparecen la
                 // papelera y el enviar.
                 else if v.translation.height < -70 {
@@ -962,43 +1124,59 @@ struct ConversationView: View {
             }
     }
 
+    /// Para VoiceOver (y el gancho `GHOSTY_VOZ`): grabar directo en el overlay.
+    private func empezarConOverlay() {
+        escribiendo = false
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            grabador.empezar()
+            vozBloqueada = true
+        }
+        mostrarOverlayDeVoz()
+    }
+
+    private func mostrarOverlayDeVoz() {
+        vozConOverlay = true
+        capa?.cubrir(OverlayDeVoz(grabador: grabador,
+                                  alTerminar: { cerrarOverlayDeVoz(); soltarVoz() },
+                                  alDescartar: { cerrarOverlayDeVoz(); cancelarVoz() }))
+    }
+
+    private func cerrarOverlayDeVoz() {
+        guard vozConOverlay else { return }
+        vozConOverlay = false
+        capa?.descubrir()
+    }
+
     /// Lo que va DENTRO de la cápsula cuando no se está grabando: el `+` y el campo.
     /// El control de la derecha lo pone `capsula`, porque es el que cambia de identidad.
     private var campoInterior: some View {
-        HStack(spacing: 10) {
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) {
-                    adjuntando.toggle()
-                }
-                if adjuntando { escribiendo = false }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(adjuntando ? Color.gInk : Color.gInk3)
-                    // Gira a `×`: el mismo botón que abrió cierra, y el giro lo dice sin
-                    // cambiar de icono ni mover nada de sitio.
-                    .rotationEffect(.degrees(adjuntando ? 45 : 0))
-                    .frame(width: 30, height: 30)
-                    .contentShape(Rectangle())
+        HStack(spacing: 6) {
+            Button(action: abrirAgregar) {
+                ChatIcons.mas.dibujo(Color.gInk, size: 18, ancho: 1.9)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.gPressIcon)
+            .accessibilityLabel("Agregar")
             .accessibilityIdentifier("adjuntar")
             // Un archivo no se puede meter en el turno en marcha (gs steerea texto, no
             // adjuntos): mientras trabaja, adjuntar sólo llevaría a cortarle el trabajo.
             .disabled(store.currentTurn != nil)
             .opacity(store.currentTurn != nil ? 0.35 : 1)
 
-            // ⚠️ Aquí NO va "nueva conversación". Estuvo, y eran dos entradas para lo
-            // mismo: la barra de conversaciones de justo encima ya la lista todas y
-            // termina en su «+», que es donde uno la busca — al final de la lista.
-
-            TextField(store.currentTurn == nil ? "Mensaje" : "Dile algo más…", text: $borrador, axis: .vertical)
+            TextField("", text: $borrador,
+                      prompt: Text(store.currentTurn == nil ? "Pide algo o encarga una tarea" : "Dile algo más…")
+                        .foregroundStyle(Color.gInk4),
+                      axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
-                .lineLimit(1...4)
+                .foregroundStyle(Color.gInk)
+                .lineLimit(1...5)
+                .padding(.horizontal, 6)
                 .focused($escribiendo)
                 .submitLabel(.send)
                 .onSubmit(enviar)
+                .accessibilityIdentifier("campo-mensaje")
                 .toolbar {
                     ToolbarItemGroup(placement: .keyboard) {
                         Spacer()
@@ -1065,7 +1243,6 @@ struct ConversationView: View {
         pegadoAbajo = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             adjuntos = []
-            adjuntando = false
         }
         fallo = nil
         // ⚠️ `subiendo` gatea el botón mientras los archivos viajan a la máquina del
@@ -1149,28 +1326,22 @@ struct ConversationView: View {
     }
 }
 
-/// La mascota latiendo, con una línea opcional de lo que hace.
-struct MascotaPensando: View {
-    let tone: AgentTone
-    let texto: String?
-    @State private var late = false
+/// `gin` para una fila del hilo: entra con fade subiendo 8 pt, sólo si nace nueva.
+private struct EntradaGin: ViewModifier {
+    let animar: Bool
+    @State private var visible: Bool?
+    @Environment(\.accessibilityReduceMotion) private var sinMovimiento
 
-    var body: some View {
-        HStack(spacing: 10) {
-            GhostyMascot(tone: tone, height: 26)
-                .scaleEffect(late ? 1.1 : 0.92)
-                .opacity(late ? 1 : 0.75)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) { late = true }
-                }
-            if let texto {
-                Text(texto).gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
-                    .contentTransition(.opacity)
-                    .animation(.easeInOut(duration: 0.2), value: texto)
+    func body(content: Content) -> some View {
+        let v = visible ?? !animar
+        content
+            .opacity(v ? 1 : 0)
+            .offset(y: v || sinMovimiento ? 0 : 8)
+            .onAppear {
+                guard visible == nil else { return }
+                visible = !animar
+                if animar { withAnimation(.easeOut(duration: 0.3)) { visible = true } }
             }
-            Spacer()
-        }
-        .padding(.leading, 4)
     }
 }
 
