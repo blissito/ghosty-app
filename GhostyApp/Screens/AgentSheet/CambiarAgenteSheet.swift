@@ -22,14 +22,14 @@ struct CambiarAgenteSheet: View {
                 GhostySheetRow(title: agente.name, subtitle: Self.tipo(agente), selected: elegido,
                                action: { elegir(agente) },
                                leading: { AgentAvatar(tone: agente.tone, size: 40) },
-                               extra: { barra(de: agente) })
+                               // Sólo elegir: el uso vive en Perfil y en la hoja del agente de arriba.
+                               extra: { EmptyView() })
                     .accessibilityIdentifier("agente-\(agente.id)")
                     // Las filas entran escalonadas, como el `gin` del prototipo.
                     .gIn(duration: 0.25, delay: 0.04 + Double(min(i, 6)) * 0.04)
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: store.selectedAgentID)
-        .task(id: store.agents.map(\.id)) { await cache.cargar(store.agents) }
     }
 
     /// La línea bajo el nombre: de quién es el agente.
