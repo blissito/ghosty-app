@@ -33,6 +33,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     var ownKey: OwnKey? = nil
     /// Llave propia de OpenAI: las imágenes no gastan del plan ni se cuentan.
     var ownImageKey: Bool? = nil
+    /// Cuántas de las imágenes de la semana salieron en HD.
+    var imagesWeekHd: Int? = nil
 
     struct OwnKey: Decodable, Equatable, Sendable {
         let provider: String

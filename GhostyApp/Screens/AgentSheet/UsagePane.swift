@@ -25,11 +25,13 @@ struct UsagePane: View {
                     // Una llave de OpenAI paga chat E imágenes: todo va en una sola tarjeta. Con
                     // otra llave (DeepSeek, Claude) las imágenes siguen yendo por la de casa y
                     // contando del plan, así que van en la suya.
-                    let unified = key.provider == "openai" && u.ownImageKey == true
-                    OwnKeyCard(key: key, imagesWeek: unified ? u.imagesWeek : nil).entrance(appeared, order: 1)
+                    // Con llave de OpenAI (sola, o junto a la del chat) las imágenes tampoco
+                    // gastan del plan: todo va en la misma tarjeta.
+                    let unified = u.ownImageKey == true
+                    OwnKeyCard(key: key, imagesWeek: unified ? u.imagesWeek : nil, imagesHd: u.imagesWeekHd ?? 0).entrance(appeared, order: 1)
                     if !unified, let n = u.imagesWeek {
                         ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap,
-                                   leftHd: u.imagesLeftHd, ownKey: u.ownImageKey == true,
+                                   leftHd: u.imagesLeftHd, ownKey: u.ownImageKey == true, hd: u.imagesWeekHd ?? 0,
                                    highQuality: u.plan.imageQuality.map { $0 == "high" } ?? false)
                             .entrance(appeared, order: 2)
                     }
@@ -53,7 +55,7 @@ struct UsagePane: View {
                     }
                     if let n = u.imagesWeek {
                         ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap, leftHd: u.imagesLeftHd,
-                                   ownKey: u.ownImageKey == true,
+                                   ownKey: u.ownImageKey == true, hd: u.imagesWeekHd ?? 0,
                                    highQuality: u.plan.imageQuality.map { $0 == "high" } ?? ["power", "max"].contains(u.plan.key)).entrance(appeared, order: 3)
                     }
                 }
@@ -107,6 +109,14 @@ struct UsagePane: View {
             var u = demoFree
             u.ownKey = .init(provider: "openai", turnsWeek: 42, tokensWeek: 1_840_000, dailyTurns: [9, 14, 6, 11, 2, 0, 0])
             u.ownImageKey = true
+            u.imagesWeekHd = 2
+            return u
+        }
+        if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok-two" {
+            var u = demoFree
+            u.ownKey = .init(provider: "anthropic", turnsWeek: 42, tokensWeek: 1_840_000, dailyTurns: [9, 14, 6, 11, 2, 0, 0])
+            u.ownImageKey = true
+            u.imagesWeekHd = 2
             return u
         }
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok" {
@@ -218,6 +228,8 @@ private struct ImagesCard: View {
     var leftHd: Int? = nil
     /// Con llave propia de OpenAI: sin conteo del plan.
     var ownKey = false
+    /// Cuántas de las hechas salieron en HD.
+    var hd = 0
     /// Gratis y Pro generan en calidad estándar (`personal-plans.ts`, `imageQuality`).
     let highQuality: Bool
     @State private var lit = 0
@@ -250,8 +262,9 @@ private struct ImagesCard: View {
                             .padding(.horizontal, 7).padding(.vertical, 2)
                             .background(Color.gSalmon.opacity(0.25), in: Capsule())
                     }
-                    Text(ownKey ? "Con tu llave de OpenAI · sin límite · llevas \(made)"
-                         : cap.map { "Llevas \(made) de \($0) esta semana" } ?? "Llevas \(made) esta semana").gCaption()
+                    Text((ownKey ? "Con tu llave de OpenAI · sin límite · llevas \(made)"
+                          : cap.map { "Llevas \(made) de \($0) esta semana" } ?? "Llevas \(made) esta semana")
+                         + (hd > 0 ? " · \(hd) HD" : "")).gCaption()
                 }
                 Spacer()
                 if let left {
@@ -302,6 +315,7 @@ private struct OwnKeyCard: View {
     let key: PersonalUsage.OwnKey
     /// Con llave de OpenAI también paga las imágenes: su conteo va aquí, como tercer dato.
     var imagesWeek: Int? = nil
+    var imagesHd = 0
     @State private var shownImages = 0
     @State private var shownTurns = 0
     @State private var shownTokens = 0.0
@@ -321,17 +335,22 @@ private struct OwnKeyCard: View {
     }
 
     private var daily: [Int] { key.dailyTurns ?? [] }
+    /// La del chat es de otro proveedor y la de OpenAI paga las imágenes.
+    private var twoKeys: Bool { imagesWeek != nil && key.provider != "openai" }
     private static let dayLetters = ["L", "M", "M", "J", "V", "S", "D"]
     private static let dayNames = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
+            Text("Esta semana").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk3)
+                .padding(.bottom, -8)
             HStack(spacing: 10) {
                 stat(title: "Turnos", value: Text("\(shownTurns)").contentTransition(.numericText(value: Double(shownTurns))))
                 stat(title: "Tokens", value: Text(Self.tokens(Int(shownTokens))).contentTransition(.numericText(value: shownTokens)))
                 if imagesWeek != nil {
-                    stat(title: "Imágenes", value: Text("\(shownImages)").contentTransition(.numericText(value: Double(shownImages))))
+                    stat(title: "Imágenes", badge: imagesHd > 0 ? "\(imagesHd) HD" : nil,
+                         value: Text("\(shownImages)").contentTransition(.numericText(value: Double(shownImages))))
                 }
             }
             if daily.count == 7 { chart }
@@ -364,8 +383,10 @@ private struct OwnKeyCard: View {
                 .frame(width: 44, height: 44)
                 .background(Color.gGrass, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(alignment: .leading, spacing: 3) {
-                Text("Con tu llave de \(providerName)").font(.gDisplay(16)).foregroundStyle(Color.gInk)
-                Text(imagesWeek != nil ? "Paga el chat y las imágenes: sin límite de uso, modelos ni imágenes."
+                Text(twoKeys ? "Con tus llaves de \(providerName) y OpenAI" : "Con tu llave de \(providerName)")
+                    .font(.gDisplay(16)).foregroundStyle(Color.gInk)
+                Text(twoKeys ? "\(providerName) paga el chat y OpenAI las imágenes: sin límite de uso, modelos ni imágenes."
+                     : imagesWeek != nil ? "Paga el chat y las imágenes: sin límite de uso, modelos ni imágenes."
                      : "No gasta de tu plan: sin límite de uso ni de modelos.").gCaption()
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -374,13 +395,23 @@ private struct OwnKeyCard: View {
         }
     }
 
-    private func stat(title: String, value: some View) -> some View {
+    private func stat(title: String, badge: String? = nil, value: some View) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            value
-                .font(.gDisplay(28, .bold))
-                .monospacedDigit()
-                .foregroundStyle(Color.gInk)
-            Text("\(title) esta semana").gCaption()
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                value
+                    .font(.gDisplay(26, .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.gInk)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x9A5A36))
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
+                        .background(Color.gSalmon.opacity(0.3), in: Capsule())
+                }
+            }
+            Text(title).gCaption().lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
