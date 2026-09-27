@@ -22,7 +22,7 @@ struct UsagePane: View {
                               note: "Lo comparten todos los agentes del espacio; no cuenta en tu plan personal.")
                         .entrance(appeared, order: 1)
                 } else if let key = u.ownKey {
-                    OwnKeyCard(provider: key.provider).entrance(appeared, order: 1)
+                    OwnKeyCard(key: key).entrance(appeared, order: 1)
                 } else if u.applies == false {
                     Text(agent.space?.kind == .workspace
                          ? "Este agente es del espacio \(agent.space?.title ?? "de equipo"): su uso lo cubre ese espacio, no tu plan personal."
@@ -94,7 +94,7 @@ struct UsagePane: View {
     private static var demo: PersonalUsage {
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok" {
             var u = demoFree
-            u.ownKey = .init(provider: "deepseek")
+            u.ownKey = .init(provider: "deepseek", turnsWeek: 42, tokensWeek: 1_840_000)
             return u
         }
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "power" {
@@ -278,7 +278,15 @@ private struct ImagesCard: View {
 
 /// Corre con tu llave: el plan no se gasta, así que no hay barra que enseñar.
 private struct OwnKeyCard: View {
-    let provider: String
+    let key: PersonalUsage.OwnKey
+    private var provider: String { key.provider }
+
+    /// 1234567 → «1.2 M», 45300 → «45 k».
+    static func tokens(_ n: Int) -> String {
+        if n >= 1_000_000 { return String(format: "%.1f M", Double(n) / 1_000_000) }
+        if n >= 1_000 { return "\(n / 1_000) k" }
+        return "\(n)"
+    }
 
     private var providerName: String {
         switch provider {
@@ -301,6 +309,12 @@ private struct OwnKeyCard: View {
                 Text("Con tu llave de \(providerName)").font(.gDisplay(15.5)).foregroundStyle(Color.gInk)
                 Text("Este agente no gasta de tu plan: sin límite de uso ni de modelos.").gCaption()
                     .fixedSize(horizontal: false, vertical: true)
+                if let turns = key.turnsWeek {
+                    Text("Esta semana: \(turns) \(turns == 1 ? "turno" : "turnos") · \(Self.tokens(key.tokensWeek ?? 0)) tokens")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.gGrass)
+                        .padding(.top, 4)
+                }
             }
             Spacer(minLength: 0)
         }

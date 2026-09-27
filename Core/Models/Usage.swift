@@ -34,6 +34,9 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
 
     struct OwnKey: Decodable, Equatable, Sendable {
         let provider: String
+        /// Sin límite no es sin medir: lo que lleva esta semana con su llave.
+        var turnsWeek: Int? = nil
+        var tokensWeek: Int? = nil
     }
 
     struct WorkspaceUsage: Decodable, Equatable, Sendable {
