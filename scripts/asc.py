@@ -361,6 +361,20 @@ elif cmd == "enviar-tienda":
         "type": "reviewSubmissions", "id": sub["id"], "attributes": {"submitted": True}}})
     print("versión", v["attributes"]["versionString"], "enviada a App Review · salida MANUAL")
 
+elif cmd == "retirar-revision":
+    # Saca de App Review lo que está esperando (p. ej. para cambiar la build): la versión vuelve
+    # a DEVELOPER_REJECTED y se puede editar y reenviar con `ficha` + `enviar-tienda`. Al
+    # reenviar entra al final de la fila.
+    app = app_id()
+    subs = api(f"/reviewSubmissions?filter[app]={app}&filter[platform]=IOS&limit=10")["data"]
+    vivas = [x for x in subs if x["attributes"].get("state") in ("WAITING_FOR_REVIEW", "READY_FOR_REVIEW")]
+    if not vivas:
+        sys.exit("no hay nada esperando revisión")
+    for x in vivas:
+        api(f"/reviewSubmissions/{x['id']}", "PATCH", {"data": {
+            "type": "reviewSubmissions", "id": x["id"], "attributes": {"canceled": True}}})
+        print("retirada de revisión:", x["id"], x["attributes"].get("state"))
+
 elif cmd == "estado-tienda":
     for v in api(f"/apps/{app_id()}/appStoreVersions?filter[platform]=IOS&limit=5")["data"]:
         a_ = v["attributes"]
