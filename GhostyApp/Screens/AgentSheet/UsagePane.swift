@@ -21,6 +21,8 @@ struct UsagePane: View {
                               pct: ws.pct, resetsAt: ws.resetsAt, delay: 0.15,
                               note: "Lo comparten todos los agentes del espacio; no cuenta en tu plan personal.")
                         .entrance(appeared, order: 1)
+                } else if let key = u.ownKey {
+                    OwnKeyCard(provider: key.provider).entrance(appeared, order: 1)
                 } else if u.applies == false {
                     Text(agent.space?.kind == .workspace
                          ? "Este agente es del espacio \(agent.space?.title ?? "de equipo"): su uso lo cubre ese espacio, no tu plan personal."
@@ -90,6 +92,11 @@ struct UsagePane: View {
     }
 
     private static var demo: PersonalUsage {
+        if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok" {
+            var u = demoFree
+            u.ownKey = .init(provider: "deepseek")
+            return u
+        }
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "power" {
             return PersonalUsage(
                 plan: .init(key: "power", name: "Power · cortesía", imageQuality: "high"),
@@ -100,7 +107,7 @@ struct UsagePane: View {
         return demoFree
     }
 
-    private static let demoFree = PersonalUsage(
+    private static let demoFree: PersonalUsage = PersonalUsage(
         plan: .init(key: "free", name: "Gratis"),
         week: .init(pct: 0.23, resetsAt: Date().addingTimeInterval(2 * 86400)),
         month: .init(pct: nil, resetsAt: Date().addingTimeInterval(20 * 86400)),
@@ -266,6 +273,40 @@ private struct ImagesCard: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Corre con tu llave: el plan no se gasta, así que no hay barra que enseñar.
+private struct OwnKeyCard: View {
+    let provider: String
+
+    private var providerName: String {
+        switch provider {
+        case "anthropic", "anthropic-oauth": return "Claude"
+        case "deepseek": return "DeepSeek"
+        case "openai": return "OpenAI"
+        case "google": return "Google"
+        default: return provider.capitalized
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "key.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(Color.gGrass, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Con tu llave de \(providerName)").font(.gDisplay(15.5)).foregroundStyle(Color.gInk)
+                Text("Este agente no gasta de tu plan: sin límite de uso ni de modelos.").gCaption()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 10, y: 3)
     }
 }
 

@@ -29,6 +29,12 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     var imagesLeftHd: Int? = nil
     /// Agente de workspace (y eres miembro): la barra del espacio, la misma de Teams.
     let workspace: WorkspaceUsage?
+    /// El agente corre con la llave PROPIA del dueño: no gasta del plan.
+    var ownKey: OwnKey? = nil
+
+    struct OwnKey: Decodable, Equatable, Sendable {
+        let provider: String
+    }
 
     struct WorkspaceUsage: Decodable, Equatable, Sendable {
         let name: String

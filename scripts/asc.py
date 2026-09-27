@@ -10,6 +10,7 @@ dependencia menos y son veinte líneas. La llave privada vive en
     ./asc.py testers                     # personas invitadas
     ./asc.py asignar <buildId> <grupoId> # manda un build a un grupo
     ./asc.py ficha [0.1] [buildId]       # la ficha de la tienda (metadata/es-MX + cuenta del revisor)
+    ./asc.py descargas [7]               # descargas por día (el reporte llega con ~1 día de retraso)
     ./asc.py capturas [carpeta]          # sube las capturas de iPhone 6.9" a la versión en preparación
 """
 import base64, json, os, sys, time, urllib.request
@@ -20,6 +21,7 @@ KEY_ID = os.environ.get("ASC_KEY_ID", "BYJDNZWD5L")
 ISSUER = os.environ.get("ASC_ISSUER", "69a6de85-8e77-47e3-e053-5b8c7c11a4d1")
 P8 = os.path.expanduser(f"~/.appstoreconnect/private_keys/AuthKey_{KEY_ID}.p8")
 BASE = "https://api.appstoreconnect.apple.com/v1"
+VENDOR = os.environ.get("ASC_VENDOR", "86594761")  # Pagos e informes financieros
 
 
 def b64(d: bytes) -> str:
@@ -368,6 +370,31 @@ elif cmd == "publicar":
         "type": "appStoreVersionReleaseRequests",
         "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": r[0]["id"]}}}}})
     print("publicada:", r[0]["attributes"]["versionString"])
+
+elif cmd == "descargas":
+    # Unidades por día del reporte de ventas. Apple lo publica con ~1 día de retraso:
+    # el de hoy siempre sale vacío. Tipo 1 = descarga nueva, 7 = actualización.
+    import datetime, gzip
+    days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
+    today = datetime.date.today()
+    for i in range(days, 0, -1):
+        day = (today - datetime.timedelta(days=i)).isoformat()
+        req = urllib.request.Request(
+            f"{BASE}/salesReports?filter[frequency]=DAILY&filter[reportType]=SALES"
+            f"&filter[reportSubType]=SUMMARY&filter[version]=1_1"
+            f"&filter[vendorNumber]={VENDOR}&filter[reportDate]={day}")
+        req.add_header("Accept", "application/a-gzip")
+        req.add_header("Authorization", f"Bearer {token()}")
+        try:
+            rows = gzip.decompress(urllib.request.urlopen(req).read()).decode().splitlines()
+        except urllib.error.HTTPError as e:
+            print(f"{day}  —" if e.code == 404 else f"{day}  HTTP {e.code}")
+            continue
+        header = rows[0].split("\t")
+        for row in rows[1:]:
+            r = dict(zip(header, row.split("\t")))
+            kind = {"1": "descargas", "7": "actualizaciones"}.get(r["Product Type Identifier"], r["Product Type Identifier"])
+            print(f"{day}  {r['Units']:>4} {kind:16} {r['Country Code']} v{r['Version']}")
 
 elif cmd == "capturas":
     # Sube los PNG de una carpeta como capturas de iPhone 6.9" (1320×2868) a la versión
