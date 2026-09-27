@@ -304,13 +304,19 @@ elif cmd == "ficha":
     print("textos de la versión:", estado)
 
     # Nombre, subtítulo y política de privacidad viven en appInfo, no en la versión.
-    info = api(f"/apps/{app}/appInfos")["data"][0]
-    estado = localizacion("appInfoLocalizations", "/appInfos", "appInfo", info["id"], {
-        "name": leer("name"),
-        "subtitle": leer("subtitle"),
-        "privacyPolicyUrl": leer("privacy_url"),
-    })
-    print("nombre y privacidad:", estado)
+    # ⚠️ Hay DOS appInfos cuando ya hay una versión en la tienda: la publicada (no se edita:
+    # 409 INVALID_STATE) y la de la versión nueva. Se usa la editable; si no hay, se salta.
+    infos = api(f"/apps/{app}/appInfos")["data"]
+    editable = [i for i in infos if i["attributes"].get("appStoreState") not in ("READY_FOR_SALE", "REPLACED_WITH_NEW_VERSION")]
+    if editable:
+        estado = localizacion("appInfoLocalizations", "/appInfos", "appInfo", editable[0]["id"], {
+            "name": leer("name"),
+            "subtitle": leer("subtitle"),
+            "privacyPolicyUrl": leer("privacy_url"),
+        })
+        print("nombre y privacidad:", estado)
+    else:
+        print("nombre y privacidad: sin appInfo editable, se quedan como están")
 
     # Lo que ve el revisor: contacto, cuenta de demo y notas.
     usuario, clave = revisor()
