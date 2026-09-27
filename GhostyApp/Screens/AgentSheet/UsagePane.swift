@@ -75,7 +75,8 @@ struct UsagePane: View {
                               exhausted: u.exhausted == true && (u.week.pct ?? 0) >= 1)
                         .entrance(appeared, order: 1)
                     // Gratis no tiene tope mensual: sólo semana, y así se dice.
-                    if let premium = u.premium {
+                    // Sólo si importa aquí: este agente usa un modelo top, o ya se gastó algo de ese tope.
+                    if let premium = u.premium, premium.pct > 0 || Self.isPremiumModel(agent.model) {
                         UsageCard(title: "Claude y modelos top", icon: "sparkles", accent: .gSalmon, pct: premium.pct,
                                   resetsAt: u.week.resetsAt, delay: 0.25)
                             .entrance(appeared, order: 2)
@@ -129,6 +130,12 @@ struct UsagePane: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    /// Claude Sonnet y arriba (y los top de otros): los que cuentan en «Claude y modelos top».
+    static func isPremiumModel(_ model: String?) -> Bool {
+        guard let m = model?.lowercased() else { return false }
+        return ["claude", "sonnet", "opus", "fable", "astra"].contains { m.contains($0) }
     }
 
     private var engineName: String {
