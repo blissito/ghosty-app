@@ -45,8 +45,8 @@ struct GhostyMarkdown: View {
             // de `AgentBubble`.
             .textSelection(.enabled)
             .markdownTextStyle {
-                FontFamily(.custom("Inter"))
-                FontSize(16)
+                FontFamily(.custom("Source Serif 4"))
+                FontSize(17)
                 ForegroundColor(.gInk)
             }
             // ⚠️ Las imágenes del markdown salían **a tamaño real**: una foto de 1200 px
@@ -80,9 +80,10 @@ extension MarkdownUI.Theme {
     private static func inline(_ t: MarkdownUI.Theme) -> MarkdownUI.Theme {
         t
             .text {
-                // Inter, la del cuerpo de la web; los encabezados en Poppins como los títulos.
-                FontFamily(.custom("Inter"))
-                FontSize(16)
+                // La respuesta en serifa (Source Serif 4) y lo tuyo en Inter, como claude.ai:
+                // se distingue quién habla sin mirar el lado. Encabezados en Poppins.
+                FontFamily(.custom("Source Serif 4"))
+                FontSize(17)
                 ForegroundColor(.gInk)
             }
             .code {

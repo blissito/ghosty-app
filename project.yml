@@ -73,6 +73,9 @@ targets:
           - Poppins-Bold.ttf
           # Inter (variable, OFL): el cuerpo del chat, igual que la web.
           - Inter-Variable.ttf
+          # Source Serif 4 (variable, OFL): las respuestas del agente, como claude.ai
+          # (serifa para quien contesta, sin serifa para ti).
+          - SourceSerif4-Variable.ttf
         # ⚠️ Sin esto XcodeGen escribe «1.0» fijo en el Info.plist e ignora MARKETING_VERSION:
         # con la 1.0 aprobada en la tienda, Apple rechaza toda build nueva (2026-09-25).
         CFBundleShortVersionString: $(MARKETING_VERSION)
