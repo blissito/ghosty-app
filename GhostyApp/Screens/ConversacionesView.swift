@@ -21,7 +21,10 @@ struct ConversacionesView: View {
     @State private var busqueda = ""
     @FocusState private var buscando: Bool
     /// El agente por el que se filtra. `nil` = todos.
+    /// Arranca en el agente actual: lo que esperas ver son SUS conversaciones. «Todos»
+    /// sigue a un toque en los chips.
     @State private var soloAgente: String?
+    @State private var yaPreseleccionado = false
     /// Favoritos (por teléfono). Estado local para repintar al tocar la estrella.
     @State private var favoritos: Set<String> = Favoritos.ids
     /// Sólo favoritos. Recordado.
@@ -124,6 +127,15 @@ struct ConversacionesView: View {
     // MARK: - Pantalla
 
     var body: some View {
+        contenido
+            .onAppear {
+                guard !yaPreseleccionado else { return }
+                yaPreseleccionado = true
+                if variosAgentes { soloAgente = store.selectedAgentID }
+            }
+    }
+
+    private var contenido: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 cabecera.padding(.bottom, 14)
