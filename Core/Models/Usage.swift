@@ -9,6 +9,13 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
         /// «low» | «high». nil = gs viejo: se deduce del plan.
         var imageQuality: String? = nil
     }
+    struct Session: Decodable, Equatable, Sendable {
+        let pct: Double
+        let resetsAt: Date?
+    }
+    struct Premium: Decodable, Equatable, Sendable {
+        let pct: Double
+    }
     struct Window: Decodable, Equatable, Sendable {
         /// nil = el plan no tiene tope en esta ventana (Gratis sólo tiene semana).
         let pct: Double?
@@ -16,7 +23,11 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     }
 
     let plan: Plan
+    /// Sesión de 5 h (como Claude). `resetsAt` nil = no hay sesión abierta.
+    var session: Session? = nil
     let week: Window
+    /// Tope semanal de los modelos caros (Sonnet y arriba). nil = el plan no los tiene.
+    var premium: Premium? = nil
     let month: Window
     /// ¿El plan personal cubre a ESTE agente? false = es de un workspace o compartido.
     let applies: Bool?
@@ -27,6 +38,8 @@ struct PersonalUsage: Decodable, Equatable, Sendable {
     var imagesCap: Int? = nil
     /// Cuántas quedarían si todas fueran HD (sólo si el plan deja pedir HD).
     var imagesLeftHd: Int? = nil
+    /// Pro: cuántas quedarían en calidad media.
+    var imagesLeftMedium: Int? = nil
     /// Agente de workspace (y eres miembro): la barra del espacio, la misma de Teams.
     let workspace: WorkspaceUsage?
     /// El agente corre con la llave PROPIA del dueño: no gasta del plan.

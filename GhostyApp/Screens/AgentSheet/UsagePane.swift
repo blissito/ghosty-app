@@ -38,7 +38,7 @@ struct UsagePane: View {
                     if !unified, let n = u.imagesWeek {
                         ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap,
                                    leftHd: u.imagesLeftHd, ownKey: u.ownImageKey == true, hd: u.imagesWeekHd ?? 0,
-                                   highQuality: u.plan.imageQuality.map { $0 == "high" } ?? false)
+                                   maxQuality: u.plan.imageQuality ?? "low")
                             .entrance(appeared, order: 2)
                     }
                 } else if u.exempt == true {
@@ -49,7 +49,7 @@ struct UsagePane: View {
                     if let n = u.imagesWeek {
                         ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap,
                                    leftHd: u.imagesLeftHd, ownKey: u.ownImageKey == true, hd: u.imagesWeekHd ?? 0,
-                                   highQuality: u.plan.imageQuality.map { $0 == "high" } ?? false)
+                                   maxQuality: u.plan.imageQuality ?? "low")
                             .entrance(appeared, order: 2)
                     }
                 } else if u.applies == false {
@@ -62,19 +62,36 @@ struct UsagePane: View {
                         .padding(.horizontal, 4)
                         .entrance(appeared, order: 1)
                 } else {
+                    // Como Claude: la sesión de 5 h arriba, luego la semana.
+                    if let session = u.session {
+                        UsageCard(title: "Sesión actual", icon: "timer", accent: .gBrand, pct: session.pct,
+                                  resetsAt: session.resetsAt ?? Date(), delay: 0.1,
+                                  note: session.resetsAt == nil ? "Empieza con tu siguiente mensaje · dura 5 h" : nil,
+                                  sessionStyle: true)
+                            .entrance(appeared, order: 1)
+                    }
                     UsageCard(title: "Uso de esta semana", icon: "calendar", accent: .gSky, pct: u.week.pct ?? 0,
                               resetsAt: u.week.resetsAt, delay: 0.15,
                               exhausted: u.exhausted == true && (u.week.pct ?? 0) >= 1)
                         .entrance(appeared, order: 1)
                     // Gratis no tiene tope mensual: sólo semana, y así se dice.
-                    if let pct = u.month.pct {
+                    if let premium = u.premium {
+                        UsageCard(title: "Claude y modelos top", icon: "sparkles", accent: .gSalmon, pct: premium.pct,
+                                  resetsAt: u.week.resetsAt, delay: 0.25)
+                            .entrance(appeared, order: 2)
+                    }
+                    // El mes es un respaldo: sólo se enseña cuando se acerca.
+                    if let pct = u.month.pct, pct >= 0.8 {
                         UsageCard(title: "Uso de este mes", icon: "calendar.circle.fill", accent: .gGrass, pct: pct, resetsAt: u.month.resetsAt, delay: 0.3)
                             .entrance(appeared, order: 2)
                     }
                     if let n = u.imagesWeek {
                         ImagesCard(made: n, left: u.ownImageKey == true ? nil : u.imagesLeft, cap: u.imagesCap, leftHd: u.imagesLeftHd,
                                    ownKey: u.ownImageKey == true, hd: u.imagesWeekHd ?? 0,
-                                   highQuality: u.plan.imageQuality.map { $0 == "high" } ?? ["power", "max"].contains(u.plan.key)).entrance(appeared, order: 3)
+                                   chatExhausted: u.exhausted == true,
+                                   resetsOn: u.exhausted == true ? u.week.resetsAt : nil,
+                                   medium: u.imagesLeftMedium,
+                                   maxQuality: u.plan.imageQuality ?? "low").entrance(appeared, order: 3)
                     }
                 }
             } else if loaded {
@@ -168,6 +185,7 @@ struct UsagePane: View {
 
     private static let demoFree: PersonalUsage = PersonalUsage(
         plan: .init(key: "free", name: "Gratis"),
+        session: .init(pct: 0.22, resetsAt: Date().addingTimeInterval(2 * 3600 + 57 * 60)),
         week: .init(pct: 0.23, resetsAt: Date().addingTimeInterval(2 * 86400)),
         month: .init(pct: nil, resetsAt: Date().addingTimeInterval(20 * 86400)),
         applies: true, imagesWeek: 4, imagesLeft: 6, workspace: nil)
@@ -185,6 +203,8 @@ private struct UsageCard: View {
     var note: String? = nil
     /// Se acabó (sin recargas): en vez de «se renueva el…» se dice que está en pausa hasta cuándo.
     var exhausted = false
+    /// Sesión de 5 h: «Se restablece en 2 h 57 min» en vez de una fecha.
+    var sessionStyle = false
     @State private var shown = 0.0
 
     private var target: Double { min(1, max(0, pct)) }
@@ -215,7 +235,17 @@ private struct UsageCard: View {
                 }
             }
             .frame(height: 8)
-            if exhausted {
+            if sessionStyle {
+                if note == nil {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 11, weight: .semibold))
+                        Text(target >= 1 ? "Se acabó tu sesión · vuelve en \(Self.inHours(resetsAt))"
+                             : "Se restablece en \(Self.inHours(resetsAt))")
+                    }
+                    .font(.system(size: 13, weight: target >= 1 ? .semibold : .regular))
+                    .foregroundStyle(target >= 1 ? Color.gDanger : Color.gInk4)
+                }
+            } else if exhausted {
                 HStack(spacing: 5) {
                     Image(systemName: "pause.circle.fill").font(.system(size: 12, weight: .semibold))
                     Text("Se acabó tu uso de la semana · vuelve el \(Self.date(resetsAt)) (\(Self.relative(resetsAt)))")
@@ -248,6 +278,12 @@ private struct UsageCard: View {
         return f.string(from: d)
     }
 
+    /// «2 h 57 min».
+    static func inHours(_ d: Date) -> String {
+        let mins = max(0, Int(d.timeIntervalSinceNow / 60))
+        return mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min"
+    }
+
     /// «en 2 días» / «mañana» / «hoy».
     private static func relative(_ d: Date) -> String {
         let cal = Calendar.current
@@ -273,8 +309,14 @@ private struct ImagesCard: View {
     var ownKey = false
     /// Cuántas de las hechas salieron en HD.
     var hd = 0
-    /// Gratis y Pro generan en calidad estándar (`personal-plans.ts`, `imageQuality`).
-    let highQuality: Bool
+    /// Se acabó el uso del chat: las imágenes que quedan esperan a que vuelva (el agente no corre).
+    var chatExhausted = false
+    /// Se acabó el uso del chat: cuándo vuelve.
+    var resetsOn: Date? = nil
+    /// Pro: cuántas quedarían en calidad media.
+    var medium: Int? = nil
+    /// La mejor calidad que el plan deja pedir (`personal-plans.ts`, `imageQuality`): low | medium | high.
+    let maxQuality: String
     @State private var lit = 0
 
     /// Con muchas, cada punto es una parte proporcional: nunca más de 20 puntos, y si ya
@@ -284,6 +326,15 @@ private struct ImagesCard: View {
     private var filledDots: Int {
         guard total > 20 else { return made }
         return made == 0 ? 0 : max(1, Int((Double(made) / Double(total) * 20).rounded()))
+    }
+
+    /// «lunes», en la zona de CDMX.
+    static func weekday(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.timeZone = TimeZone(identifier: "America/Mexico_City")
+        f.dateFormat = "EEEE"
+        return f.string(from: d)
     }
 
     var body: some View {
@@ -298,8 +349,8 @@ private struct ImagesCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text("Imágenes").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
-                        // HD es un DERECHO a pedirla, no el default: todas salen normales.
-                        Text(highQuality ? "HD si la pides" : "Calidad estándar")
+                        // El default siempre es baja; media o alta son un DERECHO a pedirla.
+                        Text(maxQuality == "high" ? "HD si la pides" : maxQuality == "medium" ? "Media si la pides" : "Baja calidad")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x9A5A36))
                             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -321,6 +372,8 @@ private struct ImagesCard: View {
                             .foregroundStyle(left == 0 ? Color.gDanger : Color.gInk)
                         if let leftHd, cap == nil {
                             Text("o ~\(leftHd) en HD").gCaption()
+                        } else if let medium, cap == nil {
+                            Text("o ~\(medium) en media").gCaption()
                         }
                     }
                 }
@@ -335,6 +388,13 @@ private struct ImagesCard: View {
                             .opacity(i < lit ? 1 : 0)
                     }
                 }
+            }
+            if chatExhausted, (left ?? 0) > 0 {
+                HStack(spacing: 5) {
+                    Image(systemName: "pause.circle").font(.system(size: 11, weight: .bold))
+                    Text("Para pedirlas necesitas uso de chat: vuelve el \(Self.weekday(resetsOn ?? Date()))")
+                }
+                .gCaption()
             }
         }
         .padding(14)
