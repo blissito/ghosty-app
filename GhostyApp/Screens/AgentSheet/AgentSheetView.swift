@@ -28,7 +28,7 @@ struct AgentSheetView: View {
 
             VStack(spacing: 5) {
                 GhostyMascot(tone: agent.tone, height: 52)
-                Text(agent.name).font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
+                Text(agent.name).font(.gDisplay(16)).foregroundStyle(Color.gInk)
                 StatusLine(status: store.estado(de: agent.id)).font(.system(size: 12.5))
             }
             .padding(.top, 10)

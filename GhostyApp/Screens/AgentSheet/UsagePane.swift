@@ -133,7 +133,7 @@ private struct UsageCard: View {
                 Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk2)
                 Spacer()
                 Text("\(Int((shown * 100).rounded()))%")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .font(.gDisplay(30, .bold))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: shown))
                     .foregroundStyle(target >= 1 ? Color.gDanger : Color.gInk)
@@ -233,7 +233,7 @@ private struct ImagesCard: View {
                         Text(left == 1 ? "te queda" : "te quedan").gCaption()
                         // Con conteo fijo el número es exacto; con presupuesto, estimado.
                         Text(left == 0 || cap != nil ? "\(left)" : "~\(left)")
-                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .font(.gDisplay(26, .bold))
                             .monospacedDigit()
                             .foregroundStyle(left == 0 ? Color.gDanger : Color.gInk)
                         if let leftHd, cap == nil {

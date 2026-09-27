@@ -45,6 +45,7 @@ struct GhostyMarkdown: View {
             // de `AgentBubble`.
             .textSelection(.enabled)
             .markdownTextStyle {
+                FontFamily(.custom("Inter"))
                 FontSize(16)
                 ForegroundColor(.gInk)
             }
@@ -79,6 +80,8 @@ extension MarkdownUI.Theme {
     private static func inline(_ t: MarkdownUI.Theme) -> MarkdownUI.Theme {
         t
             .text {
+                // Inter, la del cuerpo de la web; los encabezados en Poppins como los títulos.
+                FontFamily(.custom("Inter"))
                 FontSize(16)
                 ForegroundColor(.gInk)
             }
@@ -96,17 +99,17 @@ extension MarkdownUI.Theme {
             .heading1 { config in
                 config.label
                     .markdownMargin(top: 6, bottom: 4)
-                    .markdownTextStyle { FontSize(21); FontWeight(.semibold) }
+                    .markdownTextStyle { FontFamily(.custom("Poppins-SemiBold")); FontSize(21) }
             }
             .heading2 { config in
                 config.label
                     .markdownMargin(top: 6, bottom: 4)
-                    .markdownTextStyle { FontSize(19); FontWeight(.semibold) }
+                    .markdownTextStyle { FontFamily(.custom("Poppins-SemiBold")); FontSize(19) }
             }
             .heading3 { config in
                 config.label
                     .markdownMargin(top: 4, bottom: 2)
-                    .markdownTextStyle { FontSize(17); FontWeight(.semibold) }
+                    .markdownTextStyle { FontFamily(.custom("Poppins-SemiBold")); FontSize(17) }
             }
     }
 

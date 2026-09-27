@@ -1,39 +1,57 @@
 import SwiftUI
 
-/// Tipografía del sistema (SF). Nunca tamaños sueltos en las vistas: si un tamaño
-/// no está aquí, es que no existe en el diseño.
+/// Títulos en Poppins (la de la web, `app.css`), cuerpo en la del sistema (SF, pariente de
+/// Inter). Nunca tamaños sueltos en las vistas: si un tamaño no está aquí, no existe.
+extension Font {
+    /// Poppins al peso pedido; escala con el tamaño de texto del sistema.
+    static func gDisplay(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
+        let name = switch weight {
+        case .bold, .heavy, .black: "Poppins-Bold"
+        case .medium, .regular: "Poppins-Medium"
+        default: "Poppins-SemiBold"
+        }
+        return .custom(name, size: size)
+    }
+}
+
+extension Font {
+    /// Inter (la del cuerpo de la web): el texto del chat. Variable, así que el peso sale
+    /// con `.weight()` sobre la misma fuente.
+    static func gReading(_ size: CGFloat) -> Font { .custom("Inter", size: size) }
+}
+
 extension View {
     /// Título de pantalla — "Tu flota"
     func gScreenTitle() -> some View {
-        font(.system(size: 27, weight: .bold, design: .default))
-            .tracking(-0.7)
+        font(.gDisplay(26, .bold))
+            .tracking(-0.4)
             .foregroundStyle(Color.gInk)
     }
 
     /// Encabezado de sección — "En curso", "Hoy", "Historial"
     func gSectionTitle() -> some View {
-        font(.system(size: 17, weight: .semibold))
-            .tracking(-0.2)
+        font(.gDisplay(17))
+            .tracking(-0.1)
             .foregroundStyle(Color.gInk)
     }
 
     /// Nombre de agente o de fila
     func gRowTitle() -> some View {
-        font(.system(size: 16, weight: .semibold))
-            .tracking(-0.15)
+        font(.gDisplay(15.5))
+            .tracking(-0.1)
             .foregroundStyle(Color.gInk)
     }
 
     /// Pregunta de la tarjeta de permiso
     func gCardTitle() -> some View {
-        font(.system(size: 17, weight: .semibold))
-            .tracking(-0.2)
+        font(.gDisplay(16.5))
+            .tracking(-0.1)
             .foregroundStyle(Color.gInk)
     }
 
     /// Cuerpo de burbuja y de tarjeta
     func gBody() -> some View {
-        font(.system(size: 16))
+        font(.gReading(16))
             .foregroundStyle(Color.gInk)
     }
 
@@ -51,7 +69,7 @@ extension View {
 
     /// Etiqueta de botón
     func gButtonLabel() -> some View {
-        font(.system(size: 16, weight: .semibold))
+        font(.gDisplay(15.5))
     }
 
     /// Chip de estado

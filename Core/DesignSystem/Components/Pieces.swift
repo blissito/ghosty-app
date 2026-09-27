@@ -220,7 +220,7 @@ struct AgentHeader: View {
                                 .offset(x: 2, y: 1)
                         }
                     Text(agent.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.gDisplay(15.5))
                         .foregroundStyle(Color.gInk)
                         .lineLimit(1)
                     // Motor y «compartido»: cuatro «Ghosty» no se distinguen por el nombre.

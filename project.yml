@@ -65,6 +65,14 @@ targets:
       path: GhostyApp/Info.plist
       properties:
         CFBundleDisplayName: Ghosty
+        # Poppins (OFL, Core/Resources/Fonts): los títulos, igual que la web. Sin esta lista
+        # iOS no la registra y `Font.custom` cae a la del sistema SIN avisar.
+        UIAppFonts:
+          - Poppins-Medium.ttf
+          - Poppins-SemiBold.ttf
+          - Poppins-Bold.ttf
+          # Inter (variable, OFL): el cuerpo del chat, igual que la web.
+          - Inter-Variable.ttf
         # ⚠️ Sin esto XcodeGen escribe «1.0» fijo en el Info.plist e ignora MARKETING_VERSION:
         # con la 1.0 aprobada en la tienda, Apple rechaza toda build nueva (2026-09-25).
         CFBundleShortVersionString: $(MARKETING_VERSION)
