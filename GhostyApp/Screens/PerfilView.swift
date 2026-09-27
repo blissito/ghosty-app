@@ -279,8 +279,8 @@ struct PerfilView: View {
             return (ws.pct, "Del espacio \(ws.name.prefix(1).uppercased() + ws.name.dropFirst())", true)
         }
         if u.ownKey != nil || u.exempt == true || u.applies == false { return nil }
-        if let m = u.month.pct { return (m, "De tu plan este mes", true) }
-        if let w = u.week.pct { return (w, "De tu plan esta semana", false) }
+        // El % del plan es de la CUENTA, no del agente: repetirlo en cada fila hacía creer
+        // que cada uno gastaba lo mismo. Ese número ya vive en la tarjeta del plan.
         return nil
     }
 
@@ -344,6 +344,10 @@ struct PerfilView: View {
                          uso: PersonalUsage?) -> String {
         let tipo = CambiarAgenteSheet.tipo(a)
         if let m { return m.detalle }
+        if let u = uso, u.ownKey == nil, u.exempt != true, u.applies != false,
+           u.month.pct != nil || u.week.pct != nil {
+            return "\(tipo) · Cuenta en tu plan"
+        }
         if let k = uso?.ownKey {
             let turnos = k.turnsWeek.map { " · \($0) turnos esta semana" } ?? ""
             return "\(tipo) · Con tu llave\(turnos)"
