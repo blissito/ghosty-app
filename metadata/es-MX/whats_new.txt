@@ -1,0 +1,6 @@
+• Todos tus agentes en un lugar, agrupados por espacio.
+• Toca a tu agente para ver tu plan, tu uso de la semana y tus imágenes.
+• Las respuestas aparecen con un barrido suave, palabra por palabra.
+• Cuando tu agente necesita tu visto bueno, te lo pregunta en el chat.
+• Tocar un aviso te lleva directo a la conversación.
+• Arreglos: la respuesta ya no se reescribe al abrir la app.

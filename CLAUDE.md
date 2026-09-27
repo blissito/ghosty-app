@@ -42,6 +42,28 @@ conclusiones equivocadas por eso.
 La API (`scripts/asc.py builds`) **no lista** lo que está procesando, así que "no aparece"
 no distingue entre procesando, rechazado y nunca llegado.
 
+## Actualizar la app en la tienda (cada vez)
+
+La primera actualización fue la 1.0.1 (2026-09-26). La receta:
+
+1. **Probar**: `./scripts/capturas.sh` en verde e instalar en el teléfono (`./instalar.sh`).
+2. **Versión**: subir `MARKETING_VERSION` en `project.yml` (1.0.1 → 1.0.2…). El build lo
+   numera solo `subir-testflight.sh`.
+3. **TestFlight**: `./subir-testflight.sh` (valida, sube y asigna al grupo). Esperar a que la
+   build salga `VALID` en `python3 scripts/asc.py builds` (puede tardar una hora).
+4. **Textos**: escribir `metadata/es-MX/whats_new.txt` («Qué hay de nuevo», lo que ve la gente
+   en la tienda; sin mencionar pagos fuera de Apple).
+5. **Ficha**: `python3 scripts/asc.py ficha <versión> <buildId>` crea la versión, pone los
+   textos (incluido «Qué hay de nuevo») y ata la build.
+6. **Enviar**: `python3 scripts/asc.py enviar-tienda` (salida MANUAL). Revisión: 24–72 h.
+   `python3 scripts/asc.py estado-tienda` dice en qué va.
+7. **Mientras Apple revisa**: la caja de la cuenta del revisor despierta, y en
+   `/admin/settings` → App iOS **nunca** `minBuild` por encima de la build en revisión, ni
+   apagar flags que la revisión va a probar.
+8. **Aprobada** (`PENDING_DEVELOPER_RELEASE`): `python3 scripts/asc.py publicar`.
+9. **Después**: en `/admin/settings` subir `suggestBuild` a la build nueva (aviso que se
+   cierra). `minBuild` sólo si la vieja rompe algo que no se puede parchar en gs.
+
 ## El núcleo: `Core/` vs `GhostyApp/`
 
 Una sola base para dos apps: **Personal** (esta, en tienda) y **Work** (Teams + Sales, aún no

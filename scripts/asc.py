@@ -98,6 +98,12 @@ def version_en_preparacion(app):
     return None
 
 
+def hay_publicada(app) -> bool:
+    """¿Ya hay alguna versión en la tienda? Define si la nueva lleva «Qué hay de nuevo»."""
+    r = api(f"/apps/{app}/appStoreVersions?filter[platform]=IOS&limit=10")["data"]
+    return any(v["attributes"]["appStoreState"] in ("READY_FOR_SALE", "REPLACED_WITH_NEW_VERSION") for v in r)
+
+
 def localizacion(coleccion, padre_ruta, padre_tipo, padre_id, atributos):
     """PATCH si ya hay localización es-MX en esa colección; POST si no."""
     hay = [l for l in api(f"{padre_ruta}/{padre_id}/{coleccion}")["data"]
@@ -286,6 +292,10 @@ elif cmd == "ficha":
         "description": leer("description"),
         "keywords": leer("keywords"),
         "promotionalText": leer("promotional_text"),
+        # «Qué hay de nuevo»: obligatorio en toda versión que NO es la primera. En la 0.1
+        # Apple lo rechaza (no hay versión anterior), por eso sólo va si el archivo existe
+        # y la app ya tiene una versión publicada.
+        **({"whatsNew": leer("whats_new")} if hay_publicada(app) and os.path.exists(os.path.join(METADATA, LOCALE, "whats_new.txt")) else {}),
         "supportUrl": leer("support_url"),
         "marketingUrl": leer("support_url"),
     })
@@ -320,6 +330,44 @@ elif cmd == "ficha":
         api(f"/appStoreVersions/{v['id']}/relationships/build", "PATCH",
             {"data": {"type": "builds", "id": sys.argv[3]}})
         print("build atada a la versión:", sys.argv[3])
+
+elif cmd == "enviar-tienda":
+    # Manda la versión en preparación a App Review (la de la TIENDA, no la de TestFlight).
+    # Antes: `ficha <versión> <buildId>` para atar la build y los textos.
+    # ⚠️ `releaseType` MANUAL: aprobada no sale sola; sale con `publicar`.
+    app = app_id()
+    v = version_en_preparacion(app)
+    if v is None:
+        sys.exit("no hay versión en preparación: corre antes `ficha <versión> <buildId>`")
+    api(f"/appStoreVersions/{v['id']}", "PATCH", {"data": {
+        "type": "appStoreVersions", "id": v["id"], "attributes": {"releaseType": "MANUAL"}}})
+    sub = api("/reviewSubmissions", "POST", {"data": {
+        "type": "reviewSubmissions", "attributes": {"platform": "IOS"},
+        "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})["data"]
+    api("/reviewSubmissionItems", "POST", {"data": {
+        "type": "reviewSubmissionItems",
+        "relationships": {
+            "reviewSubmission": {"data": {"type": "reviewSubmissions", "id": sub["id"]}},
+            "appStoreVersion": {"data": {"type": "appStoreVersions", "id": v["id"]}}}}})
+    api(f"/reviewSubmissions/{sub['id']}", "PATCH", {"data": {
+        "type": "reviewSubmissions", "id": sub["id"], "attributes": {"submitted": True}}})
+    print("versión", v["attributes"]["versionString"], "enviada a App Review · salida MANUAL")
+
+elif cmd == "estado-tienda":
+    for v in api(f"/apps/{app_id()}/appStoreVersions?filter[platform]=IOS&limit=5")["data"]:
+        a_ = v["attributes"]
+        print(f"{a_['versionString']:8} {a_['appStoreState']:28} {a_.get('releaseType') or ''}")
+
+elif cmd == "publicar":
+    # Aprobada con salida MANUAL → a la tienda. Sólo desde PENDING_DEVELOPER_RELEASE.
+    app = app_id()
+    r = api(f"/apps/{app}/appStoreVersions?filter[platform]=IOS&filter[appStoreState]=PENDING_DEVELOPER_RELEASE")["data"]
+    if not r:
+        sys.exit("no hay versión aprobada esperando salida (PENDING_DEVELOPER_RELEASE)")
+    api("/appStoreVersionReleaseRequests", "POST", {"data": {
+        "type": "appStoreVersionReleaseRequests",
+        "relationships": {"appStoreVersion": {"data": {"type": "appStoreVersions", "id": r[0]["id"]}}}}})
+    print("publicada:", r[0]["attributes"]["versionString"])
 
 elif cmd == "capturas":
     # Sube los PNG de una carpeta como capturas de iPhone 6.9" (1320×2868) a la versión
