@@ -227,7 +227,8 @@ private struct UsageCard: View {
                     .background(tint, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk2)
                 Spacer()
-                Text("\(Int((shown * 100).rounded()))%")
+                // Con uso pero menos de 1%: «<1%», no un 0% que parece que no contó.
+                Text(target > 0 && target < 0.005 && shown >= target ? "<1%" : "\(Int((shown * 100).rounded()))%")
                     .font(.gDisplay(30, .bold))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: shown))
