@@ -27,6 +27,8 @@ struct ArtifactsView: View {
     }
 
     @State private var filtro: Filtro = .todos
+    /// Segundo filtro, por tipo (imágenes, documentos…); nil = todos. Se combina con el de origen.
+    @State private var tipo: Entrega.Categoria? = nil
     /// La fila abierta: enseña su vista previa o su reproductor (`EntregaCard`).
     @State private var abierta: String?
     @Namespace private var pildora
@@ -43,7 +45,8 @@ struct ArtifactsView: View {
                     .padding(.horizontal, 2)
                     .padding(.bottom, 18)
 
-                filtros.padding(.bottom, 14)
+                filtros.padding(.bottom, 10)
+                filtrosDeTipo.padding(.bottom, 14)
 
                 avisoDeBorrado
 
@@ -124,6 +127,65 @@ struct ArtifactsView: View {
         }
     }
 
+    private func porOrigen(_ todo: [Entrega]) -> [Entrega] {
+        todo.filter { e in
+            switch filtro {
+            case .todos: true
+            case .generados: e.generada
+            case .subidos: !e.generada
+            }
+        }
+    }
+
+    /// Por tipo: sólo los tipos que hay (con su cuenta) dentro del filtro de origen. Más
+    /// ligeros que los de origen —tinte morado, no píldora oscura— para que se lean como
+    /// segundo nivel.
+    @ViewBuilder
+    private var filtrosDeTipo: some View {
+        let base = porOrigen(store.artifactsList(for: store.selectedAgentID))
+        let conteo = Dictionary(grouping: base, by: \.categoria).mapValues(\.count)
+        let tipos = Entrega.Categoria.allCases.filter { (conteo[$0] ?? 0) > 0 }
+        if tipos.count > 1 {
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(tipos) { c in
+                        let activo = tipo == c
+                        Button {
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                                tipo = activo ? nil : c
+                                abierta = nil
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: c.icono).font(.system(size: 11, weight: .semibold))
+                                Text(c.nombre).font(.system(size: 12, weight: .semibold))
+                                Text("\(conteo[c] ?? 0)")
+                                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                                    .opacity(0.6)
+                                    .contentTransition(.numericText())
+                            }
+                            .foregroundStyle(activo ? Color.gPrimary : Color.gInk2)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 11)
+                            .background(Capsule().fill(activo ? Color.gPrimaryTint : Color.gCard))
+                            .overlay(Capsule().strokeBorder(activo ? Color.gPrimary.opacity(0.35) : Color.gSeparator, lineWidth: 1))
+                            .contentShape(Capsule())
+                        }
+                        .buttonStyle(.gPressPill)
+                        .accessibilityAddTraits(activo ? .isSelected : [])
+                        .accessibilityIdentifier("tipo-\(c.rawValue)")
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
+                .padding(.horizontal, 1)
+            }
+            .scrollIndicators(.hidden)
+            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: tipos)
+            // Si al cambiar el origen el tipo elegido ya no existe, se suelta solo.
+            .onChange(of: tipos) { _, nuevos in if let t = tipo, !nuevos.contains(t) { tipo = nil } }
+        }
+    }
+
     // MARK: - La lista
 
     /// Lo entregado y lo subido a la CUENTA (gs `/me/files`) más lo que llegó en vivo a
@@ -131,13 +193,7 @@ struct ArtifactsView: View {
     @ViewBuilder
     private var lista: some View {
         let todo = store.artifactsList(for: store.selectedAgentID)
-        let visibles = todo.filter { e in
-            switch filtro {
-            case .todos: true
-            case .generados: e.generada
-            case .subidos: !e.generada
-            }
-        }
+        let visibles = porOrigen(todo).filter { e in tipo == nil || e.categoria == tipo }
         if todo.isEmpty, store.accountFilesEsperando, !DemoData.encendido {
             // Sólo la primera vez, sin nada en disco: con caché la lista sale al instante.
             ProgressView()
@@ -159,6 +215,7 @@ struct ArtifactsView: View {
             .background(Color.gCard)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.list, style: .continuous))
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: filtro)
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: tipo)
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: abierta)
         }
     }
