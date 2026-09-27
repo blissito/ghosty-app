@@ -827,6 +827,10 @@ final class LiveAgentStore: AgentStoring {
             // mensaje del agente, se quita esa copia y gana la que sigue creciendo.
             guard !mensajes.isEmpty else {
                 EasyBitsClient.diag("[hilo] \(sid): el servidor no trajo mensajes")
+                // ⚠️ Sin esto se quedaba en «Trayendo la conversación…» para siempre: una
+                // conversación borrada (o de un turno de prueba) contesta vacía, no con error,
+                // y abrir su push dejaba el spinner girando (2026-09-26).
+                if hilo.mensajes.isEmpty { hilo.loadError = "Esta conversación está vacía o ya no existe." }
                 return
             }
             // ⚠️ Si el SERVIDOR dice que el último turno ya acabó, el turno local es un
