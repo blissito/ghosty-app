@@ -92,6 +92,9 @@ enum CargadorDeImagen {
         return "w" + String(h, radix: 36)
     }
 
+    /// Sin esperar: lo que ya está en memoria, para pintar en el primer fotograma.
+    static func enMemoria(_ url: URL) -> UIImage? { memoria[clave(url)] }
+
     static func imagen(_ url: URL) async -> UIImage? {
         let k = clave(url)
         if let ya = memoria[k] { return ya }

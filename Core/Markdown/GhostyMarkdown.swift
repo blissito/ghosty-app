@@ -245,7 +245,8 @@ private struct ImagenDeRespuesta: View {
 
     var body: some View {
         Group {
-            if let imagen {
+            // La de memoria se pinta YA: volver al hilo no enseña el hueco con spinner.
+            if let imagen = imagen ?? url.flatMap(CargadorDeImagen.enMemoria) {
                 Image(uiImage: imagen)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -270,6 +271,7 @@ private struct ImagenDeRespuesta: View {
         }
         .task(id: url) {
             guard let url, imagen == nil else { return }
+            if let ya = CargadorDeImagen.enMemoria(url) { imagen = ya; return }
             let i = await CargadorDeImagen.imagen(url)
             imagen = i
             // Cambió de alto (placeholder 140 → imagen real): re-anclar el hilo abajo.
