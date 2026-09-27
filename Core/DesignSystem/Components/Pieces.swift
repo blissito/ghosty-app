@@ -187,6 +187,10 @@ struct AgentHeader: View {
     var onTap: (() -> Void)?
     /// El chip de la derecha. `nil` = no se pinta.
     var onNueva: (() -> Void)?
+    /// El botón de la izquierda: abre el historial de conversaciones (ya no es pestaña).
+    var onHistorial: (() -> Void)?
+    /// Hay conversaciones con algo sin ver: punto sobre el botón del historial.
+    var puntoHistorial = false
 
     private var status: AgentStatus { estado ?? agent.status }
     private var trabajando: Bool { if case .working = status { return true } else { return false } }
@@ -237,6 +241,29 @@ struct AgentHeader: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("cabecera-agente")
             .frame(maxWidth: 260)
+
+            if let onHistorial {
+                HStack {
+                    Button(action: onHistorial) {
+                        GhostyIcons.historial.dibujo(Color.gInk, size: 20)
+                            .overlay(alignment: .topTrailing) {
+                                if puntoHistorial {
+                                    Circle().fill(Color.gPrimary)
+                                        .frame(width: 8, height: 8)
+                                        .overlay(Circle().stroke(Color.gBg, lineWidth: 1.5))
+                                        .offset(x: 3, y: 1)
+                                }
+                            }
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.gPressIcon)
+                    .accessibilityLabel(puntoHistorial ? "Historial, con novedades" : "Historial")
+                    .accessibilityIdentifier("abrir-historial")
+                    Spacer()
+                }
+                .padding(.horizontal, Theme.Space.screenH - 12)
+            }
 
             if let onNueva {
                 HStack {

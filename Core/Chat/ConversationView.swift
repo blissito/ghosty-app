@@ -4,6 +4,8 @@ import SwiftUI
 struct ConversationView: View {
     let store: LiveAgentStore
     var onOpenSheet: () -> Void
+    /// Abre el historial de conversaciones (hoja de `RootView`). `nil` = sin botón.
+    var onHistorial: (() -> Void)? = nil
 
     @State private var borrador = ""
     @FocusState private var escribiendo: Bool
@@ -71,7 +73,9 @@ struct ConversationView: View {
             if let agente = store.selectedAgent {
                 AgentHeader(agent: agente, estado: store.estado(de: agente.id),
                             onTap: { escribiendo = false; onOpenSheet() },
-                            onNueva: { store.nuevaConversacion() })
+                            onNueva: { store.nuevaConversacion() },
+                            onHistorial: onHistorial.map { abrir in { escribiendo = false; abrir() } },
+                            puntoHistorial: store.hayPendientes)
                     .padding(.top, 4)
                     .padding(.bottom, 12)
             }

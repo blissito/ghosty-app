@@ -25,3 +25,30 @@ struct GhostyMascot: View {
             .frame(height: height)
     }
 }
+
+/// El avatar redondo del agente (barra de pestañas, cabecera, hojas).
+///
+/// El lila es el de Ghosty y tiene su retrato (`ghosty-avatar`, del diseño); los otros
+/// tonos no tienen retrato todavía, así que va su fantasma completo sobre blanco.
+struct AgentAvatar: View {
+    let tone: AgentTone
+    var size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color.white)
+            if tone == .lila {
+                Image("ghosty-avatar", bundle: GhostyAssets.bundle)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFill()
+            } else {
+                GhostyMascot(tone: tone, height: size * 0.66)
+                    .offset(y: size * 0.04)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
+    }
+}

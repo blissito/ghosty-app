@@ -27,6 +27,44 @@ final class RecorridoUITests: XCTestCase {
         app.launch()
     }
 
+    /// El historial ya no es pestaña: se abre con el botón de la cabecera del chat (hoja).
+    /// Si ya está abierto, no hace nada; si estás en otra pestaña, vuelve a Chat primero.
+    private func abrirHistorial() {
+        if app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'nueva-'")).firstMatch.exists
+            && !app.buttons["abrir-historial"].isHittable { return }
+        if !app.buttons["abrir-historial"].exists { app.buttons["tab-chat"].tap() }
+        let boton = app.buttons["abrir-historial"]
+        XCTAssertTrue(boton.waitForExistence(timeout: 3), "no está el botón del historial")
+        boton.tap()
+        Thread.sleep(forTimeInterval: 0.6)
+    }
+
+    /// «Cambiar de agente»: el avatar de la barra abre la hoja, elegir otro agente lleva
+    /// al chat con ese agente, y el velo la cierra.
+    func testCambiarDeAgente() {
+        XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
+        app.buttons["tab-connectors"].tap()
+        app.buttons["tab-agente"].tap()
+        XCTAssertTrue(app.staticTexts["Cambiar de agente"].waitForExistence(timeout: 3),
+                      "el avatar de la barra no abrió la hoja")
+        foto("60-cambiar-agente")
+        let nube = app.buttons["agente-demo-2"]
+        XCTAssertTrue(nube.waitForExistence(timeout: 3), "no está el otro agente en la hoja")
+        nube.tap()
+        XCTAssertTrue(app.staticTexts["Cambiar de agente"].waitForNonExistence(timeout: 3),
+                      "elegir un agente no cerró la hoja")
+        XCTAssertTrue(app.buttons["abrir-historial"].waitForExistence(timeout: 3),
+                      "elegir un agente no llevó al chat")
+        XCTAssertTrue(app.staticTexts["Nube"].exists, "no cambió de agente")
+        foto("61-agente-cambiado")
+        // El velo cierra.
+        app.buttons["tab-agente"].tap()
+        XCTAssertTrue(app.staticTexts["Cambiar de agente"].waitForExistence(timeout: 3))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        XCTAssertTrue(app.staticTexts["Cambiar de agente"].waitForNonExistence(timeout: 3),
+                      "tocar el velo no cerró la hoja")
+    }
+
     private func foto(_ nombre: String) {
         let img = XCUIScreen.main.screenshot()
         let a = XCTAttachment(screenshot: img)
@@ -102,7 +140,7 @@ final class RecorridoUITests: XCTestCase {
                       "no salió el cartel del turno interrumpido")
         foto("22-interrumpido")
         // Y en la lista tiene que verse igual de tranquilo: gris, no rojo de fallo.
-        app.buttons["tab-conversations"].tap()
+        abrirHistorial()
         XCTAssertTrue(app.staticTexts["Sigo trabajando · te aviso"]
                         .waitForExistence(timeout: 5),
                       "la lista no dice que el hilo sigue en el agente")
@@ -164,7 +202,7 @@ final class RecorridoUITests: XCTestCase {
 
         // 3. La pestaña de conversaciones: la lista de verdad. Tocar una tiene que
         //    llevarme a ella — es el toque que antes no funcionaba.
-        app.buttons["tab-conversations"].tap()
+        abrirHistorial()
         foto("04-conversaciones")
 
         // La del informe (larga): la primera fila ahora es la vacía que se acaba de crear.
@@ -214,7 +252,7 @@ final class RecorridoUITests: XCTestCase {
         // 4b. La conversación con foto: imagen de markdown y tarjeta de entrega. Aquí es
         //     donde se ve si una imagen grande respeta el ancho de la burbuja.
         // Se llega por la lista (la barra de chips ya no existe).
-        app.buttons["tab-conversations"].tap()
+        abrirHistorial()
         let conFoto = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
         XCTAssertTrue(conFoto.waitForExistence(timeout: 3), "no está la conversación con foto")
@@ -262,7 +300,7 @@ final class RecorridoUITests: XCTestCase {
         mas.tap()
 
         // 6. Empezar una conversación desde la lista: tiene que LLEVARTE al chat.
-        app.buttons["tab-conversations"].tap()
+        abrirHistorial()
         let nueva = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'nueva-'")).firstMatch
         XCTAssertTrue(nueva.waitForExistence(timeout: 3), "no salió el botón de nueva conversación")
         nueva.tap()
@@ -270,7 +308,7 @@ final class RecorridoUITests: XCTestCase {
                       "nueva conversación no llevó al chat")
         foto("09-nueva-conversacion")
 
-        app.buttons["tab-conversations"].tap()
+        abrirHistorial()
         // Sin teclado: si queda abierto empuja el popover y tapa media pantalla.
         if app.keyboards.count > 0 { app.swipeDown() }
 
@@ -347,7 +385,7 @@ final class RecorridoUITests: XCTestCase {
 
         // 7. Y que «Guardadas» se despliegue sólo cuando se toca.
         if app.keyboards.count > 0 { app.swipeDown() }
-        app.buttons["tab-conversations"].tap()
+        abrirHistorial()
         let guardadas = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'guardadas-'")).firstMatch
         XCTAssertTrue(guardadas.exists, "no salió el plegable de guardadas")
         guardadas.tap()
@@ -487,7 +525,7 @@ extension RecorridoUITests {
 
     func testVisorCierra() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
-        app.buttons["tab-conversations"].tap()
+        abrirHistorial()
         let fila = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
         XCTAssertTrue(fila.waitForExistence(timeout: 3)); fila.tap()

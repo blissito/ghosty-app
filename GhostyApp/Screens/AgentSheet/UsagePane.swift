@@ -146,7 +146,7 @@ struct UsagePane: View {
         }
     }
 
-    private static var demo: PersonalUsage {
+    static var demo: PersonalUsage {
         if Gancho.valor("GHOSTY_DEMO_PLAN") == "byok-openai" {
             var u = demoFree
             u.ownKey = .init(provider: "openai", turnsWeek: 42, tokensWeek: 1_840_000, dailyTurns: [9, 14, 6, 11, 2, 0, 0])

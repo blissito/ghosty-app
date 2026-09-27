@@ -1,90 +1,140 @@
 import SwiftUI
 
 enum GhostyTab: String, CaseIterable, Identifiable {
-    // ⚠️ `fleet` era una lista de AGENTES y pasó a ser una de CONVERSACIONES, que es la
-    // unidad real de la app. `ideas` y `goals` se van: llevaban meses en el enum con una
-    // pantalla que decía "todavía no está" y a la que no se podía llegar.
-    case chat, conversations, artifacts, connectors
+    // ⚠️ Conversaciones YA NO es pestaña (rediseño 2026-09): el historial se abre desde el
+    // botón de la cabecera del chat. Su `rawValue` viejo (`conversations`) lo sigue
+    // entendiendo el gancho `GHOSTY_TAB`, que abre la hoja del historial.
+    case chat, artifacts, connectors, perfil
     var id: String { rawValue }
 
-    var icon: String {
+    var label: String {
         switch self {
-        case .chat:          return "bubble.left"
-        case .conversations: return "list.bullet.rectangle"
-        case .artifacts: return "circle.grid.2x2"
-        case .connectors: return "puzzlepiece.extension"
+        case .chat:       return "Chat"
+        case .artifacts:  return "Archivos"
+        case .connectors: return "Integraciones"
+        case .perfil:     return "Perfil"
+        }
+    }
+
+    var icon: GhostyStrokeIcon {
+        switch self {
+        case .chat:       return GhostyIcons.chat
+        case .artifacts:  return GhostyIcons.archivos
+        case .connectors: return GhostyIcons.integraciones
+        case .perfil:     return GhostyIcons.perfil
         }
     }
 }
 
-/// Píldora flotante propia, no `TabView`.
+/// La barra flotante oscura del diseño, no `TabView`.
 ///
 /// `TabView` nativo no da fondo de píldora con márgenes, sombra propia ni pestaña
 /// activa con relleno. Se puede forzar con `UITabBarAppearance`, pero eso se rompió
 /// con el tab bar de iOS 26 — justo la versión que corre aquí.
+///
+/// A la izquierda el avatar del agente (abre «Cambiar de agente»), un divisor, y las
+/// pestañas: la activa se ensancha con su etiqueta sobre una píldora blanca al 14 %; las
+/// demás son sólo icono.
 struct GhostyTabBar: View {
     @Binding var selection: GhostyTab
-    /// Qué pestañas se pintan.
-    ///
-    /// ⚠️ NO es `allCases`, y ésa es la gracia: una pestaña que existe en el enum pero
-    /// todavía no tiene pantalla —o que no aplica a este agente— **no se enseña**. Una
-    /// barra con tres de cinco destinos vacíos no se lee como "beta temprana", se lee como
-    /// "está roto". Quien decide la lista es `RootView`, que es quien sabe con qué cuenta
-    /// se entró.
+    /// Qué pestañas se pintan. Quien decide la lista es `RootView`.
     var tabs: [GhostyTab] = GhostyTab.allCases
-    /// Pestañas con algo que no has visto. Un punto, no un número: cuántos agentes
-    /// terminaron no cambia lo que vas a hacer —ir a mirar—, y un contador en una barra
-    /// de cinco iconos es ruido que hay que descifrar.
+    /// Pestañas con algo que no has visto. Un punto, no un número.
     var puntos: Set<GhostyTab> = []
+    /// El agente actual: su avatar es el primer botón de la barra.
+    var agente: Agent?
+    /// La hoja del agente está abierta: el avatar se resalta.
+    var agenteAbierto = false
+    /// Hay algo sin ver en OTRO agente: punto sobre el avatar.
+    var puntoEnAgente = false
+    var onAgente: () -> Void = {}
+
     @Namespace private var resaltado
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(tabs) { tab in
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                        selection = tab
+            Button(action: onAgente) {
+                Group {
+                    if let agente {
+                        AgentAvatar(tone: agente.tone, size: 40)
+                    } else {
+                        Circle().fill(Color.white).frame(width: 40, height: 40)
                     }
-                } label: {
-                    ZStack {
-                        if selection == tab {
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .fill(Color.gFillStrong)
-                                .matchedGeometryEffect(id: "activa", in: resaltado)
-                        }
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 17, weight: .regular))
-                            .foregroundStyle(selection == tab ? Color.gInk : Color.gInk4)
-                            .overlay(alignment: .topTrailing) {
-                                if puntos.contains(tab) {
-                                    // El aro del color de la píldora lo despega del trazo
-                                    // del icono: sin él, encima de una línea el punto se
-                                    // lee como parte del dibujo.
-                                    Circle()
-                                        .fill(Color.gPrimary)
-                                        .frame(width: 7, height: 7)
-                                        .overlay(Circle().stroke(Color.gCard, lineWidth: 1.5))
-                                        .offset(x: 4, y: -2)
-                                }
-                            }
-                    }
-                    // 44 pt de alto mínimo: es el tamaño de toque, no una decisión estética
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("tab-\(tab.rawValue)")
+                .overlay(alignment: .topTrailing) {
+                    if puntoEnAgente { punto.offset(x: 1, y: 1) }
+                }
+                .padding(.horizontal, 6)
+                .frame(height: 56)
+                .background(agenteAbierto ? Color.white.opacity(0.12) : .clear, in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.gPressTab)
+            .accessibilityLabel(agente.map { "Agente \($0.name). Cambiar de agente" } ?? "Cambiar de agente")
+            .accessibilityIdentifier("tab-agente")
+
+            Rectangle()
+                .fill(Color.white.opacity(0.14))
+                .frame(width: 1, height: 28)
+                .padding(.horizontal, 4)
+
+            ForEach(tabs) { tab in
+                boton(tab)
             }
         }
-        .padding(4)
-        // Altura fija. Eran 56 pt (44 de toque + 6 de margen por lado); a 46 el toque
-        // sigue en 38 pt de píldora más el aire de abajo, y la barra deja de pesar tanto
-        // como el compositor que tiene encima.
-        .frame(height: 46)
-        .background(Color.gCard)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.pill, style: .continuous))
-        .shadow(color: .black.opacity(0.07), radius: 1, x: 0, y: 1)
-        .shadow(color: .black.opacity(0.07), radius: 14, x: 0, y: 8)
-        .padding(.horizontal, 16)
+        .padding(6)
+        .frame(height: Theme.Space.tabBarHeight)
+        .background(Color.gDark, in: RoundedRectangle(cornerRadius: Theme.Radius.tabBar, style: .continuous))
+        .ghostyFloatingShadow()
+        .padding(.horizontal, Theme.Space.tabBarSide)
+    }
+
+    private func boton(_ tab: GhostyTab) -> some View {
+        let activa = selection == tab
+        let color: Color = activa ? .white : .gTabInactive
+        return Button {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { selection = tab }
+        } label: {
+            HStack(spacing: 6) {
+                tab.icon.dibujo(color, size: 22)
+                    .overlay(alignment: .topTrailing) {
+                        if puntos.contains(tab) { punto.offset(x: 3, y: -1) }
+                    }
+                if activa {
+                    Text(tab.label)
+                        .font(.system(size: 13, weight: .semibold))
+                        .tracking(-0.13)
+                        .foregroundStyle(color)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .leading)))
+                }
+            }
+            .padding(.leading, activa ? 16 : 0)
+            .padding(.trailing, activa ? 12 : 0)
+            .frame(minWidth: activa ? 48 : 44, maxWidth: activa ? nil : .infinity)
+            .frame(height: 48)
+            .background {
+                if activa {
+                    Capsule()
+                        .fill(Color.white.opacity(0.14))
+                        .matchedGeometryEffect(id: "activa", in: resaltado)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.gPressTab)
+        .layoutPriority(activa ? 1 : 0)
+        .accessibilityLabel(tab.label)
+        .accessibilityAddTraits(activa ? .isSelected : [])
+        .accessibilityIdentifier("tab-\(tab.rawValue)")
+    }
+
+    /// El aro del color de la barra lo despega del trazo del icono.
+    private var punto: some View {
+        Circle()
+            .fill(Color.gPrimaryLight)
+            .frame(width: 8, height: 8)
+            .overlay(Circle().stroke(Color.gDark, lineWidth: 1.5))
     }
 }

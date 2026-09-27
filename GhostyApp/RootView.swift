@@ -11,6 +11,15 @@ struct RootView: View {
         GhostyTab(rawValue: Gancho.valor("GHOSTY_TAB") ?? "") ?? .chat
     @State private var hoja: Agent?
     @State private var ajustes = false
+    /// El historial de conversaciones. Ya no es pestaña: lo abre el botón de la cabecera
+    /// del chat. `GHOSTY_TAB=conversations` (el valor viejo) lo abre al arrancar.
+    @State private var historial = Gancho.valor("GHOSTY_TAB") == "conversations"
+    /// «Cambiar de agente», la `GhostySheet` que abre el avatar de la barra.
+    @State private var cambiarAgente = Gancho.valor("GHOSTY_AGENTES") == "1"
+    /// El toast de la app (`Toaster`), uno para todas las pantallas.
+    @State private var toaster = Toaster()
+    /// Lo que mide el borde seguro de abajo: decide a qué altura flota la barra.
+    @State private var bordeInferior: CGFloat = 34
     /// La imagen que se está mirando a pantalla completa. Vive aquí porque quien pide
     /// abrirla está muy adentro —el proveedor de imágenes de una respuesta—. Ver `Visor`.
     @State private var visor = Visor()
@@ -52,13 +61,17 @@ struct RootView: View {
 
             if case .lista = store.conexion {
                 GhostyTabBar(selection: $tab, tabs: pestanas,
-                             puntos: store.hayPendientes ? [.conversations] : [])
-                    .padding(.bottom, 4)
+                             agente: store.selectedAgent,
+                             agenteAbierto: cambiarAgente,
+                             onAgente: { cambiarAgente = true })
+                    // A 28 pt del borde de la PANTALLA (diseño), no del borde seguro: en
+                    // un iPhone con indicador de inicio (34 pt) eso es 6 pt por debajo.
+                    // Sin indicador, 12 pt del borde.
+                    .padding(.bottom, barraSobreElBorde)
                     // ⚠️ Si la pestaña activa deja de estar en la lista, hay que caer a
                     // Chat: sin esto la pantalla se queda en una vista sin destino y la
                     // barra sin píldora activa (el resaltado sólo se pinta cuando
-                    // `selection == tab`). Pasa de verdad al cambiar de agente con
-                    // Artefactos abierto, y también con el gancho `GHOSTY_TAB`.
+                    // `selection == tab`). Pasa también con el gancho `GHOSTY_TAB`.
                     .onChange(of: pestanas) { _, nuevas in
                         if !nuevas.contains(tab) { tab = .chat }
                     }
@@ -77,6 +90,20 @@ struct RootView: View {
                 UpdateRequiredView().transition(.opacity)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { nuevo in
+            // Con el teclado arriba el borde seguro crece: eso no es el indicador de
+            // inicio, así que no mueve la barra.
+            if nuevo < 60 { bordeInferior = nuevo }
+        }
+        // «Cambiar de agente» y el toast van en la raíz: el velo tapa también la barra.
+        .ghostySheet(isPresented: $cambiarAgente, title: "Cambiar de agente",
+                     identifier: "hoja-agentes") {
+            CambiarAgenteSheet(store: store) {
+                cambiarAgente = false
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .chat }
+            }
+        }
+        .ghostyToast(toaster)
         // ⚠️ Sólo al VOLVER. Aquí hubo tres ramas —anotar el fondo, cerrar sockets con
         // tiempo de gracia, marcar turnos como interrumpidos— porque el turno era del
         // teléfono y había que salvarlo al dormirse. El turno es del servidor: irse no
@@ -91,18 +118,20 @@ struct RootView: View {
             Task { await store.volverDelFondo() }
             Task { await AppConfig.shared.refresh() }
         }
-        // Entrar a la lista es pedirle cuentas a TODOS los agentes: es la pantalla donde
+        // Abrir el historial es pedirle cuentas a TODOS los agentes: es la pantalla donde
         // se ve lo que el agente está haciendo desde otra superficie, y ese estado vive
         // en el servidor. El freno de los 30 s lo pone el store.
-        .onChange(of: tab) { _, nueva in
-            guard nueva == .conversations else { return }
+        .onChange(of: historial, initial: true) { _, abierto in
+            guard abierto else { return }
             store.repasarLaFlota()
         }
         // Tocar un aviso lleva al chat. El destino lo resuelve el store (`irA`); aquí
-        // sólo se cambia de pestaña cuando lo pide.
+        // sólo se cambia de pestaña cuando lo pide, y se cierra lo que tape el chat.
         .onChange(of: store.pestanaPedida) { _, pedida in
             guard let pedida else { return }
             tab = pedida
+            historial = false
+            cambiarAgente = false
             store.pestanaPedida = nil
         }
         .task {
@@ -158,6 +187,22 @@ struct RootView: View {
                 .presentationCornerRadius(Theme.Radius.sheet)
                 #endif
         }
+        .sheet(isPresented: $historial) {
+            ConversacionesView(store: store,
+                               onCuenta: { historial = false; tab = .perfil },
+                               onAbrir: { historial = false; tab = .chat },
+                               onAgentTap: { agente in
+                                   historial = false
+                                   DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { hoja = agente }
+                               })
+                .padding(.top, 8)
+                .background(Color.gBg)
+                #if os(iOS)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.Radius.sheet)
+                #endif
+        }
         .sheet(item: $hoja) { agente in
             AgentSheetView(agent: agente, store: store,
                            onAjustes: { hoja = nil; ajustes = true })
@@ -189,16 +234,22 @@ struct RootView: View {
         // exacto: eso obligaría a inventar dos destinos, y una pestaña con "todavía no
         // está" detrás no se lee como beta, se lee como rota — es justo por lo que se
         // quitaron Ideas y Metas.
-        var lista: [GhostyTab] = [.conversations, .chat]
-        if store.puedeVerArchivos || !store.entregas.de(store.selectedAgentID).isEmpty
-            || !store.accountFiles.isEmpty {
-            lista.append(.artifacts)
-        }
-        // Integraciones se enseña SIEMPRE, aunque el servidor todavía no las sirva: la
-        // lista se va a ir completando y ver lo que viene es información útil. Cada fila
-        // apagada lo dice. Decidido el 2026-09-09.
-        lista.append(.connectors)
-        return lista
+        // Rediseño 2026-09: las cuatro del diseño, SIEMPRE y en este orden. Archivos ya
+        // no espera a tener contenido (su vacío explica qué va a caer ahí) e
+        // Integraciones se enseña aunque el servidor todavía no las sirva: cada fila
+        // apagada lo dice (decidido el 2026-09-09). Conversaciones salió de la barra.
+        [.chat, .artifacts, .connectors, .perfil]
+    }
+
+    /// La barra flota a 28 pt del borde de la pantalla; esto es ese margen medido desde
+    /// el borde SEGURO, que es desde donde pone el `padding` el `ZStack`.
+    private var barraSobreElBorde: CGFloat {
+        bordeInferior > 0 ? Theme.Space.tabBarBottom - bordeInferior : 12
+    }
+
+    /// Cuánto tiene que dejar libre abajo una pantalla para que la barra no la tape.
+    private var holguraDeLaBarra: CGFloat {
+        barraSobreElBorde + Theme.Space.tabBarHeight + 6
     }
 
     /// Adjuntos sintéticos para el gancho `GHOSTY_ADJUNTOS`. Sólo se construyen si la
@@ -231,20 +282,21 @@ struct RootView: View {
         // último elemento de una lista y parece que falta contenido.
         switch tab {
         case .chat:
-            ConversationView(store: store, onOpenSheet: abrirHoja)
-                .padding(.bottom, Theme.Space.composerClearance)
-        case .conversations:
-            ConversacionesView(store: store,
-                               onCuenta: { ajustes = true },
-                               onAbrir: { tab = .chat },
-                               onAgentTap: { hoja = $0 })
-                .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
+            // El compositor va 10 pt encima de la barra (diseño: `bottom:106` contra 96).
+            ConversationView(store: store, onOpenSheet: abrirHoja,
+                             onHistorial: { historial = true })
+                .padding(.bottom, holguraDeLaBarra)
         case .connectors:
             ConectoresPane(store: store)
-                .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
+                .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
         case .artifacts:
             ArtifactsView(store: store, onOpenSheet: abrirHoja)
-                .safeAreaPadding(.bottom, Theme.Space.tabBarClearance)
+                .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+        case .perfil:
+            // Provisional: la cuenta de siempre, como pestaña, hasta la pantalla de
+            // Perfil del diseño (fase 4).
+            SettingsView(store: store, enPestana: true)
+                .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
         }
     }
 

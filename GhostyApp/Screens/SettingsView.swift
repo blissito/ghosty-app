@@ -7,6 +7,9 @@ import SwiftUI
 /// teléfono era justo lo que hacía que la app no sirviera para nadie más que nosotros.
 struct SettingsView: View {
     var store: LiveAgentStore
+    /// Vive como pestaña (Perfil) y no como hoja: sin ✕, porque no hay nada que cerrar.
+    /// Provisional hasta que llegue la pantalla de Perfil del diseño (fase 4).
+    var enPestana = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var abrir
 
@@ -53,15 +56,17 @@ struct SettingsView: View {
 
     private var contenido: some View {
         VStack(spacing: 0) {
-            HStack {
-                Button { dismiss() } label: {
-                    TintedIcon(systemName: "xmark", tint: .gInk, background: .gSeparator, size: 34)
+            if !enPestana {
+                HStack {
+                    Button { dismiss() } label: {
+                        TintedIcon(systemName: "xmark", tint: .gInk, background: .gSeparator, size: 34)
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
                 }
-                .buttonStyle(.plain)
-                Spacer()
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 16)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
