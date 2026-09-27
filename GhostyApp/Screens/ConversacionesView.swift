@@ -14,7 +14,7 @@ struct ConversacionesView: View {
     /// Tocar una conversación te lleva a ella: quien cambia de pestaña es `RootView`.
     var onAbrir: () -> Void
     /// Tocar al agente (fantasma o nombre) abre su hoja, igual que en el chat.
-    var onAgente: (Agent) -> Void = { _ in }
+    var onAgentTap: (Agent) -> Void = { _ in }
 
     /// Qué agentes tienen desplegadas sus conversaciones guardadas.
     @State private var desplegados: Set<String> = []
@@ -179,7 +179,7 @@ struct ConversacionesView: View {
 
     private func cabeceraDeAgente(_ agente: Agent, _ canal: Canal) -> some View {
         HStack(spacing: 12) {
-            Button { onAgente(agente) } label: {
+            Button { onAgentTap(agente) } label: {
             HStack(spacing: 12) {
             GhostyMascot(tone: agente.tone, height: 42)
             VStack(alignment: .leading, spacing: 2) {
@@ -200,7 +200,7 @@ struct ConversacionesView: View {
             .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("abrir-hoja-\(agente.id)")
+            .accessibilityIdentifier("open-sheet-\(agente.id)")
 
             // Favorito: arriba de la lista. Toggle sin cambiar de agente.
             Button {

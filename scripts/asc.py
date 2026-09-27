@@ -98,7 +98,7 @@ def version_en_preparacion(app):
     return None
 
 
-def hay_publicada(app) -> bool:
+def has_published_version(app) -> bool:
     """¿Ya hay alguna versión en la tienda? Define si la nueva lleva «Qué hay de nuevo»."""
     r = api(f"/apps/{app}/appStoreVersions?filter[platform]=IOS&limit=10")["data"]
     return any(v["attributes"]["appStoreState"] in ("READY_FOR_SALE", "REPLACED_WITH_NEW_VERSION") for v in r)
@@ -295,7 +295,7 @@ elif cmd == "ficha":
         # «Qué hay de nuevo»: obligatorio en toda versión que NO es la primera. En la 0.1
         # Apple lo rechaza (no hay versión anterior), por eso sólo va si el archivo existe
         # y la app ya tiene una versión publicada.
-        **({"whatsNew": leer("whats_new")} if hay_publicada(app) and os.path.exists(os.path.join(METADATA, LOCALE, "whats_new.txt")) else {}),
+        **({"whatsNew": leer("whats_new")} if has_published_version(app) and os.path.exists(os.path.join(METADATA, LOCALE, "whats_new.txt")) else {}),
         "supportUrl": leer("support_url"),
         "marketingUrl": leer("support_url"),
     })

@@ -215,11 +215,13 @@ actor ClienteGS: TransporteDeAgente {
             // `curl` de los adjuntos. Sin limpiarlo, al recargar el hilo la burbuja de la
             // persona sale con un muro de texto que ella nunca escribió — se vio tal cual
             // en el teléfono.
-            let limpio = BloqueDeAdjuntos.limpiarParaMostrar(t).texto
+            //
+            // ⚠️ Pero esa limpieza la hace `ReplayToMessages` y NO aquí: limpiar dos veces
+            // borraba los NOMBRES de los adjuntos antes de que allá se reconstruyeran, y tu
+            // foto desaparecía de tu mensaje en cuanto llegaba la respuesta (2026-09-26).
             // Un turno programado lleva pegadas las instrucciones al agente («nadie está
             // mirando… contesta OK»). Son para él; a la persona se le enseña lo que pidió.
-            let visible = Self.sinReglasDeAgenda(limpio.isEmpty ? t : limpio)
-            return [.turno("m\(i)"), .user(visible)]
+            return [.turno("m\(i)"), .user(Self.sinReglasDeAgenda(t))]
         }
     }
 

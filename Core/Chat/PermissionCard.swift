@@ -19,9 +19,9 @@ struct PermissionCard: View {
             }
             HStack(spacing: 8) {
                 ActionButton(title: "Sí, dale", kind: .primary) { onDecide(.allowOnce) }
-                    .accessibilityIdentifier("permiso-si")
+                    .accessibilityIdentifier("permission-yes")
                 ActionButton(title: "No, mejor no") { onDecide(.deny) }
-                    .accessibilityIdentifier("permiso-no")
+                    .accessibilityIdentifier("permission-no")
             }
             // El de en medio evita aprobar todo a ciegas: sólo vale en esta conversación.
             Button { onDecide(.allowForTask) } label: {
@@ -31,7 +31,7 @@ struct PermissionCard: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("permiso-siempre")
+            .accessibilityIdentifier("permission-always")
         }
         .padding(14)
         .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))

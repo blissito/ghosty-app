@@ -586,7 +586,7 @@ struct ConversationView: View {
     /// ⚠️ Los reintentos no son paranoia: dentro de un `LazyVStack` una fila que está
     /// fuera de pantalla **no se ha creado todavía**, y `scrollTo` a algo que no existe no
     /// La última respuesta del agente: la única que lleva botón de copiar.
-    private var ultimaRespuesta: Message.ID? {
+    private var lastReplyID: Message.ID? {
         mensajesÚnicos.last(where: { if case .agent = $0.kind { return true } else { return false } })?.id
     }
 
@@ -609,7 +609,7 @@ struct ConversationView: View {
             // instante; con las dos salían dos mascotas en la misma pantalla.
             AgentBubble(text: t, tools: tools, trailing: trailing,
                         vivo: store.currentTurn != nil && mensaje.id == mensajesÚnicos.last?.id,
-                        showCopy: mensaje.id == ultimaRespuesta)
+                        showCopy: mensaje.id == lastReplyID)
         case .entrega(let e):
             HStack {
                 EntregaCard(entrega: e)
