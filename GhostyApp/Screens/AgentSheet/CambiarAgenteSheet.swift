@@ -15,21 +15,65 @@ struct CambiarAgenteSheet: View {
     @State private var cache = UsosDeAgentes.compartido
     private var usos: [String: PersonalUsage] { cache.usos }
 
+    /// Grupos por espacio: primero lo tuyo, luego cada workspace (en el orden en que llegan)
+    /// y al final lo compartido contigo. Con un solo grupo no se pinta encabezado.
+    private var grupos: [(titulo: String, agentes: [Agent])] {
+        var orden: [String] = []
+        var porClave: [String: (String, [Agent])] = [:]
+        for a in store.agents {
+            let (clave, titulo): (String, String)
+            switch a.space?.kind {
+            case .workspace?:
+                let n = a.space!.name
+                (clave, titulo) = ("w:" + a.space!.id, n.prefix(1).uppercased() + n.dropFirst())
+            case .shared?: (clave, titulo) = ("~shared", "Compartidos contigo")
+            default:
+                (clave, titulo) = a.compartidoPor == nil ? ("0personal", "Tuyos") : ("~shared", "Compartidos contigo")
+            }
+            if porClave[clave] == nil { orden.append(clave); porClave[clave] = (titulo, []) }
+            porClave[clave]!.1.append(a)
+        }
+        let ordenados = orden.sorted { rango($0) < rango($1) }
+        return ordenados.map { (porClave[$0]!.0, porClave[$0]!.1) }
+    }
+
+    private func rango(_ clave: String) -> Int {
+        clave == "0personal" ? 0 : clave == "~shared" ? 2 : 1
+    }
+
     var body: some View {
-        VStack(spacing: 6) {
-            ForEach(Array(store.agents.enumerated()), id: \.element.id) { i, agente in
-                let elegido = agente.id == store.selectedAgentID
-                GhostySheetRow(title: agente.name, subtitle: Self.tipo(agente), selected: elegido,
-                               action: { elegir(agente) },
-                               leading: { AgentAvatar(tone: agente.tone, size: 40) },
-                               // Sólo elegir: el uso vive en Perfil y en la hoja del agente de arriba.
-                               extra: { EmptyView() })
-                    .accessibilityIdentifier("agente-\(agente.id)")
-                    // Las filas entran escalonadas, como el `gin` del prototipo.
-                    .gIn(duration: 0.25, delay: 0.04 + Double(min(i, 6)) * 0.04)
+        let gs = grupos
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(gs.enumerated()), id: \.offset) { g, grupo in
+                if gs.count > 1 {
+                    Text(grupo.titulo)
+                        .gSectionCaps()
+                        .padding(.horizontal, 6)
+                        .padding(.top, g == 0 ? 2 : 12)
+                        .gIn(duration: 0.25, delay: 0.02 + Double(g) * 0.05)
+                }
+                ForEach(Array(grupo.agentes.enumerated()), id: \.element.id) { i, agente in
+                    let elegido = agente.id == store.selectedAgentID
+                    GhostySheetRow(title: agente.name, subtitle: Self.subtitulo(agente, agrupado: gs.count > 1),
+                                   selected: elegido,
+                                   action: { elegir(agente) },
+                                   leading: { AgentAvatar(tone: agente.tone, size: 40) },
+                                   // Sólo elegir: el uso vive en Perfil y en la hoja del agente de arriba.
+                                   extra: { EmptyView() })
+                        .accessibilityIdentifier("agente-\(agente.id)")
+                        // Las filas entran escalonadas, como el `gin` del prototipo.
+                        .gIn(duration: 0.25, delay: 0.04 + Double(min(g * 3 + i, 8)) * 0.04)
+                }
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: store.selectedAgentID)
+    }
+
+    /// Con encabezado de grupo, el espacio ya se lee arriba: la línea dice el modelo.
+    static func subtitulo(_ a: Agent, agrupado: Bool) -> String {
+        guard agrupado else { return tipo(a) }
+        if let de = a.compartidoPor { return "De \(de)" }
+        return a.model ?? a.engine
     }
 
     /// La línea bajo el nombre: de quién es el agente.
