@@ -1,6 +1,8 @@
-• Todos tus agentes en un lugar, agrupados por espacio.
-• Toca a tu agente para ver tu plan, tu uso de la semana y tus imágenes.
-• Las respuestas aparecen con un barrido suave, palabra por palabra.
-• Cuando tu agente necesita tu visto bueno, te lo pregunta en el chat.
-• Tocar un aviso te lleva directo a la conversación.
-• Arreglos: la respuesta ya no se reescribe al abrir la app.
+• Diseño nuevo: más claro, más limpio y con una barra de navegación flotante.
+• Cambia de agente desde tu avatar, agrupados por espacio.
+• Encárgale tareas: ves los pasos que va dando y te entrega tablas y archivos listos.
+• Exporta cualquier tabla a Excel o cópiala con un toque.
+• Habla con tu agente: toca el micrófono y mándale una nota de voz.
+• Nuevo Perfil con tu plan y el uso de cada agente.
+• Integraciones con interruptores para conectar tus herramientas.
+• Todo carga más rápido: tus archivos y tu uso se guardan en el teléfono.
