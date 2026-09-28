@@ -432,18 +432,15 @@ struct ConversacionesView: View {
 
     private func filaAbierta(_ h: Hilo, canal: Canal, fila f: Fila) -> some View {
         let mirando = h.clave == store.hiloActivo?.clave && f.agente.id == store.selectedAgentID
-        return Button {
+        return renglon(titulo: f.titulo, agente: f.agente, fecha: f.fecha) {
+            EstadoDelHilo(hilo: h).lineLimit(1)
+        } marca: {
+            marca(de: h, mirando: mirando)
+        }
+        .tocable {
             store.mirar(h, de: f.agente.id)
             onAbrir()
-        } label: {
-            renglon(titulo: f.titulo, agente: f.agente, fecha: f.fecha) {
-                EstadoDelHilo(hilo: h).lineLimit(1)
-            } marca: {
-                marca(de: h, mirando: mirando)
-            }
         }
-        .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gCardPressed))
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier(idDeFila(f))
         // Sólo las que ya existen en el agente se pueden nombrar.
         .deslizarParaBorrar("¿Borrar «\(h.titulo)»?",
@@ -456,21 +453,18 @@ struct ConversacionesView: View {
     }
 
     private func filaGuardada(_ s: ACPClient.Session, fila f: Fila) -> some View {
-        Button {
+        renglon(titulo: f.titulo, agente: f.agente, fecha: f.fecha) {
+            Text(detalle(s)).gMeta().lineLimit(1)
+        } marca: {
+            marca(de: s)
+        }
+        .tocable {
             Task {
                 if f.agente.id != store.selectedAgentID { store.seleccionar(f.agente.id) }
                 await store.abrirHilo(s)
                 onAbrir()
             }
-        } label: {
-            renglon(titulo: f.titulo, agente: f.agente, fecha: f.fecha) {
-                Text(detalle(s)).gMeta().lineLimit(1)
-            } marca: {
-                marca(de: s)
-            }
         }
-        .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gCardPressed))
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier(idDeFila(f))
         .deslizarParaBorrar("¿Borrar esta conversación?",
                              consecuencia: "Se borra de tu agente. No se puede deshacer.",
@@ -653,5 +647,32 @@ struct ConversacionesView: View {
         if let n = s.messageCount { partes.append(n == 1 ? "1 mensaje" : "\(n) mensajes") }
         if let f = s.updatedAt { partes.append(Hilo.hace(f)) }
         return partes.isEmpty ? "Guardada en tu agente" : partes.joined(separator: " · ")
+    }
+}
+
+/// Una fila que se abre con un TOQUE, no con un `Button`.
+///
+/// ⚠️ Las filas llevan `deslizarParaBorrar`. Un `Button` dispara al soltar dentro de su
+/// marco aunque el dedo se haya movido, y como la fila ocupa todo el ancho, deslizar a la
+/// izquierda para borrar ABRÍA la conversación (lo cazó el recorrido). `onTapGesture`
+/// falla en cuanto el dedo se mueve, que es lo que hacía la lista antes del rediseño.
+private struct FilaTocable: ViewModifier {
+    let accion: () -> Void
+
+    // Sin fondo al presionar: hacerlo con un `DragGesture(minimumDistance: 0)` le roba el
+    // scroll a la lista, que es peor que perder el tono de presión.
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .onTapGesture(perform: accion)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { accion() }
+    }
+}
+
+private extension View {
+    func tocable(_ accion: @escaping () -> Void) -> some View {
+        modifier(FilaTocable(accion: accion))
     }
 }

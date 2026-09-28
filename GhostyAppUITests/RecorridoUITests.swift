@@ -30,7 +30,7 @@ final class RecorridoUITests: XCTestCase {
     /// El historial ya no es pestaña: se abre con el botón de la cabecera del chat (hoja).
     /// Si ya está abierto, no hace nada; si estás en otra pestaña, vuelve a Chat primero.
     private func abrirHistorial() {
-        if app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'nueva-'")).firstMatch.exists
+        if app.buttons["nueva-conversacion-lista"].exists
             && !app.buttons["abrir-historial"].isHittable { return }
         if !app.buttons["abrir-historial"].exists { app.buttons["tab-chat"].tap() }
         let boton = app.buttons["abrir-historial"]
@@ -189,7 +189,8 @@ final class RecorridoUITests: XCTestCase {
 
         // 1. Nueva conversación desde la cabecera: tiene que dejarte en un hilo vacío.
         app.buttons["nueva-conversacion-cabecera"].tap()
-        XCTAssertTrue(app.staticTexts["¿En qué te ayudo?"].waitForExistence(timeout: 3),
+        // El vacío del diseño nuevo: «¿Qué le encargamos hoy?» con sus sugerencias.
+        XCTAssertTrue(app.staticTexts["¿Qué le encargamos hoy?"].waitForExistence(timeout: 3),
                       "el chip de nueva conversación no abrió un hilo vacío")
         foto("02-nueva-desde-cabecera")
 
@@ -263,6 +264,9 @@ final class RecorridoUITests: XCTestCase {
 
             // Tocar una imagen de la respuesta tiene que abrirla a pantalla completa.
             // La imagen grande de la respuesta: la más alta de la pantalla.
+            // Con el hilo ya asentado: al abrirlo se re-ancla abajo mientras las tarjetas
+            // se miden, y un toque en ese instante cae donde la imagen ESTABA.
+            Thread.sleep(forTimeInterval: 1.0)
             let todas = app.images
             let imagen = (0..<todas.count).map { todas.element(boundBy: $0) }
                 .filter { $0.frame.height > 100 }
@@ -295,13 +299,20 @@ final class RecorridoUITests: XCTestCase {
         let mas = app.buttons["adjuntar"]
         XCTAssertTrue(mas.waitForExistence(timeout: 3), "no encontré el botón de adjuntar")
         mas.tap()
+        // «Agregar» es ahora una hoja (Foto, Cámara, Archivo) que tapa el `+`: se cierra
+        // con el velo, como la de cambiar de agente. Tocar el `+` otra vez caía en una
+        // fila de la hoja y abría el selector de archivos.
+        let camara = app.buttons["adjuntar-Cámara"]
+        XCTAssertTrue(camara.waitForExistence(timeout: 3), "no salió la hoja de agregar")
+        Thread.sleep(forTimeInterval: 0.6)
         foto("08-adjuntar")
-        XCTAssertTrue(app.buttons["adjuntar-Cámara"].exists, "no salieron las tres tarjetas")
-        mas.tap()
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        XCTAssertTrue(camara.waitForNonExistence(timeout: 3), "tocar el velo no cerró la hoja de agregar")
 
         // 6. Empezar una conversación desde la lista: tiene que LLEVARTE al chat.
         abrirHistorial()
-        let nueva = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'nueva-'")).firstMatch
+        // El lápiz de la lista (el de la cabecera del chat queda tapado por la hoja).
+        let nueva = app.buttons["nueva-conversacion-lista"].firstMatch
         XCTAssertTrue(nueva.waitForExistence(timeout: 3), "no salió el botón de nueva conversación")
         nueva.tap()
         XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
@@ -342,7 +353,9 @@ final class RecorridoUITests: XCTestCase {
             let renombrar = app.buttons["Renombrar"].firstMatch
             XCTAssertTrue(renombrar.waitForExistence(timeout: 3), "el toque largo no ofreció renombrar")
             renombrar.tap()
-            let campo = app.textFields.firstMatch
+            // El del ALERTA: la lista ahora tiene buscador y detrás queda el compositor,
+            // así que «el primer campo» ya no es el de renombrar.
+            let campo = app.alerts.textFields.firstMatch
             XCTAssertTrue(campo.waitForExistence(timeout: 3), "renombrar no abrió el campo")
             campo.tap()
             // Viene con el nombre actual: se borra tecleando retrocesos.
@@ -383,13 +396,18 @@ final class RecorridoUITests: XCTestCase {
             foto("14-borrado")
         }
 
-        // 7. Y que «Guardadas» se despliegue sólo cuando se toca.
+        // 7. Lo guardado en el agente (sin abrir en el teléfono) ya no va en un plegable:
+        //    entra en la misma lista por fecha. Tiene que estar Y abrirse al tocarlo.
         if app.keyboards.count > 0 { app.swipeDown() }
         abrirHistorial()
-        let guardadas = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'guardadas-'")).firstMatch
-        XCTAssertTrue(guardadas.exists, "no salió el plegable de guardadas")
-        guardadas.tap()
+        let guardada = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'guardada-' AND label CONTAINS 'Cotización de marzo'")).firstMatch
+        XCTAssertTrue(guardada.waitForExistence(timeout: 3), "lo guardado en el agente no sale en la lista")
         foto("10-guardadas")
+        guardada.tap()
+        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
+                      "tocar una conversación guardada no llevó al chat")
+        abrirHistorial()
 
         // 8. Borrar la cuenta EXISTE y pide confirmación (Apple 5.1.1). Se cancela: en demo
         //    no hay red y no hay cuenta que borrar.
@@ -435,15 +453,18 @@ extension RecorridoUITests {
 
         // 2. Las guardadas: la que corre dice «Trabajando…» y la que lleva tres horas
         //    muda NO — si no, la lista miente toda la tarde.
-        app.buttons["guardadas-demo-1"].tap()
-        XCTAssertTrue(app.staticTexts["Trabajando…"].waitForExistence(timeout: 3),
+        // Ya no hay plegable que abrir: van en la lista por fecha, y cada fila es UN
+        // elemento de accesibilidad (título + subtítulo), así que se busca en su label.
+        func guardada(_ texto: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(NSPredicate(
+                format: "identifier BEGINSWITH 'guardada-' AND label CONTAINS %@", texto)).firstMatch
+        }
+        XCTAssertTrue(guardada("Trabajando…").waitForExistence(timeout: 3),
                       "la conversación que sí corre no dice que trabaja")
-        let sinNoticias = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH 'Sin noticias'")).firstMatch
-        XCTAssertTrue(sinNoticias.exists, "el turno mudo de hace tres horas sigue diciendo que trabaja")
-        let permiso = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH 'Espera tu visto bueno'")).firstMatch
-        XCTAssertTrue(permiso.exists, "la conversación detenida por un permiso no lo dice")
+        XCTAssertTrue(guardada("Sin noticias").exists,
+                      "el turno mudo de hace tres horas sigue diciendo que trabaja")
+        XCTAssertTrue(guardada("Espera tu visto bueno").exists,
+                      "la conversación detenida por un permiso no lo dice")
         foto("21-guardadas-remotas")
     }
 
@@ -493,7 +514,7 @@ extension RecorridoUITests {
                        "con texto escrito no debería quedar el botón de detener")
         foto("26-mandar-mientras-trabaja")
         enviar.tap()
-        XCTAssertTrue(app.staticTexts["añadido a lo que está haciendo"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.staticTexts["Añadido a lo que está haciendo"].waitForExistence(timeout: 3),
                       "no se dice que el mensaje entró en el turno en marcha")
         foto("27-steer-hecho")
     }
@@ -530,6 +551,7 @@ extension RecorridoUITests {
             NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
         XCTAssertTrue(fila.waitForExistence(timeout: 3)); fila.tap()
         XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3))
+        Thread.sleep(forTimeInterval: 1.0)
         let todas = app.images
         let imagen = (0..<todas.count).map { todas.element(boundBy: $0) }
             .filter { $0.frame.height > 100 }.max { $0.frame.height < $1.frame.height }!
