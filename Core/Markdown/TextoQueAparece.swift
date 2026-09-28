@@ -51,6 +51,8 @@ struct TextoAlRitmo: View {
 
     static let letrasPorTramo = 20
     static let intervalo = 0.13
+    /// Sin texto nuevo por este rato, lo que falte se suelta completo.
+    static let quieto = 0.6
 
     var body: some View {
         Group {
@@ -104,6 +106,11 @@ struct TextoAlRitmo: View {
             soltado = letras.count
             ultimoTramo = t
         }
+        // La tarea se rehace cada vez que crece el texto: su arranque es el último cambio.
+        // Si se queda quieto (el agente se puso a usar herramientas), la última palabra se
+        // suelta aunque no la siga un espacio. Sin esto «Reviso tus archivos.» se veía
+        // «Reviso tus» mientras corrían los pasos (fix de ghosty-studio, 2026-09-28).
+        let cambio = Date().timeIntervalSinceReferenceDate
         while !Task.isCancelled {
             guard var s = soltado else { return }
             let t = Date().timeIntervalSinceReferenceDate
@@ -111,7 +118,8 @@ struct TextoAlRitmo: View {
             // Muy atrasado (> ~300 letras): tramos más seguidos, en proporción.
             let cada = atraso > 300 ? max(0.03, Self.intervalo * 300 / Double(atraso)) : Self.intervalo
             var nuevas: [PalabraQueEntra] = []
-            if t - ultimoTramo >= cada, let fin = Self.finDeTramo(letras, desde: s, completa: vivo), fin > s {
+            let quieto = vivo && t - cambio > Self.quieto && s < letras.count
+            if t - ultimoTramo >= cada, let fin = quieto ? letras.count : Self.finDeTramo(letras, desde: s, completa: vivo), fin > s {
                 nuevas.append(PalabraQueEntra(inicio: s, t: t))
                 s = fin
                 ultimoTramo = t
@@ -121,10 +129,10 @@ struct TextoAlRitmo: View {
             if vigentes != recientes { recientes = vigentes }
             ahora = t
             if vivo { Memoria.soltado[id] = s } else { Memoria.soltado[id] = nil }
-            // Nada que soltar ni fade en curso: se duerme hasta que llegue más texto (la
-            // tarea se rehace al cambiar el largo o `vivo`).
-            let quedan = Self.finDeTramo(letras, desde: s, completa: vivo) != nil
-            if !quedan, vigentes.isEmpty { return }
+            // Todo soltado y sin fade en curso: se duerme hasta que llegue más texto (la
+            // tarea se rehace al cambiar el largo o `vivo`). Con una palabra a medias sigue
+            // despierta hasta que el texto se quede quieto.
+            if s >= letras.count, vigentes.isEmpty { return }
             try? await Task.sleep(for: .milliseconds(16))
         }
     }
