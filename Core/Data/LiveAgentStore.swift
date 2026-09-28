@@ -603,6 +603,7 @@ final class LiveAgentStore: AgentStoring {
     /// El reposo no es una excepción que reparar — es el estado normal de un teléfono.
     func volverDelFondo() async {
         Keychain.migrarAccesibilidad()
+        GrupoDeApp.espejarConsentimiento()
         repasarLaFlota(forzado: true)
     }
 
@@ -705,6 +706,40 @@ final class LiveAgentStore: AgentStoring {
             await self.traerLaConversacion(hilo, de: canal)
             self.engancharse(hilo, de: canal)
         }
+    }
+
+    // MARK: - Lo que llega de la hoja de compartir
+
+    /// Lo que la extensión «Enviar a Ghosty» dejó para abrir en el compositor, esperando
+    /// a que haya agentes montados (arranque en frío).
+    private var compartidoPendiente: BuzonCompartido.Recibido?
+    /// Ya aplicado: el compositor lo absorbe (adjuntos + texto) y lo limpia.
+    var compartidoListo: BuzonCompartido.Recibido?
+
+    /// Un enlace `com.fixtergeek.ghostyapp://…`. Misma doctrina que `irA`: el destino es
+    /// ESTADO y se aplica cuando haya a dónde ir.
+    func abrir(_ enlace: EnlaceDeGhosty) {
+        switch enlace {
+        case .conversacion(let agente, let sesion):
+            irA(agente: agente, sesion: sesion)
+        case .compartido(let id):
+            guard let r = BuzonCompartido.tomar(id) else {
+                EasyBitsClient.diag("[compartir] el paquete \(id.prefix(8)) ya no existe")
+                return
+            }
+            compartidoPendiente = r
+            aplicarCompartido()
+        }
+    }
+
+    /// Conversación NUEVA con el agente elegido en la hoja, y lo compartido al compositor.
+    func aplicarCompartido() {
+        guard let r = compartidoPendiente, case .lista = conexion, !canales.isEmpty else { return }
+        compartidoPendiente = nil
+        if let a = r.agente, canales[a] != nil { seleccionar(a) }
+        nuevaConversacion()
+        pestanaPedida = .chat
+        compartidoListo = r
     }
 
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
@@ -2490,5 +2525,6 @@ final class LiveAgentStore: AgentStoring {
         }
         // El aviso que se tocó con la app cerrada, ahora que ya hay dónde llevarlo.
         aplicarAvisoPendiente()
+        aplicarCompartido()
     }
 }

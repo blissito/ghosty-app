@@ -1,7 +1,7 @@
 import Foundation
 import AudioToolbox
 import UserNotifications
-#if canImport(UIKit)
+#if canImport(UIKit) && !GHOSTY_EXTENSION
 import UIKit
 #endif
 
@@ -34,7 +34,7 @@ enum Avisos {
             // no sirve de nada. Y es lo único que hace que un aviso llegue con la app
             // CERRADA — los locales de este archivo sólo existen mientras la app vive.
             Task { @MainActor in
-                #if canImport(UIKit)
+                #if canImport(UIKit) && !GHOSTY_EXTENSION
                 UIApplication.shared.registerForRemoteNotifications()
                 #endif
             }
@@ -49,7 +49,7 @@ enum Avisos {
     /// `registerForRemoteNotifications` iOS **no entrega** ningún push, ni siquiera el
     /// silencioso — que es justo lo que hace que no se pueda probar sin darse cuenta.
     static func registrarSiYaHayPermiso() {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !GHOSTY_EXTENSION
         // Gancho de desarrollo: en el simulador no se puede tocar el diálogo del permiso.
         if Gancho.valor("GHOSTY_PUSH") == "1" {
             pedido = true // y no se pregunta después: el diálogo taparía la captura
@@ -134,7 +134,7 @@ enum Avisos {
     /// que ves terminar delante de ti se vuelve ruido en dos minutos.
     static func sonarFin() {
         sonar(.burbuja)
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !GHOSTY_EXTENSION
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
     }
@@ -166,7 +166,7 @@ enum Avisos {
     static var hayPush: Bool { tokenEnviado != nil }
 
     static var enElFondo: Bool {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !GHOSTY_EXTENSION
         UIApplication.shared.applicationState != .active
         #else
         false

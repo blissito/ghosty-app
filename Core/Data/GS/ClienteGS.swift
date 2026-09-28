@@ -489,6 +489,13 @@ actor ClienteGS: TransporteDeAgente {
         try await encargar(sessionID, texto: texto, adjuntos: []).inyectado
     }
 
+    /// Encarga un turno SIN escuchar su respuesta: el mismo POST que `prompt`, para quien
+    /// no va a pintar nada (la extensión «Enviar a Ghosty»). El turno es del servidor y la
+    /// respuesta se lee al abrir la conversación. Devuelve el `turnId`.
+    func encargarSinEscuchar(sessionID: String, texto: String, adjuntos: [Adjunto]) async throws -> String {
+        try await encargar(sessionID, texto: texto, adjuntos: adjuntos).turnId
+    }
+
     /// Abre el SSE y traduce lo que llega.
     private func escuchar(_ sesion: String,
                           _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation,

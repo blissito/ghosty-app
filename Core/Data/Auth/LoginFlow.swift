@@ -156,9 +156,14 @@ extension LoginFlow: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         // La ventana activa. Con escenas múltiples (iPad, que hoy no soportamos) habría
         // que elegir la del login; con una sola, la primera ES la del login.
+        // La extensión «Enviar a Ghosty» no hace login (manda a abrir la app).
+        #if GHOSTY_EXTENSION
+        ASPresentationAnchor()
+        #else
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow }
             .first ?? ASPresentationAnchor()
+        #endif
     }
 }
 

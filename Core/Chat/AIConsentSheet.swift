@@ -80,6 +80,8 @@ struct AIConsentSheet: View {
         }
         .background(Color.gBg)
         .presentationDetents([.large])
+        // La extensión «Enviar a Ghosty» lo lee del grupo de la app.
+        .onChange(of: consentGiven) { _, _ in GrupoDeApp.espejarConsentimiento() }
     }
 
     private func fila(_ icono: String, _ titulo: String, _ texto: String) -> some View {

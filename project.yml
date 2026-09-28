@@ -22,7 +22,7 @@ settings:
     DEVELOPMENT_TEAM: E77EZQG9YS
     GHOSTY_COMMIT: ""
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.0.1"
+    MARKETING_VERSION: "1.0.2"
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
@@ -37,6 +37,8 @@ targets:
       - path: Core
     dependencies:
       - package: MarkdownUI
+      # La entrada «Enviar a Ghosty» de la hoja de compartir (ver EnviarAGhosty/).
+      - target: EnviarAGhosty
     # ⚠️ El xcconfig ya NO lleva credenciales: se entra con la cuenta de
     # ghosty.studio. Se conserva sólo para GHOSTY_COMMIT y ajustes locales de
     # firma; si el archivo no existe, la app compila igual.
@@ -61,6 +63,14 @@ targets:
         # Un turno DETENIDO esperando tu permiso atraviesa un Focus con razón. Sin esto,
         # `interruption-level: time-sensitive` se ignora y el aviso espera a que mires.
         com.apple.developer.usernotifications.time-sensitive: true
+        # Lo que comparte con la extensión «Enviar a Ghosty»: el contenedor (archivos que
+        # se abren en el compositor, el consentimiento de IA) y el llavero (la sesión).
+        # ⚠️ El grupo del llavero es el app id de la APP a propósito: es donde ya viven la
+        # sesión y los agentes, así que no hay nada que migrar.
+        com.apple.security.application-groups:
+          - group.com.fixtergeek.ghostyapp
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.fixtergeek.ghostyapp
     info:
       path: GhostyApp/Info.plist
       properties:
@@ -127,6 +137,67 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: primary
         TARGETED_DEVICE_FAMILY: "1"
+
+  # «Enviar a Ghosty» en la hoja de compartir. Es una ACCIÓN (`com.apple.ui-services`):
+  # sale en la lista de abajo, como «Ask Gemini» o «Send to Manus». Compila `Core/` entero
+  # para mandar por el MISMO camino que la app (subida a /me/files + el POST del turno).
+  EnviarAGhosty:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: EnviarAGhosty
+      - path: Core
+      # Sólo por el AppIcon: es el icono con el que sale en la hoja de compartir.
+      - path: GhostyApp/Assets.xcassets
+    dependencies:
+      - package: MarkdownUI
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
+    entitlements:
+      path: EnviarAGhosty/EnviarAGhosty.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.fixtergeek.ghostyapp
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.fixtergeek.ghostyapp
+    info:
+      path: EnviarAGhosty/Info.plist
+      properties:
+        CFBundleDisplayName: Enviar a Ghosty
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIAppFonts:
+          - Poppins-Medium.ttf
+          - Poppins-SemiBold.ttf
+          - Poppins-Bold.ttf
+          - Inter-Variable.ttf
+          - SourceSerif4-Variable.ttf
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ui-services
+          NSExtensionPrincipalClass: ActionViewController
+          NSExtensionAttributes:
+            NSExtensionActionWantsFullScreenPresentation: false
+            NSExtensionServiceAllowsFinderPreviewItem: true
+            # Hasta 8 cosas, como el compositor: PDFs, imágenes, videos, cualquier
+            # archivo, un enlace o texto.
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsAttachmentsWithMaxCount: 8
+              NSExtensionActivationSupportsFileWithMaxCount: 8
+              NSExtensionActivationSupportsImageWithMaxCount: 8
+              NSExtensionActivationSupportsMovieWithMaxCount: 8
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsWebPageWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostyapp.enviar
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: primary
+        TARGETED_DEVICE_FAMILY: "1"
+        # Lo que en `Core/` sólo existe en la app (registrarse en APNs, escenas) se
+        # apaga con esta condición.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) GHOSTY_EXTENSION"
 
   # ⚠️ No se instala ni se distribuye: existe para que `Core/` compile SOLO. Si algo del
   # núcleo empieza a depender de una pantalla de la app, este target se pone rojo antes

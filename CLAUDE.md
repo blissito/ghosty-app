@@ -128,6 +128,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_DEMO_CHAT=1\|tabla\|vacio` | (con `GHOSTY_DEMO=1`) el hilo del prototipo con pasos, tabla y PDF; `tabla` corta en la tabla; `vacio` abre el chat vacío |
 | `GHOSTY_AGREGAR=1` | abre la hoja «Agregar» del compositor |
 | `GHOSTY_VOZ=1` | pinta el overlay «Te escucho…» (sin grabar) |
+| `GHOSTY_COMPARTIDO=<id>` | abre el paquete `compartido/<id>/` del App Group (lo que deja «Abrir en Ghosty» de la hoja de compartir) en el compositor |
 
 ⚠️ **Los cuatro últimos juntos son lo que permite verificar la app contra el servidor de
 verdad sin la sesión de nadie.** Un token de la cuenta real alcanza a TODOS sus agentes,

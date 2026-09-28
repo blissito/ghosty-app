@@ -160,6 +160,15 @@ struct ConversationView: View {
         .onDisappear {
             if vozConOverlay { cancelarVoz(); cerrarOverlayDeVoz() }
         }
+        // Lo que llegó de la hoja de compartir («Abrir en Ghosty»): al compositor.
+        .onChange(of: store.compartidoListo?.id, initial: true) { _, id in
+            guard id != nil, let r = store.compartidoListo else { return }
+            store.compartidoListo = nil
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                adjuntos += r.adjuntos
+                if borrador.isEmpty { borrador = r.texto }
+            }
+        }
         // Lo que ya estaba al abrir no entra animado; lo que llega, sí (`gin`).
         .onAppear { sembrarVistos() }
         .onChange(of: hiloVisible) { _, _ in sembrarVistos() }

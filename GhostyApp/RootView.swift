@@ -144,12 +144,23 @@ struct RootView: View {
             cambiarAgente = false
             store.pestanaPedida = nil
         }
+        // `com.fixtergeek.ghostyapp://conversacion|compartido` (ver `EnlaceDeGhosty`): lo
+        // que abre la extensión «Enviar a Ghosty».
+        .onOpenURL { url in
+            guard let enlace = EnlaceDeGhosty(url: url) else { return }
+            store.abrir(enlace)
+        }
         .task {
             // Lo primero, y barato: tirar las imágenes viejas del caché de disco.
             CacheDeImagenes.purgar()
+            GrupoDeApp.espejarConsentimiento()
             // Sin await: la config nunca retrasa el arranque, llega cuando llegue.
             Task { await AppConfig.shared.refresh() }
             await store.cargar()
+            // Gancho: `GHOSTY_COMPARTIDO=<id>` abre ese paquete de la hoja de compartir como
+            // si llegara por `…://compartido` (el simulador pregunta antes de abrir un enlace
+            // y nadie puede contestar).
+            if let id = Gancho.valor("GHOSTY_COMPARTIDO") { store.abrir(.compartido(id: id)) }
             // En paralelo: ninguna de las dos bloquea la pantalla y las dos deciden qué se
             // enseña en Ajustes.
             async let almacen: Void = store.cargarAlmacenamiento()
