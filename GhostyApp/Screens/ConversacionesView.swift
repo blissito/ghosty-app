@@ -18,13 +18,23 @@ struct ConversacionesView: View {
     /// «Ver plan y uso» de un agente.
     var onAgentTap: (Agent) -> Void = { _ in }
 
+    // ⚠️ El filtro nace YA puesto: ponerlo en `onAppear` pintaba primero todos los agentes y
+    // luego saltaba al actual, y la apertura se sentía lenta.
+    init(store: LiveAgentStore, onCuenta: @escaping () -> Void, onAbrir: @escaping () -> Void,
+         onAgentTap: @escaping (Agent) -> Void = { _ in }) {
+        self.store = store
+        self.onCuenta = onCuenta
+        self.onAbrir = onAbrir
+        self.onAgentTap = onAgentTap
+        _soloAgente = State(initialValue: store.agents.count > 1 ? store.selectedAgentID : nil)
+    }
+
     @State private var busqueda = ""
     @FocusState private var buscando: Bool
     /// El agente por el que se filtra. `nil` = todos.
     /// Arranca en el agente actual: lo que esperas ver son SUS conversaciones. «Todos»
     /// sigue a un toque en los chips.
     @State private var soloAgente: String?
-    @State private var yaPreseleccionado = false
     /// Favoritos (por teléfono). Estado local para repintar al tocar la estrella.
     @State private var favoritos: Set<String> = Favoritos.ids
     /// Sólo favoritos. Recordado.
@@ -127,15 +137,6 @@ struct ConversacionesView: View {
     // MARK: - Pantalla
 
     var body: some View {
-        contenido
-            .onAppear {
-                guard !yaPreseleccionado else { return }
-                yaPreseleccionado = true
-                if variosAgentes { soloAgente = store.selectedAgentID }
-            }
-    }
-
-    private var contenido: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 cabecera.padding(.bottom, 14)
@@ -386,7 +387,7 @@ struct ConversacionesView: View {
                         ForEach(Array(filasDelGrupo.enumerated()), id: \.element.id) { i, f in
                             fila(f)
                                 .ghostySeparator(inset: i == filasDelGrupo.count - 1 ? .infinity : 16)
-                                .gIn(delay: min(Double(i), 8) * 0.025)
+                                .transition(.opacity)
                                 // Se encoge y se desvanece al irse: la fila SALE en vez de
                                 // dejar de estar, que es lo que hace sentir el borrado hecho.
                                 .transition(.scale(scale: 0.94).combined(with: .opacity))
