@@ -116,7 +116,7 @@ struct ConversacionesView: View {
             for h in canal.hilos {
                 // La fecha del servidor, si la conversación también vive allá y es más nueva.
                 let delServidor = h.sesionID.flatMap { remotas[$0]?.updatedAt }
-                let fecha = max(h.tocado, delServidor ?? .distantPast)
+                let fecha = delServidor ?? h.tocado
                 todas.append(Fila(tipo: .abierta(h, canal), agente: agente, titulo: h.titulo, fecha: fecha))
             }
             let abiertas = Set(canal.hilos.compactMap(\.sesionID))
@@ -239,6 +239,7 @@ struct ConversacionesView: View {
     // MARK: - Agentes (filtro por espacio)
 
     private var filtroDeAgentes: some View {
+        ScrollViewReader { lector in
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 chip(titulo: "Todos", activo: soloAgente == nil, id: "chip-todos") {
@@ -251,12 +252,19 @@ struct ConversacionesView: View {
                         Rectangle().fill(Color.gFillStrong).frame(width: 1, height: 20)
                             .padding(.horizontal, 2)
                     }
-                    chipDeAgente(a)
+                    chipDeAgente(a).id(a.id)
                 }
             }
             .padding(.vertical, 2)
         }
         .scrollClipDisabled()
+        // El elegido siempre a la vista: al abrir (sin animación) y al cambiarlo.
+        .onAppear { if let id = soloAgente { lector.scrollTo(id, anchor: .center) } }
+        .onChange(of: soloAgente) { _, id in
+            guard let id else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { lector.scrollTo(id, anchor: .center) }
+        }
+        }
     }
 
     private func chipDeAgente(_ a: Agent) -> some View {
