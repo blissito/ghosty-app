@@ -939,6 +939,10 @@ final class LiveAgentStore: AgentStoring {
                case .agent = mensajes.last!.kind {
                 mensajes.removeLast()
             }
+            // Los mismos mensajes conservan su id local (ver `conservarIDs`). Las vivas se
+            // quedan fuera del emparejado: vuelven tal cual, con el suyo.
+            let idsVivas = Set(vivas.map(\.id))
+            mensajes = Self.conservarIDs(mensajes, de: hilo.mensajes.filter { !idsVivas.contains($0.id) })
             mensajes.append(contentsOf: vivas)
             EasyBitsClient.diag("[hilo] \(sid): el servidor trae \(mensajes.count) mensajes (había \(hilo.mensajes.count))")
             hilo.mensajes = mensajes
@@ -1426,7 +1430,7 @@ final class LiveAgentStore: AgentStoring {
                 EasyBitsClient.diag("⚠️ session/load de \(sesion.id) volvió vacío — se conserva lo que había")
                 return
             }
-            hilo.mensajes = mensajes
+            hilo.mensajes = Self.conservarIDs(mensajes, de: hilo.mensajes)
             hilo.sospechoso = false
             // El título sale del primer mensaje del hilo, que es lo que hacen
             // ChatGPT, Claude y la propia interfaz de goose. Sale gratis: el replay
@@ -2301,6 +2305,67 @@ final class LiveAgentStore: AgentStoring {
 
     // MARK: - Interno
 
+    /// Los mensajes recargados que SON los que ya había conservan su id local.
+    ///
+    /// ⚠️ Recargar el hilo (al cerrar el turno, al volver del fondo) cambiaba los ids: tu
+    /// mensaje anclado arriba dejaba de existir, su aire se iba y el hilo daba un brinco
+    /// justo al terminar; y una fila con id nuevo es una vista nueva, que se vuelve a
+    /// animar. Es el mismo arreglo que en la Mac (`ChatStore.conservarIDs`).
+    ///
+    /// Se empareja por rol y en orden (el 3.er mensaje tuyo con el 3.º tuyo, la 2.ª
+    /// respuesta con la 2.ª), y sólo si el contenido coincide: el texto igual o uno el
+    /// principio del otro (el stream y el replay pueden diferir en el final). Lo que no
+    /// coincide se queda con el id nuevo; nada se inventa.
+    static func conservarIDs(_ nuevos: [Message], de viejos: [Message]) -> [Message] {
+        guard !viejos.isEmpty else { return nuevos }
+        func rol(_ m: Message) -> Int? {
+            switch m.kind {
+            case .user: return 0
+            case .agent: return 1
+            case .sistema: return 2
+            default: return nil
+            }
+        }
+        func texto(_ m: Message) -> String {
+            switch m.kind {
+            case .user(let t, _, _): return t.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .agent(let t, _, _): return t.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .sistema(let t): return t
+            default: return ""
+            }
+        }
+        func coincide(_ a: String, _ b: String) -> Bool {
+            if a == b { return true }
+            guard !a.isEmpty, !b.isEmpty else { return false }
+            return a.hasPrefix(b) || b.hasPrefix(a)
+                || (a.count >= 40 && b.count >= 40 && a.prefix(40) == b.prefix(40))
+        }
+        var porRol: [Int: [Message]] = [:]
+        for v in viejos { if let r = rol(v) { porRol[r, default: []].append(v) } }
+        // ⚠️ La cola del servidor (`tail`) puede empezar más tarde que lo que había: se
+        // alinea por el FINAL, que es donde coinciden.
+        var cuentaNuevos: [Int: Int] = [:]
+        for n in nuevos { if let r = rol(n) { cuentaNuevos[r, default: 0] += 1 } }
+        var cuenta: [Int: Int] = [:]
+        var usados = Set<String>()
+        let idsNuevos = Set(nuevos.map(\.id))
+        return nuevos.map { n in
+            guard let r = rol(n) else { return n }
+            let k = cuenta[r, default: 0]
+            cuenta[r] = k + 1
+            guard let lista = porRol[r] else { return n }
+            // Primero alineado por el final; si ahí no coincide, por el principio.
+            for j in [k + lista.count - cuentaNuevos[r, default: 0], k] where j >= 0 && j < lista.count {
+                let v = lista[j]
+                guard v.id != n.id, !usados.contains(v.id), !idsNuevos.contains(v.id),
+                      coincide(texto(v), texto(n)) else { continue }
+                usados.insert(v.id)
+                return Message(id: v.id, kind: n.kind)
+            }
+            return n
+        }
+    }
+
     private func pintarRespuesta(_ hilo: Hilo, id: String, texto: String,
                                  herramientas: [Herramienta] = []) {
         hilo.mensajes.removeAll { $0.kind == .typing }
@@ -2390,6 +2455,12 @@ final class LiveAgentStore: AgentStoring {
     /// Un turno de mentira para el modo demo: tres herramientas y una respuesta que
     /// llega por trozos. Sólo para mirar la UI; no toca nada real.
     private func turnoDeDemo(_ canal: Canal, _ hilo: Hilo, respuesta: String) async {
+        // `GHOSTY_DEMO_IMAGEN=1`: el turno crea una imagen (pasos en vivo + la caja
+        // «Creando imagen» que se revela), para mirarla sin la caja de verdad.
+        if Gancho.valor("GHOSTY_DEMO_IMAGEN") == "1" {
+            await turnoDeDemoConImagen(canal, hilo, respuesta: respuesta)
+            return
+        }
         var herramientas: [Herramienta] = []
         let pasos: [(String, Herramienta.Clase, String)] = [
             ("Buscar en la web", .search, "Clay.com plataforma ventas qué es 2026"),
@@ -2418,6 +2489,101 @@ final class LiveAgentStore: AgentStoring {
             pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
         }
         cerrarTurno(canal, hilo)
+    }
+
+    /// Dos pasos, la herramienta de imagen (segundos que dura la caja «Creando imagen»),
+    /// la entrega de un PNG dibujado aquí y el texto. Los segundos salen de
+    /// `GHOSTY_DEMO_IMAGEN_SEG` (8 por defecto).
+    private func turnoDeDemoConImagen(_ canal: Canal, _ hilo: Hilo, respuesta: String) async {
+        var herramientas: [Herramienta] = []
+        let pasos: [(String, Herramienta.Clase, String)] = [
+            ("Leer archivo", .read, "marca/paleta.md"),
+            ("Buscar en la web", .search, "ilustración plana fantasma morado"),
+        ]
+        for (i, paso) in pasos.enumerated() {
+            try? await Task.sleep(for: .seconds(1.4))
+            if Task.isCancelled { return }
+            herramientas.append(Herramienta(id: "demo-img-\(i)", titulo: paso.0, clase: paso.1,
+                                            estado: .corriendo, salida: nil, donde: nil, detalle: paso.2))
+            hilo.sinHerramientas = false
+            hilo.turno?.detail = paso.2
+            pintarRespuesta(hilo, id: respuesta, texto: "", herramientas: herramientas)
+            try? await Task.sleep(for: .seconds(1.6))
+            herramientas[i].estado = .hecha
+            herramientas[i].salida = "ok"
+            pintarRespuesta(hilo, id: respuesta, texto: "", herramientas: herramientas)
+        }
+        try? await Task.sleep(for: .seconds(0.8))
+        herramientas.append(Herramienta(id: "demo-img-crear", titulo: "Creando imagen", clase: .imagen,
+                                        estado: .corriendo, salida: nil, donde: nil,
+                                        detalle: "Un fantasma morado saludando"))
+        hilo.turno?.detail = "Creando imagen"
+        pintarRespuesta(hilo, id: respuesta, texto: "", herramientas: herramientas)
+        let seg = Double(Gancho.valor("GHOSTY_DEMO_IMAGEN_SEG") ?? "") ?? 8
+        try? await Task.sleep(for: .seconds(seg))
+        if Task.isCancelled { return }
+        herramientas[herramientas.count - 1].estado = .hecha
+        pintarRespuesta(hilo, id: respuesta, texto: "", herramientas: herramientas)
+        try? await Task.sleep(for: .seconds(0.6))
+        var e = Entrega(id: "demo-imagen-\(respuesta)", agentID: canal.cuenta.id, sesionID: hilo.sesionID,
+                        forma: .archivo, titulo: "fantasma.png", recibida: Date())
+        e.mime = "image/png"
+        e.datos = Self.imagenDeDemo()
+        let idEntrega = "entrega-\(e.id)"
+        if !hilo.mensajes.contains(where: { $0.id == idEntrega }) {
+            hilo.mensajes.append(Message(id: idEntrega, kind: .entrega(e)))
+        }
+        try? await Task.sleep(for: .seconds(1.8))
+        let texto = "Listo: un fantasma morado saludando, en plano y con sombra dura. Si quieres otro fondo o más contraste, toca **Editar**."
+        var acumulado = ""
+        for palabra in texto.split(separator: " ") {
+            try? await Task.sleep(for: .milliseconds(70))
+            if Task.isCancelled { return }
+            acumulado += (acumulado.isEmpty ? "" : " ") + palabra
+            pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+        }
+        cerrarTurno(canal, hilo)
+    }
+
+    /// Un PNG 4:3 dibujado a mano: fondo menta, un fantasma morado con sombra dura.
+    private static func imagenDeDemo() -> Data? {
+        let tam = CGSize(width: 1200, height: 900)
+        let img = UIGraphicsImageRenderer(size: tam, format: {
+            let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f
+        }()).image { ctx in
+            let g = ctx.cgContext
+            UIColor(red: 0.52, green: 0.87, blue: 0.80, alpha: 1).setFill()
+            g.fill(CGRect(origin: .zero, size: tam))
+            UIColor(red: 0.98, green: 0.75, blue: 0.14, alpha: 1).setFill()
+            g.fillEllipse(in: CGRect(x: 880, y: 90, width: 200, height: 200))
+            func fantasma(_ dx: CGFloat, _ dy: CGFloat) -> UIBezierPath {
+                let p = UIBezierPath()
+                p.move(to: CGPoint(x: 400 + dx, y: 720 + dy))
+                p.addLine(to: CGPoint(x: 400 + dx, y: 420 + dy))
+                p.addArc(withCenter: CGPoint(x: 600 + dx, y: 420 + dy), radius: 200,
+                         startAngle: .pi, endAngle: 0, clockwise: true)
+                p.addLine(to: CGPoint(x: 800 + dx, y: 720 + dy))
+                for i in 0..<4 {
+                    let x = 800 - CGFloat(i) * 100 + dx
+                    p.addQuadCurve(to: CGPoint(x: x - 100, y: 720 + dy),
+                                   controlPoint: CGPoint(x: x - 50, y: 660 + dy))
+                }
+                p.close()
+                return p
+            }
+            UIColor(red: 0.08, green: 0.08, blue: 0.11, alpha: 1).setFill()
+            fantasma(24, 24).fill()
+            UIColor(red: 0.36, green: 0.29, blue: 0.84, alpha: 1).setFill()
+            let f = fantasma(0, 0)
+            f.fill()
+            UIColor(red: 0.08, green: 0.08, blue: 0.11, alpha: 1).setStroke()
+            f.lineWidth = 12
+            f.stroke()
+            UIColor.white.setFill()
+            g.fillEllipse(in: CGRect(x: 510, y: 380, width: 60, height: 80))
+            g.fillEllipse(in: CGRect(x: 630, y: 380, width: 60, height: 80))
+        }
+        return img.pngData()
     }
 
     private func arrancarCronometro(_ hilo: Hilo, titulo: String) {

@@ -363,6 +363,49 @@ struct ConversationView: View {
         return store.messages.filter { vistos.insert($0.id).inserted }
     }
 
+    /// Los que se pintan: todos menos las entregas de imagen que ya se revelan DENTRO de la
+    /// caja «Creando imagen» de su turno (si salieran también sueltas, la imagen nacería
+    /// dos veces y la de abajo empujaría el hilo).
+    private var mensajesVisibles: [Message] {
+        let todos = mensajesÚnicos
+        let dentro = Set(todos.compactMap { imagenDelTurno($0, en: todos).entrega })
+        guard !dentro.isEmpty else { return todos }
+        return todos.filter { !dentro.contains($0.id) }
+    }
+
+    /// La caja de imagen de una respuesta: si su turno corrió una herramienta de imagen, en
+    /// qué va (creando, lista con la entrega del MISMO turno, o fallo), y qué entrega se
+    /// revela dentro (esa fila no se pinta suelta).
+    private func imagenDelTurno(_ m: Message, en todos: [Message]) -> (estado: ImagenDelTurno?, entrega: String?) {
+        guard case .agent(_, let tools, _) = m.kind,
+              let h = tools?.herramientas.last(where: \.esImagen),
+              let i = todos.firstIndex(where: { $0.id == m.id }) else { return (nil, nil) }
+        // La entrega de imagen que llegó después de esta respuesta y antes de tu siguiente mensaje.
+        for sig in todos[(i + 1)...] {
+            if case .user = sig.kind { break }
+            if case .entrega(let e) = sig.kind, e.esImagen { return (.lista(e), sig.id) }
+        }
+        switch h.estado {
+        case .fallida:
+            let linea = h.salida?.split(separator: "\n").first.map(String.init) ?? ""
+            return (.fallo(linea.isEmpty ? "No se pudo crear la imagen." : linea), nil)
+        case .corriendo:
+            return (.creando(editando: h.editaImagen), nil)
+        case .hecha:
+            // Terminó pero la entrega no ha llegado: la caja espera en su sitio mientras el
+            // turno sigue vivo (si se quitara, la imagen nacería más abajo: brinco).
+            return (esLaQueEscribe(m) ? .creando(editando: h.editaImagen) : nil, nil)
+        }
+    }
+
+    /// «Editar» de una imagen: el compositor queda con «Edita esta imagen: » y la imagen
+    /// como adjunto.
+    private func editarImagen(_ a: Adjunto?) {
+        borrador = "Edita esta imagen: "
+        if let a { agregar(a) }
+        escribiendo = true
+    }
+
     private var alFinal: Bool { pegadoAbajo }
 
 
@@ -621,30 +664,43 @@ struct ConversationView: View {
     /// sobrevive a que la vista se destruya.
     @ViewBuilder
     private var pieDeTrabajo: some View {
-        if store.currentTurn != nil {
-            // Los tres puntos (`gdot`) en la columna del agente. Si lo último ya es suyo,
-            // su avatar está justo arriba: no se repite.
-            TypingBubble(tone: ultimoEsDelAgente ? nil : (store.selectedAgent?.tone ?? .lila),
-                         texto: textoDelPie)
-                // ⚠️ `combine` ANTES del identificador: sin eso el `HStack` no es un
-                // elemento de accesibilidad y el identificador no existe para nadie —ni
-                // para VoiceOver ni para el recorrido que comprueba que el indicador sigue.
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("pensando")
-                .transition(.opacity.combined(with: .offset(y: 6)))
+        // ⚠️ Un HUECO de alto fijo que sigue ahí al cerrar el turno mientras tu mensaje siga
+        // anclado: si la cola encogiera al terminar, con una respuesta más alta que la
+        // pantalla el hilo bajaría de golpe. Al cerrar el turno NADA se mueve; el siguiente
+        // envío pone su ancla y el hueco se va con ella. Los puntos entran y salen DENTRO
+        // del hueco, sólo con opacidad: su salida no ocupa sitio de más.
+        if store.currentTurn != nil || !desdeElAncla.isEmpty {
+            ZStack(alignment: .leading) {
+                if store.currentTurn != nil {
+                    // Los tres puntos (`gdot`) en el margen de la respuesta.
+                    TypingBubble(texto: textoDelPie)
+                        // ⚠️ `combine` ANTES del identificador: sin eso el `HStack` no es un
+                        // elemento de accesibilidad y el identificador no existe para nadie
+                        // —ni para VoiceOver ni para el recorrido que comprueba que el
+                        // indicador sigue.
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("pensando")
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: TypingBubble.alto, maxHeight: TypingBubble.alto,
+                   alignment: .leading)
         }
     }
 
-    private var ultimoEsDelAgente: Bool {
-        if case .agent = mensajesÚnicos.last?.kind { return true }
-        return false
+    /// ¿Es ésta la respuesta que está creciendo? La del turno en curso por su id, y si el
+    /// id todavía no se conoce, la última del hilo.
+    private func esLaQueEscribe(_ m: Message) -> Bool {
+        guard store.currentTurn != nil else { return false }
+        if let viva = store.hiloActivo?.respuestaEnCursoID { return m.id == viva }
+        return m.id == mensajesÚnicos.last?.id
     }
 
     /// Lo que hace, salvo que la línea de pasos ya lo esté diciendo: dos frases para el
     /// mismo hecho, una encima de otra, es de lo que más ensucia esta pantalla.
     private var textoDelPie: String? {
         // La tarjeta de pasos ya lo dice (corriendo o «pensando el siguiente paso»).
-        if case .agent(_, let tools, _) = mensajesÚnicos.last?.kind, (tools?.count ?? 0) > 0 {
+        if case .agent(_, let tools, _) = mensajesVisibles.last?.kind, (tools?.count ?? 0) > 0 {
             return nil
         }
         return store.currentTurn?.detail ?? "Pensando…"
@@ -663,14 +719,16 @@ struct ConversationView: View {
 
     /// Los mensajes antes de tu último envío, y desde él (inclusive).
     private var antesDelAncla: [Message] {
+        let visibles = mensajesVisibles
         guard let ancla = store.anclaDelHilo,
-              let i = mensajesÚnicos.firstIndex(where: { $0.id == ancla }) else { return mensajesÚnicos }
-        return Array(mensajesÚnicos[..<i])
+              let i = visibles.firstIndex(where: { $0.id == ancla }) else { return visibles }
+        return Array(visibles[..<i])
     }
     private var desdeElAncla: [Message] {
+        let visibles = mensajesVisibles
         guard let ancla = store.anclaDelHilo,
-              let i = mensajesÚnicos.firstIndex(where: { $0.id == ancla }) else { return [] }
-        return Array(mensajesÚnicos[i...])
+              let i = visibles.firstIndex(where: { $0.id == ancla }) else { return [] }
+        return Array(visibles[i...])
     }
     /// A dónde se «sigue el final». Con un mensaje recién mandado que aún cabe con su
     /// respuesta en la pantalla, el final ES ese mensaje arriba: se ancla por su `id` con
@@ -764,12 +822,14 @@ struct ConversationView: View {
             // ⚠️ Aquí había una segunda mascota para cuando no hay texto y sí herramienta
             // corriendo. La quita `pieDeTrabajo`, que cubre TODO el turno y no sólo ese
             // instante; con las dos salían dos mascotas en la misma pantalla.
-            AgentBubble(text: t, tools: tools, trailing: trailing,
-                        vivo: store.currentTurn != nil && mensaje.id == mensajesÚnicos.last?.id,
+            AgentBubble(id: mensaje.id, text: t, tools: tools, trailing: trailing,
+                        vivo: esLaQueEscribe(mensaje),
                         showCopy: mensaje.id == lastReplyID,
-                        tone: store.selectedAgent?.tone ?? .lila)
+                        tone: store.selectedAgent?.tone ?? .lila,
+                        imagen: imagenDelTurno(mensaje, en: mensajesÚnicos).estado,
+                        alEditarImagen: { editarImagen($0) })
         case .entrega(let e):
-            // En la columna del agente (38 = avatar 28 + 10): lo entregó él.
+            // En el margen de la respuesta (ya sin columna de avatar): lo entregó él.
             HStack(spacing: 0) {
                 EntregaCard(entrega: e)
                     .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
@@ -778,7 +838,6 @@ struct ConversationView: View {
                     }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 38)
         case .prCard(let card):
             HStack(spacing: 0) {
                 PRCard(card: card,
@@ -786,7 +845,6 @@ struct ConversationView: View {
                        onRequestChanges: { Task { await store.respondToPR(card, approve: false) } })
                 Spacer(minLength: 30)
             }
-            .padding(.leading, 38)
         case .sistema(let causa):
             HStack {
                 Spacer()

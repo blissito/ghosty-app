@@ -325,6 +325,12 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         return ["mp4", "mov", "m4v", "webm"].contains(t)
     }
 
+    /// ¿Es una imagen? Entonces puede revelarse dentro de la caja «Creando imagen».
+    var esImagen: Bool {
+        guard forma == .archivo, let t = tipo else { return false }
+        return ["png", "jpg", "jpeg", "heic", "gif", "webp"].contains(t)
+    }
+
     /// ¿Suena? Entonces no se abre con el visor del sistema: se reproduce aquí.
     var esAudio: Bool {
         guard let t = tipo else { return false }

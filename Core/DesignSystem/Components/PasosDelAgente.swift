@@ -14,26 +14,33 @@ struct PasosDelAgente: View {
     /// la línea seguía enseñando el icono de la última — y un icono quieto se lee como
     /// «terminó», justo cuando el modelo está pensando la siguiente.
     var vivo: Bool = false
-    /// Se conserva por compatibilidad con quien llama; la línea es siempre una y el
-    /// detalle vive en el drawer.
-    init(run: ToolRun, abierto: Bool = false, vivo: Bool = false) {
+    /// Enseñar «Pensando el siguiente paso…»: sólo con el turno vivo, sin herramienta
+    /// corriendo, sin texto todavía y sin otra pieza (la caja de imagen) que ya lo diga.
+    var pensando: Bool
+    /// `abierto` se conserva por compatibilidad con quien llama; el detalle vive en el
+    /// drawer. Sin `pensando` explícito, vale «vivo y nada corre».
+    init(run: ToolRun, abierto: Bool = false, vivo: Bool = false, pensando: Bool? = nil) {
         self.run = run
         self.vivo = vivo
+        self.pensando = pensando ?? (vivo && run.corriendo == nil)
     }
 
     @State private var drawer = false
 
-    /// Cuántos pasos caben en la tarjeta. Un turno largo corre treinta herramientas:
-    /// la tarjeta enseña los últimos y el resto vive en el drawer.
+    /// Cuántos pasos se ven (en vivo y al terminar, los MISMOS: al cerrar el turno no
+    /// cambia el alto). Un turno largo corre treinta herramientas: se enseñan los últimos
+    /// y el resto vive en el drawer.
     private static let visibles = 4
 
     private var mostrados: [Herramienta] { Array(run.herramientas.suffix(Self.visibles)) }
     private var ocultos: Int { max(0, run.count - Self.visibles) }
 
-    /// La tarjeta de pasos del diseño: blanca, borde fino, r16, cada paso con su estado —
-    /// palomita verde si terminó, el giro morado si corre, rojo si falló—. Los rótulos
-    /// son los REALES de cada herramienta (`rotulo`); el diseño enseña además pasos
-    /// pendientes, pero ese plan el servidor no lo manda y no se inventa.
+    /// En vivo, cada herramienta es un renglón suelto bajo tu mensaje (como claude.ai); al
+    /// terminar el turno la MISMA vista se vuelve la tarjeta del diseño (blanca, borde
+    /// fino, r16): sólo aparece el fondo y el borde, con el mismo padding, así que nada
+    /// brinca. Palomita verde si terminó, el giro morado si corre, rojo si falló. Los
+    /// rótulos son los REALES de cada herramienta; el plan de pasos pendientes el servidor
+    /// no lo manda y no se inventa.
     ///
     /// Tocarla abre el drawer con la línea de tiempo completa y lo que devolvió cada paso.
     var body: some View {
@@ -49,8 +56,8 @@ struct PasosDelAgente: View {
                         .transition(.gIn)
                 }
                 // Entre una herramienta y la siguiente el modelo PIENSA: sin esta fila la
-                // tarjeta parecía terminada justo cuando más se tarda.
-                if vivo, run.corriendo == nil {
+                // lista parecía terminada justo cuando más se tarda.
+                if pensando {
                     HStack(spacing: 9) {
                         GhostySpinner()
                         Text("Pensando el siguiente paso…")
@@ -62,10 +69,19 @@ struct PasosDelAgente: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12).padding(.vertical, 10)
-            .ghostyCard(radius: Theme.Radius.threadCard)
+            .background {
+                RoundedRectangle(cornerRadius: Theme.Radius.threadCard, style: .continuous)
+                    .fill(Color.gCard)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Radius.threadCard, style: .continuous)
+                            .strokeBorder(Color.gSeparator, lineWidth: 1)
+                    }
+                    .opacity(vivo ? 0 : 1)
+            }
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.threadCard, style: .continuous))
             .animation(.easeOut(duration: 0.3), value: run.herramientas.map(\.id))
-            .animation(.easeOut(duration: 0.3), value: vivo)
+            .animation(.easeOut(duration: 0.3), value: pensando)
+            .animation(.easeOut(duration: 0.35), value: vivo)
         }
         .buttonStyle(.gPressRow)
         .accessibilityIdentifier("pasos-del-agente")
@@ -86,6 +102,11 @@ private struct FilaDePaso: View {
     var body: some View {
         HStack(spacing: 9) {
             estado
+            // Qué CLASE de paso es (leer, buscar, terminal, imagen…): se distingue antes de leer.
+            Image(systemName: h.esImagen ? Herramienta.Clase.imagen.icono : h.clase.icono)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.gInk3)
+                .frame(width: 14)
             Text(h.rotulo)
                 .font(.system(size: 13))
                 .foregroundStyle(h.estado == .fallida ? Color.gDangerInk : Color(hex: 0x5E5D6B))

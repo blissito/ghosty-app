@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// La burbuja de la persona, medida en claude.ai: SF 16/22, padding 12×16, radio 12, gris
+/// sutil, ancho al contenido (tope 75 % del hilo), a la derecha. La respuesta del agente va
+/// sin burbuja y sin avatar, en serif.
 struct UserBubble: View {
     let text: String
     /// Lo que se mandó con el mensaje.
@@ -25,12 +28,14 @@ struct UserBubble: View {
                     .padding(.trailing, 4)
             }
         }
-        // `max-width: 78%` del hilo.
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { ancho, _ in ancho * 0.78 }
+        // `max-width: 75%` del hilo.
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { ancho, _ in ancho * 0.75 }
     }
 
-    /// `#5B4BD6`, blanco `400 15px/1.4`, padding 10/14 y radios 20/20/6/20: la esquina
-    /// de abajo a la derecha apunta a quien habló.
+    /// El gris de la burbuja: un punto más oscuro que el fondo del hilo (`gBg`), como el
+    /// `#F0EEE6` sobre el `#FAF9F5` de claude.ai.
+    static let fondo = Color(light: 0xE8E7EE, dark: 0x2A2931)
+
     private var burbuja: some View {
         VStack(alignment: .trailing, spacing: 8) {
             if !adjuntos.isEmpty { loMandado }
@@ -38,21 +43,16 @@ struct UserBubble: View {
             // debajo de la miniatura.
             if !text.isEmpty {
                 Text(text)
-                    .font(.system(size: 15))
+                    .font(.system(size: 16))
+                    // 22 de línea sobre 16: SF trae ~19.
                     .lineSpacing(3)
-                    .foregroundStyle(.white)
-                    .tint(.white)
+                    .foregroundStyle(Color.gInk)
                     .textSelection(.enabled)
             }
         }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.gPrimary)
-            .clipShape(.rect(topLeadingRadius: Theme.Radius.bubble,
-                             bottomLeadingRadius: Theme.Radius.bubble,
-                             bottomTrailingRadius: 6,
-                             topTrailingRadius: Theme.Radius.bubble,
-                             style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Self.fondo, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .fixedSize(horizontal: false, vertical: true)
     }
 }
@@ -97,36 +97,38 @@ extension UserBubble {
                 }
             }
             ForEach(voces) { a in
-                NotaDeVoz(adjunto: a, sobreMorado: true)
+                NotaDeVoz(adjunto: a)
                     // El DESTINO del vuelo: la barra de grabación que acabas de soltar se
                     // convierte en esta burbuja en vez de desaparecer y reaparecer.
                     .matchedGeometryEffect(id: "voz-\(a.id)", in: vuelo, isSource: true)
             }
             ForEach(otros) { a in
-                // Sobre el morado: icono en blanco con tinta morada y el texto en blanco.
+                // Sobre el gris: icono morado en tarjeta y el texto en tinta.
                 HStack(spacing: 9) {
-                    TintedIcon(systemName: a.icono, tint: .gPrimary, background: .white, size: 30)
+                    TintedIcon(systemName: a.icono, tint: .gPrimary, background: .gCard, size: 30)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(a.nombre)
                             .font(.system(size: 13.5, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color.gInk)
                             .lineLimit(1)
                         Text(a.peso)
                             .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.72))
+                            .foregroundStyle(Color.gInk3)
                     }
                     Spacer(minLength: 0)
                 }
                 .padding(8)
-                .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.gCard.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
     }
 }
 
-/// La respuesta del agente: columna con su avatar de 28 y, a la derecha, lo que hizo
-/// (tarjeta de pasos) y lo que dijo (markdown a lo ancho, `400 15px/1.5`).
+/// La respuesta del agente, como claude.ai: sin burbuja ni avatar, lo que hizo (tarjeta de
+/// pasos) y lo que dijo (markdown serif a lo ancho, 16.5/24).
 struct AgentBubble: View {
+    /// El id del mensaje: `TextoAlRitmo` recuerda con él lo ya revelado.
+    var id: String = ""
     let text: String
     let tools: ToolRun?
     let trailing: String?
@@ -137,8 +139,13 @@ struct AgentBubble: View {
     /// cada mensaje se volvía una columna de iconos. Las demás se copian por párrafo con
     /// toque largo.
     var showCopy: Bool = true
-    /// El avatar de la columna. `nil` = sin avatar (la columna queda, para alinear).
+    /// Ya no se pinta (claude.ai no pone avatar por respuesta); se conserva la firma.
     var tone: AgentTone? = .lila
+    /// La imagen que este turno está creando (o ya entregó): la caja va AQUÍ, en la fila de
+    /// la respuesta, y la entrega se revela dentro. `nil` = el turno no hace imágenes.
+    var imagen: ImagenDelTurno? = nil
+    /// «Editar» de la imagen: el adjunto va al compositor.
+    var alEditarImagen: ((Adjunto?) -> Void)? = nil
 
     private var fuentes: [Fuente] {
         Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
@@ -150,19 +157,25 @@ struct AgentBubble: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            ColumnaDelAgente(tone: tone)
+        HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
                 // trabaja, después contesta.
+                // En vivo son renglones sueltos; al terminar, la misma vista se vuelve
+                // tarjeta. «Pensando el siguiente paso…» sólo sin herramienta corriendo, sin
+                // texto aún y sin la caja de imagen (que ya dice qué pasa).
                 if let tools, tools.count > 0 {
-                    PasosDelAgente(run: tools, abierto: tools.corriendo != nil, vivo: vivo)
+                    PasosDelAgente(run: tools, vivo: vivo,
+                                   pensando: vivo && text.isEmpty && tools.corriendo == nil && imagen == nil)
                 }
 
-                if !text.isEmpty { TextoQueAparece(markdown: text) }
+                if let imagen { TarjetaCreandoImagen(estado: imagen, alEditar: alEditarImagen) }
+
+                // El texto se suelta a ritmo constante y cada tramo entra con su fade.
+                if !text.isEmpty { TextoAlRitmo(id: id, texto: text, vivo: vivo) }
 
                 if let trailing {
-                    TextoQueAparece(markdown: trailing)
+                    GhostyMarkdown(markdown: trailing)
                 }
 
                 // Debajo de todo, como en Claude: lo que leyó para contestar.
@@ -170,7 +183,14 @@ struct AgentBubble: View {
 
                 // Copiar la respuesta entera. Sólo cuando ya terminó: copiar media
                 // respuesta que sigue creciendo no sirve de nada.
-                if showCopy, !vivo, !fullText.isEmpty { CopyButton(text: fullText) }
+                // ⚠️ Su sitio se RESERVA mientras escribe (invisible): si apareciera al
+                // terminar, la respuesta crecería justo al final y el hilo daría un brinco.
+                if showCopy, !fullText.isEmpty {
+                    CopyButton(text: fullText)
+                        .opacity(vivo ? 0 : 1)
+                        .allowsHitTesting(!vivo)
+                        .accessibilityHidden(vivo)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -227,7 +247,7 @@ struct TypingBubble: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            ColumnaDelAgente(tone: tone)
+            // Sin avatar, como la respuesta: los puntos van en el margen de la prosa.
             GhostyDots()
             if let texto {
                 Text(texto)
@@ -239,5 +259,9 @@ struct TypingBubble: View {
             }
             Spacer(minLength: 0)
         }
+        // Alto FIJO: al cerrar el turno su hueco lo ocupa uno igual (`ConversationView`).
+        .frame(height: TypingBubble.alto)
     }
+
+    static let alto: CGFloat = 28
 }

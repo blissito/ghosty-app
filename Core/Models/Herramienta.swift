@@ -12,6 +12,9 @@ struct Herramienta: Identifiable, Equatable, Sendable {
     /// borrar, y el color lo dice antes que el texto.
     enum Clase: String, Sendable {
         case read, edit, execute, search, fetch, think, move, delete, other
+        /// Generar o editar una imagen. Studio la manda con `kind: "image"` y título
+        /// «Creando imagen»/«Editando imagen» (el prompt va en `detalle`).
+        case imagen = "image"
 
         /// ⚠️ Una clase desconocida NO se esconde: cae en `other`. Es la regla de la casa
         /// —una tool que no reconocemos se humaniza, nunca se descarta— y viene de cuando
@@ -28,6 +31,7 @@ struct Herramienta: Identifiable, Equatable, Sendable {
             case .think:   "sparkles"
             case .move:    "arrow.right.doc.on.clipboard"
             case .delete:  "trash"
+            case .imagen:  "photo"
             case .other:   "wrench.adjustable"
             }
         }
@@ -36,7 +40,7 @@ struct Herramienta: Identifiable, Equatable, Sendable {
             switch self {
             case .delete:          (.gDangerInk, .gDangerTint)
             case .edit, .move:     (.gPrimary, .gPrimaryTint)
-            case .search, .fetch:  (.gPrimary, .gPrimaryTint)
+            case .search, .fetch, .imagen: (.gPrimary, .gPrimaryTint)
             case .think:           (.gInk3, .gFill)
             default:               (.gInk2, .gFill)
             }
@@ -61,9 +65,25 @@ struct Herramienta: Identifiable, Equatable, Sendable {
 
     var esperando: Bool { estado == .corriendo }
 
+    /// ¿Está creando (o editando) una imagen? Por la clase, o —mientras Studio no manda
+    /// `kind: "image"`— porque el comando llama al SDK de imágenes de la caja.
+    var esImagen: Bool {
+        clase == .imagen
+            || titulo.contains("/opt/gs-sdk/image.mjs")
+            || (detalle ?? "").contains("/opt/gs-sdk/image.mjs")
+    }
+
+    /// Editar una imagen existente (y no crear una nueva).
+    var editaImagen: Bool {
+        titulo.localizedCaseInsensitiveContains("editando")
+            || (detalle ?? "").contains("edit(")
+    }
+
     /// «Terminal · npm test». Si el título ya lo dice (Ghosty-ACP manda «shell · echo
     /// hola»), no se repite.
     var rotulo: String {
+        // Detectada por el comando (sin `kind` del servidor): el comando crudo no dice nada.
+        if esImagen, clase != .imagen { return editaImagen ? "Editando imagen" : "Creando imagen" }
         guard let d = detalle, !d.isEmpty, !titulo.localizedCaseInsensitiveContains(d) else { return titulo }
         return "\(titulo) · \(d)"
     }

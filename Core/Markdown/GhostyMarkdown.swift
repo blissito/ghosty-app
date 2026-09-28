@@ -10,6 +10,11 @@ import MarkdownUI
 /// Aquí sólo vive el TEMA: los tokens de Ghosty aplicados a sus bloques.
 struct GhostyMarkdown: View {
     let markdown: String
+    /// Respuesta que se está escribiendo (`TextoAlRitmo`): los tramos que están entrando
+    /// y el reloj. `nil` = texto quieto, sin fade.
+    var fades: FadesDePalabra? = nil
+    /// Toque largo → «Copiar». Se apaga mientras la respuesta entra (ver `TextoAlRitmo`).
+    var seleccionable = true
 
     /// Saca cada imagen a su PROPIO párrafo.
     ///
@@ -38,15 +43,127 @@ struct GhostyMarkdown: View {
         return salida
     }
 
+    /// Parte el markdown en BLOQUES de primer nivel para poder revelar de a uno y poner el
+    /// aire de claude.ai (20 pt) entre ellos.
+    ///
+    /// ⚠️ No es partir por `\n\n` a secas: dentro de un bloque de código las líneas en
+    /// blanco son parte del código, y una lista con aire entre sus puntos son UNA lista —
+    /// partirla renumeraba cada punto desde 1. Un cerco (```) abierto mantiene todo junto
+    /// hasta que cierra; los puntos de lista consecutivos se vuelven a pegar.
+    static func bloques(_ texto: String) -> [String] {
+        var salida: [String] = []
+        var actual: [String] = []
+        var enCerco = false
+
+        func cerrar() {
+            let b = actual.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            if !b.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { salida.append(b) }
+            actual = []
+        }
+        func esPunto(_ t: String) -> Bool {
+            let l = t.trimmingCharacters(in: .whitespaces)
+            if l.hasPrefix("- ") || l.hasPrefix("* ") || l.hasPrefix("+ ") { return true }
+            return l.range(of: #"^\d+[.)]\s"#, options: .regularExpression) != nil
+        }
+
+        for linea in texto.components(separatedBy: "\n") {
+            if linea.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                enCerco.toggle()
+                actual.append(linea)
+                if !enCerco { cerrar() }
+                continue
+            }
+            if enCerco { actual.append(linea); continue }
+            if linea.trimmingCharacters(in: .whitespaces).isEmpty { cerrar(); continue }
+            // Un punto de lista tras otro bloque de lista: se pega al anterior.
+            if actual.isEmpty, esPunto(linea), let ultimo = salida.last, esPunto(ultimo) {
+                actual = [salida.removeLast(), ""]
+            }
+            actual.append(linea)
+        }
+        if enCerco { actual.append("```") }   // cerco a medias: llega el token que falta
+        cerrar()
+        return salida
+    }
+
+    /// Un bloque con su id ESTABLE: su posición y su clase. Con `\.offset` a secas un
+    /// reagrupado (dos listas que se vuelven una) cambiaba la identidad de lo de abajo; así
+    /// un bloque sólo es «otro» si cambia de sitio o de clase.
+    private struct Pieza: Identifiable {
+        let i: Int
+        let texto: String
+        let clase: Character
+        /// Letra (del texto transformado) donde empieza y donde acaba este bloque.
+        let inicio: Int
+        let fin: Int
+        var id: String { "\(i)-\(clase)" }
+    }
+
+    static func clase(_ b: String) -> Character {
+        let l = b.trimmingCharacters(in: .whitespaces)
+        if l.hasPrefix("```") { return "c" }
+        if l.hasPrefix("|") { return "t" }
+        if l.hasPrefix(">") { return "q" }
+        if l.hasPrefix("#") { return "h" }
+        if l.hasPrefix("- ") || l.hasPrefix("* ") || l.hasPrefix("+ ") { return "l" }
+        if l.range(of: #"^\d+[.)]\s"#, options: .regularExpression) != nil { return "n" }
+        if l.hasPrefix("![") { return "i" }
+        return "p"
+    }
+
+    private func piezas() -> [Pieza] {
+        let t = Self.imagenesAparte(markdown)
+        var desde = t.startIndex
+        var ultimo = 0
+        return Self.bloques(t).enumerated().map { i, b in
+            var ini = ultimo, fin = ultimo + b.count
+            if let r = t.range(of: b, range: desde..<t.endIndex) {
+                ini = t.distance(from: t.startIndex, to: r.lowerBound)
+                fin = t.distance(from: t.startIndex, to: r.upperBound)
+                desde = r.upperBound
+            }
+            ultimo = fin
+            return Pieza(i: i, texto: b, clase: Self.clase(b), inicio: ini, fin: fin)
+        }
+    }
+
     var body: some View {
-        Markdown(Self.imagenesAparte(markdown))
+        // Entre bloques, el `gap-5` (20 px) de claude.ai.
+        VStack(alignment: .leading, spacing: 20) {
+            ForEach(piezas()) { p in
+                if let fades, p.clase == "p" || p.clase == "h" {
+                    // Prosa que se escribe: fade por tramo. Sólo recibe los tramos que caen
+                    // en él (y el que venía de antes y lo cruza); un bloque ya firme recibe
+                    // siempre lo mismo (vacío) y no se repinta cada cuadro.
+                    let antes = fades.recientes.last(where: { $0.inicio < p.inicio })
+                    let suyas = (antes.map { [$0] } ?? [])
+                        + fades.recientes.filter { $0.inicio >= p.inicio && $0.inicio < p.fin }
+                    if #available(iOS 18.0, *) {
+                        pintar(p.texto)
+                            .textRenderer(SweepRenderer(fin: p.fin, recientes: suyas,
+                                                        ahora: suyas.isEmpty ? 0 : fades.ahora))
+                    } else {
+                        pintar(p.texto)
+                    }
+                } else {
+                    pintar(p.texto)
+                        .modifier(EntradaSuave(activa: fades != nil))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func pintar(_ pieza: String) -> some View {
+        let md = Markdown(pieza)
             .markdownTheme(MarkdownUI.Theme.ghosty)
-            // Toque largo → «Copiar» del párrafo. La respuesta entera la copia el botón
-            // de `AgentBubble`.
-            .textSelection(.enabled)
-            // El cuerpo del diseño: sistema 15, tinta #15141B (Source Serif salió del chat).
+            // El cuerpo de claude.ai, medido en su página y ajustado por bliss: serif (New
+            // York, la del sistema) 16.5 pt / 24 de interlineado, peso 400. La respuesta es
+            // prosa para leer, no interfaz: tu burbuja, el compositor y el chrome siguen en SF.
             .markdownTextStyle {
-                FontSize(15)
+                FontFamily(.system(.serif))
+                FontSize(Self.cuerpo)
                 ForegroundColor(.gInk)
             }
             // ⚠️ Las imágenes del markdown salían **a tamaño real**: una foto de 1200 px
@@ -59,7 +176,13 @@ struct GhostyMarkdown: View {
             // cuando te devuelve resultados de búsqueda—. Con sólo el de bloque, las
             // imágenes de una lista seguían saliendo a tamaño real y desbordando.
             .markdownInlineImageProvider(.acotada)
+        // Toque largo → «Copiar» del párrafo. La respuesta entera la copia el botón
+        // de `AgentBubble`.
+        if seleccionable { md.textSelection(.enabled) } else { md.textSelection(.disabled) }
     }
+
+    /// Tamaño del cuerpo de la respuesta. El resto del tema va en `.em` relativo a él.
+    static let cuerpo: CGFloat = 16.5
 }
 
 extension MarkdownUI.Theme {
@@ -80,15 +203,14 @@ extension MarkdownUI.Theme {
     private static func inline(_ t: MarkdownUI.Theme) -> MarkdownUI.Theme {
         t
             .text {
-                // Rediseño 2026-09: `400 15px/1.5` del sistema, como el prototipo. Quién
-                // habla ya lo dice la columna del avatar, no la tipografía.
-                FontSize(15)
+                // El tamaño base lo pone la vista (`GhostyMarkdown.cuerpo`); aquí sólo color.
                 ForegroundColor(.gInk)
             }
             .code {
+                FontFamily(.system(.monospaced))
                 FontFamilyVariant(.monospaced)
-                FontSize(.em(0.88))
-                BackgroundColor(.gFill)
+                FontSize(.em(0.87))
+                BackgroundColor(Color.gFillStrong.opacity(0.55))
             }
             .strong { FontWeight(.semibold) }
             .link { ForegroundColor(.gPrimary) }
@@ -99,17 +221,17 @@ extension MarkdownUI.Theme {
             .heading1 { config in
                 config.label
                     .markdownMargin(top: 6, bottom: 4)
-                    .markdownTextStyle { FontWeight(.bold); FontSize(19) }
+                    .markdownTextStyle { FontSize(.em(1.33)); FontWeight(.semibold) }
             }
             .heading2 { config in
                 config.label
                     .markdownMargin(top: 6, bottom: 4)
-                    .markdownTextStyle { FontWeight(.bold); FontSize(17) }
+                    .markdownTextStyle { FontSize(.em(1.2)); FontWeight(.semibold) }
             }
             .heading3 { config in
                 config.label
                     .markdownMargin(top: 4, bottom: 2)
-                    .markdownTextStyle { FontWeight(.semibold); FontSize(15) }
+                    .markdownTextStyle { FontSize(.em(1.07)); FontWeight(.semibold) }
             }
     }
 
@@ -117,23 +239,22 @@ extension MarkdownUI.Theme {
         t
             .paragraph { config in
                 config.label
-                    // `line-height: 1.5` sobre 15 pt.
-                    .relativeLineSpacing(.em(0.3))
-                    .markdownMargin(top: 0, bottom: 10)
+                    // 24 de línea sobre 16.5 (1.45): la serif ya trae ~1.2; esto pone el
+                    // resto. El aire entre párrafos (20) lo pone el `VStack` de bloques.
+                    .relativeLineSpacing(.em(0.25))
+                    .markdownMargin(top: 0, bottom: 0)
             }
-            // Viñetas del diseño: `400 14px/1.45 #2A2933`, 6 pt entre renglones y un punto
-            // morado de 5 pt en vez del disco negro.
+            // Listas de claude.ai: mismo cuerpo y tinta que la prosa, viñeta de tinta.
             .listItem { config in
                 config.label
-                    .markdownTextStyle { FontSize(14); ForegroundColor(.gInkBody) }
-                    .relativeLineSpacing(.em(0.3))
+                    .relativeLineSpacing(.em(0.25))
                     .markdownMargin(top: 6)
             }
             .bulletedListMarker { _ in
                 Circle()
-                    .fill(Color.gPrimary)
+                    .fill(Color.gInk)
                     .frame(width: 5, height: 5)
-                    .relativeFrame(minWidth: .em(0.9), alignment: .leading)
+                    .relativeFrame(minWidth: .em(1.1), alignment: .leading)
             }
             .blockquote { config in
                 HStack(alignment: .top, spacing: 11) {
@@ -174,9 +295,11 @@ extension MarkdownUI.Theme {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
             }
+            // Mono del sistema a 0.87 em (no la serif del cuerpo).
             .markdownTextStyle {
+                FontFamily(.system(.monospaced))
                 FontFamilyVariant(.monospaced)
-                FontSize(13.5)
+                FontSize(.em(0.87))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

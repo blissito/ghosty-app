@@ -25,7 +25,8 @@ enum Avisos {
     static func pedirPermisoSiHaceFalta() {
         // Con el gancho de push el diálogo no se pide: en el simulador nadie puede
         // contestarlo y tapa la pantalla (ver `registrarSiYaHayPermiso`).
-        guard !pedido, Gancho.valor("GHOSTY_PUSH") != "1" else { return }
+        // En el modo demo tampoco: tapa justo lo que se quiere mirar en las capturas.
+        guard !pedido, Gancho.valor("GHOSTY_PUSH") != "1", !DemoData.encendido else { return }
         pedido = true
         UNUserNotificationCenter.current().delegate = delegado
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { ok, _ in
