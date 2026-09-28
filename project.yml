@@ -147,8 +147,9 @@ targets:
     sources:
       - path: EnviarAGhosty
       - path: Core
-      # Sólo por el AppIcon: es el icono con el que sale en la hoja de compartir.
-      - path: GhostyApp/Assets.xcassets
+      # El icono de la hoja de compartir es su propio AppIcon (EnviarAGhosty/Assets.xcassets):
+      # silueta blanca sobre fondo TRANSPARENTE, porque iOS pinta las acciones como plantilla
+      # por su alfa; con el icono de la app salía un cuadro gris.
     dependencies:
       - package: MarkdownUI
     configFiles:
