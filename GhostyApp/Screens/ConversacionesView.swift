@@ -84,15 +84,18 @@ struct ConversacionesView: View {
         func rango(_ a: Agent) -> Int {
             switch (a.space ?? .personal).kind { case .personal: 0; case .workspace: 1; case .shared: 2 }
         }
+        // Por último uso: el agente con el que acabas de hablar va primero, sea del espacio
+        // que sea (así lo buscas). `rango` sólo desempata.
         return store.agents.sorted { a, b in
-            if rango(a) != rango(b) { return rango(a) < rango(b) }
             let fa = favoritos.contains(a.id), fb = favoritos.contains(b.id)
             if fa != fb { return fa }
             switch (a.ultimaActividad, b.ultimaActividad) {
             case let (x?, y?): return x > y
             case (_?, nil): return true
             case (nil, _?): return false
-            default: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            default:
+                if rango(a) != rango(b) { return rango(a) < rango(b) }
+                return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
         }
     }
@@ -425,7 +428,7 @@ struct ConversacionesView: View {
             store.mirar(h, de: f.agente.id)
             onAbrir()
         } label: {
-            renglon(titulo: f.titulo, agente: f.agente) {
+            renglon(titulo: f.titulo, agente: f.agente, fecha: f.fecha) {
                 EstadoDelHilo(hilo: h).lineLimit(1)
             } marca: {
                 marca(de: h, mirando: mirando)
@@ -452,7 +455,7 @@ struct ConversacionesView: View {
                 onAbrir()
             }
         } label: {
-            renglon(titulo: f.titulo, agente: f.agente) {
+            renglon(titulo: f.titulo, agente: f.agente, fecha: f.fecha) {
                 Text(detalle(s)).gMeta().lineLimit(1)
             } marca: {
                 marca(de: s)
@@ -470,15 +473,25 @@ struct ConversacionesView: View {
 
     /// La fila del diseño: título 600 15 y subtítulo 13 gris; con varios agentes y sin
     /// filtro, el subtítulo empieza por el nombre del agente.
-    private func renglon<S: View, M: View>(titulo: String, agente: Agent,
+    private func renglon<S: View, M: View>(titulo: String, agente: Agent, fecha: Date,
                                            @ViewBuilder subtitulo: () -> S,
                                            @ViewBuilder marca: () -> M) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(titulo)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.gInk)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(titulo)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // Cuándo se usó: hace legible que la lista va de lo último a lo viejo.
+                    if fecha > .distantPast {
+                        Text(Self.cuando(fecha))
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundStyle(Color.gInk3)
+                            .fixedSize()
+                    }
+                }
                 HStack(spacing: 4) {
                     if variosAgentes, soloAgente == nil {
                         Text("\(agente.name) ·").gMeta().lineLimit(1).fixedSize()
@@ -492,6 +505,20 @@ struct ConversacionesView: View {
         .padding(.vertical, 13)
         .padding(.horizontal, 16)
         .contentShape(Rectangle())
+    }
+
+    /// «ahora», «12 min», «3 h», «ayer», «lun», «12 sep».
+    static func cuando(_ d: Date, ahora: Date = Date()) -> String {
+        let seg = ahora.timeIntervalSince(d)
+        if seg < 60 { return "ahora" }
+        if seg < 3600 { return "\(Int(seg / 60)) min" }
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return "\(Int(seg / 3600)) h" }
+        if cal.isDateInYesterday(d) { return "ayer" }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.dateFormat = seg < 6 * 86400 ? "EEE" : "d MMM"
+        return f.string(from: d).replacingOccurrences(of: ".", with: "")
     }
 
     /// El icono de estado, sólo cuando dice algo: trabajando, cortada, falló, espera

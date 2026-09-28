@@ -33,7 +33,13 @@ struct CambiarAgenteSheet: View {
             if porClave[clave] == nil { orden.append(clave); porClave[clave] = (titulo, []) }
             porClave[clave]!.1.append(a)
         }
-        let ordenados = orden.sorted { rango($0) < rango($1) }
+        // Dentro de cada grupo, por último uso; los grupos de espacio, por su agente más reciente.
+        func reciente(_ a: Agent) -> Date { a.ultimaActividad ?? .distantPast }
+        for k in orden { porClave[k]!.1.sort { reciente($0) > reciente($1) } }
+        let ordenados = orden.sorted { x, y in
+            if rango(x) != rango(y) { return rango(x) < rango(y) }
+            return (porClave[x]!.1.first.map(reciente) ?? .distantPast) > (porClave[y]!.1.first.map(reciente) ?? .distantPast)
+        }
         return ordenados.map { (porClave[$0]!.0, porClave[$0]!.1) }
     }
 
