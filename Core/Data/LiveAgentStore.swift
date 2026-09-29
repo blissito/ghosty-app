@@ -1896,6 +1896,9 @@ final class LiveAgentStore: AgentStoring {
         var respuesta = respuesta
         var acumulado = ""
         var herramientas: [Herramienta] = []
+        // Dónde arrancó cada herramienta dentro de `acumulado`: lo de antes es narración
+        // («Reviso tus archivos.») y se pinta como pasos, no como respuesta. Ver `AgentNarration`.
+        var narrationCuts: [Int] = []
         // El agente escribe, llama una herramienta y vuelve a escribir. Sin esto los dos
         // trozos quedaban pegados en el mismo párrafo («…ahora reviso.Listo, encontré…»),
         // que es lo que en la web y en la app de escritorio sí se separa.
@@ -1997,7 +2000,8 @@ final class LiveAgentStore: AgentStoring {
                         }
                     }
                     if canRepaint() {
-                        pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+                        pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas,
+                                        narrationCuts: narrationCuts)
                     }
                 case .tool(let h):
                     if !acumulado.isEmpty { separarTrasHerramienta = true }
@@ -2016,6 +2020,9 @@ final class LiveAgentStore: AgentStoring {
                         herramientas[i] = v
                     } else {
                         herramientas.append(h)
+                        if !acumulado.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            narrationCuts.append(acumulado.count)
+                        }
                     }
                     // Lo que está haciendo AHORA, donde el ojo ya está mirando.
                     // ⚠️ Manda la que está CORRIENDO ahora, no «hubo alguna alguna vez».
@@ -2032,7 +2039,8 @@ final class LiveAgentStore: AgentStoring {
                     hilo.turno?.step = herramientas.filter { !$0.esperando }.count
                     hilo.turno?.totalSteps = herramientas.count
                     if canRepaint() {
-                        pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas)
+                        pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas,
+                                        narrationCuts: narrationCuts)
                     }
                 case .usage(let entrada, let salida):
                     hilo.uso = (entrada, salida)
@@ -2077,7 +2085,7 @@ final class LiveAgentStore: AgentStoring {
                     }
                     hilo.interrumpido = false
                     cerrarTurno(canal, hilo)
-                    acumulado = ""; herramientas = []
+                    acumulado = ""; herramientas = []; narrationCuts = []
                     respuesta = "resp-\(UUID().uuidString.prefix(8))"
                     Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(800))
@@ -2164,7 +2172,8 @@ final class LiveAgentStore: AgentStoring {
                 hilo.fallo = nil
                 hilo.reenganches += 1
                 if acumulado.isEmpty { hilo.mensajes.removeAll { $0.kind == .typing } }
-                else if canRepaint() { pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas) }
+                else if canRepaint() { pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas,
+                                        narrationCuts: narrationCuts) }
                 engancharse(hilo, de: canal, ponerseAlDia: habiaTrabajo)
                 // Y sin trabajo no hay turno que cerrar: `cerrarTurno` habría marcado
                 // «contestó» (con sonido) por la última burbuja del agente, que era vieja.
@@ -2428,7 +2437,7 @@ final class LiveAgentStore: AgentStoring {
     }
 
     private func pintarRespuesta(_ hilo: Hilo, id: String, texto: String,
-                                 herramientas: [Herramienta] = []) {
+                                 herramientas: [Herramienta] = [], narrationCuts: [Int] = []) {
         hilo.mensajes.removeAll { $0.kind == .typing }
         if hilo.turno != nil { hilo.respuestaEnCursoID = id }
         // Nunca debería pasar desde `puedePintar` en `consumir`: es la prueba de que no volvió.
@@ -2436,7 +2445,8 @@ final class LiveAgentStore: AgentStoring {
            texto.count < previous.count {
             EasyBitsClient.diag("[hilo] encoge \(id): \(previous.count)→\(texto.count)")
         }
-        let tools: ToolRun? = herramientas.isEmpty ? nil : ToolRun(herramientas: herramientas)
+        let tools: ToolRun? = herramientas.isEmpty ? nil
+            : ToolRun(herramientas: herramientas, narrationCuts: narrationCuts)
         hilo.poner(Message(id: id, kind: .agent(text: texto, tools: tools, trailing: nil)))
     }
 

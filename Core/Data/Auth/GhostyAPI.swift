@@ -372,8 +372,8 @@ enum GhostyAPI {
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["token": token])
-        let codigo = ((try? await URLSession.shared.data(for: req))?.1 as? HTTPURLResponse)?.statusCode ?? 0
-        EasyBitsClient.diag("[push] teléfono dado de baja (\(codigo))")
+        let status = ((try? await URLSession.shared.data(for: req))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        EasyBitsClient.diag("[push] teléfono dado de baja (\(status))")
     }
 
     /// Los archivos que se subieron en una conversación.

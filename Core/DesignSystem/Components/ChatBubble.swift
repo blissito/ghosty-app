@@ -152,8 +152,14 @@ struct AgentBubble: View {
                    herramientas: tools?.herramientas ?? [])
     }
 
+    /// La respuesta separada de su narración. Ver `AgentNarration`.
+    private var narrated: (steps: [String], rest: String) {
+        AgentNarration.split(text, cuts: tools?.narrationCuts ?? [])
+    }
+
+    /// Lo que se copia es la respuesta, no los pasos.
     private var fullText: String {
-        [text, trailing ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        [narrated.rest, trailing ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     var body: some View {
@@ -164,15 +170,19 @@ struct AgentBubble: View {
                 // En vivo son renglones sueltos; al terminar, la misma vista se vuelve
                 // tarjeta. «Pensando el siguiente paso…» sólo sin herramienta corriendo, sin
                 // texto aún y sin la caja de imagen (que ya dice qué pasa).
-                if let tools, tools.count > 0 {
-                    PasosDelAgente(run: tools, vivo: vivo,
-                                   pensando: vivo && text.isEmpty && tools.corriendo == nil && imagen == nil)
+                // La narración entre herramientas se pinta como pasos, no como respuesta
+                // (en vivo por los cortes; al recargar, por las líneas `- ✓` de gs).
+                if (tools?.count ?? 0) > 0 || !narrated.steps.isEmpty {
+                    let run = tools ?? ToolRun(herramientas: [])
+                    PasosDelAgente(run: run, vivo: vivo,
+                                   pensando: vivo && narrated.rest.isEmpty && run.corriendo == nil && imagen == nil,
+                                   narration: narrated.steps)
                 }
 
                 if let imagen { TarjetaCreandoImagen(estado: imagen, alEditar: alEditarImagen) }
 
                 // El texto se suelta a ritmo constante y cada tramo entra con su fade.
-                if !text.isEmpty { TextoAlRitmo(id: id, texto: text, vivo: vivo) }
+                if !narrated.rest.isEmpty { TextoAlRitmo(id: id, texto: narrated.rest, vivo: vivo) }
 
                 if let trailing {
                     GhostyMarkdown(markdown: trailing)

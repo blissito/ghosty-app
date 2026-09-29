@@ -9,6 +9,10 @@ import Foundation
 /// desplegaba nada — prometía detalle y no lo daba.
 struct ToolRun: Equatable, Sendable {
     var herramientas: [Herramienta]
+    /// En vivo: en qué largo del texto arrancó cada herramienta. Lo de antes de cada corte
+    /// es narración y se pinta como pasos (`AgentNarration`). Al recargar no hay cortes: gs
+    /// guarda esa narración como líneas `- ✓ …` y se parte por ahí.
+    var narrationCuts: [Int] = []
 
     var count: Int { herramientas.count }
     var corriendo: Herramienta? { herramientas.last(where: \.esperando) }

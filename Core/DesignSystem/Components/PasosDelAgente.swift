@@ -17,13 +17,21 @@ struct PasosDelAgente: View {
     /// Enseñar «Pensando el siguiente paso…»: sólo con el turno vivo, sin herramienta
     /// corriendo, sin texto todavía y sin otra pieza (la caja de imagen) que ya lo diga.
     var pensando: Bool
+    /// Lo que el agente dijo entre herramientas («Reviso tus archivos.»): avance, no
+    /// respuesta. Va arriba de las herramientas, con palomita. Ver `AgentNarration`.
+    var narration: [String] = []
     /// `abierto` se conserva por compatibilidad con quien llama; el detalle vive en el
     /// drawer. Sin `pensando` explícito, vale «vivo y nada corre».
-    init(run: ToolRun, abierto: Bool = false, vivo: Bool = false, pensando: Bool? = nil) {
+    init(run: ToolRun, abierto: Bool = false, vivo: Bool = false, pensando: Bool? = nil,
+         narration: [String] = []) {
         self.run = run
         self.vivo = vivo
         self.pensando = pensando ?? (vivo && run.corriendo == nil)
+        self.narration = narration
     }
+
+    /// La narración también se recorta: en un turno largo se enseñan los últimos pasos.
+    private var shownNarration: [String] { Array(narration.suffix(Self.visibles)) }
 
     @State private var drawer = false
 
@@ -46,6 +54,10 @@ struct PasosDelAgente: View {
     var body: some View {
         Button { drawer = true } label: {
             VStack(alignment: .leading, spacing: 7) {
+                ForEach(Array(shownNarration.enumerated()), id: \.offset) { _, step in
+                    NarrationRow(text: step)
+                        .transition(.gIn)
+                }
                 if ocultos > 0 {
                     Text(ocultos == 1 ? "1 paso antes" : "\(ocultos) pasos antes")
                         .font(.system(size: 12, weight: .medium))
@@ -91,6 +103,25 @@ struct PasosDelAgente: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Color.gBg)
+        }
+    }
+}
+
+/// Un renglón de narración: la misma palomita que una herramienta terminada y el texto
+/// entero (puede ocupar dos líneas: es una frase, no un rótulo).
+private struct NarrationRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Circle().fill(Color.gGreenTint)
+                .frame(width: 16, height: 16)
+                .overlay { ChatIcons.check.dibujo(Color.gGreen, size: 9, ancho: 2) }
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(Color(hex: 0x5E5D6B))
+                .lineLimit(2)
         }
     }
 }

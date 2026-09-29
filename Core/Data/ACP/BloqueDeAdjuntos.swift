@@ -157,6 +157,14 @@ enum BloqueDeAdjuntos {
             t = t.replacingCharacters(in: ini.lowerBound..<hasta, with: "")
         }
 
+        // 2b. La nota de estilo que gs antepone a los turnos del teléfono
+        //     (`agents/mobile-style.ts`). Viaja sólo al agente, pero el replay de la caja
+        //     devuelve el prompt tal cual.
+        if let start = t.range(of: "[ESTILO: TELÉFONO"),
+           let end = t.range(of: "[/ESTILO]", range: start.upperBound..<t.endIndex) {
+            t = t.replacingCharacters(in: start.lowerBound..<end.upperBound, with: "")
+        }
+
         // 3. El bloque de adjuntos entero fuera. Los NOMBRES salen aparte, como DATO: que
         //    se mandó un archivo es información de la persona, y con el nombre se vuelve a
         //    encontrar el archivo en la cuenta para rehidratar su reproductor. Coserlos al
