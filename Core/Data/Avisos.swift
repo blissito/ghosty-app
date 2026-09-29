@@ -238,6 +238,16 @@ enum Avisos {
             // equivocada no deja rastro de por qué, y la diferencia entre «no venía el
             // id» y «venía y lo busqué mal» son dos arreglos distintos.
             EasyBitsClient.diag("[push] tocado: \(info.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))")
+            // Aviso de VENTAS (cliente sin respuesta, escalado, etapa): no es un chat de
+            // agente, es una tarjeta del tablero. La app no tiene tablero, así que se abre
+            // la tarjeta en el navegador (gs manda la liga en `url`). Antes el toque no hacía nada.
+            if (info["tipo"] as? String) == "crm",
+               let s = info["url"] as? String, let url = URL(string: s), url.scheme == "https" {
+                #if canImport(UIKit) && !GHOSTY_EXTENSION
+                await MainActor.run { UIApplication.shared.open(url) }
+                #endif
+                return
+            }
             // `agentID` lo pone el aviso local; `agentId` el push del servidor. Se aceptan
             // los dos en vez de obligar a nadie a cambiar de nombre.
             guard let id = (info["agentID"] as? String) ?? (info["agentId"] as? String)
