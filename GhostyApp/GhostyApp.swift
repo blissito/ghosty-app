@@ -33,7 +33,7 @@ final class Delegado: NSObject, UIApplicationDelegate {
                      didFinishLaunchingWithOptions opciones: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         Task { @MainActor in Avisos.registrarSiYaHayPermiso() }
         #if DEBUG
-        BancoDeVoz.correrSiToca()
+        VoiceBench.runIfRequested()
         #endif
         return true
     }
