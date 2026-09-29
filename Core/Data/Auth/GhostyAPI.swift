@@ -361,6 +361,21 @@ enum GhostyAPI {
         }
     }
 
+    /// Quita este teléfono de la cuenta con la que se está saliendo. Best-effort: sin red,
+    /// cerrar sesión tiene que funcionar igual (el siguiente registro pisa al dueño).
+    static func unregisterDevice(token: String) async {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/devices"))
+        req.httpMethod = "DELETE"
+        req.assumesHTTP3Capable = false
+        req.timeoutInterval = 10
+        guard let bearer = try? await Session.accessToken() else { return }
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["token": token])
+        let codigo = ((try? await URLSession.shared.data(for: req))?.1 as? HTTPURLResponse)?.statusCode ?? 0
+        EasyBitsClient.diag("[push] teléfono dado de baja (\(codigo))")
+    }
+
     /// Los archivos que se subieron en una conversación.
     ///
     /// Es lo que deja RECONSTRUIR un adjunto al recargar un hilo: el replay de ACP devuelve

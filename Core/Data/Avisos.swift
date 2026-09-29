@@ -72,6 +72,28 @@ enum Avisos {
     /// El teléfono ya tiene su ficha en el servidor.
     private static var tokenEnviado: String?
 
+    /// Al cerrar sesión: el teléfono deja de ser de esta cuenta EN EL SERVIDOR.
+    ///
+    /// ⚠️ gs manda cada push al dueño del token. Cerrar sesión sólo borraba el llavero, así
+    /// que el token seguía a nombre de la cuenta anterior: entrar como otra persona en tu
+    /// teléfono y volver a la tuya te dejaba recibiendo SUS avisos, con el texto de sus
+    /// conversaciones en tu pantalla de bloqueo (2026-09-28, con la cuenta de Brenda).
+    /// Se llama ANTES de borrar el llavero: el DELETE necesita el bearer de esa cuenta.
+    static func unregisterDevice() async {
+        guard let token = tokenEnviado else { return }
+        tokenEnviado = nil
+        await GhostyAPI.unregisterDevice(token: token)
+    }
+
+    /// Al entrar con una cuenta: el token se vuelve a mandar aunque sea el mismo.
+    ///
+    /// ⚠️ Sin esto `registrar` lo daba por enviado (mismo token, misma ejecución) y el
+    /// servidor seguía atando el teléfono a la cuenta de antes hasta el siguiente arranque.
+    static func registerForCurrentAccount() {
+        tokenEnviado = nil
+        registrarSiYaHayPermiso()
+    }
+
     /// Lo que Apple nos dio, camino de gs.
     ///
     /// ⚠️ Se reenvía al arrancar y al cambiar de cuenta, no una sola vez: el token cambia

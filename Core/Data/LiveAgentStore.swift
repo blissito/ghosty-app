@@ -417,6 +417,8 @@ final class LiveAgentStore: AgentStoring {
 
     /// Cierra sesión: revoca en el servidor, borra el llavero y vuelve al login.
     func cerrarSesion() async {
+        // Primero el teléfono, con el bearer todavía vivo: ver `Avisos.unregisterDevice`.
+        await Avisos.unregisterDevice()
         await Session.cerrarSesion()
         cuentas = []
         agents = []

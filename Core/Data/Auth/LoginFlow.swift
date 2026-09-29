@@ -127,6 +127,8 @@ final class LoginFlow: NSObject {
 
         Session.guardar(access: access, refresh: refresh,
                         duraSegundos: (j["expires_in"] as? Int) ?? 3600)
+        // El teléfono pasa a ESTA cuenta en el servidor ya, no hasta el próximo arranque.
+        await Avisos.registerForCurrentAccount()
     }
 
     // MARK: - PKCE
