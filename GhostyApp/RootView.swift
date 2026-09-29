@@ -195,7 +195,7 @@ struct RootView: View {
             }
             if let sonda = Gancho.valor("GHOSTY_PROBE"),
                !sonda.isEmpty, case .lista = store.conexion {
-                // Gancho: `GHOSTY_ADJUNTOS=imagen|archivo|ambos` manda la sonda CON
+                // Gancho: `GHOSTY_ADJUNTOS=imagen|archivo|ambos|voz:<ruta>` manda la sonda CON
                 // adjuntos. El simulador no acepta toques por script, así que sin esto no
                 // hay forma de verificar el camino de subida ni el de la imagen inline —
                 // que son justo los dos que fallan distinto.
@@ -300,6 +300,12 @@ struct RootView: View {
             // culpa de mi propio dato de prueba. Si se cambia, se vuelve a comprobar.
             let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC")
             if let png { lista.append(Adjunto(nombre: "rojo.png", mime: "image/png", datos: png)) }
+        }
+        // `voz:/ruta/nota.m4a`: una nota de voz de verdad, leída del disco de la Mac (el
+        // simulador lo ve). Sintética no sirve: whisper tiene que poder transcribirla.
+        if modo.hasPrefix("voz:"), let audio = FileManager.default.contents(atPath: String(modo.dropFirst(4))) {
+            lista.append(Adjunto(nombre: "nota-de-voz-prueba.m4a", mime: "audio/mp4", datos: audio,
+                                 segundos: 4, onda: Array(repeating: 0.5, count: 40)))
         }
         if modo == "archivo" || modo == "ambos" {
             let csv = Data("producto,precio\nteclado,750\nmonitor,3200\n".utf8)

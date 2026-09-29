@@ -927,7 +927,9 @@ final class LiveAgentStore: AgentStoring {
             // vacía —y al abrir el push se veía «Sigo con esto» para siempre, con la
             // respuesta sin cargar hasta cerrar la app—. Se cierra el local primero.
             let ultimo = await cliente.ultimoTurno(de: sid)
-            if hilo.turno != nil, let u = ultimo, !["running", "queued"].contains(u.estado) {
+            // ⚠️ Mientras el mensaje sale, el último turno del servidor es el ANTERIOR (ya
+            // cerrado), no el nuestro: soltarlo aquí mataba la subida de la nota de voz.
+            if hilo.turno != nil, !hilo.isSending, let u = ultimo, !["running", "queued"].contains(u.estado) {
                 EasyBitsClient.diag("[hilo] \(sid): el servidor ya cerró el turno (\(u.estado)); suelto el local")
                 hilo.enVuelo?.cancel(); hilo.enVuelo = nil
                 hilo.interrumpido = false
@@ -1597,6 +1599,9 @@ final class LiveAgentStore: AgentStoring {
         // turno nuevo sin esperar dejaba la cancelación del viejo llegando DESPUÉS de que
         // el nuevo empezara — cancelándolo a él. Es lo que pasaba al mandar dos seguidos
         // sin esperar respuesta: el segundo contestaba «no tengo ningún encargo previo».
+        // ⚠️ Un envío que todavía sube no se cancela: se espera a que llegue a gs. Cortarlo
+        // aquí lo perdía entero (ver `Hilo.isSending`); ya allá, soltar su oyente es inocuo.
+        await waitUntilSent(hilo)
         let anterior = hilo.enVuelo
         anterior?.cancel()
         hilo.mensajes.removeAll { $0.kind == .typing }
@@ -1656,8 +1661,13 @@ final class LiveAgentStore: AgentStoring {
             }
             return
         }
+        hilo.envioFallo = false
+        hilo.isSending = true
         hilo.enVuelo = Task { [weak self] in
-            guard let self else { return }
+            guard let self else { hilo.isSending = false; return }
+            // Pase lo que pase, al acabar ya no sale nada: sin esto, un envío que muere por
+            // un camino no previsto dejaría el hilo sin poder reengancharse nunca.
+            defer { hilo.isSending = false }
             // El turno anterior tiene que estar MUERTO antes de hablarle a la misma sesión.
             await anterior?.value
             do {
@@ -1669,8 +1679,10 @@ final class LiveAgentStore: AgentStoring {
                 self.titulos.anotarSiFalta(canal.cuenta.id, sid, desde: limpio)
                 // Todo adjunto se sube a la cuenta; una imagen viaja ADEMÁS inline, y una
                 // nota de voz se transcribe aquí.
-                let conArchivos = await self.subidos(adjuntos, sesion: sid)
-                hilo.envioFallo = false
+                let conArchivos = try await self.subidos(adjuntos, sesion: sid)
+                // Cancelado antes de encargar = el servidor no sabe nada. No se sigue como
+                // si nada: el `catch` lo dice y devuelve el mensaje al compositor.
+                try Task.checkCancellation()
                 // La transcripción va en el TEXTO del turno, delante de lo que escribiera
                 // la persona: es lo que dijo, no un adjunto que haya que ir a buscar.
                 let dicho = conArchivos.compactMap(\.transcripcion)
@@ -1708,11 +1720,17 @@ final class LiveAgentStore: AgentStoring {
                 // Un fallo aquí es "no llegó a salir": o no se pudo abrir la conversación,
                 // o no se pudo subir un adjunto. En los dos casos el agente no vio nada, y
                 // el compositor tiene que poder devolverle su trabajo a la persona.
+                // Detenido por la persona (`detener` ya cerró el turno): no hay nada que decir.
+                let wasCancelled = Task.isCancelled || error is CancellationError
+                    || (error as? URLError)?.code == .cancelled
+                if wasCancelled && hilo.turno == nil { return }
+                EasyBitsClient.diag("[envío] no llegó a salir\(wasCancelled ? " (cancelado)" : ""): \(error)")
                 BorradorPendiente.olvidar(de: canal.cuenta.id) // el compositor lo recupera
                 hilo.envioFallo = true
                 hilo.fallo = "No llegó a salir"
                 self.pintarRespuesta(hilo, id: idRespuesta,
-                                     texto: "⚠️ \(error.localizedDescription)")
+                                     texto: wasCancelled ? "⚠️ Se cortó antes de llegar a tu agente. Vuelve a mandarlo."
+                                                    : "⚠️ \(error.localizedDescription)")
                 self.anotar(canal, hilo, chars: 0, como: .failed)
                 self.cerrarTurno(canal, hilo)
             }
@@ -1731,6 +1749,17 @@ final class LiveAgentStore: AgentStoring {
             }
         }
         #endif
+        // Se vuelve cuando el mensaje ya está en gs o ya falló, no al lanzarlo: el
+        // compositor mira `envioFallo` al volver para devolverte lo que no salió, y antes
+        // lo miraba cuando todavía no se sabía nada.
+        await waitUntilSent(hilo)
+    }
+
+    /// Espera a que el mensaje en camino llegue a gs (o falle). Ver `Hilo.isSending`.
+    private func waitUntilSent(_ hilo: Hilo) async {
+        while hilo.isSending, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(80))
+        }
     }
 
     /// El turno por WebSocket.
@@ -1757,7 +1786,11 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Un archivo que no sube NO tumba el turno: se manda igual y el prompt lo DICE
     /// (`BloqueDeAdjuntos.noEntregado`). Perder la pregunta entera por un adjunto es peor
     /// que contestar sin él, y callarlo es el fallo mudo de siempre.
-    private func subidos(_ adjuntos: [Adjunto], sesion: String?) async -> [Adjunto] {
+    ///
+    /// ⚠️ Salvo si la tarea está CANCELADA: eso no es un archivo que no subió, es un envío
+    /// que ya nadie espera, y seguir mandaba el turno sin la nota (o no lo mandaba).
+    /// Se relanza para que el envío diga «no llegó a salir».
+    private func subidos(_ adjuntos: [Adjunto], sesion: String?) async throws -> [Adjunto] {
         var salida: [Adjunto] = []
         for var a in adjuntos {
             // La voz se transcribe AQUÍ, en la plataforma. Medido en Teams: pedírselo al
@@ -1769,9 +1802,11 @@ final class LiveAgentStore: AgentStoring {
             if a.esVoz {
                 a.transcripcion = await GhostyAPI.transcribir(a.datos, mime: a.mime)
             }
+            try Task.checkCancellation()
             do {
                 a.remoto = try await GhostyAPI.subir(a, sesion: sesion)
             } catch {
+                try Task.checkCancellation()
                 falloDeSubida = error.localizedDescription
                 EasyBitsClient.diag("[adjunto] no subió \(a.nombre): \(error.localizedDescription)")
             }
@@ -1817,6 +1852,14 @@ final class LiveAgentStore: AgentStoring {
         // terminaba su trabajo del otro lado sin que nadie lo mirara.
         //
         // Es seguro porque soltar el flujo ya NO cancela el turno en el servidor.
+        //
+        // ⚠️ Salvo mientras el mensaje SALE (`Hilo.isSending`): ahí `enVuelo` no es un
+        // oyente, es el envío, y cancelarlo lo perdía sin que gs lo supiera nunca. No hace
+        // falta reengancharse después: el envío se queda escuchando su propio turno.
+        guard !hilo.isSending else {
+            EasyBitsClient.diag("[envío] reenganche aplazado: el mensaje aún sube")
+            return
+        }
         hilo.enVuelo?.cancel()
         hilo.enVuelo = Task { [weak self] in
             guard let self else { return }
@@ -1903,6 +1946,8 @@ final class LiveAgentStore: AgentStoring {
                 }
                 switch evento {
                 case .turno(let id):
+                    // gs ya tiene el turno: desde aquí, soltar este flujo no pierde nada.
+                    hilo.isSending = false
                     // La burbuja se llama como el TURNO del servidor. Así el envío, el
                     // enganche tras dormirse y el backlog escriben las tres en la misma,
                     // y no hay nada que deduplicar después.
@@ -2086,6 +2131,20 @@ final class LiveAgentStore: AgentStoring {
                 hilo.envioFallo = true
                 hilo.interrumpido = false
                 limitNotice = message
+                anotar(canal, hilo, chars: 0, como: .failed)
+                cerrarTurno(canal, hilo)
+                return
+            }
+            // ⚠️ Cortado ANTES de que gs aceptara el turno: no hay nada allá que escuchar.
+            // Reengancharse (lo de abajo) traía el hilo del servidor sin tu mensaje y
+            // éste desaparecía callado. Se dice y el compositor lo recupera.
+            if !enganchado, hilo.isSending {
+                EasyBitsClient.diag("[envío] \(sid) no llegó a salir: \(error)")
+                hilo.isSending = false
+                hilo.envioFallo = true
+                hilo.fallo = "No llegó a salir"
+                pintarRespuesta(hilo, id: respuesta,
+                                texto: "⚠️ No llegó a tu agente. Vuelve a mandarlo.")
                 anotar(canal, hilo, chars: 0, como: .failed)
                 cerrarTurno(canal, hilo)
                 return

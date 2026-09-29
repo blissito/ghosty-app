@@ -1381,6 +1381,16 @@ struct ConversationView: View {
             // Ya aterrizó: se suelta el emparejamiento para que la siguiente nota no herede
             // la geometría de ésta.
             enVuelo = nil
+            // No llegó al agente: la nota vuelve al compositor, como un adjunto escrito.
+            // Antes se quedaba en el hilo sin respuesta y sin forma de reenviarla —así se
+            // perdieron las dos de Brenda—; volver a grabarla era la única salida.
+            if store.ultimoEnvioFallo {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    adjuntos = [nota]
+                    borrador = texto
+                }
+                fallo = "Tu nota de voz no llegó. Tócale enviar para reintentar."
+            }
         }
     }
 

@@ -57,6 +57,15 @@ final class Hilo {
     var modo = "auto"
 
     var enVuelo: Task<Void, Never>?
+    /// El mensaje aún no llega a gs: se transcribe, se sube o se encarga. Se apaga con el
+    /// primer `.turno` del servidor o al fallar.
+    ///
+    /// ⚠️ Mientras esté encendido NADIE reengancha ni suelta el turno local. Cancelar
+    /// `enVuelo` en esta ventana no reemplaza a un oyente: mata el envío, y como el
+    /// servidor nunca supo de él, el mensaje se pierde sin rastro. Con texto la ventana son
+    /// milisegundos; con una nota de voz, 5–20 s. Así se perdieron las dos de Brenda
+    /// (2026-09-28): `ponerseAlDia` cortó la subida y ningún agente contestó.
+    var isSending = false
     var cronometro: Task<Void, Never>?
     var creando: Task<String, Error>?
     /// En qué conexión se rehidrató esta sesión por última vez.

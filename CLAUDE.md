@@ -111,7 +111,7 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | Variable | Qué hace |
 |---|---|
 | `GHOSTY_PROBE="texto"` | manda ese mensaje al arrancar |
-| `GHOSTY_ADJUNTOS=imagen\|archivo\|ambos` | lo manda CON adjuntos sintéticos |
+| `GHOSTY_ADJUNTOS=imagen\|archivo\|ambos\|voz:<ruta.m4a>` | lo manda CON adjuntos sintéticos (`voz:` = nota de voz real del disco de la Mac) |
 | `GHOSTY_TAB=chat\|artifacts\|connectors\|perfil` | abre esa pestaña; `conversations` abre la hoja del historial (ya no es pestaña) |
 | `GHOSTY_AGENTES=1` | abre la hoja «Cambiar de agente» |
 | `GHOSTY_SHEET=1` | abre la hoja del agente (su plan y uso) |
