@@ -1,8 +1,5 @@
-• Diseño nuevo: más claro, más limpio y con una barra de navegación flotante.
-• Cambia de agente desde tu avatar, agrupados por espacio.
-• Encárgale tareas: ves los pasos que va dando y te entrega tablas y archivos listos.
-• Exporta cualquier tabla a Excel o cópiala con un toque.
-• Habla con tu agente: toca el micrófono y mándale una nota de voz.
-• Nuevo Perfil con tu plan y el uso de cada agente.
-• Integraciones con interruptores para conectar tus herramientas.
-• Todo carga más rápido: tus archivos y tu uso se guardan en el teléfono.
+• Tus notas de voz ya no se pierden: si algo falla al mandarlas, vuelven al compositor para que las reenvíes con un toque.
+• Los avisos te dicen qué agente te contesta, con su nombre y su cara.
+• Al cerrar sesión, ese teléfono deja de recibir los avisos de la cuenta.
+• El chat se lee más limpio: los pasos del agente se pliegan y su respuesta queda sola.
+• Las respuestas aparecen con más fluidez mientras tu agente escribe.
