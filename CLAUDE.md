@@ -45,7 +45,11 @@ no distingue entre procesando, rechazado y nunca llegado.
 ## Actualizar la app en la tienda (cada vez)
 
 La primera actualización fue la 1.0.1 (2026-09-26). La 1.0.2 (build 58, rediseño de Brenda +
-«Enviar a Ghosty» + cachés de uso y archivos) se mandó a revisión el 2026-09-27; salida MANUAL.
+«Enviar a Ghosty» + cachés de uso y archivos) salió el 2026-09-28. La 1.0.3 (build 62: notas de
+voz que ya no se pierden, baja del teléfono al cerrar sesión, narración plegada y avatar del agente
+en los avisos con la extensión `NotificationService`) se mandó a revisión el 2026-09-29; salida
+MANUAL — antes de publicar, confirmar en un teléfono que el aviso de «contestó» sale con la cara
+del agente.
 ⚠️ Una versión aprobada y sin publicar (`PENDING_DEVELOPER_RELEASE`) BLOQUEA crear la siguiente
 (`asc.py ficha` da 409): publícala o descártala antes. La receta:
 
