@@ -39,6 +39,8 @@ targets:
       - package: MarkdownUI
       # La entrada «Enviar a Ghosty» de la hoja de compartir (ver EnviarAGhosty/).
       - target: EnviarAGhosty
+      # El avatar de cada agente en sus avisos (ver NotificationService/).
+      - target: NotificationService
     # ⚠️ El xcconfig ya NO lleva credenciales: se entra con la cuenta de
     # ghosty.studio. Se conserva sólo para GHOSTY_COMMIT y ajustes locales de
     # firma; si el archivo no existe, la app compila igual.
@@ -63,6 +65,9 @@ targets:
         # Un turno DETENIDO esperando tu permiso atraviesa un Focus con razón. Sin esto,
         # `interruption-level: time-sensitive` se ignora y el aviso espera a que mires.
         com.apple.developer.usernotifications.time-sensitive: true
+        # Avisos de COMUNICACIÓN: el aviso lleva el nombre y el fantasma del agente que
+        # contestó, como un chat. Con varios agentes, «Tu agente terminó» no decía cuál.
+        com.apple.developer.usernotifications.communication: true
         # Lo que comparte con la extensión «Enviar a Ghosty»: el contenedor (archivos que
         # se abren en el compositor, el consentimiento de IA) y el llavero (la sesión).
         # ⚠️ El grupo del llavero es el app id de la APP a propósito: es donde ya viven la
@@ -120,6 +125,9 @@ targets:
         # esto es sólo un adelanto.
         UIBackgroundModes:
           - remote-notification
+        # Lo que la extensión de avisos dona para pintar al agente como remitente.
+        NSUserActivityTypes:
+          - INSendMessageIntent
         # ⚠️ Con el fantasma, no un color plano. El arranque enseñaba dos fotogramas en
         # blanco antes de que SwiftUI pintara nada: no es lentitud —son los milisegundos
         # normales del sistema— pero se lee como un parpadeo roto. Con la imagen, esos
@@ -199,6 +207,37 @@ targets:
         # Lo que en `Core/` sólo existe en la app (registrarse en APNs, escenas) se
         # apaga con esta condición.
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) GHOSTY_EXTENSION"
+
+  # Los avisos de «terminó» llegan con el avatar y el nombre del agente (aviso de
+  # comunicación). ⚠️ Una extensión de avisos vive con ~24 MB: NO compila `Core/`, sólo
+  # lleva su código y las imágenes del fantasma.
+  NotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+      - path: Core/Assets.xcassets
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
+    entitlements:
+      path: NotificationService/NotificationService.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.fixtergeek.ghostyapp
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: Avisos de Ghosty
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostyapp.notifications
+        TARGETED_DEVICE_FAMILY: "1"
 
   # ⚠️ No se instala ni se distribuye: existe para que `Core/` compile SOLO. Si algo del
   # núcleo empieza a depender de una pantalla de la app, este target se pone rojo antes

@@ -413,6 +413,11 @@ final class LiveAgentStore: AgentStoring {
                   space: c.space,
                   model: c.model)
         }
+        // La extensión de avisos pinta el fantasma del agente que contestó y no tiene cómo
+        // saber su tono (sale de la posición en ESTA lista): se lo dejamos en el App Group.
+        GrupoDeApp.defaults?.set(Dictionary(agents.map { ($0.id, $0.tone.rawValue) },
+                                            uniquingKeysWith: { first, _ in first }),
+                                 forKey: "agentTones")
     }
 
     /// Cierra sesión: revoca en el servidor, borra el llavero y vuelve al login.
