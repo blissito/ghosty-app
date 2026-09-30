@@ -1328,7 +1328,12 @@ struct ConversationView: View {
                     borrador = texto
                 }
                 fallo = "No se pudo mandar. Inténtalo otra vez."
+            } else if let f = store.falloDeSubida {
+                // El turno salió pero un adjunto no (p.ej. el tope de archivos de la
+                // conversación): se dice con las palabras del servidor, que ya trae qué hacer.
+                fallo = f
             }
+            store.falloDeSubida = nil
         }
     }
 
@@ -1390,7 +1395,11 @@ struct ConversationView: View {
                     borrador = texto
                 }
                 fallo = "Tu nota de voz no llegó. Tócale enviar para reintentar."
+            } else if let f = store.falloDeSubida {
+                // El agente recibió la transcripción, pero el audio no quedó guardado.
+                fallo = f
             }
+            store.falloDeSubida = nil
         }
     }
 
