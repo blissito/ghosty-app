@@ -483,10 +483,12 @@ struct ChatsView: View {
 
     private func fila(_ f: Fila) -> some View {
         let elegida = seleccionando && seleccion.contains(f.llaveArchivo)
-        return HStack(spacing: 12) {
+        return HStack(spacing: 10) {
             // Sólo el fantasma, sin aro ni fondo: como la foto de un contacto.
-            AgentAvatar(tone: f.agente.tone, size: 62)
-                .frame(width: 62, height: 62)
+            // El fantasma solo, a su tamaño: dentro del círculo blanco de `AgentAvatar` se
+            // dibujaba al 66 % y ese hueco invisible separaba mucho el título.
+            GhostyMascot(tone: f.agente.tone, height: 54)
+                .frame(width: 48, height: 58)
                 // Seleccionada: la palomita verde sobre el avatar, como WhatsApp.
                 .overlay(alignment: .bottomTrailing) {
                     if elegida {
