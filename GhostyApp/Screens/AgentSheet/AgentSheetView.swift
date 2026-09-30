@@ -12,16 +12,10 @@ struct AgentSheetView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button { dismiss() } label: {
-                    TintedIcon(systemName: "xmark", tint: .gInk, background: .gSeparator, size: 34)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("cerrar-hoja")
+                BotonDeCristal(simbolo: "xmark", etiqueta: "Cerrar") { dismiss() }
+                    .accessibilityIdentifier("cerrar-hoja")
                 Spacer()
-                Button(action: onAjustes) {
-                    TintedIcon(systemName: "gearshape", tint: .gInk, background: .gSeparator, size: 34)
-                }
-                .buttonStyle(.plain)
+                BotonDeCristal(simbolo: "gearshape", etiqueta: "Ajustes", accion: onAjustes)
             }
             .padding(.horizontal, 18)
             .padding(.top, 16)
@@ -43,5 +37,38 @@ struct AgentSheetView: View {
             .scrollIndicators(.hidden)
         }
         .background(Color.gBg)
+    }
+}
+
+/// Botón redondo de Liquid Glass (iOS 26); antes de iOS 26, el círculo gris de siempre.
+struct BotonDeCristal: View {
+    let simbolo: String
+    let etiqueta: String
+    var accion: () -> Void
+
+    var body: some View {
+        Button(action: accion) {
+            Image(systemName: simbolo)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.gInk)
+                .frame(width: 40, height: 40)
+                .contentShape(Circle())
+        }
+        .modifier(Cristal())
+        .accessibilityLabel(etiqueta)
+    }
+
+    private struct Cristal: ViewModifier {
+        func body(content: Content) -> some View {
+            if #available(iOS 26.0, *) {
+                content
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            } else {
+                content
+                    .buttonStyle(.plain)
+                    .background(Color.gSeparator, in: Circle())
+            }
+        }
     }
 }

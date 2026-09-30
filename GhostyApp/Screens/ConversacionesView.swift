@@ -137,24 +137,12 @@ struct ChatsView: View {
         let filas = visibles(todas)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Chats")
-                    .font(.system(size: 32, weight: .bold))
-                    .tracking(-0.5)
-                    .foregroundStyle(Color.gInk)
-                    .padding(.horizontal, 2)
-                    .background {
-                        GeometryReader { g in
-                            Color.clear.preference(key: FondoDelTitulo.self,
-                                                   value: g.frame(in: .named("chats")).maxY)
-                        }
-                    }
-                    .padding(.bottom, 10)
                 buscador.padding(.bottom, 12)
                 if variosAgentes { chips(todas, orden: agentesOrdenados(todas)).padding(.bottom, 8) }
                 lista(filas)
             }
             .padding(.horizontal, Theme.Space.screenH)
-            .padding(.top, 2)
+            .padding(.top, 6)
             .padding(.bottom, 24)
         }
         .coordinateSpace(name: "chats")
@@ -223,12 +211,13 @@ struct ChatsView: View {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { menuAbierto.toggle() }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(Color.gInk)
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
+                    .cristalCircular()
             }
-            .buttonStyle(.gPressIcon)
+            .buttonStyle(.plain)
             .accessibilityLabel("Menú")
             .accessibilityIdentifier("chats-mas")
 
@@ -244,43 +233,38 @@ struct ChatsView: View {
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
+                    .cristalCircular()
             }
-            .buttonStyle(.gPressIcon)
+            .buttonStyle(.plain)
             .accessibilityLabel("Sólo favoritos")
             .accessibilityAddTraits(soloFavoritos ? .isSelected : [])
             .accessibilityIdentifier("chats-favoritos")
 
             Button { nueva = true } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 19, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(Color.gPrimary, in: Circle())
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
+                    .cristalCircular(tinte: .gPrimary)
             }
-            .buttonStyle(.gPressIcon)
+            .buttonStyle(.plain)
             .disabled(store.agents.isEmpty)
             .accessibilityLabel("Nueva conversación")
             .accessibilityIdentifier("nueva-conversacion-lista")
         }
+        // «Chats» fijo en medio de la barra, como WhatsApp en iOS 26.
         .overlay {
             Text("Chats")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color.gInk)
-                .opacity(tituloArriba ? 1 : 0)
-                .offset(y: tituloArriba ? 0 : 6)
                 .allowsHitTesting(false)
         }
-        .padding(.horizontal, Theme.Space.screenH - 10)
-        .frame(height: 50)
-        .background {
-            Color.gBg
-                .overlay(alignment: .bottom) {
-                    Rectangle().fill(Color.gSeparator).frame(height: 0.5).opacity(tituloArriba ? 1 : 0)
-                }
-                .ignoresSafeArea(edges: .top)
-        }
+        .padding(.horizontal, Theme.Space.screenH - 4)
+        .padding(.vertical, 4)
+        .frame(height: 56)
+        // Lo que pasa por debajo se difumina (Liquid Glass): la lista corre DETRÁS de la barra.
+        .background { FondoDeBarraDifuminado().padding(.bottom, -18) }
     }
 
     /// La barra del modo selección: ✕, cuántos, y las acciones sobre los elegidos.

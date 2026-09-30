@@ -108,6 +108,12 @@ struct UsagePane: View {
             if usage == nil {
                 usage = UsosDeAgentes.compartido.usos[agent.id] ?? UsoEnDisco.leer(agente: agent.id)
             }
+            // ⚠️ Con caché se pinta YA: antes las tarjetas esperaban a la red para entrar
+            // (`appeared` iba después del GET) y la ficha tardaba en cada apertura.
+            if usage != nil, !appeared {
+                loaded = true
+                withAnimation(.spring(duration: 0.4, bounce: 0.2)) { appeared = true }
+            }
             if let fresco = await GhostyAPI.usage(agentId: agent.id) {
                 withAnimation(.easeOut(duration: 0.25)) { usage = fresco }
                 UsosDeAgentes.compartido.usos[agent.id] = fresco

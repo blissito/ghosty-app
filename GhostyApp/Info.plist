@@ -43,6 +43,10 @@
 	<string>Para guardar en tu galería los videos e imágenes que te entrega tu agente.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Para que puedas mandarle una foto a tu agente.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Poppins-Medium.ttf</string>
