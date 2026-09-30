@@ -134,13 +134,13 @@ enum BloqueDeAdjuntos {
         var t = crudo
         var nombres: [String] = []
 
-        // 1. La transcripción ES lo que la persona dijo: se queda, sin su envoltorio.
+        // 1. La transcripción es SÓLO para el agente: en tu burbuja y en la lista se ve la
+        //    nota, no su texto (como WhatsApp; igual que Android, 2026-09-29).
         if let a = t.range(of: "[Nota de voz transcrita"),
            let cierre = t.range(of: "]", range: a.upperBound..<t.endIndex) {
             let resto = t[cierre.upperBound...]
             if let c1 = resto.range(of: "«"), let c2 = resto.range(of: "»", range: c1.upperBound..<resto.endIndex) {
-                let dicho = String(resto[c1.upperBound..<c2.lowerBound])
-                t = t.replacingCharacters(in: a.lowerBound..<c2.upperBound, with: dicho)
+                t = t.replacingCharacters(in: a.lowerBound..<c2.upperBound, with: "")
             }
         }
 

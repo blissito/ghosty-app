@@ -50,11 +50,26 @@ struct UserBubble: View {
                     .textSelection(.enabled)
             }
         }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Self.fondo, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, soloVoz ? 0 : 16)
+            .padding(.vertical, soloVoz ? 0 : 12)
+            .padding(EdgeInsets(top: soloVoz ? 8 : 0, leading: soloVoz ? 6 : 0,
+                                bottom: soloVoz ? 8 : 0, trailing: soloVoz ? 12 : 0))
+            .frame(minWidth: soloVoz ? 260 : nil, maxWidth: soloVoz ? 320 : nil)
+            .background {
+                if soloVoz {
+                    // Tu nota como WhatsApp: lime, radios 18 y 4 abajo a la derecha.
+                    UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 18,
+                                           bottomTrailingRadius: 4, topTrailingRadius: 18, style: .continuous)
+                        .fill(BurbujaDeVoz.limeBurbuja)
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Self.fondo)
+                }
+            }
             .fixedSize(horizontal: false, vertical: true)
     }
+
+    /// Sólo una nota de voz, sin texto: va en la burbuja lime.
+    private var soloVoz: Bool { text.isEmpty && !adjuntos.isEmpty && adjuntos.allSatisfy(\.esVoz) }
 }
 
 /// El agente renderiza **markdown**, no texto plano: lo que la caja

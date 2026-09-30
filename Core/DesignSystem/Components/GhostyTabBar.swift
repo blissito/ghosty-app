@@ -64,11 +64,15 @@ struct GhostyTabBar: View {
 
             Button(action: onAgente) {
                 Group {
-                    if let agente {
-                        AgentAvatar(tone: agente.tone, size: 40)
-                    } else {
-                        Circle().fill(Color.white).frame(width: 40, height: 40)
+                    // Fondo blanco y el fantasma a buen tamaño dentro (no el 66 % de AgentAvatar).
+                    ZStack {
+                        Circle().fill(Color.white)
+                        if let agente {
+                            GhostyMascot(tone: agente.tone, height: 34)
+                                .offset(y: 2)
+                        }
                     }
+                    .frame(width: 44, height: 44)
                 }
                 .overlay(alignment: .topTrailing) {
                     if puntoEnAgente { punto.offset(x: 1, y: 1) }

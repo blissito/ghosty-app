@@ -137,6 +137,20 @@ struct ChatsView: View {
         let filas = visibles(todas)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                // Grande a la izquierda; al hacer scroll sube a la barra, al centro (WhatsApp).
+                Text("Chats")
+                    .font(.system(size: 32, weight: .bold))
+                    .tracking(-0.5)
+                    .foregroundStyle(Color.gInk)
+                    .padding(.horizontal, 2)
+                    .opacity(tituloArriba ? 0 : 1)
+                    .background {
+                        GeometryReader { g in
+                            Color.clear.preference(key: FondoDelTitulo.self,
+                                                   value: g.frame(in: .named("chats")).maxY)
+                        }
+                    }
+                    .padding(.bottom, 10)
                 buscador.padding(.bottom, 12)
                 if variosAgentes { chips(todas, orden: agentesOrdenados(todas)).padding(.bottom, 8) }
                 lista(filas)
@@ -239,6 +253,7 @@ struct ChatsView: View {
             .accessibilityLabel("Sólo favoritos")
             .accessibilityAddTraits(soloFavoritos ? .isSelected : [])
             .accessibilityIdentifier("chats-favoritos")
+            .padding(.trailing, 12)
 
             Button { nueva = true } label: {
                 Image(systemName: "plus")
@@ -253,11 +268,13 @@ struct ChatsView: View {
             .accessibilityLabel("Nueva conversación")
             .accessibilityIdentifier("nueva-conversacion-lista")
         }
-        // «Chats» fijo en medio de la barra, como WhatsApp en iOS 26.
+        // «Chats» chico al centro sólo cuando el grande ya subió, como WhatsApp.
         .overlay {
             Text("Chats")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color.gInk)
+                .opacity(tituloArriba ? 1 : 0)
+                .offset(y: tituloArriba ? 0 : 8)
                 .allowsHitTesting(false)
         }
         .padding(.horizontal, Theme.Space.screenH - 4)

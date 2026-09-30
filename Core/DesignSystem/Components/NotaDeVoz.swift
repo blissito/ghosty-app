@@ -115,6 +115,12 @@ struct BurbujaDeVoz: View {
     @State private var velocidad: Float = 1
 
     static let azulEscuchada = Color(hex: 0x53BDEB)
+    /// Tinta oliva de TU nota (burbuja lime, como WhatsApp).
+    static let oliva = Color(hex: 0x55633F)
+    /// El fondo de tu nota: lime #BFDD78 al 30 % sobre blanco.
+    static let limeBurbuja = Color(light: 0xECF5D6, dark: 0x2E3A1F)
+
+    private var tinta: Color { lado == .mia ? Self.oliva : .gPrimary }
 
     private var barras: [Float] {
         let r = NotaDeVoz.remuestrear(onda, a: NotaDeVoz.numeroDeBarras)
@@ -150,7 +156,8 @@ struct BurbujaDeVoz: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            if lado == .agente { lateral }
+            // El micrófono (o tu foto) va a la IZQUIERDA en las dos, como Android.
+            lateral
             botonDePlay
             VStack(alignment: .leading, spacing: 3) {
                 ondaConCursor
@@ -171,9 +178,8 @@ struct BurbujaDeVoz: View {
                     .foregroundStyle(Color.gInk3)
                     .frame(minWidth: 34, alignment: .trailing)
             }
-            if lado == .mia { lateral }
         }
-        .frame(minWidth: 220, maxWidth: tiempoAlFinal ? .infinity : 270)
+        .frame(minWidth: 220, maxWidth: tiempoAlFinal || lado == .mia ? .infinity : 270)
         .onAppear { escuchada = NotasEscuchadas.contiene(id) }
         .onDisappear { parar() }
         .onReceive(NotificationCenter.default.publisher(for: ReproduccionDeVoz.suena)) { n in
@@ -190,11 +196,11 @@ struct BurbujaDeVoz: View {
         Button { Task { await alternar() } } label: {
             ZStack {
                 if bajando {
-                    ProgressView().controlSize(.small).tint(Color.gPrimary)
+                    ProgressView().controlSize(.small).tint(tinta)
                 } else {
                     Image(systemName: sonando ? "pause.fill" : "play.fill")
                         .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Color.gPrimary)
+                        .foregroundStyle(tinta)
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -224,6 +230,27 @@ struct BurbujaDeVoz: View {
                 .transition(.scale(scale: 0.7).combined(with: .opacity))
                 .accessibilityLabel("Velocidad \(etiquetaDeVelocidad)")
                 .accessibilityIdentifier("voz-velocidad")
+            } else if lado == .mia {
+                // Tu foto de 48 con el micrófono encima abajo a la derecha (oliva; azul ya
+                // escuchada). Sin foto, un círculo oliva al 18 %.
+                ZStack(alignment: .bottomTrailing) {
+                    Group {
+                        if let foto = FotoDePerfil.local() {
+                            Image(uiImage: foto).resizable().scaledToFill()
+                        } else {
+                            Circle().fill(Self.oliva.opacity(0.18))
+                        }
+                    }
+                    .frame(width: 48, height: 48)
+                    .clipShape(Circle())
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(escuchada ? Self.azulEscuchada : Self.oliva)
+                        .frame(width: 22, height: 22)
+                        .offset(x: 3, y: 2)
+                }
+                .transition(.scale(scale: 0.7).combined(with: .opacity))
+                .accessibilityHidden(true)
             } else {
                 Circle()
                     .fill(Color.gPrimaryTint)
@@ -238,7 +265,7 @@ struct BurbujaDeVoz: View {
                     .accessibilityHidden(true)
             }
         }
-        .frame(width: 46, height: 46)
+        .frame(width: lado == .mia ? 50 : 46, height: lado == .mia ? 50 : 46)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: reproductor != nil)
     }
 
@@ -259,13 +286,13 @@ struct BurbujaDeVoz: View {
             // Delgadas, como Android: 34 % del paso con tope de 2.5.
             let ancho = min(2.5, max(1.5, paso * 0.34))
             let frac = CGFloat(arrastrando ?? avance)
-            let colorFuerte = Color.gPrimary
+            let colorFuerte = tinta
             ZStack(alignment: .leading) {
                 HStack(alignment: .center, spacing: 0) {
                     ForEach(Array(barras.enumerated()), id: \.offset) { i, v in
                         let pasada = (CGFloat(i) + 0.5) / CGFloat(n) <= frac
                         Capsule()
-                            .fill(pasada ? colorFuerte : Color.gInk4.opacity(0.5))
+                            .fill(pasada ? colorFuerte : (lado == .mia ? Self.oliva.opacity(0.45) : Color.gInk4.opacity(0.5)))
                             // Un mínimo visible: el silencio entre palabras es normal y una
                             // barra de altura 0 se lee como un hueco.
                             .frame(width: ancho, height: max(4, CGFloat(v) * g.size.height))
@@ -274,7 +301,7 @@ struct BurbujaDeVoz: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
                 Circle()
-                    .fill(colorFuerte)
+                    .fill(lado == .mia ? Color(hex: 0x191A20) : colorFuerte)
                     .frame(width: 13, height: 13)
                     .offset(x: min(max(0, frac * g.size.width - 6.5), g.size.width - 13))
                     .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
