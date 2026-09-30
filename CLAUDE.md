@@ -188,3 +188,33 @@ teléfono:
 ```bash
 xcrun devicectl device process launch --device $DEV --console com.fixtergeek.ghostyapp
 ```
+
+## Rediseño estilo WhatsApp (1.0.4, 2026-09-29) — trampas y reglas
+
+Igual que Android (`~/ghosty-android`, sesión `ghosty-android-79`, que avisa cada cambio visible
+por mensaje entre sesiones). Diferencias pedidas por bliss sólo en iOS: avatares de 62 en Chats,
+Perfil en tarjetas redondeadas y sin pager entre pestañas.
+
+- **Chats es el inicio** (`ConversacionesView.swift` → `ChatsView`). Dentro del hilo se oculta la
+  barra (`RootView.enHilo`) y la flecha regresa. Filtro por agente en `RootView.filtroChats`:
+  el avatar de la barra lo pone.
+- ⚠️ **iOS 18: un `DragGesture` dentro de un `ScrollView` bloquea el scroll**, aunque vaya como
+  `simultaneousGesture`. Pasó tres veces: el deslizar de las filas, la onda de la nota de voz y
+  el «seguir el final» del hilo. Arrastres horizontales: `.panHorizontal` (`PanHorizontal.swift`,
+  UIKit, sólo arranca de lado). Saber si el dedo arrastró una lista: `onScrollPhaseChange`.
+  `onLongPressGesture` en filas también estorba: va como `simultaneousGesture`.
+- **Sin pager** (`TabView .page`): se comía el deslizar a la derecha de las filas aunque se
+  apagara con `scrollDisabled`. Las pestañas se cambian tocando la barra, como WhatsApp.
+- **Aviso en frío**: `onChange(of: store.pestanaPedida, initial: true)`. Sin `initial`, un push
+  con la app cerrada dejaba la lista en vez de abrir su conversación.
+- **Notas de voz**: medidas aprobadas punto por punto en la memoria `nota-de-voz-ios-config` (no
+  moverlas sin pedirlo). La transcripción es sólo para el agente: no se muestra. Una nota sin
+  `meta` (llegó por los adjuntos del turno) se reconoce por el nombre `nota-de-voz…` y mide su
+  duración al aparecer; la hora se guarda en el caché del hilo (`AdjuntoGuardado.creado`).
+- **Paleta oficial** de ghosty.studio en `Theme.swift` (brand #8483E0, cuerpo blanco). Logos de
+  integraciones: SVG convertidos de los vectores de Android (`logo-*.imageset`).
+- **Pruebas de UI que cazan lo de arriba** (`GhostyAppUITests/NotaDeVozUITests.swift`,
+  `BurbujaDeVozUITests.swift`): play de nota, deslizar izquierda/derecha, scroll de Chats, aviso
+  en frío y foto de la burbuja. Correrlas antes de subir una build.
+- **Capturas de la tienda**: `./scripts/capturas-tienda.sh` (simulador «Ghosty Max» 6.9", 9:41)
+  y luego `python3 scripts/asc.py capturas`. «Qué hay de nuevo» no acepta emojis como ⭐.
