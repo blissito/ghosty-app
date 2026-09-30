@@ -156,27 +156,31 @@ struct BurbujaDeVoz: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // El micrófono (o tu foto) va a la IZQUIERDA en las dos, como Android.
-            lateral
-            // ▶ y onda en la MISMA línea (como WhatsApp); el tiempo abajo, alineado con la
-            // onda. Antes el ▶ quedaba más bajo que la onda porque ésta compartía columna con
-            // el renglón del tiempo, aunque fuera vacío.
-            VStack(alignment: .leading, spacing: 2) {
+            // Como WhatsApp: en la del agente el micrófono va a la izquierda; en la TUYA tu
+            // foto va a la derecha, con la pastilla de velocidad a su lado mientras suena.
+            if lado == .agente { lateral }
+            // ▶ y onda en la MISMA línea; abajo, SIEMPRE, el renglón del tiempo (aunque aún
+            // no se sepa): así el aire de arriba y el de abajo son iguales.
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
                     botonDePlay
                     ondaConCursor
                         .frame(height: 26)
+                    if lado == .mia, reproductor != nil { pastillaDeVelocidad }
                 }
-                // Sólo si hay algo que decir: un renglón vacío dejaba aire de más abajo.
-                if let fallo {
-                    Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
-                        .padding(.leading, 40)
-                } else if !tiempoAlFinal, !textoDelReloj.isEmpty {
-                    Text(textoDelReloj)
-                        .gMono(size: 11)
-                        .monospacedDigit()
-                        .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
-                        .padding(.leading, 40)
+                if !tiempoAlFinal {
+                    Group {
+                        if let fallo {
+                            Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
+                        } else {
+                            Text(textoDelReloj)
+                                .gMono(size: 11)
+                                .monospacedDigit()
+                                .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
+                        }
+                    }
+                    .frame(height: 14, alignment: .leading)
+                    .padding(.leading, 40)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -186,6 +190,7 @@ struct BurbujaDeVoz: View {
                     .foregroundStyle(Color.gInk3)
                     .frame(minWidth: 34, alignment: .trailing)
             }
+            if lado == .mia { lateral }
         }
         .frame(minWidth: 220, maxWidth: tiempoAlFinal || lado == .mia ? .infinity : 270)
         .onAppear { escuchada = NotasEscuchadas.contiene(id) }
@@ -225,7 +230,7 @@ struct BurbujaDeVoz: View {
     @ViewBuilder
     private var lateral: some View {
         ZStack {
-            if reproductor != nil {
+            if reproductor != nil, lado == .agente {
                 Button(action: cambiarVelocidad) {
                     Text(etiquetaDeVelocidad)
                         .font(.system(size: 13, weight: .bold).monospacedDigit())
@@ -277,6 +282,23 @@ struct BurbujaDeVoz: View {
         }
         .frame(width: lado == .mia ? 50 : 46, height: lado == .mia ? 50 : 46)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: reproductor != nil)
+    }
+
+    /// La pastilla 1× / 1.5× / 2× de tu nota (junto a tu foto, como WhatsApp).
+    private var pastillaDeVelocidad: some View {
+        Button(action: cambiarVelocidad) {
+            Text(etiquetaDeVelocidad)
+                .font(.system(size: 13, weight: .bold).monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Self.oliva, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .transition(.scale(scale: 0.7).combined(with: .opacity))
+        .accessibilityLabel("Velocidad \(etiquetaDeVelocidad)")
+        .accessibilityIdentifier("voz-velocidad")
     }
 
     private var etiquetaDeVelocidad: String {
