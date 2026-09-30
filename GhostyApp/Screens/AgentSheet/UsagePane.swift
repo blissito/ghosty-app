@@ -285,7 +285,7 @@ private struct UsageCard: View {
         }
         .padding(16)
         .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 10, y: 3)
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
         .onAppear {
             withAnimation(.spring(duration: 1.1, bounce: 0.15).delay(delay)) { shown = target }
         }
@@ -421,7 +421,7 @@ private struct ImagesCard: View {
         }
         .padding(14)
         .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 10, y: 3)
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
         .task {
             // Uno tras otro: primero las hechas, luego las que quedan.
             try? await Task.sleep(for: .milliseconds(350))

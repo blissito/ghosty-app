@@ -68,11 +68,11 @@ struct GhostyTabBar: View {
                     ZStack {
                         Circle().fill(Color.white)
                         if let agente {
-                            GhostyMascot(tone: agente.tone, height: 34)
-                                .offset(y: 2)
+                            GhostyMascot(tone: agente.tone, height: 32)
+                                .offset(y: 1)
                         }
                     }
-                    .frame(width: 44, height: 44)
+                    .frame(width: 42, height: 42)
                 }
                 .overlay(alignment: .topTrailing) {
                     if puntoEnAgente { punto.offset(x: 1, y: 1) }

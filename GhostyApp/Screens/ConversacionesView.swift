@@ -37,6 +37,10 @@ struct ChatsView: View {
     /// Conversaciones favoritas (`agente/sesión`) y el filtro «sólo favoritos».
     @State private var favoritas: Set<String> = ChatsFavoritos.ids
     @AppStorage("app.chats.soloFavoritos") private var soloFavoritos = false
+    /// Chats fijados arriba (deslizar a la derecha → Fijar), como WhatsApp.
+    @State private var fijadas: Set<String> = ChatsFijados.ids
+    /// El chat que se va a archivar (confirmación).
+    @State private var porArchivar: Fila?
     /// Qué conversación se está renombrando (agente, sesión) y el texto del campo.
     @State private var renombrando: (agente: String, sesion: String)?
     @State private var nombreNuevo = ""
@@ -125,7 +129,11 @@ struct ChatsView: View {
                     || ($0.previa?.texto.range(of: q, options: opciones) != nil)
             }
         }
-        return filas.sorted { $0.fecha > $1.fecha }
+        return filas.sorted { a, b in
+            let fa = fijadas.contains(a.llaveArchivo), fb = fijadas.contains(b.llaveArchivo)
+            if fa != fb { return fa }
+            return a.fecha > b.fecha
+        }
     }
 
     private var variosAgentes: Bool { store.agents.count > 1 }
@@ -204,6 +212,17 @@ struct ChatsView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(Theme.Radius.sheet)
+        }
+        .confirmationDialog(porArchivar.map { "¿Archivar «\($0.titulo)»?" } ?? "",
+                            isPresented: Binding(get: { porArchivar != nil }, set: { if !$0 { porArchivar = nil } }),
+                            titleVisibility: .visible) {
+            Button("Archivar", role: .destructive) {
+                if let f = porArchivar { archivar(f) }
+                porArchivar = nil
+            }
+            Button("Cancelar", role: .cancel) { porArchivar = nil }
+        } message: {
+            Text("Se quita de tus chats y de tu agente.")
         }
         .alert("Nombre de la conversación", isPresented: Binding(
             get: { renombrando != nil }, set: { if !$0 { renombrando = nil } })) {
@@ -469,6 +488,12 @@ struct ChatsView: View {
             LazyVStack(spacing: 0) {
                 ForEach(filas) { f in
                     fila(f)
+                        // Divisor hairline desde donde empieza el texto, menos en la última.
+                        .overlay(alignment: .bottom) {
+                            if f.id != filas.last?.id {
+                                Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 58)
+                            }
+                        }
                         .transition(.scale(scale: 0.96).combined(with: .opacity))
                 }
             }
@@ -540,6 +565,13 @@ struct ChatsView: View {
                 HStack(spacing: 6) {
                     subtitulo(f)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if fijadas.contains(f.llaveArchivo) {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.gInk3)
+                            .rotationEffect(.degrees(45))
+                            .accessibilityLabel("Fijado")
+                    }
                     if favoritas.contains(f.llaveArchivo) {
                         Image(systemName: "star.fill")
                             .font(.system(size: 12))
@@ -564,6 +596,17 @@ struct ChatsView: View {
             alternarSeleccion(f)
         }
         .sensoryFeedback(.selection, trigger: seleccion)
+        // Deslizar como WhatsApp: izquierda → Archivar; derecha → Leído/No leído y Fijar.
+        .modifier(DeslizarChat(
+            fijado: fijadas.contains(f.llaveArchivo),
+            sinLeer: f.pendientes > 0,
+            habilitado: !seleccionando,
+            alArchivar: { porArchivar = f },
+            alLeido: { alternarLeido(f) },
+            alFijar: {
+                ChatsFijados.alternar(f.llaveArchivo)
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { fijadas = ChatsFijados.ids }
+            }))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { abrir(f) }
@@ -657,6 +700,20 @@ struct ChatsView: View {
 
     private func alternarSeleccion(_ f: Fila) {
         if seleccion.contains(f.llaveArchivo) { seleccion.remove(f.llaveArchivo) } else { seleccion.insert(f.llaveArchivo) }
+    }
+
+    /// Deslizar a la derecha → Leído / No leído.
+    private func alternarLeido(_ f: Fila) {
+        if f.pendientes > 0 { marcarLeida(f); return }
+        switch f.tipo {
+        case .abierta(let h):
+            if h.termino == nil { h.termino = Date() }
+            h.visto = false
+            if let sid = h.sesionID { VistoHasta.marcar(f.agente.id, sid, .distantPast) }
+        case .guardada(let s):
+            VistoHasta.marcar(f.agente.id, s.id, .distantPast)
+        }
+        store.marcarLeidas()
     }
 
     private func marcarLeida(_ f: Fila) {
@@ -873,5 +930,109 @@ private struct SeguirDesplazamiento: ViewModifier {
         } else {
             content.onPreferenceChange(FondoDelTitulo.self) { maxY in alCambiar(maxY < 4 ? 100 : 0) }
         }
+    }
+}
+
+/// Los chats fijados arriba, por `agente/sesión`. En el teléfono.
+enum ChatsFijados {
+    private static let clave = "app.chats.fijadas"
+    static var ids: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: clave) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: clave) }
+    }
+    static func alternar(_ id: String) {
+        var s = ids
+        if s.contains(id) { s.remove(id) } else { s.insert(id) }
+        ids = s
+    }
+}
+
+/// Deslizar una fila de Chats como WhatsApp. Izquierda: Archivar. Derecha: Leído / No leído
+/// y Fijar. Sólo se lleva el arrastre HORIZONTAL (|dx| > |dy|): no le roba el scroll a la
+/// lista, y la fila gana sobre el pager de pestañas (medido en el simulador).
+private struct DeslizarChat: ViewModifier {
+    let fijado: Bool
+    let sinLeer: Bool
+    let habilitado: Bool
+    var alArchivar: () -> Void
+    var alLeido: () -> Void
+    var alFijar: () -> Void
+
+    @State private var dx: CGFloat = 0
+    /// -1 = abierta a la izquierda (Archivar) · 1 = abierta a la derecha · 0 = cerrada.
+    @State private var lado = 0
+    private let boton: CGFloat = 78
+
+    func body(content: Content) -> some View {
+        ZStack {
+            if lado == 1 || dx > 0 {
+                HStack(spacing: 0) {
+                    accion(sinLeer ? "Leído" : "No leído",
+                           sinLeer ? "checkmark.message.fill" : "message.badge.filled.fill", Color.gPrimary, alLeido)
+                    accion(fijado ? "Desfijar" : "Fijar", fijado ? "pin.slash.fill" : "pin.fill", Color.gInk3, alFijar)
+                    Spacer(minLength: 0)
+                }
+            }
+            if lado == -1 || dx < 0 {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    accion("Archivar", "archivebox.fill", Color.gDark, alArchivar)
+                }
+            }
+            content
+                .background(Color.gBg)
+                .offset(x: dx)
+                .allowsHitTesting(lado == 0)
+            if lado != 0 {
+                // Con la fila abierta, tocarla la cierra.
+                Color.clear.contentShape(Rectangle())
+                    .padding(.leading, lado == 1 ? boton * 2 : 0)
+                    .padding(.trailing, lado == -1 ? boton : 0)
+                    .onTapGesture { cerrar() }
+            }
+        }
+        .clipped()
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 14, coordinateSpace: .local)
+                .onChanged { v in
+                    guard habilitado, abs(v.translation.width) > abs(v.translation.height) else { return }
+                    let base: CGFloat = lado == -1 ? -boton : lado == 1 ? boton * 2 : 0
+                    dx = min(boton * 2 + 20, max(-boton - 20, base + v.translation.width))
+                }
+                .onEnded { v in
+                    guard habilitado, abs(v.translation.width) > abs(v.translation.height) else { return }
+                    let fin = (lado == -1 ? -boton : lado == 1 ? boton * 2 : 0) + v.translation.width
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        if fin < -50 { lado = -1; dx = -boton }
+                        else if fin > 60 { lado = 1; dx = boton * 2 }
+                        else { lado = 0; dx = 0 }
+                    }
+                }
+        )
+        .accessibilityAction(named: "Archivar", alArchivar)
+        .accessibilityAction(named: sinLeer ? "Marcar como leído" : "Marcar como no leído", alLeido)
+        .accessibilityAction(named: fijado ? "Desfijar" : "Fijar", alFijar)
+        .sensoryFeedback(.impact(weight: .light), trigger: lado)
+    }
+
+    private func accion(_ titulo: String, _ simbolo: String, _ color: Color, _ hacer: @escaping () -> Void) -> some View {
+        Button {
+            cerrar()
+            hacer()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: simbolo).font(.system(size: 18, weight: .semibold))
+                Text(titulo).font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(width: boton)
+            .frame(maxHeight: .infinity)
+            .background(color)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func cerrar() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { lado = 0; dx = 0 }
     }
 }

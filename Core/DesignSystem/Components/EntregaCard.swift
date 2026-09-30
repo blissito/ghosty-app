@@ -104,7 +104,9 @@ struct EntregaCard: View {
                 TablaCard(filas: filas, nombre: Self.sinExtension(entrega.titulo),
                           titulo: entrega.titulo)
                     .frame(maxWidth: 360, alignment: .leading)
-            } else if entrega.esAudio || entrega.esVideo {
+            } else if entrega.esAudio {
+                burbujaDeAudio
+            } else if entrega.esVideo {
                 tarjeta
             } else {
                 tarjeta.contentShape(Rectangle()).onTapGesture(perform: abrir)
@@ -153,6 +155,37 @@ struct EntregaCard: View {
         // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
         else if datos == nil, entrega.url != nil || entrega.remotoID != nil { Task { await bajar(yAbrir: true) } }
         else { compartiendo = conBytes()?.aDisco() }
+    }
+
+    /// Un audio del agente (nota de voz o archivo de audio) como nota de WhatsApp: burbuja
+    /// en el lila de la marca, con la esquina de 4 abajo a la IZQUIERDA (es del agente),
+    /// micrófono, ▶, onda con cursor y la duración. Un archivo de audio lleva su nombre abajo.
+    private var burbujaDeAudio: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            BurbujaDeVoz(id: entrega.remotoID ?? entrega.id, lado: .agente,
+                         segundos: entrega.segundosDeVoz ?? 0, onda: entrega.onda ?? []) {
+                if let d = entrega.datos ?? bajados { return d }
+                var d: Data?
+                if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+                if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
+                guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
+                return d
+            }
+            if !entrega.esNotaDeVoz {
+                Text(entrega.titulo)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.gInk3)
+                    .lineLimit(1)
+                    .padding(.leading, 56)
+            }
+        }
+        .padding(EdgeInsets(top: 8, leading: 6, bottom: 8, trailing: 12))
+        .frame(minWidth: 260, maxWidth: 320, alignment: .leading)
+        .background(
+            UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 4,
+                                   bottomTrailingRadius: 18, topTrailingRadius: 18, style: .continuous)
+                .fill(Color.gPrimaryRing)
+        )
     }
 
     /// La tarjeta del diseño: blanca, borde fino, r16. Arriba la vista previa (imagen,

@@ -145,7 +145,10 @@ struct RootView: View {
         }
         // Tocar un aviso lleva al chat. El destino lo resuelve el store (`irA`); aquí
         // sólo se cambia de pestaña cuando lo pide, y se cierra lo que tape el chat.
-        .onChange(of: store.pestanaPedida) { _, pedida in
+        // ⚠️ `initial: true`: en arranque en frío por push la orden llega ANTES de que esta
+        // vista escuche. Con Chats como inicio, sin esto el aviso dejaba la lista en vez
+        // de abrir su conversación.
+        .onChange(of: store.pestanaPedida, initial: true) { _, pedida in
             guard let pedida else { return }
             tab = pedida
             // Un aviso lleva a SU conversación: dentro del hilo, no a la lista.
@@ -313,29 +316,34 @@ struct RootView: View {
     /// del pager: dentro de una conversación deslizar no cambia de pestaña, regresa.
     private var contenido: some View {
         ZStack {
-            TabView(selection: $tab) {
-                PerfilView(store: store, verUso: $verUso)
-                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-                    .tag(GhostyTab.perfil)
-                ConectoresPane(store: store)
-                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-                    .tag(GhostyTab.connectors)
-                ArtifactsView(store: store)
-                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-                    .tag(GhostyTab.artifacts)
-                ChatsView(store: store, filtro: $filtroChats,
-                          onAbrir: { withAnimation(.easeOut(duration: 0.25)) { enHilo = true } },
-                          onPlanYUso: {
-                              withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
-                              DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { verUso = true }
-                          },
-                          onAjustes: {
-                              withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
-                          })
-                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-                    .tag(GhostyTab.chat)
+            // ⚠️ SIN pager (2026-09-29). Deslizar entre pestañas chocaba con deslizar una
+            // fila de Chats (Archivar / Leído / Fijar): el paginado del sistema se comía el
+            // gesto aunque se desactivara. Como WhatsApp en iOS: se cambia tocando la barra.
+            Group {
+                switch tab {
+                case .perfil:
+                    PerfilView(store: store, verUso: $verUso)
+                        .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                case .connectors:
+                    ConectoresPane(store: store)
+                        .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                case .artifacts:
+                    ArtifactsView(store: store)
+                        .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                case .chat:
+                    ChatsView(store: store, filtro: $filtroChats,
+                              onAbrir: { withAnimation(.easeOut(duration: 0.25)) { enHilo = true } },
+                              onPlanYUso: {
+                                  withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+                                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { verUso = true }
+                              },
+                              onAjustes: {
+                                  withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+                              })
+                        .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .transition(.opacity)
 
             if tab == .chat && enHilo {
                 // Sin barra: el compositor va pegado abajo, como WhatsApp.
