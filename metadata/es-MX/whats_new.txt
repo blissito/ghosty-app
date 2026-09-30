@@ -1,5 +1,6 @@
-• Tus notas de voz ya no se pierden: si algo falla al mandarlas, vuelven al compositor para que las reenvíes con un toque.
-• Los avisos te dicen qué agente te contesta, con su nombre y su cara.
-• Al cerrar sesión, ese teléfono deja de recibir los avisos de la cuenta.
-• El chat se lee más limpio: los pasos del agente se pliegan y su respuesta queda sola.
-• Las respuestas aparecen con más fluidez mientras tu agente escribe.
+• Nueva pantalla de Chats: todas tus conversaciones en un solo lugar, con buscador, filtros por agente y cuántos mensajes te esperan.
+• Desliza un chat para archivarlo, marcarlo como leído o fijarlo arriba. Marca tus favoritos con ⭐.
+• Notas de voz como las conoces: mantén presionado para grabar, desliza para cancelar o hacia arriba para grabar con las manos libres, y pausa cuando quieras.
+• Escucha las notas a 1×, 1.5× o 2×, y adelanta tocando la onda.
+• Archivos se organiza en Multimedia, Documentos y Audio, agrupados por mes.
+• Perfil renovado con tu foto, e Integraciones con los logos de cada servicio.

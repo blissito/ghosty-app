@@ -776,6 +776,53 @@ struct NuevaConversacionSheet: View {
     let agentes: [Agent]
     var onElegir: (Agent) -> Void
 
+    /// Agrupados por espacio: Tuyos → cada espacio (alfabético) → Compartidos contigo. Dentro,
+    /// el orden que llega (último uso). Igual que Android.
+    private var grupos: [(titulo: String, agentes: [Agent])] {
+        var tuyos: [Agent] = [], compartidos: [Agent] = []
+        var espacios: [String: [Agent]] = [:]
+        for a in agentes {
+            switch a.space?.kind {
+            case .workspace?: espacios[a.space!.title, default: []].append(a)
+            case .shared?: compartidos.append(a)
+            default: if a.compartidoPor != nil { compartidos.append(a) } else { tuyos.append(a) }
+            }
+        }
+        var r: [(String, [Agent])] = []
+        if !tuyos.isEmpty { r.append(("Tuyos", tuyos)) }
+        for k in espacios.keys.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }) {
+            r.append((k, espacios[k]!))
+        }
+        if !compartidos.isEmpty { r.append(("Compartidos contigo", compartidos)) }
+        return r
+    }
+
+    private func fila(_ a: Agent) -> some View {
+        Button { onElegir(a) } label: {
+            HStack(spacing: 12) {
+                AgentAvatar(tone: a.tone, size: 40)
+                    .frame(width: 48, height: 48)
+                    .background(Circle().fill(Color.gPrimaryTint))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(a.name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                        .lineLimit(1)
+                    Text(CambiarAgenteSheet.tipo(a))
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.gInk3)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("nueva-con-\(a.id)")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Nueva conversación")
@@ -785,37 +832,25 @@ struct NuevaConversacionSheet: View {
                 .padding(.top, 22)
                 .padding(.bottom, 10)
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(agentes) { a in
-                        Button { onElegir(a) } label: {
-                            HStack(spacing: 12) {
-                                AgentAvatar(tone: a.tone, size: 40)
-                                    .frame(width: 48, height: 48)
-                                    .background(Circle().fill(Color.gPrimaryTint))
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(a.name)
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(Color.gInk)
-                                        .lineLimit(1)
-                                    Text(CambiarAgenteSheet.tipo(a))
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(Color.gInk3)
-                                        .lineLimit(1)
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    let gs = grupos
+                    ForEach(Array(gs.enumerated()), id: \.offset) { _, g in
+                        // Encabezado sólo si hay más de un grupo (como Android).
+                        if gs.count > 1 {
+                            Text(g.titulo)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.gInk3)
+                                .padding(EdgeInsets(top: 14, leading: 24, bottom: 4, trailing: 24))
+                        }
+                        ForEach(g.agentes) { a in
+                            fila(a)
+                                .overlay(alignment: .bottom) {
+                                    // Hairline desde donde empieza el nombre, entre agentes del grupo.
+                                    if a.id != g.agentes.last?.id {
+                                        Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 82)
+                                    }
                                 }
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .overlay(alignment: .bottom) {
-                            // Hairline desde donde empieza el nombre (82), menos en el último.
-                            if a.id != agentes.last?.id {
-                                Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 82)
-                            }
-                        }
-                        .accessibilityIdentifier("nueva-con-\(a.id)")
                     }
                 }
                 .padding(.bottom, 20)

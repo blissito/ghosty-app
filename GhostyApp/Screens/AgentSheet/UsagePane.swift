@@ -126,11 +126,12 @@ struct UsagePane: View {
     /// «Plan Gratis» + motor y modelo: que se vea qué trae el agente.
     private var planCard: some View {
         HStack(spacing: 12) {
+            // Icono del modelo: fondo bird con el icono en dark (como Android).
             Image(systemName: "sparkles")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(hex: 0x191A20))
                 .frame(width: 38, height: 38)
-                .background(Theme.primaryGradient, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.gBird, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .symbolEffect(.bounce, value: appeared)
             VStack(alignment: .leading, spacing: 2) {
                 if let u = usage, u.applies != false {
