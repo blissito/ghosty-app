@@ -1,5 +1,5 @@
 • Nueva pantalla de Chats: todas tus conversaciones en un solo lugar, con buscador, filtros por agente y cuántos mensajes te esperan.
-• Desliza un chat para archivarlo, marcarlo como leído o fijarlo arriba. Marca tus favoritos con ⭐.
+• Desliza un chat para archivarlo, marcarlo como leído o fijarlo arriba. Marca tus chats favoritos con una estrella.
 • Notas de voz como las conoces: mantén presionado para grabar, desliza para cancelar o hacia arriba para grabar con las manos libres, y pausa cuando quieras.
 • Escucha las notas a 1×, 1.5× o 2×, y adelanta tocando la onda.
 • Archivos se organiza en Multimedia, Documentos y Audio, agrupados por mes.
