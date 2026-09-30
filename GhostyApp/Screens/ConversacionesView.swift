@@ -501,8 +501,8 @@ struct ChatsView: View {
         let elegida = seleccionando && seleccion.contains(f.llaveArchivo)
         return HStack(spacing: 12) {
             // Sólo el fantasma, sin aro ni fondo: como la foto de un contacto.
-            AgentAvatar(tone: f.agente.tone, size: 52)
-                .frame(width: 52, height: 52)
+            AgentAvatar(tone: f.agente.tone, size: 62)
+                .frame(width: 62, height: 62)
                 // Seleccionada: la palomita verde sobre el avatar, como WhatsApp.
                 .overlay(alignment: .bottomTrailing) {
                     if elegida {
