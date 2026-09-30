@@ -190,6 +190,11 @@ struct AgentHeader: View {
     var onHistorial: (() -> Void)?
     /// Hay conversaciones con algo sin ver: punto sobre el botón del historial.
     var puntoHistorial = false
+    /// La flecha de atrás a «Chats» (desde el rediseño estilo WhatsApp). Gana sobre el
+    /// historial: dentro de un hilo, la lista ES el historial.
+    var onVolver: (() -> Void)?
+    /// Cuántas conversaciones te esperan en «Chats»: el número junto a la flecha.
+    var pendientesAtras = 0
 
     private var status: AgentStatus { estado ?? agent.status }
     private var trabajando: Bool { if case .working = status { return true } else { return false } }
@@ -205,7 +210,26 @@ struct AgentHeader: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if let onHistorial {
+            if let onVolver {
+                Button(action: onVolver) {
+                    HStack(spacing: 2) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Color.gInk)
+                        if pendientesAtras > 0 {
+                            Text("\(pendientesAtras)")
+                                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                                .foregroundStyle(Color.gInk)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.gPressIcon)
+                .accessibilityLabel(pendientesAtras > 0 ? "Chats, \(pendientesAtras) sin leer" : "Chats")
+                .accessibilityIdentifier("volver-a-chats")
+            } else if let onHistorial {
                 Button(action: onHistorial) {
                     GhostyIcons.historial.dibujo(Color.gInk, size: 20)
                         .overlay(alignment: .topTrailing) {

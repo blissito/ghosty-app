@@ -9,7 +9,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .chat:       return "Chat"
+        case .chat:       return "Chats"
         case .artifacts:  return "Archivos"
         case .connectors: return "Integraciones"
         case .perfil:     return "Perfil"
@@ -32,9 +32,9 @@ enum GhostyTab: String, CaseIterable, Identifiable {
 /// activa con relleno. Se puede forzar con `UITabBarAppearance`, pero eso se rompió
 /// con el tab bar de iOS 26 — justo la versión que corre aquí.
 ///
-/// A la izquierda el avatar del agente (abre «Cambiar de agente»), un divisor, y las
-/// pestañas: la activa se ensancha con su etiqueta sobre una píldora blanca al 14 %; las
-/// demás son sólo icono.
+/// Las pestañas —la activa se ensancha con su etiqueta sobre una píldora blanca al 14 %;
+/// las demás son sólo icono—, un divisor y, a la DERECHA pegado a Chats, el avatar del
+/// agente (abre «Cambiar de agente»). Rediseño estilo WhatsApp, igual que Android.
 struct GhostyTabBar: View {
     @Binding var selection: GhostyTab
     /// Qué pestañas se pintan. Quien decide la lista es `RootView`.
@@ -53,6 +53,15 @@ struct GhostyTabBar: View {
 
     var body: some View {
         HStack(spacing: 2) {
+            ForEach(tabs) { tab in
+                boton(tab)
+            }
+
+            Rectangle()
+                .fill(Color.white.opacity(0.14))
+                .frame(width: 1, height: 28)
+                .padding(.horizontal, 4)
+
             Button(action: onAgente) {
                 Group {
                     if let agente {
@@ -72,15 +81,6 @@ struct GhostyTabBar: View {
             .buttonStyle(.gPressTab)
             .accessibilityLabel(agente.map { "Agente \($0.name). Cambiar de agente" } ?? "Cambiar de agente")
             .accessibilityIdentifier("tab-agente")
-
-            Rectangle()
-                .fill(Color.white.opacity(0.14))
-                .frame(width: 1, height: 28)
-                .padding(.horizontal, 4)
-
-            ForEach(tabs) { tab in
-                boton(tab)
-            }
         }
         .padding(6)
         .frame(height: Theme.Space.tabBarHeight)

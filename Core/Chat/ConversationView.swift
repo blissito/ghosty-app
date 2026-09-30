@@ -6,6 +6,8 @@ struct ConversationView: View {
     var onOpenSheet: () -> Void
     /// Abre el historial de conversaciones (hoja de `RootView`). `nil` = sin botón.
     var onHistorial: (() -> Void)? = nil
+    /// Regresa a «Chats». Con él, la cabecera lleva la flecha de atrás en vez del historial.
+    var onVolver: (() -> Void)? = nil
 
     @State private var borrador = ""
     @FocusState private var escribiendo: Bool
@@ -40,6 +42,11 @@ struct ConversationView: View {
     @State private var arrastre: CGSize = .zero
     /// Manos libres: se soltó el dedo y la grabación sigue.
     @State private var vozBloqueada = false
+    /// Se canceló deslizando SIN soltar: el micrófono cae al bote (`MicAlBote`) y el resto
+    /// del gesto ya no cuenta hasta que se levante el dedo.
+    @State private var alBote = false
+    @State private var gestoCancelado = false
+    @Environment(Toaster.self) private var toaster: Toaster?
     @State private var fallo: String?
     /// El último mensaje visible, según el propio `ScrollView`.
     @State private var anclaje: String?
@@ -84,7 +91,9 @@ struct ConversationView: View {
                             onTap: { escribiendo = false; onOpenSheet() },
                             onNueva: { store.nuevaConversacion() },
                             onHistorial: onHistorial.map { abrir in { escribiendo = false; abrir() } },
-                            puntoHistorial: store.hayPendientes)
+                            puntoHistorial: store.hayPendientes,
+                            onVolver: onVolver.map { volver in { escribiendo = false; volver() } },
+                            pendientesAtras: onVolver == nil ? 0 : store.chatsSinLeer)
             }
 
             // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y
@@ -1012,12 +1021,24 @@ struct ConversationView: View {
     /// derecha en su sitio todo el rato.
     private var capsula: some View {
         HStack(spacing: 6) {
-            if grabador.grabando {
-                BarraDeGrabacion(segundos: grabador.segundos,
-                                 onda: grabador.enVivo,
-                                 haciaCancelar: haciaCancelar,
-                                 bloqueado: vozBloqueada,
-                                 alCancelar: { cancelarVoz() })
+            if alBote {
+                MicAlBote { withAnimation(.snappy(duration: 0.22)) { alBote = false } }
+                    .padding(.leading, 8)
+                    .transition(.opacity)
+            } else if grabador.grabando && vozBloqueada {
+                // Bloqueada: dos filas con su propio enviar; el control de la derecha sobra.
+                BloqueDeGrabacion(segundos: grabador.segundos,
+                                  onda: grabador.enVivo,
+                                  pausado: grabador.pausado,
+                                  alTirar: { cancelarVoz() },
+                                  alPausar: { grabador.pausado ? grabador.reanudar() : grabador.pausar() },
+                                  alEnviar: { soltarVoz() })
+                    .matchedGeometryEffect(id: enVuelo.map { "voz-\($0)" } ?? "voz-ninguna",
+                                           in: vuelo, isSource: false)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)),
+                                            removal: .opacity))
+            } else if grabador.grabando {
+                BarraDeGrabacion(segundos: grabador.segundos, haciaCancelar: haciaCancelar)
                     .padding(.leading, 8)
                     // El ORIGEN del vuelo. Con el mismo id que la burbuja y en la misma
                     // transacción animada, SwiftUI interpola una en la otra: lo que sueltas
@@ -1034,7 +1055,7 @@ struct ConversationView: View {
                     insertion: .move(edge: .leading).combined(with: .opacity),
                     removal: .move(edge: .leading).combined(with: .opacity)))
             }
-            control
+            if !(grabador.grabando && vozBloqueada) { control.zIndex(1) }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: hayQueMandar)
         .padding(6)
@@ -1045,17 +1066,26 @@ struct ConversationView: View {
                 .strokeBorder(Color.gSeparator, lineWidth: 1)
         }
         .ghostySoftShadow()
-        // Se tiñe de rojo según te acercas a cancelar: el aviso llega ANTES de soltar, que
-        // es cuando todavía se puede rectificar.
+        // Se tiñe de rojo según te acercas a cancelar: el aviso llega ANTES de que se
+        // cancele, que es cuando todavía se puede rectificar.
         .overlay {
             RoundedRectangle(cornerRadius: Theme.Radius.composer, style: .continuous)
-                .fill(Color.gDanger.opacity(haciaCancelar * 0.12))
+                .fill(Color.gDanger.opacity(haciaCancelar * 0.1))
                 .allowsHitTesting(false)
         }
     }
 
+    /// Cuánto hay que deslizar a la izquierda para cancelar sin soltar (WhatsApp ~120 pt).
+    private static let umbralCancelar: CGFloat = 120
+    /// Cuánto hay que subir para bloquear.
+    private static let umbralBloquear: CGFloat = 90
+
     private var haciaCancelar: Double {
-        grabador.grabando && !vozBloqueada ? min(1, max(0, Double(-arrastre.width) / 90)) : 0
+        grabador.grabando && !vozBloqueada ? min(1, max(0, Double(-arrastre.width) / Self.umbralCancelar)) : 0
+    }
+
+    private var haciaBloquear: Double {
+        grabador.grabando && !vozBloqueada ? min(1, max(0, Double(-arrastre.height) / Self.umbralBloquear)) : 0
     }
 
     /// El control de la derecha, UNO solo: manda si escribiste, detiene si no.
@@ -1096,13 +1126,7 @@ struct ConversationView: View {
 
     @ViewBuilder
     private var controlPrincipal: some View {
-        if grabador.grabando && vozBloqueada {
-            Button(action: soltarVoz) {
-                circulo(Color.gDark) { ChatIcons.enviar.dibujo(.white, size: 18, ancho: 2) }
-            }
-            .buttonStyle(.gPressPrimary)
-            .accessibilityLabel("Mandar nota de voz")
-        } else if hayQueMandar || !AppConfig.shared.isOn("voice") {
+        if hayQueMandar || !AppConfig.shared.isOn("voice") {
             // Enviar: `#15141B` con la flecha. Con la voz apagada desde gs (`flags.voice`)
             // ocupa el sitio del micrófono, inactivo mientras no haya nada que mandar.
             Button(action: enviar) {
@@ -1119,45 +1143,56 @@ struct ConversationView: View {
         }
     }
 
-    /// El micrófono morado del diseño. Dos gestos en uno:
-    /// - **Un toque** abre «Te escucho…» y graba; otro toque en el overlay termina y manda.
-    /// - **Mantener** graba en el compositor, como WhatsApp: izquierda cancela, arriba
-    ///   bloquea, soltar manda. Es donde viven el deslizar-para-cancelar y el vuelo.
+    /// El micrófono morado del diseño, como WhatsApp:
+    /// - **Un toque** no graba: avisa «Mantén presionado para grabar y suelta para enviar».
+    /// - **Mantener** graba: el botón crece (~1.85×) y sigue al dedo. Izquierda pasado
+    ///   ~120 pt cancela SIN soltar (el micrófono cae al bote), arriba bloquea, soltar manda.
     ///
     /// ⚠️ **Late con tu voz.** Un micrófono que no reacciona no dice si te está oyendo.
     private var microfono: some View {
         let nivel = Double(grabador.onda.last ?? 0)
-        return circulo(grabador.grabando ? Color.gDanger : Color.gPrimary) {
+        let manteniendo = grabador.grabando && !vozBloqueada
+        return circulo(manteniendo ? Color.gDanger : Color.gPrimary) {
             ChatIcons.microfono.dibujo(.white, size: 18, ancho: 1.9)
         }
         .background {
             // El halo crece con la voz; el círculo sólo un poco, o el icono baila.
             Circle()
-                .stroke(Color.gDanger.opacity(grabador.grabando ? 0.35 : 0), lineWidth: 3)
-                .scaleEffect(1 + nivel * 0.9)
+                .stroke(Color.gDanger.opacity(manteniendo ? 0.3 : 0), lineWidth: 3)
+                .scaleEffect(1 + nivel * 0.6)
         }
         .ghostyPrimaryShadow()
+        // Crece mientras lo mantienes, como WhatsApp, y un poco con tu voz.
+        .scaleEffect(manteniendo ? 1.85 * (1 + nivel * 0.06) * (1 - haciaCancelar * 0.25) : 1)
+        // El candado, encima: dice que subir bloquea.
+        .overlay(alignment: .bottom) {
+            if manteniendo {
+                PildoraDeCandado(haciaBloquear: haciaBloquear)
+                    .offset(y: -98 - CGFloat(haciaBloquear) * 20)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         // Sigue al DEDO: sin esto el gesto es un umbral invisible.
-        .offset(x: grabador.grabando && !vozBloqueada ? min(0, arrastre.width) : 0,
-                y: grabador.grabando && !vozBloqueada ? min(0, max(-70, arrastre.height)) : 0)
-        // Y se encoge conforme se acerca al bote, como si lo fuera a soltar dentro.
-        .scaleEffect(grabador.grabando ? (1 + nivel * 0.18) * (1 - haciaCancelar * 0.35) : 1)
-        .opacity(1 - haciaCancelar * 0.4)
+        .offset(x: manteniendo ? min(0, arrastre.width) : 0,
+                y: manteniendo ? min(0, max(-Self.umbralBloquear, arrastre.height)) : 0)
         .animation(.easeOut(duration: 0.08), value: nivel)
+        .animation(.spring(response: 0.28, dampingFraction: 0.75), value: manteniendo)
         .contentShape(Circle())
         .gesture(gestoDeVoz)
         .accessibilityElement()
         .accessibilityLabel("Nota de voz")
+        .accessibilityHint("Mantén presionado para grabar y suelta para enviar")
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { empezarConOverlay() }
+        .accessibilityAction { empezarBloqueada() }
         .accessibilityIdentifier("microfono")
     }
 
     private var gestoDeVoz: some Gesture {
-        // Un solo `DragGesture` desde 0: tocar empieza a grabar, arrastrar decide, soltar
-        // manda (o abre el overlay si fue un toque).
+        // Un solo `DragGesture` desde 0: tocar empieza a grabar (para no perder la primera
+        // sílaba), arrastrar decide, soltar manda. Si fue un toque corto, se tira y se avisa.
         DragGesture(minimumDistance: 0)
             .onChanged { v in
+                guard !gestoCancelado else { return }
                 if !grabador.grabando {
                     escribiendo = false
                     inicioDelToque = Date()
@@ -1165,30 +1200,46 @@ struct ConversationView: View {
                         grabador.empezar()
                     }
                 }
+                guard !vozBloqueada else { return }
                 arrastre = v.translation
+                // Izquierda pasado el umbral: se cancela YA, sin esperar a que sueltes.
+                if v.translation.width < -Self.umbralCancelar {
+                    gestoCancelado = true
+                    grabador.cancelar()
+                    withAnimation(.snappy(duration: 0.22)) {
+                        arrastre = .zero
+                        alBote = true
+                    }
+                } else if v.translation.height < -Self.umbralBloquear {
+                    // Arriba = manos libres: sigue grabando y aparecen bote, pausa y enviar.
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        vozBloqueada = true
+                        arrastre = .zero
+                    }
+                }
             }
             .onEnded { v in
+                defer { gestoCancelado = false; inicioDelToque = nil }
+                guard !gestoCancelado, !vozBloqueada, grabador.grabando else { return }
                 let duro = Date().timeIntervalSince(inicioDelToque ?? .distantPast)
-                inicioDelToque = nil
                 let quieto = abs(v.translation.width) < 12 && abs(v.translation.height) < 12
-                if quieto && duro < 0.35 {
-                    // Un TOQUE: «Te escucho…». La grabación ya empezó; se sigue en manos
-                    // libres y el overlay la termina.
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        vozBloqueada = true
-                        arrastre = .zero
-                    }
-                    mostrarOverlayDeVoz()
-                } else if v.translation.width < -90 { cancelarVoz() }
-                // Arriba = manos libres, como WhatsApp: sigue grabando y aparecen la
-                // papelera y el enviar.
-                else if v.translation.height < -70 {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        vozBloqueada = true
-                        arrastre = .zero
-                    }
-                } else { soltarVoz() }
+                if quieto && duro < 0.4 {
+                    // Un TOQUE: no es una nota. Se tira lo grabado y se explica el gesto.
+                    cancelarVoz()
+                    toaster?.show("Mantén presionado para grabar y suelta para enviar", duracion: 2.2)
+                } else {
+                    soltarVoz()
+                }
             }
+    }
+
+    /// Para VoiceOver: grabar directo en modo bloqueado (bote · pausa · enviar).
+    private func empezarBloqueada() {
+        escribiendo = false
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            grabador.empezar()
+            vozBloqueada = true
+        }
     }
 
     /// Para VoiceOver (y el gancho `GHOSTY_VOZ`): grabar directo en el overlay.

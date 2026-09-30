@@ -15,6 +15,8 @@ import Observation
 @MainActor
 final class GrabadorDeVoz {
     private(set) var grabando = false
+    /// En pausa (sólo con la grabación bloqueada): no graba ni cuenta tiempo.
+    private(set) var pausado = false
     private(set) var segundos: Double = 0
     /// La ventana que ve la barra de grabación: los últimos tramos, que es lo que da la
     /// sensación de que la onda avanza. La COMPLETA se guarda en el clip.
@@ -70,12 +72,15 @@ final class GrabadorDeVoz {
         }
 
         grabando = true
+        pausado = false
         segundos = 0
         onda = []
         reloj = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(60))
                 guard let self, let r = self.recorder else { return }
+                // En pausa ni se mide ni avanza el reloj: la onda no se llena de silencio.
+                guard !self.pausado else { continue }
                 r.updateMeters()
                 self.segundos = r.currentTime
                 // El medidor viene en dBFS (-160…0). La escala lineal directa deja todo
@@ -91,14 +96,30 @@ final class GrabadorDeVoz {
         }
     }
 
+    /// Pausa sin cerrar el archivo. `AVAudioRecorder` deja de contar `currentTime`, así
+    /// que la pausa no suma a la duración de la nota.
+    func pausar() {
+        guard grabando, !pausado, let r = recorder else { return }
+        r.pause()
+        pausado = true
+    }
+
+    func reanudar() {
+        guard grabando, pausado, let r = recorder else { return }
+        r.record()
+        pausado = false
+    }
+
     /// Cierra la grabación y devuelve el clip. `nil` si no hay nada que mandar.
     ///
     /// ⚠️ La duración se lee ANTES de `stop()`: después, `currentTime` vuelve a 0 y la nota
     /// saldría marcada como de cero segundos.
     func terminar() -> Clip? {
         guard let r = recorder else { return nil }
-        let dur = r.currentTime
+        // En pausa `currentTime` deja de ser fiable: vale lo último que midió el reloj.
+        let dur = max(r.currentTime, segundos)
         r.stop()
+        pausado = false
         reloj?.cancel(); reloj = nil
         recorder = nil
         grabando = false
@@ -118,6 +139,7 @@ final class GrabadorDeVoz {
         reloj?.cancel(); reloj = nil
         recorder = nil
         grabando = false
+        pausado = false
         if let url = archivo { try? FileManager.default.removeItem(at: url) }
         archivo = nil
         segundos = 0

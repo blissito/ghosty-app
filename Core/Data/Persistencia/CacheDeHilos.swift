@@ -24,8 +24,9 @@ final class CacheDeHilos {
     /// principio: lo que importa al volver es el final.
     private static let tope = 200
     /// Cuántas conversaciones por agente se guardan. Son las que retomas, no un archivo:
-    /// el archivo es la caja.
-    private static let topeDeHilos = 5
+    /// el archivo es la caja. 20, como WhatsApp: abrir cualquiera de las recientes pinta
+    /// al instante (lo que precarga `LiveAgentStore.precargarChats`).
+    static let topeDeHilos = 20
 
     private struct Disco: Codable {
         /// ⚠️ La versión existe por un fallo concreto: hasta la v1, un turno vivo podía
@@ -132,6 +133,19 @@ final class CacheDeHilos {
         disco.abiertos[agentID] = previo
         // Lo que se acaba de escribir ya no es sospechoso: salió del ruteo por hilo.
         disco.sospechosos.removeAll { mapa.keys.contains($0) }
+        guardar()
+    }
+
+    /// Guarda UNA conversación bajada en segundo plano (precarga de «Chats»). Si ya está,
+    /// la sustituye; si no cabe, no desplaza a ninguna: lo que ya tienes abierto manda.
+    func guardarUno(_ agentID: String, sesion: String, mensajes: [Message]) {
+        let guardables = mensajes.compactMap(MensajeGuardado.init)
+        guard !guardables.isEmpty else { return }
+        var previo = disco.abiertos[agentID] ?? [:]
+        guard previo[sesion] != nil || previo.count < Self.topeDeHilos else { return }
+        previo[sesion] = Array(guardables.suffix(Self.tope))
+        disco.abiertos[agentID] = previo
+        disco.sospechosos.removeAll { $0 == sesion }
         guardar()
     }
 

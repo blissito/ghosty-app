@@ -127,6 +127,168 @@ final class LiveAgentStore: AgentStoring {
     static let compartido = LiveAgentStore()
 
     let cache = CacheDeHilos()
+
+    /// Las vistas previas de «Chats» de las conversaciones que NO están abiertas en
+    /// memoria, por `agente/sesión`. Las abiertas se leen en vivo de su hilo.
+    private(set) var vistasPrevias: [String: VistaPrevia] = [:]
+    /// Conversaciones que se están archivando: se esconden YA (optimista) y vuelven si
+    /// gs no pudo. Llave `agente/sesión`.
+    private(set) var archivando: Set<String> = []
+    private var precargando = false
+    private var ultimaPrecarga: Date?
+    /// `VistoHasta` vive en UserDefaults, que SwiftUI no observa: esto cambia cada vez que se
+    /// marca algo como leído para que la lista se repinte.
+    private(set) var marcasDeLectura = 0
+
+    /// «Leer todo» del menú de «Chats»: todo lo que contestó queda como visto.
+    func leerTodo() {
+        for (agente, canal) in canales {
+            for h in canal.hilos {
+                h.visto = true
+                if let sid = h.sesionID { VistoHasta.marcar(agente, sid) }
+            }
+            for s in canal.hilosRemotos { VistoHasta.marcar(agente, s.id) }
+        }
+        sinVer.removeAll()
+        marcasDeLectura += 1
+    }
+
+    /// Cuántas conversaciones de TODOS los agentes contestaron algo que no has visto. Es el
+    /// número junto a la flecha de atrás del hilo, como el de WhatsApp.
+    var chatsSinLeer: Int {
+        var n = 0
+        for (agente, canal) in canales {
+            let abiertas = Set(canal.hilos.compactMap(\.sesionID))
+            n += canal.hilos.filter { $0.termino != nil && !$0.visto && $0.clave != hiloActivo?.clave }.count
+            n += canal.hilosRemotos.filter { !abiertas.contains($0.id) && sinLeer($0, agente: agente) }.count
+        }
+        return n
+    }
+
+    /// Lo que se pinta de una conversación en «Chats».
+    func vistaPrevia(_ agente: String, _ sesion: String?) -> VistaPrevia? {
+        guard let sesion else { return nil }
+        if let h = canales[agente]?.hilo(sesion: sesion), !h.mensajes.isEmpty { return VistaPrevia.de(h.mensajes) }
+        return vistasPrevias["\(agente)/\(sesion)"]
+    }
+
+    /// ¿Contestó algo que no has visto? La misma regla que el punto: su último turno
+    /// terminó después de la última vez que la miraste.
+    func sinLeer(_ s: ACPClient.Session, agente: String) -> Bool {
+        _ = marcasDeLectura
+        guard let u = s.ultimoTurno, !u.sigueVivo, u.estado == "done", let fin = u.terminado else { return false }
+        return fin > (VistoHasta.de(agente, s.id) ?? .distantPast)
+    }
+
+    /// Rehace las vistas previas desde lo guardado en el teléfono. Barato: no toca la red.
+    func recalcularVistasPrevias() {
+        var nuevas: [String: VistaPrevia] = [:]
+        for (agente, canal) in canales {
+            for s in canal.hilosRemotos {
+                guard let m = cache.abierto(agente, sesion: s.id), let v = VistaPrevia.de(m) else { continue }
+                nuevas["\(agente)/\(s.id)"] = v
+            }
+        }
+        if nuevas != vistasPrevias { vistasPrevias = nuevas }
+    }
+
+    /// Como WhatsApp: al entrar a «Chats» se bajan en segundo plano, de 4 en 4, los hilos
+    /// sin leer y los 20 más recientes que no estén guardados. Así abrir cualquiera pinta
+    /// al instante y la lista tiene de qué sacar su renglón gris.
+    ///
+    /// ⚠️ Con freno de 20 s: entrar y salir de la lista no es una ronda de descargas.
+    func precargarChats() async {
+        guard !DemoData.encendido, Session.haySesion, !precargando else { return }
+        if let u = ultimaPrecarga, Date().timeIntervalSince(u) < 20 { return }
+        precargando = true
+        ultimaPrecarga = Date()
+        defer { precargando = false }
+        recalcularVistasPrevias()
+
+        var todas: [(canal: Canal, sesion: ACPClient.Session, sinLeer: Bool)] = []
+        for canal in canales.values {
+            for s in canal.hilosRemotos {
+                // Lo que está abierto en memoria ya se ve en vivo: no hay que bajarlo.
+                if let h = canal.hilo(sesion: s.id), !h.mensajes.isEmpty { continue }
+                todas.append((canal, s, sinLeer(s, agente: canal.cuenta.id)))
+            }
+        }
+        todas.sort { ($0.sesion.updatedAt ?? .distantPast) > ($1.sesion.updatedAt ?? .distantPast) }
+        var elegidas = todas.filter(\.sinLeer)
+        for t in todas.prefix(20) where !t.sinLeer && cache.abierto(t.canal.cuenta.id, sesion: t.sesion.id) == nil {
+            elegidas.append(t)
+        }
+        elegidas = Array(elegidas.prefix(24))
+        guard !elegidas.isEmpty else { return }
+        EasyBitsClient.diag("[chats] precargo \(elegidas.count) conversaciones")
+        for inicio in stride(from: 0, to: elegidas.count, by: 4) {
+            let tanda = elegidas[inicio..<min(inicio + 4, elegidas.count)]
+            await withTaskGroup(of: Void.self) { g in
+                for t in tanda {
+                    let canal = t.canal, s = t.sesion
+                    g.addTask { await self.precargar(s, de: canal) }
+                }
+            }
+        }
+    }
+
+    private func precargar(_ s: ACPClient.Session, de canal: Canal) async {
+        let agente = canal.cuenta.id
+        let llave = "\(agente)|\(s.id)"
+        guard !trayendo.contains(llave) else { return }
+        trayendo.insert(llave)
+        defer { trayendo.remove(llave) }
+        do {
+            let cliente = try await asegurarSocket(canal)
+            guard let replay = try await cliente.cargar(s.id, cwd: s.cwd) else { return }
+            let mensajes = ReplayToMessages.convertir(replay)
+            guard !mensajes.isEmpty else { return }
+            // Si mientras bajaba la abriste, manda el hilo abierto: no se toca.
+            if let h = canal.hilo(sesion: s.id), !h.mensajes.isEmpty { return }
+            cache.guardarUno(agente, sesion: s.id, mensajes: mensajes)
+            vistasPrevias["\(agente)/\(s.id)"] = VistaPrevia.de(mensajes)
+        } catch {
+            EasyBitsClient.diag("[chats] no pude precargar \(s.id): \(error)")
+        }
+    }
+
+    /// Abre una conversación desde «Chats» AL INSTANTE: se pinta lo guardado y el hilo
+    /// del servidor lo sustituye cuando llegue. Antes se esperaba a la red para navegar.
+    func abrirDesdeChats(agente: String, sesion s: ACPClient.Session) {
+        if agente != selectedAgentID { seleccionar(agente) }
+        guard let canal = canales[agente] else { return }
+        VistoHasta.marcar(agente, s.id)
+        marcasDeLectura += 1
+        if let ya = canal.hilo(sesion: s.id) {
+            mirar(ya, de: agente)
+            if ya.trabajando { return }
+        } else {
+            let h = canal.abrir(s.id)
+            if let guardado = cache.abierto(agente, sesion: s.id) { h.mensajes = guardado }
+            h.visto = true
+        }
+        sinVer.remove(agente)
+        Task { await abrirHilo(s) }
+    }
+
+    /// Archiva (borra de tu agente) una conversación, optimista: desaparece de la lista
+    /// YA y vuelve si gs no pudo. Es el «Archivar» de Android.
+    func archivar(agente: String, sesion: String?, hilo: Hilo? = nil) {
+        guard let canal = canales[agente] else { return }
+        let llave = "\(agente)/\(sesion ?? hilo?.clave ?? "")"
+        withAnimation(Self.alBorrar) { _ = archivando.insert(llave) }
+        Task {
+            if let hilo {
+                await borrarConversacion(hilo)
+            } else if let sesion, let s = canal.hilosRemotos.first(where: { $0.id == sesion }) {
+                await borrarGuardada(s, de: agente)
+            }
+            // Si sigue en la lista es que no se pudo: vuelve, y `falloAlBorrar` lo dice.
+            withAnimation(Self.alBorrar) { _ = archivando.remove(llave) }
+            if let sesion { vistasPrevias["\(agente)/\(sesion)"] = nil }
+        }
+    }
+
     /// Lo que el agente ha entregado por este teléfono. Ver `Entregas.swift`.
     let entregas = EntregasStore()
 
@@ -595,7 +757,7 @@ final class LiveAgentStore: AgentStoring {
         if id != selectedAgentID { seleccionar(id) }
         canales[id]?.activa = hilo.clave
         hilo.visto = true
-        if let sid = hilo.sesionID { VistoHasta.marcar(id, sid) }
+        if let sid = hilo.sesionID { VistoHasta.marcar(id, sid); marcasDeLectura += 1 }
     }
 
     // MARK: - Ponerse al día
@@ -629,7 +791,9 @@ final class LiveAgentStore: AgentStoring {
     /// agente. Volver del fondo sí fuerza, que ahí sí pudo pasar cualquier cosa.
     func repasarLaFlota(forzado: Bool = false) {
         guard !DemoData.encendido, Session.haySesion else { return }
-        if !forzado, let u = ultimoRepaso, Date().timeIntervalSince(u) < 30 { return }
+        // 20 s, como WhatsApp: volver a «Chats» pinta lo que hay y sólo va a la red si
+        // pasó más que eso.
+        if !forzado, let u = ultimoRepaso, Date().timeIntervalSince(u) < 20 { return }
         ultimoRepaso = Date()
         for canal in canales.values { ponerseAlDia(canal) }
     }

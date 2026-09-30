@@ -162,6 +162,19 @@ struct EntregaCard: View {
             // Un video se ve aquí, con su cuadro reservado; un audio se oye aquí.
             if entrega.esVideo {
                 ReproductorDeVideo(entrega: entrega)
+            } else if entrega.esNotaDeVoz {
+                // La nota de voz del agente es la MISMA burbuja que las tuyas, con el
+                // micrófono a la izquierda: un audio de 4 s no es un archivo que abrir.
+                BurbujaDeVoz(id: entrega.remotoID ?? entrega.id, lado: .agente,
+                             segundos: entrega.segundosDeVoz ?? 0, onda: entrega.onda ?? []) {
+                    if let d = entrega.datos ?? bajados { return d }
+                    var d: Data?
+                    if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+                    if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
+                    guard let d else { throw GhostyAPI.Fallo.mensaje("Esa nota ya no está.") }
+                    return d
+                }
+                .padding(.horizontal, 8).padding(.vertical, 6)
             } else {
                 vistaPrevia
                 if entrega.esAudio {

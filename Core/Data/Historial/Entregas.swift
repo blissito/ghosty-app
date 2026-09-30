@@ -62,6 +62,13 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// `meta.origen`); `nil` en un archivo de la cuenta = lo subió la persona. Es lo que
     /// separa «Generados» de «Subidos» en Archivos.
     var origen: String?
+    /// Sólo en una nota de voz del agente (`eb-audio`): su onda (0…1) y cuánto dura. Es lo
+    /// que la pinta como nota de voz —la misma burbuja que las tuyas— y no como archivo.
+    var onda: [Float]?
+    var segundosDeVoz: Double?
+
+    /// ¿Es una nota de voz (y no un audio cualquiera)? La anuncia el SDK con `eb-audio`.
+    var esNotaDeVoz: Bool { esAudio && (segundosDeVoz != nil || titulo.hasPrefix("Nota de voz")) }
 
     /// ¿Lo generó un agente? Lo que llegó en vivo por el relé (sin `remotoID`) siempre es
     /// del agente; lo de la cuenta, según su `origen`.
@@ -124,6 +131,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// bytes, la foto volvería a desaparecer al recargar el hilo.
     enum CodingKeys: String, CodingKey {
         case id, agentID, sesionID, forma, titulo, recibida, contenido, url, bytesRemotos, remotoID, origen
+        case onda, segundosDeVoz
     }
 
     init(from decoder: Decoder) throws {
@@ -139,6 +147,8 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         bytesRemotos = try c.decodeIfPresent(Int.self, forKey: .bytesRemotos)
         remotoID = try c.decodeIfPresent(String.self, forKey: .remotoID)
         origen = try c.decodeIfPresent(String.self, forKey: .origen)
+        onda = try c.decodeIfPresent([Float].self, forKey: .onda)
+        segundosDeVoz = try c.decodeIfPresent(Double.self, forKey: .segundosDeVoz)
         // Los de siempre, más los del formato viejo: un `entregas.json` escrito antes de
         // esto lleva los bytes dentro, y tirarlos sería perder artefactos que ya tenías.
         if let viejos = try? decoder.container(keyedBy: ClaveVieja.self)
@@ -168,6 +178,8 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         try c.encodeIfPresent(bytesRemotos, forKey: .bytesRemotos)
         try c.encodeIfPresent(remotoID, forKey: .remotoID)
         try c.encodeIfPresent(origen, forKey: .origen)
+        try c.encodeIfPresent(onda, forKey: .onda)
+        try c.encodeIfPresent(segundosDeVoz, forKey: .segundosDeVoz)
     }
 
     var etiqueta: String {

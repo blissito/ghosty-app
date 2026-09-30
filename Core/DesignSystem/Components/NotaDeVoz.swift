@@ -1,26 +1,26 @@
 import AVFoundation
 import SwiftUI
 
-/// Una nota de voz, con su onda y su duración.
+/// Tu nota de voz, dentro de tu burbuja. Es la `BurbujaDeVoz` con el micrófono a la derecha.
 ///
 /// Gemelo del `VoiceNote` de Teams. La onda no es decoración: es lo que distingue una nota
 /// de un archivo adjunto y lo que deja ver de un vistazo si se grabó algo o si el
 /// micrófono no captó nada.
 struct NotaDeVoz: View {
     let adjunto: Adjunto
-    /// Va dentro de la burbuja morada del usuario: play blanco y onda en blanco.
-    var sobreMorado = false
 
-    @State private var reproductor: AVAudioPlayer?
-    @State private var sonando = false
-    @State private var avance: Double = 0
-    @State private var reloj: Task<Void, Never>?
-    /// Los bytes, cuando hubo que bajarlos de la cuenta.
-    @State private var bajados: Data?
-    @State private var bajando = false
-    @State private var fallo: String?
-
-    private var tinta: Color { sobreMorado ? .white : .gInk }
+    var body: some View {
+        BurbujaDeVoz(id: adjunto.remoto?.id ?? adjunto.id,
+                     lado: .mia,
+                     segundos: adjunto.segundos ?? 0,
+                     onda: adjunto.onda ?? []) {
+            // Un hilo recargado trae la nota SIN bytes: sólo su id en la cuenta. Se bajan
+            // al primer play; bajarlas al pintar la lista costaría una descarga por nota.
+            if !adjunto.datos.isEmpty { return adjunto.datos }
+            guard let id = adjunto.remoto?.id else { throw GhostyAPI.Fallo.mensaje("No tengo el audio.") }
+            return try await GhostyAPI.bajar(id)
+        }
+    }
 
     /// Cuántas barras se pintan, pase lo que pase.
     ///
@@ -29,9 +29,7 @@ struct NotaDeVoz: View {
     /// onda se veía como una línea de puntos. Es lo que hacen WhatsApp y Telegram —
     /// remuestrear a un número fijo—, y de paso una nota de 3 s y otra de 30 s se ven
     /// igual de sólidas en vez de degradarse con la duración.
-    static let numeroDeBarras = 34
-
-    private var barras: [Float] { Self.remuestrear(adjunto.onda ?? [], a: Self.numeroDeBarras) }
+    static let numeroDeBarras = 30
 
     /// Remuestrea a `n` barras quedándose con el PICO de cada tramo, y lo normaliza contra
     /// el pico de la nota.
@@ -58,131 +56,304 @@ struct NotaDeVoz: View {
         return fuera.map { min(1, $0 / pico) }
     }
 
+    static func reloj(_ s: Double) -> String {
+        let t = Int(s.rounded())
+        return String(format: "%d:%02d", t / 60, t % 60)
+    }
+}
+
+/// Las notas de voz que ya se oyeron: su micrófono se pinta azul, como en WhatsApp.
+enum NotasEscuchadas {
+    private static let clave = "ghosty.notasEscuchadas"
+    /// Un recuerdo, no un archivo: con más de estas se olvidan las más viejas.
+    private static let tope = 500
+
+    static func contiene(_ id: String) -> Bool {
+        (UserDefaults.standard.stringArray(forKey: clave) ?? []).contains(id)
+    }
+
+    static func marcar(_ id: String) {
+        var l = UserDefaults.standard.stringArray(forKey: clave) ?? []
+        guard !l.contains(id) else { return }
+        l.append(id)
+        UserDefaults.standard.set(Array(l.suffix(tope)), forKey: clave)
+    }
+}
+
+/// Una nota de voz como las de WhatsApp.
+///
+/// - Play/pausa, y la onda ES la barra de avance: lo oído va en color, con un cursor
+///   redondo que se toca o se arrastra para saltar.
+/// - Abajo a la izquierda, la duración; mientras suena, la posición.
+/// - Un micrófono en círculo que se pone azul (`#53BDEB`) cuando ya la oíste. Mientras
+///   suena lo sustituye la pastilla de velocidad: 1× → 1.5× → 2×.
+/// - En tu nota el micrófono va a la derecha; en la del agente, a la izquierda.
+///
+/// ⚠️ Suena UNA a la vez: al arrancar una, las demás se pausan (`ReproduccionDeVoz`).
+struct BurbujaDeVoz: View {
+    enum Lado { case mia, agente }
+
+    /// Para recordar que ya se oyó. El id de la cuenta si lo hay: sobrevive a recargar.
+    let id: String
+    let lado: Lado
+    let segundos: Double
+    let onda: [Float]
+    /// De dónde salen los bytes. Se llama al primer play (o al primer salto).
+    let cargar: () async throws -> Data
+
+    @State private var reproductor: AVAudioPlayer?
+    @State private var sonando = false
+    @State private var avance: Double = 0
+    /// Mientras el dedo arrastra el cursor: la posición que se enseña, sin mover el audio.
+    @State private var arrastrando: Double?
+    @State private var reloj: Task<Void, Never>?
+    @State private var bajando = false
+    @State private var fallo: String?
+    @State private var escuchada = false
+    @State private var velocidad: Float = 1
+
+    static let azulEscuchada = Color(hex: 0x53BDEB)
+
+    private var barras: [Float] {
+        let r = NotaDeVoz.remuestrear(onda, a: NotaDeVoz.numeroDeBarras)
+        // Sin onda (una nota vieja, o el agente no la mandó): una tira baja y pareja, que
+        // dice «aquí hay audio» sin inventarse picos.
+        return r.isEmpty ? Array(repeating: 0.18, count: NotaDeVoz.numeroDeBarras) : r
+    }
+
+    private var duracion: Double {
+        if let d = reproductor?.duration, d > 0 { return d }
+        return segundos
+    }
+
+    private var posicion: Double { (arrastrando ?? avance) * duracion }
+
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: alternar) {
-                ZStack {
-                    Circle().fill(sobreMorado ? Color.white : Color.gPrimary).frame(width: 32, height: 32)
-                    if bajando {
-                        ProgressView().controlSize(.small).tint(sobreMorado ? Color.gPrimary : .white)
-                    } else {
-                        Image(systemName: sonando ? "pause.fill" : "play.fill")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(sobreMorado ? Color.gPrimary : .white)
-                    }
+            if lado == .agente { lateral }
+            botonDePlay
+            VStack(alignment: .leading, spacing: 3) {
+                ondaConCursor
+                    .frame(height: 26)
+                if let fallo {
+                    Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
+                } else {
+                    Text(NotaDeVoz.reloj(sonando || arrastrando != nil || avance > 0 ? posicion : duracion))
+                        .gMono(size: 11)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.gInk3)
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(bajando)
-
-            onda
-                .frame(height: 24)
-                .frame(maxWidth: .infinity)
-
-            // Si algo falló, se dice AHÍ: un play que no hace nada se lee como una app
-            // rota, y la causa real (el archivo ya no está) es información útil.
-            if let fallo {
-                Text(fallo).gCaption().foregroundStyle(sobreMorado ? Color.white : Color.gDangerInk)
-            } else {
-                Text(Self.reloj(adjunto.segundos ?? 0))
-                    .gMono(size: 12)
-                    .foregroundStyle(sobreMorado ? Color.white.opacity(0.85) : Color.gInk2)
-                    .monospacedDigit()
-            }
+            .frame(maxWidth: .infinity)
+            if lado == .mia { lateral }
         }
-        .frame(minWidth: 190)
+        .frame(minWidth: 220, maxWidth: 270)
+        .onAppear { escuchada = NotasEscuchadas.contiene(id) }
         .onDisappear { parar() }
+        .onReceive(NotificationCenter.default.publisher(for: ReproduccionDeVoz.suena)) { n in
+            // Otra nota empezó a sonar: ésta se calla, como en WhatsApp.
+            if (n.object as? String) != id, sonando { parar() }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Nota de voz de \(NotaDeVoz.reloj(duracion))")
     }
 
-    /// Las barras. Las ya reproducidas van con el color fuerte.
-    private var onda: some View {
+    // MARK: - Piezas
+
+    private var botonDePlay: some View {
+        Button { Task { await alternar() } } label: {
+            ZStack {
+                if bajando {
+                    ProgressView().controlSize(.small).tint(Color.gInk2)
+                } else {
+                    Image(systemName: sonando ? "pause.fill" : "play.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Color.gInk2)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+            }
+            .frame(width: 34, height: 40)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(bajando)
+        .accessibilityLabel(sonando ? "Pausar" : "Reproducir")
+        .accessibilityIdentifier("voz-play")
+    }
+
+    /// El micrófono en su círculo, o la pastilla de velocidad mientras suena.
+    @ViewBuilder
+    private var lateral: some View {
+        ZStack {
+            if sonando {
+                Button(action: cambiarVelocidad) {
+                    Text(etiquetaDeVelocidad)
+                        .font(.system(size: 13, weight: .bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 26)
+                        .background(Color.gInk3, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .transition(.scale(scale: 0.7).combined(with: .opacity))
+                .accessibilityLabel("Velocidad \(etiquetaDeVelocidad)")
+                .accessibilityIdentifier("voz-velocidad")
+            } else {
+                Circle()
+                    .fill(lado == .agente ? Color.gPrimaryTint : Color.gFill)
+                    .frame(width: 44, height: 44)
+                    .overlay {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(escuchada ? Self.azulEscuchada : Color.gInk3)
+                    }
+                    .transition(.scale(scale: 0.7).combined(with: .opacity))
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(width: 46, height: 46)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: sonando)
+    }
+
+    private var etiquetaDeVelocidad: String {
+        switch velocidad {
+        case 1.5: "1.5×"
+        case 2: "2×"
+        default: "1×"
+        }
+    }
+
+    /// Las barras: lo oído en color, lo que falta en gris, y el cursor redondo encima.
+    /// Tocar o arrastrar salta ahí.
+    private var ondaConCursor: some View {
         GeometryReader { g in
             let n = max(barras.count, 1)
-            // Barra y hueco en proporción fija (3:2), como una onda de verdad. El ancho
-            // sale del hueco disponible en vez de un valor a mano, así que la onda ocupa
-            // la burbuja completa en lugar de dejar una franja muerta a la derecha.
             let paso = g.size.width / CGFloat(n)
-            let ancho = max(2, paso * 0.62)
-            HStack(alignment: .center, spacing: 0) {
-                ForEach(Array(barras.enumerated()), id: \.offset) { i, v in
-                    let pasada = Double(i) / Double(n) <= avance
-                    Capsule()
-                        .fill(pasada
-                              ? (sobreMorado ? Color.white : Color.gPrimary)
-                              : (sobreMorado ? Color.white.opacity(0.42) : Color.gInk4.opacity(0.55)))
-                        // Un mínimo visible: una barra de altura 0 parece un hueco, y el
-                        // silencio entre palabras es normal. Sube a 4 para que a esta
-                        // anchura se lea como barra y no como punto.
-                        .frame(width: ancho, height: max(4, CGFloat(v) * g.size.height))
-                        .frame(width: paso)
+            let ancho = max(2, paso * 0.58)
+            let frac = CGFloat(arrastrando ?? avance)
+            let colorFuerte = lado == .agente ? Color.gPrimary : Color.gInk2
+            ZStack(alignment: .leading) {
+                HStack(alignment: .center, spacing: 0) {
+                    ForEach(Array(barras.enumerated()), id: \.offset) { i, v in
+                        let pasada = (CGFloat(i) + 0.5) / CGFloat(n) <= frac
+                        Capsule()
+                            .fill(pasada ? colorFuerte : Color.gInk4.opacity(0.5))
+                            // Un mínimo visible: el silencio entre palabras es normal y una
+                            // barra de altura 0 se lee como un hueco.
+                            .frame(width: ancho, height: max(4, CGFloat(v) * g.size.height))
+                            .frame(width: paso)
+                    }
                 }
+                .frame(maxHeight: .infinity, alignment: .center)
+                Circle()
+                    .fill(escuchada || sonando || frac > 0 ? Self.azulEscuchada : colorFuerte)
+                    .frame(width: 13, height: 13)
+                    .offset(x: min(max(0, frac * g.size.width - 6.5), g.size.width - 13))
+                    .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
             }
-            .frame(maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in arrastrando = min(1, max(0, v.location.x / max(1, g.size.width))) }
+                    .onEnded { v in
+                        let destino = min(1, max(0, v.location.x / max(1, g.size.width)))
+                        arrastrando = nil
+                        Task { await saltar(a: destino) }
+                    }
+            )
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Avance")
+        .accessibilityValue("\(Int(posicion)) de \(Int(duracion)) segundos")
+        .accessibilityAdjustableAction { dir in
+            let paso = duracion > 0 ? 5 / duracion : 0.1
+            Task { await saltar(a: min(1, max(0, avance + (dir == .increment ? paso : -paso)))) }
         }
     }
 
-    /// Los bytes con los que sonar: los que ya tenemos, o los que se bajaron.
-    private var audio: Data? {
-        if !adjunto.datos.isEmpty { return adjunto.datos }
-        return bajados
+    // MARK: - Sonar
+
+    /// El reproductor listo, bajando los bytes si hace falta.
+    private func preparado() async -> AVAudioPlayer? {
+        if let reproductor { return reproductor }
+        bajando = true; fallo = nil
+        defer { bajando = false }
+        do {
+            let datos = try await cargar()
+            let p = try AVAudioPlayer(data: datos)
+            p.enableRate = true
+            p.rate = velocidad
+            p.prepareToPlay()
+            reproductor = p
+            return p
+        } catch let e as GhostyAPI.Fallo {
+            fallo = e.errorDescription ?? "No pude bajarlo."
+        } catch {
+            fallo = "No pude reproducirlo."
+            EasyBitsClient.diag("[voz] no pude preparar la nota: \(error.localizedDescription)")
+        }
+        return nil
     }
 
-    private func alternar() {
+    private func alternar() async {
         if sonando { parar(); return }
-        // Un hilo recargado trae la nota SIN bytes: sólo su id en la cuenta. Se bajan al
-        // primer play y se quedan mientras la burbuja viva; bajarlas al pintar la lista
-        // costaría una descarga por cada nota que pasa por pantalla.
-        guard audio != nil else {
-            guard let id = adjunto.remoto?.id else {
-                fallo = "No tengo el audio."
-                return
-            }
-            bajando = true; fallo = nil
-            Task {
-                do { bajados = try await GhostyAPI.bajar(id); bajando = false; sonar() }
-                catch {
-                    bajando = false
-                    fallo = (error as? GhostyAPI.Fallo)?.errorDescription ?? "No pude bajarlo."
-                }
-            }
-            return
-        }
-        sonar()
+        guard let p = await preparado() else { return }
+        // Terminó la vez anterior: vuelve a empezar, no se queda en el final.
+        if p.currentTime >= p.duration - 0.05 { p.currentTime = 0 }
+        sonar(p)
     }
 
-    private func sonar() {
-        guard let datos = audio else { return }
+    private func saltar(a frac: Double) async {
+        guard let p = await preparado() else { return }
+        p.currentTime = frac * p.duration
+        avance = frac
+        if !sonando { sonar(p) }
+    }
+
+    private func sonar(_ p: AVAudioPlayer) {
         do {
             // ⚠️ `.playback` explícito: si la sesión se quedó en modo grabación, el audio
             // sale por el auricular de arriba a volumen mínimo y parece que no suena.
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
             try AVAudioSession.sharedInstance().setActive(true)
-            let p: AVAudioPlayer
-            if let ya = reproductor { p = ya } else { p = try AVAudioPlayer(data: datos) }
-            reproductor = p
-            p.play()
-            sonando = true
-            reloj = Task {
-                while !Task.isCancelled, p.isPlaying {
-                    try? await Task.sleep(for: .milliseconds(50))
-                    avance = p.duration > 0 ? p.currentTime / p.duration : 0
-                }
-                if !Task.isCancelled { sonando = false; avance = 0 }
-            }
         } catch {
-            fallo = "No pude reproducirlo."
-            EasyBitsClient.diag("[voz] no pude reproducir: \(error.localizedDescription)")
+            EasyBitsClient.diag("[voz] sesión de audio: \(error.localizedDescription)")
+        }
+        NotificationCenter.default.post(name: ReproduccionDeVoz.suena, object: id)
+        p.rate = velocidad
+        p.play()
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) { sonando = true }
+        if !escuchada {
+            escuchada = true
+            NotasEscuchadas.marcar(id)
+        }
+        reloj?.cancel()
+        reloj = Task {
+            while !Task.isCancelled, p.isPlaying {
+                try? await Task.sleep(for: .milliseconds(50))
+                if arrastrando == nil { avance = p.duration > 0 ? p.currentTime / p.duration : 0 }
+            }
+            guard !Task.isCancelled else { return }
+            // Llegó al final: vuelve al principio, como WhatsApp.
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) { sonando = false }
+            avance = 0
+            p.currentTime = 0
         }
     }
 
     private func parar() {
         reproductor?.pause()
         reloj?.cancel(); reloj = nil
-        sonando = false
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) { sonando = false }
     }
 
-    static func reloj(_ s: Double) -> String {
-        let t = Int(s.rounded())
-        return String(format: "%d:%02d", t / 60, t % 60)
+    private func cambiarVelocidad() {
+        velocidad = velocidad == 1 ? 1.5 : velocidad == 1.5 ? 2 : 1
+        reproductor?.rate = velocidad
     }
+}
+
+/// Avisa que una nota empezó a sonar, para que las demás se callen.
+enum ReproduccionDeVoz {
+    static let suena = Notification.Name("ghosty.voz.suena")
 }

@@ -89,6 +89,18 @@ enum BloqueEbFile {
         e.url = url
         e.mime = (j["mime"] as? String) ?? (j["mimeType"] as? String) ?? (j["type"] as? String)
         e.bytesRemotos = (j["size"] as? Int) ?? (j["bytes"] as? Int)
+        if voz {
+            // La onda viene en base64, un byte por barra (0…255), y la duración en ms: con
+            // ellas la nota del agente se pinta igual que las tuyas, sin bajarla.
+            if let b64 = j["waveform"] as? String, let bytes = Data(base64Encoded: b64), !bytes.isEmpty {
+                e.onda = bytes.map { Float($0) / 255 }
+            }
+            if let ms = (j["durationMs"] as? Double) ?? (j["durationMs"] as? Int).map(Double.init), ms > 0 {
+                e.segundosDeVoz = ms / 1000
+            } else {
+                e.segundosDeVoz = 0
+            }
+        }
         return e
     }
 

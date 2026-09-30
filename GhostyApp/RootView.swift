@@ -18,9 +18,15 @@ struct RootView: View {
     /// Cuándo se cerró la hoja de límite. Su «Ver mi uso» llama al `onOpenSheet` del chat
     /// tras cerrarse; si llega justo después, va al uso de Perfil y no a la hoja del agente.
     @State private var limiteCerradoEn: Date?
-    /// El historial de conversaciones. Ya no es pestaña: lo abre el botón de la cabecera
-    /// del chat. `GHOSTY_TAB=conversations` (el valor viejo) lo abre al arrancar.
-    @State private var historial = Gancho.valor("GHOSTY_TAB") == "conversations"
+    /// ¿Estás DENTRO de una conversación? La pestaña Chats es la lista (inicio, como
+    /// WhatsApp); abrir una fila entra al hilo, la barra se oculta y la flecha regresa.
+    /// Los ganchos que miran un hilo (`GHOSTY_PROBE`, `GHOSTY_DEMO_CHAT`…) arrancan dentro.
+    @State private var enHilo = Gancho.valor("GHOSTY_EN_HILO") == "1"
+        || Gancho.valor("GHOSTY_PROBE") != nil || Gancho.valor("GHOSTY_DEMO_CHAT") != nil
+        || Gancho.valor("GHOSTY_LOAD_THREAD") == "1" || Gancho.valor("GHOSTY_VOZ") == "1"
+    /// El filtro de «Chats» (`nil` = Todos). Vive aquí porque lo pone también el avatar de
+    /// la barra: elegir un agente te lleva a Chats con SUS conversaciones.
+    @State private var filtroChats: String?
     /// «Cambiar de agente», la `GhostySheet` que abre el avatar de la barra.
     @State private var cambiarAgente = Gancho.valor("GHOSTY_AGENTES") == "1"
     /// El toast de la app (`Toaster`), uno para todas las pantallas.
@@ -68,7 +74,7 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if case .lista = store.conexion {
+            if case .lista = store.conexion, !(tab == .chat && enHilo) {
                 GhostyTabBar(selection: $tab, tabs: pestanas,
                              agente: store.selectedAgent,
                              agenteAbierto: cambiarAgente,
@@ -85,6 +91,8 @@ struct RootView: View {
                         if !nuevas.contains(tab) { tab = .chat }
                     }
                     .onAppear { if !pestanas.contains(tab) { tab = .chat } }
+                    // Dentro del hilo la barra se va hacia abajo, como WhatsApp.
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             // La config remota (`AppConfig`): el aviso arriba, la compuerta encima de todo.
@@ -108,8 +116,14 @@ struct RootView: View {
         .ghostySheet(isPresented: $cambiarAgente, title: "Cambiar de agente",
                      identifier: "hoja-agentes") {
             CambiarAgenteSheet(store: store) {
+                // Elegir un agente te lleva a «Chats» con SU filtro puesto (el chip se
+                // desplaza a la vista), no a un hilo.
                 cambiarAgente = false
-                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .chat }
+                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
+                    filtroChats = store.selectedAgentID
+                    enHilo = false
+                    tab = .chat
+                }
             }
         }
         .capaDeChat(capaDelChat)
@@ -128,19 +142,13 @@ struct RootView: View {
             Task { await store.volverDelFondo() }
             Task { await AppConfig.shared.refresh() }
         }
-        // Abrir el historial es pedirle cuentas a TODOS los agentes: es la pantalla donde
-        // se ve lo que el agente está haciendo desde otra superficie, y ese estado vive
-        // en el servidor. El freno de los 30 s lo pone el store.
-        .onChange(of: historial, initial: true) { _, abierto in
-            guard abierto else { return }
-            store.repasarLaFlota()
-        }
         // Tocar un aviso lleva al chat. El destino lo resuelve el store (`irA`); aquí
         // sólo se cambia de pestaña cuando lo pide, y se cierra lo que tape el chat.
         .onChange(of: store.pestanaPedida) { _, pedida in
             guard let pedida else { return }
             tab = pedida
-            historial = false
+            // Un aviso lleva a SU conversación: dentro del hilo, no a la lista.
+            if pedida == .chat { enHilo = true }
             cambiarAgente = false
             store.pestanaPedida = nil
         }
@@ -216,22 +224,6 @@ struct RootView: View {
                 .presentationCornerRadius(Theme.Radius.sheet)
                 #endif
         }
-        .sheet(isPresented: $historial) {
-            ConversacionesView(store: store,
-                               onCuenta: { historial = false; tab = .perfil },
-                               onAbrir: { historial = false; tab = .chat },
-                               onAgentTap: { agente in
-                                   historial = false
-                                   DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { hoja = agente }
-                               })
-                .padding(.top, 8)
-                .background(Color.gBg)
-                #if os(iOS)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(Theme.Radius.sheet)
-                #endif
-        }
         .sheet(item: $hoja) { agente in
             AgentSheetView(agent: agente, store: store,
                            onAjustes: {
@@ -270,7 +262,9 @@ struct RootView: View {
         // no espera a tener contenido (su vacío explica qué va a caer ahí) e
         // Integraciones se enseña aunque el servidor todavía no las sirva: cada fila
         // apagada lo dice (decidido el 2026-09-09). Conversaciones salió de la barra.
-        [.chat, .artifacts, .connectors, .perfil]
+        // Rediseño estilo WhatsApp (2026-09-29, igual que Android): Chats al final, pegado
+        // al avatar del agente, que va a la derecha.
+        [.perfil, .artifacts, .connectors, .chat]
     }
 
     /// La barra flota a 28 pt del borde de la pantalla; esto es ese margen medido desde
@@ -320,10 +314,38 @@ struct RootView: View {
         // último elemento de una lista y parece que falta contenido.
         switch tab {
         case .chat:
-            // El compositor va 10 pt encima de la barra (diseño: `bottom:106` contra 96).
-            ConversationView(store: store, onOpenSheet: abrirHojaDelChat,
-                             onHistorial: { historial = true })
-                .padding(.bottom, holguraDeLaBarra)
+            ZStack {
+                if enHilo {
+                    // Sin barra: el compositor va pegado abajo, como WhatsApp.
+                    ConversationView(store: store, onOpenSheet: abrirHojaDelChat,
+                                     onVolver: volverAChats)
+                        .padding(.bottom, 4)
+                        .background(Color.gBg)
+                        // Deslizar desde el borde izquierdo también regresa.
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 20)
+                                .onEnded { v in
+                                    if v.startLocation.x < 28, v.translation.width > 90,
+                                       abs(v.translation.height) < 80 { volverAChats() }
+                                }
+                        )
+                        .transition(.move(edge: .trailing))
+                        .zIndex(1)
+                } else {
+                    ChatsView(store: store, filtro: $filtroChats,
+                              onAbrir: { withAnimation(.easeOut(duration: 0.25)) { enHilo = true } },
+                              onPlanYUso: {
+                                  withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+                                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { verUso = true }
+                              },
+                              onAjustes: {
+                                  withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+                              })
+                        .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: -40)),
+                                                removal: .opacity.combined(with: .offset(x: -40))))
+                }
+            }
         case .connectors:
             ConectoresPane(store: store)
                 .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
@@ -334,6 +356,11 @@ struct RootView: View {
             PerfilView(store: store, verUso: $verUso)
                 .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
         }
+    }
+
+    /// La flecha de atrás del hilo (o deslizar desde el borde): de vuelta a «Chats».
+    private func volverAChats() {
+        withAnimation(.easeOut(duration: 0.25)) { enHilo = false }
     }
 
     private func abrirHoja() {
