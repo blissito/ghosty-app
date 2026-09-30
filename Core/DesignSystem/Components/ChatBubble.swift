@@ -53,8 +53,9 @@ struct UserBubble: View {
             .padding(.horizontal, soloVoz ? 0 : 16)
             .padding(.vertical, soloVoz ? 0 : 12)
             // Mismo aire arriba y abajo (el renglón del tiempo siempre está).
-            .padding(EdgeInsets(top: soloVoz ? 8 : 0, leading: soloVoz ? 10 : 0,
-                                bottom: soloVoz ? 8 : 0, trailing: soloVoz ? 8 : 0))
+            // Compacta como WhatsApp: la foto casi del alto de la burbuja.
+            .padding(EdgeInsets(top: soloVoz ? 5 : 0, leading: soloVoz ? 8 : 0,
+                                bottom: soloVoz ? 5 : 0, trailing: soloVoz ? 5 : 0))
             .frame(minWidth: soloVoz ? 260 : nil, maxWidth: soloVoz ? 320 : nil)
             .background {
                 if soloVoz {

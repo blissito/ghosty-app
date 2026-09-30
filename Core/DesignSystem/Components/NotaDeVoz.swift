@@ -192,8 +192,9 @@ struct BurbujaDeVoz: View {
                     }
                     .font(.system(size: 11))
                     .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
-                    .frame(height: 13)
+                    .frame(height: 12)
                     .padding(.leading, 36)
+                    .padding(.top, -3)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -269,7 +270,7 @@ struct BurbujaDeVoz: View {
             } else if lado == .mia {
                 // Tu foto de 48 con el micrófono encima abajo a la derecha (oliva; azul ya
                 // escuchada). Sin foto, un círculo oliva al 18 %.
-                ZStack(alignment: .bottomTrailing) {
+                ZStack(alignment: .bottomLeading) {
                     Group {
                         if let foto = FotoDePerfil.local() {
                             Image(uiImage: foto).resizable().scaledToFill()
@@ -277,7 +278,7 @@ struct BurbujaDeVoz: View {
                             Circle().fill(Self.oliva.opacity(0.18))
                         }
                     }
-                    .frame(width: 48, height: 48)
+                    .frame(width: 46, height: 46)
                     .clipShape(Circle())
                     // El micrófono en un circulito del color de la burbuja: se lee sobre la foto.
                     Image(systemName: "mic.fill")
@@ -285,7 +286,7 @@ struct BurbujaDeVoz: View {
                         .foregroundStyle(escuchada ? Self.azulEscuchada : Self.oliva)
                         .frame(width: 20, height: 20)
                         .background(Self.limeBurbuja, in: Circle())
-                        .offset(x: 2, y: 2)
+                        .offset(x: -3, y: 1)
                 }
                 .transition(.scale(scale: 0.7).combined(with: .opacity))
                 .accessibilityHidden(true)
@@ -303,7 +304,7 @@ struct BurbujaDeVoz: View {
                     .accessibilityHidden(true)
             }
         }
-        .frame(width: lado == .mia ? 50 : 46, height: lado == .mia ? 50 : 46)
+        .frame(width: lado == .mia ? 46 : 44, height: lado == .mia ? 46 : 44)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: sonando || avance > 0)
     }
 
