@@ -34,6 +34,8 @@ struct Adjunto: Identifiable, Equatable, Sendable {
     /// cualquiera, y una nota de voz sin duración no se sabe si son 3 segundos o 3 minutos.
     var segundos: Double?
     var onda: [Float]?
+    /// Cuándo se grabó o subió: la hora que la nota de voz pinta abajo a la derecha.
+    var creado: Date?
 
     /// Lo que dijo whisper, si se pudo. Cambia lo que se le dice al agente del archivo.
     var transcripcion: String?
@@ -81,6 +83,7 @@ struct Adjunto: Identifiable, Equatable, Sendable {
         let sello = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         self.init(nombre: "nota-de-voz-\(sello).m4a", mime: "audio/mp4",
                   datos: clip.datos, segundos: clip.segundos, onda: clip.onda)
+        creado = Date()
     }
 
     /// Desde un archivo del disco. El mime sale del sistema, no de la extensión a mano.

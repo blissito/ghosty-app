@@ -163,7 +163,8 @@ struct EntregaCard: View {
     private var burbujaDeAudio: some View {
         VStack(alignment: .leading, spacing: 4) {
             BurbujaDeVoz(id: entrega.remotoID ?? entrega.id, lado: .agente,
-                         segundos: entrega.segundosDeVoz ?? 0, onda: entrega.onda ?? []) {
+                         segundos: entrega.segundosDeVoz ?? 0, onda: entrega.onda ?? [],
+                         hora: entrega.recibida) {
                 if let d = entrega.datos ?? bajados { return d }
                 var d: Data?
                 if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }

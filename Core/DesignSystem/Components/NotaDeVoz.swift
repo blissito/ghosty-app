@@ -13,7 +13,8 @@ struct NotaDeVoz: View {
         BurbujaDeVoz(id: adjunto.remoto?.id ?? adjunto.id,
                      lado: .mia,
                      segundos: adjunto.segundos ?? 0,
-                     onda: adjunto.onda ?? []) {
+                     onda: adjunto.onda ?? [],
+                     hora: adjunto.creado) {
             // Un hilo recargado trae la nota SIN bytes: sólo su id en la cuenta. Se bajan
             // al primer play; bajarlas al pintar la lista costaría una descarga por nota.
             if !adjunto.datos.isEmpty { return adjunto.datos }
@@ -100,6 +101,8 @@ struct BurbujaDeVoz: View {
     let onda: [Float]
     /// La duración va al final de la fila (Archivos → Audio) en vez de debajo de la onda.
     var tiempoAlFinal = false
+    /// La hora del mensaje, abajo a la derecha (como WhatsApp).
+    var hora: Date? = nil
     /// De dónde salen los bytes. Se llama al primer play (o al primer salto).
     let cargar: () async throws -> Data
 
@@ -115,6 +118,14 @@ struct BurbujaDeVoz: View {
     @State private var velocidad: Float = 1
 
     static let azulEscuchada = Color(hex: 0x53BDEB)
+
+    /// «7:49 p.m.»
+    static func formatoHora(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.dateFormat = "h:mm a"
+        return f.string(from: d)
+    }
     /// Tinta oliva de TU nota (burbuja lime, como WhatsApp).
     static let oliva = Color(hex: 0x55633F)
     /// El fondo de tu nota: lime #BFDD78 al 30 % sobre blanco.
@@ -169,18 +180,20 @@ struct BurbujaDeVoz: View {
                     if lado == .mia, reproductor != nil { pastillaDeVelocidad }
                 }
                 if !tiempoAlFinal {
-                    Group {
+                    HStack(spacing: 6) {
                         if let fallo {
                             Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
                         } else {
                             Text(textoDelReloj)
-                                .gMono(size: 11)
                                 .monospacedDigit()
-                                .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
                         }
+                        Spacer(minLength: 4)
+                        if let hora { Text(Self.formatoHora(hora)) }
                     }
-                    .frame(height: 14, alignment: .leading)
-                    .padding(.leading, 40)
+                    .font(.system(size: 11))
+                    .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
+                    .frame(height: 13)
+                    .padding(.leading, 36)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -217,7 +230,7 @@ struct BurbujaDeVoz: View {
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
-            .frame(width: 34, height: 40)
+            .frame(width: 30, height: 30)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -339,15 +352,20 @@ struct BurbujaDeVoz: View {
                     .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
             }
             .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { v in arrastrando = min(1, max(0, v.location.x / max(1, g.size.width))) }
-                    .onEnded { v in
-                        let destino = min(1, max(0, v.location.x / max(1, g.size.width)))
-                        arrastrando = nil
-                        Task { await saltar(a: destino) }
-                    }
-            )
+            // ⚠️ Tocar salta; arrastrar DE LADO adelanta. Aquí había un `DragGesture` desde 0
+            // que se comía cualquier arrastre: un scroll que empezaba sobre una nota no movía
+            // el chat (2026-09-29). `panHorizontal` sólo arranca si el dedo va de lado.
+            .onTapGesture(coordinateSpace: .local) { p in
+                let destino = min(1, max(0, p.x / max(1, g.size.width)))
+                Task { await saltar(a: destino) }
+            }
+            .panHorizontal(alCambiar: { tx in
+                arrastrando = min(1, max(0, avance + tx / max(1, g.size.width)))
+            }, alTerminar: { tx in
+                let destino = min(1, max(0, avance + tx / max(1, g.size.width)))
+                arrastrando = nil
+                Task { await saltar(a: destino) }
+            })
         }
         .accessibilityElement()
         .accessibilityLabel("Avance")

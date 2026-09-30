@@ -352,14 +352,11 @@ struct RootView: View {
                                  onCambiarAgente: { cambiarAgente = true })
                     .padding(.bottom, 4)
                     .background(Color.gBg.ignoresSafeArea())
-                    // Deslizar desde el borde izquierdo también regresa.
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 20)
-                            .onEnded { v in
-                                if v.startLocation.x < 28, v.translation.width > 90,
-                                   abs(v.translation.height) < 80 { volverAChats() }
-                            }
-                    )
+                    // Deslizar a la derecha también regresa. ⚠️ Con `panHorizontal` (UIKit, sólo
+                    // horizontal): un `DragGesture` aquí bloqueaba el scroll del hilo en iOS 18.
+                    .panHorizontal(alCambiar: { _ in }, alTerminar: { tx in
+                        if tx > 110 { volverAChats() }
+                    })
                     .transition(.move(edge: .trailing))
                     .zIndex(1)
             }

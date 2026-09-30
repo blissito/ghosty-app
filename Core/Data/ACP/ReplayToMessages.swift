@@ -73,6 +73,7 @@ enum ReplayToMessages {
                                     segundos: f.segundos ?? (esNota ? 0 : nil), onda: f.onda)
                     a.remoto = GhostyAPI.ArchivoRemoto(id: f.id, nombre: f.nombre, mime: f.mime,
                                                        bytes: f.bytes, url: "")
+                    a.creado = f.creado
                     return a
                 }
                 // Los que no se pudieron recuperar se siguen NOMBRANDO: que se mandó un

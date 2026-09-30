@@ -507,9 +507,9 @@ struct ConversationView: View {
             if pegadoAbajo { siguiendoElFinal = true }
         }
         // El dedo manda: arrastrar suelta el «seguir el final».
-        .simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { g in
-            if g.translation.height > 0 { siguiendoElFinal = false }
-        })
+        // ⚠️ En iOS 18 un `DragGesture` sobre la lista bloquea su scroll (medido con una
+        // prueba de UI, 2026-09-29): ahí se usa la fase de scroll del sistema.
+        .modifier(SoltarAlArrastrar { siguiendoElFinal = false })
         // Llega un mensaje o crece el último (la respuesta viene en trozos): se baja
         // sólo si seguías el final. Que la respuesta te tire hacia abajo cuando has
         // subido a releer es lo más molesto que puede hacer un chat.
@@ -1540,4 +1540,21 @@ private struct AltoDeLaCola: PreferenceKey {
 private struct AltoDelHilo: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Suelta el «seguir el final» cuando la persona arrastra la lista. iOS 18+: la fase de scroll
+/// del sistema (no roba el gesto); iOS 17: el `DragGesture` de siempre.
+private struct SoltarAlArrastrar: ViewModifier {
+    var soltar: () -> Void
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, fase in
+                if fase == .interacting { soltar() }
+            }
+        } else {
+            content.simultaneousGesture(DragGesture(minimumDistance: 12).onChanged { g in
+                if g.translation.height > 0 { soltar() }
+            })
+        }
+    }
 }

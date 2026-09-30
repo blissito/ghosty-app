@@ -135,7 +135,13 @@ enum DemoData {
             deEbFile.append(Message(id: "entrega-\(h.entrega.id)", kind: .entrega(h.entrega)))
         }
 
+        // Una nota de voz TUYA, para poder mirar la burbuja lime en el simulador.
+        var nota = Adjunto(nombre: "nota-de-voz-demo.wav", mime: "audio/wav",
+                           datos: (try? Data(contentsOf: audioDemo())) ?? Data(), segundos: 4,
+                           onda: (0..<60).map { Float(0.3 + 0.7 * abs(sin(Double($0) / 4))) })
+        nota.creado = Date()
         return [
+            Message(id: "df0", kind: .user("", adjuntos: [nota])),
             Message(id: "df1", kind: .user("solo me interesa la foto", adjuntos: [foto])),
             Message(id: "df2", kind: .agent(text: visible, tools: nil, trailing: nil)),
         ] + deEbFile + [
