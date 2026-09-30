@@ -194,7 +194,7 @@ struct BurbujaDeVoz: View {
                     .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
                     .frame(height: 12)
                     .padding(.leading, 36)
-                    .padding(.top, -3)
+                    .padding(.top, 2)
                 }
             }
             .frame(maxWidth: .infinity)
