@@ -160,10 +160,11 @@ struct ChatsView: View {
             .padding(.bottom, 24)
         }
         .coordinateSpace(name: "chats")
-        .onPreferenceChange(FondoDelTitulo.self) { maxY in
-            let arriba = maxY < 4
+        // Cuánto se ha desplazado la lista: pasado el título grande, sube el chico al centro.
+        .modifier(SeguirDesplazamiento { y in
+            let arriba = y > 38
             if arriba != tituloArriba { withAnimation(.easeOut(duration: 0.18)) { tituloArriba = arriba } }
-        }
+        })
         .safeAreaInset(edge: .top, spacing: 0) {
             if seleccionando { barraDeSeleccion(todas) } else { barraSuperior }
         }
@@ -854,5 +855,19 @@ struct MenuDeGhosty: View {
         .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    }
+}
+
+/// Avisa cuánto se desplazó un ScrollView (iOS 18+: `onScrollGeometryChange`, lo nativo).
+private struct SeguirDesplazamiento: ViewModifier {
+    var alCambiar: (CGFloat) -> Void
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { g in
+                g.contentOffset.y + g.contentInsets.top
+            } action: { _, y in alCambiar(y) }
+        } else {
+            content.onPreferenceChange(FondoDelTitulo.self) { maxY in alCambiar(maxY < 4 ? 100 : 0) }
+        }
     }
 }

@@ -30,7 +30,7 @@ struct FondoDeBarraDifuminado: View {
                                          .init(color: .black, location: 0.6),
                                          .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))
-            .ignoresSafeArea(edges: .top)
+            // La franja de la hora y la batería queda transparente (lo pidió bliss).
             .allowsHitTesting(false)
     }
 }
