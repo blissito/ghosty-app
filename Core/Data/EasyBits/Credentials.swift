@@ -30,7 +30,11 @@ struct AgentAccount: Identifiable, Codable, Equatable {
 
     /// El tono con el que se pinta: el del servidor o, sin él, la rotación de siempre.
     func tonoDeAgente(indice i: Int) -> AgentTone {
+        // El mismo orden que Android (`toneOf`): el `tono` del servidor; si no, todo
+        // ghosty-lite o «Mini Ghosty…» en lila; si no, la rotación.
         if let tono { return AgentTone(rawValue: tono) ?? .lila }
+        let n = name.lowercased().replacingOccurrences(of: " ", with: "")
+        if motor == "ghosty-lite" || n.hasPrefix("minighosty") { return .lila }
         let tonos: [AgentTone] = [.lila, .azul, .durazno]
         return tonos[i % tonos.count]
     }
