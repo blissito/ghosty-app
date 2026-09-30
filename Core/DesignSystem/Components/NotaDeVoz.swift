@@ -29,7 +29,7 @@ struct NotaDeVoz: View {
     /// onda se veía como una línea de puntos. Es lo que hacen WhatsApp y Telegram —
     /// remuestrear a un número fijo—, y de paso una nota de 3 s y otra de 30 s se ven
     /// igual de sólidas en vez de degradarse con la duración.
-    static let numeroDeBarras = 30
+    static let numeroDeBarras = 34
 
     /// Remuestrea a `n` barras quedándose con el PICO de cada tramo, y lo normaliza contra
     /// el pico de la nota.
@@ -118,7 +118,7 @@ struct BurbujaDeVoz: View {
         let r = NotaDeVoz.remuestrear(onda, a: NotaDeVoz.numeroDeBarras)
         // Sin onda (una nota vieja, o el agente no la mandó): una tira baja y pareja, que
         // dice «aquí hay audio» sin inventarse picos.
-        return r.isEmpty ? Array(repeating: 0.18, count: NotaDeVoz.numeroDeBarras) : r
+        return r.isEmpty ? Array(repeating: 0.24, count: NotaDeVoz.numeroDeBarras) : r
     }
 
     private var duracion: Double {
@@ -164,11 +164,11 @@ struct BurbujaDeVoz: View {
         Button { Task { await alternar() } } label: {
             ZStack {
                 if bajando {
-                    ProgressView().controlSize(.small).tint(Color.gInk2)
+                    ProgressView().controlSize(.small).tint(Color.gPrimary)
                 } else {
                     Image(systemName: sonando ? "pause.fill" : "play.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Color.gInk2)
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(Color.gPrimary)
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -181,17 +181,17 @@ struct BurbujaDeVoz: View {
         .accessibilityIdentifier("voz-play")
     }
 
-    /// El micrófono en su círculo, o la pastilla de velocidad mientras suena.
+    /// El micrófono en su círculo, o la pastilla de velocidad en cuanto empezó a sonar.
     @ViewBuilder
     private var lateral: some View {
         ZStack {
-            if sonando {
+            if reproductor != nil {
                 Button(action: cambiarVelocidad) {
                     Text(etiquetaDeVelocidad)
                         .font(.system(size: 13, weight: .bold).monospacedDigit())
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.gInk)
                         .frame(width: 44, height: 26)
-                        .background(Color.gInk3, in: Capsule())
+                        .background(Color.gFillStrong, in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -200,19 +200,20 @@ struct BurbujaDeVoz: View {
                 .accessibilityIdentifier("voz-velocidad")
             } else {
                 Circle()
-                    .fill(lado == .agente ? Color.gPrimaryTint : Color.gFill)
-                    .frame(width: 44, height: 44)
+                    .fill(Color.gPrimaryTint)
+                    .frame(width: 40, height: 40)
                     .overlay {
+                        // Sin escuchar: morado; escuchada: azul, como WhatsApp.
                         Image(systemName: "mic.fill")
                             .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(escuchada ? Self.azulEscuchada : Color.gInk3)
+                            .foregroundStyle(escuchada ? Self.azulEscuchada : Color.gPrimary)
                     }
                     .transition(.scale(scale: 0.7).combined(with: .opacity))
                     .accessibilityHidden(true)
             }
         }
         .frame(width: 46, height: 46)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: sonando)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: reproductor != nil)
     }
 
     private var etiquetaDeVelocidad: String {
@@ -229,9 +230,9 @@ struct BurbujaDeVoz: View {
         GeometryReader { g in
             let n = max(barras.count, 1)
             let paso = g.size.width / CGFloat(n)
-            let ancho = max(2, paso * 0.58)
+            let ancho = max(2, paso * 0.5)
             let frac = CGFloat(arrastrando ?? avance)
-            let colorFuerte = lado == .agente ? Color.gPrimary : Color.gInk2
+            let colorFuerte = Color.gPrimary
             ZStack(alignment: .leading) {
                 HStack(alignment: .center, spacing: 0) {
                     ForEach(Array(barras.enumerated()), id: \.offset) { i, v in
@@ -246,7 +247,7 @@ struct BurbujaDeVoz: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .center)
                 Circle()
-                    .fill(escuchada || sonando || frac > 0 ? Self.azulEscuchada : colorFuerte)
+                    .fill(colorFuerte)
                     .frame(width: 13, height: 13)
                     .offset(x: min(max(0, frac * g.size.width - 6.5), g.size.width - 13))
                     .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)

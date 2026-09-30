@@ -76,6 +76,7 @@ struct RootView: View {
 
             if case .lista = store.conexion, !(tab == .chat && enHilo) {
                 GhostyTabBar(selection: $tab, tabs: pestanas,
+                             puntos: store.chatsSinLeer > 0 ? [.chat] : [],
                              agente: store.selectedAgent,
                              agenteAbierto: cambiarAgente,
                              onAgente: { cambiarAgente = true })
@@ -308,53 +309,51 @@ struct RootView: View {
         return lista
     }
 
-    @ViewBuilder
+    /// Las pestañas se DESLIZAN, como WhatsApp y Android (pager). El hilo va encima, fuera
+    /// del pager: dentro de una conversación deslizar no cambia de pestaña, regresa.
     private var contenido: some View {
-        // El padding inferior lo pone cada pantalla: sin él, la píldora tapa el
-        // último elemento de una lista y parece que falta contenido.
-        switch tab {
-        case .chat:
-            ZStack {
-                if enHilo {
-                    // Sin barra: el compositor va pegado abajo, como WhatsApp.
-                    ConversationView(store: store, onOpenSheet: abrirHojaDelChat,
-                                     onVolver: volverAChats)
-                        .padding(.bottom, 4)
-                        .background(Color.gBg)
-                        // Deslizar desde el borde izquierdo también regresa.
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 20)
-                                .onEnded { v in
-                                    if v.startLocation.x < 28, v.translation.width > 90,
-                                       abs(v.translation.height) < 80 { volverAChats() }
-                                }
-                        )
-                        .transition(.move(edge: .trailing))
-                        .zIndex(1)
-                } else {
-                    ChatsView(store: store, filtro: $filtroChats,
-                              onAbrir: { withAnimation(.easeOut(duration: 0.25)) { enHilo = true } },
-                              onPlanYUso: {
-                                  withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
-                                  DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { verUso = true }
-                              },
-                              onAjustes: {
-                                  withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
-                              })
-                        .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(x: -40)),
-                                                removal: .opacity.combined(with: .offset(x: -40))))
-                }
+        ZStack {
+            TabView(selection: $tab) {
+                PerfilView(store: store, verUso: $verUso)
+                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                    .tag(GhostyTab.perfil)
+                ArtifactsView(store: store)
+                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                    .tag(GhostyTab.artifacts)
+                ConectoresPane(store: store)
+                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                    .tag(GhostyTab.connectors)
+                ChatsView(store: store, filtro: $filtroChats,
+                          onAbrir: { withAnimation(.easeOut(duration: 0.25)) { enHilo = true } },
+                          onPlanYUso: {
+                              withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+                              DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { verUso = true }
+                          },
+                          onAjustes: {
+                              withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
+                          })
+                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                    .tag(GhostyTab.chat)
             }
-        case .connectors:
-            ConectoresPane(store: store)
-                .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-        case .artifacts:
-            ArtifactsView(store: store)
-                .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-        case .perfil:
-            PerfilView(store: store, verUso: $verUso)
-                .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+
+            if tab == .chat && enHilo {
+                // Sin barra: el compositor va pegado abajo, como WhatsApp.
+                ConversationView(store: store, onOpenSheet: abrirHojaDelChat,
+                                 onVolver: volverAChats)
+                    .padding(.bottom, 4)
+                    .background(Color.gBg.ignoresSafeArea())
+                    // Deslizar desde el borde izquierdo también regresa.
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 20)
+                            .onEnded { v in
+                                if v.startLocation.x < 28, v.translation.width > 90,
+                                   abs(v.translation.height) < 80 { volverAChats() }
+                            }
+                    )
+                    .transition(.move(edge: .trailing))
+                    .zIndex(1)
+            }
         }
     }
 

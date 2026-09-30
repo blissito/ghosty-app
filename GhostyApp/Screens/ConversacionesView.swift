@@ -29,6 +29,12 @@ struct ChatsView: View {
     /// ¿Ya se fue el título grande hacia arriba? Entonces sale el chico en la barra.
     @State private var tituloArriba = false
     @State private var nueva = false
+    /// Modo selección de WhatsApp: mantener presionada una fila o «Seleccionar chats».
+    @State private var seleccionando = false
+    @State private var seleccion: Set<String> = []
+    /// Conversaciones favoritas (`agente/sesión`) y el filtro «sólo favoritos».
+    @State private var favoritas: Set<String> = ChatsFavoritos.ids
+    @AppStorage("app.chats.soloFavoritos") private var soloFavoritos = false
     /// Qué conversación se está renombrando (agente, sesión) y el texto del campo.
     @State private var renombrando: (agente: String, sesion: String)?
     @State private var nombreNuevo = ""
@@ -60,15 +66,15 @@ struct ChatsView: View {
         var claveLocal = ""
     }
 
-    /// Los agentes por último uso: el que acabas de usar, primero.
-    private var agentesOrdenados: [Agent] {
-        store.agents.sorted { a, b in
-            switch (a.ultimaActividad, b.ultimaActividad) {
-            case let (x?, y?): return x > y
-            case (_?, nil): return true
-            case (nil, _?): return false
-            default: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            }
+    /// Los agentes por último uso: su conversación más reciente o su última actividad.
+    private func agentesOrdenados(_ todas: [Fila]) -> [Agent] {
+        var ultima: [String: Date] = [:]
+        for f in todas where f.fecha > (ultima[f.agente.id] ?? .distantPast) { ultima[f.agente.id] = f.fecha }
+        func cuando(_ a: Agent) -> Date { max(ultima[a.id] ?? .distantPast, a.ultimaActividad ?? .distantPast) }
+        return store.agents.sorted { a, b in
+            let x = cuando(a), y = cuando(b)
+            if x != y { return x > y }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
         }
     }
 
@@ -105,6 +111,7 @@ struct ChatsView: View {
     private func visibles(_ todas: [Fila]) -> [Fila] {
         var filas = todas
         if let filtro { filas = filas.filter { $0.agente.id == filtro } }
+        if soloFavoritos { filas = filas.filter { favoritas.contains($0.llaveArchivo) } }
         let q = busqueda.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty {
             let opciones: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
@@ -139,7 +146,7 @@ struct ChatsView: View {
                     }
                     .padding(.bottom, 10)
                 buscador.padding(.bottom, 12)
-                if variosAgentes { chips(todas).padding(.bottom, 8) }
+                if variosAgentes { chips(todas, orden: agentesOrdenados(todas)).padding(.bottom, 8) }
                 lista(filas)
             }
             .padding(.horizontal, Theme.Space.screenH)
@@ -151,7 +158,9 @@ struct ChatsView: View {
             let arriba = maxY < 4
             if arriba != tituloArriba { withAnimation(.easeOut(duration: 0.18)) { tituloArriba = arriba } }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { barraSuperior }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if seleccionando { barraDeSeleccion(todas) } else { barraSuperior }
+        }
         .scrollDismissesKeyboard(.immediately)
         .scrollIndicators(.hidden)
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: filas.map(\.id))
@@ -164,7 +173,7 @@ struct ChatsView: View {
             await store.precargarChats()
         }
         .sheet(isPresented: $nueva) {
-            NuevaConversacionSheet(agentes: agentesOrdenados) { agente in
+            NuevaConversacionSheet(agentes: agentesOrdenados(todas)) { agente in
                 nueva = false
                 empezar(con: agente.id)
             }
@@ -185,37 +194,54 @@ struct ChatsView: View {
         }
     }
 
-    /// ⋯ · «Chats» (cuando el grande ya se fue) · +
+    /// ⋯ · «Chats» (cuando el grande ya se fue) · ☆ · +
     private var barraSuperior: some View {
-        HStack {
+        HStack(spacing: 2) {
+            // Como WhatsApp: icono solo, sin fondo.
             Menu {
-                Button { onPlanYUso() } label: { Label("Plan y uso", systemImage: "chart.bar") }
-                Button { store.leerTodo() } label: { Label("Leer todo", systemImage: "checkmark.message") }
-                Button { onAjustes() } label: { Label("Ajustes", systemImage: "gearshape") }
+                Button { store.leerTodo() } label: { Label("Marcar como leídos", systemImage: "checkmark.message") }
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { seleccionando = true }
+                } label: { Label("Seleccionar chats", systemImage: "checkmark.circle") }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(Color.gInk)
-                    .frame(width: 34, height: 34)
-                    .background(Color.gFill, in: Circle())
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
-            .accessibilityLabel("Más opciones")
+            .accessibilityLabel("Menú")
             .accessibilityIdentifier("chats-mas")
 
             Spacer()
+
+            // Donde WhatsApp pone la cámara: la estrella de «sólo favoritos».
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { soloFavoritos.toggle() }
+            } label: {
+                Image(systemName: soloFavoritos ? "star.fill" : "star")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(soloFavoritos ? Self.oro : Color.gInk)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.gPressIcon)
+            .accessibilityLabel("Sólo favoritos")
+            .accessibilityAddTraits(soloFavoritos ? .isSelected : [])
+            .accessibilityIdentifier("chats-favoritos")
 
             Button { nueva = true } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 36, height: 36)
                     .background(Color.gPrimary, in: Circle())
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
             .buttonStyle(.gPressIcon)
+            .disabled(store.agents.isEmpty)
             .accessibilityLabel("Nueva conversación")
             .accessibilityIdentifier("nueva-conversacion-lista")
         }
@@ -225,8 +251,9 @@ struct ChatsView: View {
                 .foregroundStyle(Color.gInk)
                 .opacity(tituloArriba ? 1 : 0)
                 .offset(y: tituloArriba ? 0 : 6)
+                .allowsHitTesting(false)
         }
-        .padding(.horizontal, Theme.Space.screenH - 6)
+        .padding(.horizontal, Theme.Space.screenH - 10)
         .frame(height: 50)
         .background {
             Color.gBg
@@ -234,6 +261,77 @@ struct ChatsView: View {
                     Rectangle().fill(Color.gSeparator).frame(height: 0.5).opacity(tituloArriba ? 1 : 0)
                 }
                 .ignoresSafeArea(edges: .top)
+        }
+    }
+
+    /// La barra del modo selección: ✕, cuántos, y las acciones sobre los elegidos.
+    private func barraDeSeleccion(_ todas: [Fila]) -> some View {
+        let elegidas = todas.filter { seleccion.contains($0.llaveArchivo) }
+        let todasFavoritas = !elegidas.isEmpty && elegidas.allSatisfy { favoritas.contains($0.llaveArchivo) }
+        return HStack(spacing: 2) {
+            Button(action: salirDeSeleccion) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.gPressIcon)
+            .accessibilityLabel("Terminar selección")
+            .accessibilityIdentifier("seleccion-cerrar")
+
+            Text(elegidas.isEmpty ? "Selecciona chats" : "\(elegidas.count)")
+                .font(.system(size: 17, weight: .semibold))
+                .contentTransition(.numericText())
+            Spacer()
+
+            accion(todasFavoritas ? "star.slash" : "star.fill",
+                   todasFavoritas ? "Quitar de favoritos" : "Agregar a favoritos", activa: !elegidas.isEmpty) {
+                for f in elegidas where favoritas.contains(f.llaveArchivo) == todasFavoritas {
+                    ChatsFavoritos.alternar(f.llaveArchivo)
+                }
+                favoritas = ChatsFavoritos.ids
+                salirDeSeleccion()
+            }
+            accion("checkmark.message", "Marcar como leídos", activa: !elegidas.isEmpty) {
+                for f in elegidas { marcarLeida(f) }
+                salirDeSeleccion()
+            }
+            if elegidas.count == 1, let f = elegidas.first, let sid = f.sesion {
+                accion("pencil", "Cambiar nombre", activa: true) {
+                    nombreNuevo = f.titulo == "Conversación sin abrir" || f.titulo == "Conversación nueva" ? "" : f.titulo
+                    renombrando = (f.agente.id, sid)
+                    salirDeSeleccion()
+                }
+            }
+            accion("archivebox", "Archivar", activa: !elegidas.isEmpty) {
+                for f in elegidas { archivar(f) }
+                salirDeSeleccion()
+            }
+        }
+        .foregroundStyle(Color.gPrimary)
+        .padding(.horizontal, Theme.Space.screenH - 10)
+        .frame(height: 50)
+        .background(Color.gPrimaryRing.ignoresSafeArea(edges: .top))
+        .transition(.opacity)
+    }
+
+    private func accion(_ simbolo: String, _ nombre: String, activa: Bool, _ hacer: @escaping () -> Void) -> some View {
+        Button(action: hacer) {
+            Image(systemName: simbolo)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 42, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.gPressIcon)
+        .disabled(!activa)
+        .opacity(activa ? 1 : 0.4)
+        .accessibilityLabel(nombre)
+    }
+
+    private func salirDeSeleccion() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            seleccionando = false
+            seleccion = []
         }
     }
 
@@ -263,14 +361,14 @@ struct ChatsView: View {
             }
         }
         .padding(.horizontal, 12)
-        .frame(height: 40)
+        .frame(height: 44)
         .background(Color.gFill, in: Capsule())
         .animation(.easeOut(duration: 0.2), value: busqueda.isEmpty)
     }
 
     // MARK: - Chips
 
-    private func chips(_ todas: [Fila]) -> some View {
+    private func chips(_ todas: [Fila], orden: [Agent]) -> some View {
         let sinLeer = Dictionary(grouping: todas.filter { $0.pendientes > 0 }, by: \.agente.id).mapValues(\.count)
         return ScrollViewReader { lector in
             ScrollView(.horizontal, showsIndicators: false) {
@@ -278,12 +376,12 @@ struct ChatsView: View {
                     chip(titulo: "Todos", activo: filtro == nil, noLeidos: 0, id: "chip-todos") {
                         filtro = nil
                     } icono: { EmptyView() }
-                    ForEach(agentesOrdenados) { a in
+                    ForEach(orden) { a in
                         chip(titulo: a.name, activo: filtro == a.id, noLeidos: sinLeer[a.id] ?? 0,
                              id: "chip-\(a.id)") {
                             filtro = filtro == a.id ? nil : a.id
                         } icono: {
-                            AgentAvatar(tone: a.tone, size: 22)
+                            AgentAvatar(tone: a.tone, size: 24)
                         }
                         .id(a.id)
                     }
@@ -300,10 +398,13 @@ struct ChatsView: View {
         }
     }
 
+    /// El chip de WhatsApp: el activo con relleno lila suave, borde lila y texto morado; los
+    /// demás blancos con borde gris.
     private func chip<I: View>(titulo: String, activo: Bool, noLeidos: Int, id: String,
                                action: @escaping () -> Void,
                                @ViewBuilder icono: () -> I) -> some View {
-        Button {
+        let tinta = activo ? Color.gPrimary : Color.gInk2
+        return Button {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { action() }
         } label: {
             HStack(spacing: 6) {
@@ -313,15 +414,14 @@ struct ChatsView: View {
                     .lineLimit(1)
                 if noLeidos > 0 {
                     Text("\(noLeidos)")
-                        .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(activo ? Color.gPrimary : Color.gInk3)
+                        .font(.system(size: 14, weight: .semibold).monospacedDigit())
                 }
             }
-            .foregroundStyle(activo ? Color.gPrimary : Color.gInk2)
-            .padding(.leading, 10).padding(.trailing, 13)
-            .frame(height: 34)
-            .background(activo ? Color.gPrimaryTint : Color.gCard, in: Capsule())
-            .overlay(Capsule().strokeBorder(activo ? Color.clear : Color.gSeparator, lineWidth: 1))
+            .foregroundStyle(tinta)
+            .padding(.leading, id == "chip-todos" ? 16 : 6).padding(.trailing, 16)
+            .frame(height: 36)
+            .background(activo ? Self.chipActivo : Color.gCard, in: Capsule())
+            .overlay(Capsule().strokeBorder(activo ? Self.chipBorde : Color.gSeparator, lineWidth: 1.2))
             .contentShape(Capsule())
         }
         .buttonStyle(.gPressPill)
@@ -329,16 +429,20 @@ struct ChatsView: View {
         .accessibilityIdentifier(id)
     }
 
+    static let chipActivo = Color(light: 0xECECFB, dark: 0x2A2650)
+    static let chipBorde = Color(light: 0xAEADEF, dark: 0x5B55A8)
+    static let oro = Color(hex: 0xF5B300)
+
     // MARK: - La lista
 
     @ViewBuilder
     private func lista(_ filas: [Fila]) -> some View {
         if filas.isEmpty {
-            EmptyState(icon: busqueda.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass",
-                       title: busqueda.isEmpty ? "Sin conversaciones" : "Nada con «\(busqueda)»",
-                       detail: busqueda.isEmpty
-                        ? "Toca + para empezar una."
-                        : "Busca por el título, el agente o lo que se dijo.")
+            EmptyState(icon: !busqueda.isEmpty ? "magnifyingglass" : soloFavoritos ? "star" : "bubble.left.and.bubble.right",
+                       title: !busqueda.isEmpty ? "Nada con «\(busqueda)»" : soloFavoritos ? "Sin favoritos" : "Sin conversaciones",
+                       detail: !busqueda.isEmpty
+                        ? "Busca por el título, el agente o lo que se dijo."
+                        : soloFavoritos ? "Mantén presionado un chat y toca ☆." : "Toca + para empezar una.")
                 .padding(.vertical, 40)
                 .frame(maxWidth: .infinity)
         } else {
@@ -352,10 +456,23 @@ struct ChatsView: View {
     }
 
     private func fila(_ f: Fila) -> some View {
-        HStack(spacing: 12) {
-            AgentAvatar(tone: f.agente.tone, size: 40)
+        let elegida = seleccionando && seleccion.contains(f.llaveArchivo)
+        return HStack(spacing: 12) {
+            AgentAvatar(tone: f.agente.tone, size: 44)
                 .frame(width: 52, height: 52)
-                .background(Circle().fill(Color.gPrimaryTint))
+                .background(Circle().fill(Color.gPrimaryRing))
+                // Seleccionada: la palomita verde sobre el avatar, como WhatsApp.
+                .overlay(alignment: .bottomTrailing) {
+                    if elegida {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 20)
+                            .background(Self.verde, in: Circle())
+                            .overlay(Circle().stroke(Color.gBg, lineWidth: 1.5))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(f.titulo)
@@ -370,54 +487,61 @@ struct ChatsView: View {
                             .fixedSize()
                     }
                 }
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     subtitulo(f)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if favoritas.contains(f.llaveArchivo) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Self.oro)
+                            .accessibilityLabel("Favorito")
+                    }
                     marca(f)
                 }
             }
         }
         .padding(.vertical, 9)
+        .padding(.horizontal, Theme.Space.screenH)
+        .background(elegida ? Color.gPrimaryRing : Color.clear)
+        .padding(.horizontal, -Theme.Space.screenH)
         .contentShape(Rectangle())
-        .onTapGesture { abrir(f) }
-        .contextMenu {
-            if let sid = f.sesion {
-                Button {
-                    nombreNuevo = f.titulo == "Conversación sin abrir" || f.titulo == "Conversación nueva" ? "" : f.titulo
-                    renombrando = (f.agente.id, sid)
-                } label: { Label("Cambiar nombre", systemImage: "pencil") }
-            }
-            Button(role: .destructive) { archivar(f) } label: {
-                Label("Archivar", systemImage: "archivebox")
-            }
+        .onTapGesture {
+            if seleccionando { alternarSeleccion(f) } else { abrir(f) }
         }
+        // Mantener presionado entra al modo selección con esa fila elegida, como WhatsApp.
+        .onLongPressGesture(minimumDuration: 0.4) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { seleccionando = true }
+            alternarSeleccion(f)
+        }
+        .sensoryFeedback(.selection, trigger: seleccion)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { abrir(f) }
         .accessibilityIdentifier(f.id)
     }
 
-    /// La línea gris: «Espera tu permiso» manda; luego lo último que se dijo.
-    @ViewBuilder
+    /// La línea gris, como Android: «Espera tu permiso» (rojo) manda, luego «Trabajando…»
+    /// (morado), lo último que se dijo («Tú: …»), o «No terminó» si falló. Con el filtro en
+    /// Todos, empieza por el nombre del agente.
     private func subtitulo(_ f: Fila) -> some View {
-        if esperaPermiso(f) {
-            Text("Espera tu permiso")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color.gDangerInk)
-                .lineLimit(1)
-        } else if let p = f.previa {
-            let prefijo = p.deTi ? "Tú: " : (filtro == nil && variosAgentes ? "\(f.agente.name) · " : "")
-            Text(prefijo + p.texto)
-                .font(.system(size: 14))
-                .foregroundStyle(Color.gInk3)
-                .lineLimit(1)
-        } else {
-            switch f.tipo {
-            case .abierta(let h):
-                EstadoDelHilo(hilo: h).lineLimit(1)
-            case .guardada(let s):
-                Text(detalle(s, agente: f.agente)).font(.system(size: 14)).foregroundStyle(Color.gInk3).lineLimit(1)
-            }
+        let (texto, color): (String, Color) = {
+            if esperaPermiso(f) { return ("Espera tu permiso", .gDangerInk) }
+            if trabajando(f) { return ("Trabajando…", .gPrimary) }
+            if let p = f.previa { return ((p.deTi ? "Tú: " : "") + p.texto, .gInk3) }
+            if fallo(f) { return ("No terminó", .gDangerInk) }
+            return ("", .gInk3)
+        }()
+        let conAgente = filtro == nil && variosAgentes
+        return (Text(conAgente ? f.agente.name + (texto.isEmpty ? "" : " · ") : "").foregroundColor(.gInk3)
+                + Text(texto).foregroundColor(color))
+            .font(.system(size: 14))
+            .lineLimit(1)
+    }
+
+    private func fallo(_ f: Fila) -> Bool {
+        switch f.tipo {
+        case .abierta(let h): h.fallo != nil
+        case .guardada(let s): s.ultimoTurno?.estado == "error"
         }
     }
 
@@ -479,6 +603,21 @@ struct ChatsView: View {
             store.abrirDesdeChats(agente: f.agente.id, sesion: s)
         }
         onAbrir()
+    }
+
+    private func alternarSeleccion(_ f: Fila) {
+        if seleccion.contains(f.llaveArchivo) { seleccion.remove(f.llaveArchivo) } else { seleccion.insert(f.llaveArchivo) }
+    }
+
+    private func marcarLeida(_ f: Fila) {
+        switch f.tipo {
+        case .abierta(let h):
+            h.visto = true
+            if let sid = h.sesionID { VistoHasta.marcar(f.agente.id, sid) }
+        case .guardada(let s):
+            VistoHasta.marcar(f.agente.id, s.id)
+        }
+        store.marcarLeidas()
     }
 
     private func archivar(_ f: Fila) {
@@ -566,5 +705,19 @@ struct NuevaConversacionSheet: View {
             }
         }
         .background(Color.gBg)
+    }
+}
+
+/// Las conversaciones favoritas, por `agente/sesión`. En el teléfono, como en Android.
+enum ChatsFavoritos {
+    private static let clave = "app.chats.favoritas"
+    static var ids: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: clave) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: clave) }
+    }
+    static func alternar(_ id: String) {
+        var s = ids
+        if s.contains(id) { s.remove(id) } else { s.insert(id) }
+        ids = s
     }
 }

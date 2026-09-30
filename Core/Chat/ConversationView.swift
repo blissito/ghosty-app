@@ -46,7 +46,8 @@ struct ConversationView: View {
     /// del gesto ya no cuenta hasta que se levante el dedo.
     @State private var alBote = false
     @State private var gestoCancelado = false
-    @Environment(Toaster.self) private var toaster: Toaster?
+    /// El globito «Mantén presionado para grabar…» sobre el micrófono, tras un toque corto.
+    @State private var pistaDeVoz = false
     @State private var fallo: String?
     /// El último mensaje visible, según el propio `ScrollView`.
     @State private var anclaje: String?
@@ -1066,6 +1067,20 @@ struct ConversationView: View {
                 .strokeBorder(Color.gSeparator, lineWidth: 1)
         }
         .ghostySoftShadow()
+        // El globito de un toque corto, encima del micrófono (como WhatsApp).
+        .overlay(alignment: .topTrailing) {
+            if pistaDeVoz {
+                Text("Mantén presionado para grabar y suelta para enviar")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.gInk)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Color.gCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .ghostySoftShadow()
+                    .offset(y: -48)
+                    .transition(.scale(scale: 0.9, anchor: .bottomTrailing).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
         // Se tiñe de rojo según te acercas a cancelar: el aviso llega ANTES de que se
         // cancele, que es cuando todavía se puede rectificar.
         .overlay {
@@ -1226,7 +1241,11 @@ struct ConversationView: View {
                 if quieto && duro < 0.4 {
                     // Un TOQUE: no es una nota. Se tira lo grabado y se explica el gesto.
                     cancelarVoz()
-                    toaster?.show("Mantén presionado para grabar y suelta para enviar", duracion: 2.2)
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { pistaDeVoz = true }
+                    Task {
+                        try? await Task.sleep(for: .seconds(2.2))
+                        withAnimation(.easeOut(duration: 0.2)) { pistaDeVoz = false }
+                    }
                 } else {
                     soltarVoz()
                 }

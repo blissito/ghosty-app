@@ -140,6 +140,9 @@ final class LiveAgentStore: AgentStoring {
     /// marca algo como leído para que la lista se repinte.
     private(set) var marcasDeLectura = 0
 
+    /// Algo se marcó como leído por fuera (la selección de «Chats»): repintar.
+    func marcarLeidas() { marcasDeLectura += 1 }
+
     /// «Leer todo» del menú de «Chats»: todo lo que contestó queda como visto.
     func leerTodo() {
         for (agente, canal) in canales {

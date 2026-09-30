@@ -101,7 +101,6 @@ struct BloqueDeGrabacion: View {
                         .foregroundStyle(Color.gDanger)
                         .contentTransition(.symbolEffect(.replace))
                         .frame(width: 44, height: 44)
-                        .overlay(Circle().strokeBorder(Color.gDanger, lineWidth: 2))
                         .contentShape(Circle())
                 }
                 .buttonStyle(.gPressIcon)
@@ -111,8 +110,8 @@ struct BloqueDeGrabacion: View {
                 Spacer()
 
                 Button(action: alEnviar) {
-                    Circle().fill(Color.gDark)
-                        .frame(width: 44, height: 44)
+                    Circle().fill(Color.gPrimary)
+                        .frame(width: 48, height: 48)
                         .overlay { ChatIcons.enviar.dibujo(.white, size: 18, ancho: 2) }
                 }
                 .buttonStyle(.gPressPrimary)
