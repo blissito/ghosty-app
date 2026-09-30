@@ -98,6 +98,8 @@ struct BurbujaDeVoz: View {
     let lado: Lado
     let segundos: Double
     let onda: [Float]
+    /// La duración va al final de la fila (Archivos → Audio) en vez de debajo de la onda.
+    var tiempoAlFinal = false
     /// De dónde salen los bytes. Se llama al primer play (o al primer salto).
     let cargar: () async throws -> Data
 
@@ -116,9 +118,27 @@ struct BurbujaDeVoz: View {
 
     private var barras: [Float] {
         let r = NotaDeVoz.remuestrear(onda, a: NotaDeVoz.numeroDeBarras)
-        // Sin onda (una nota vieja, o el agente no la mandó): una tira baja y pareja, que
-        // dice «aquí hay audio» sin inventarse picos.
-        return r.isEmpty ? Array(repeating: 0.24, count: NotaDeVoz.numeroDeBarras) : r
+        // Sin onda propia: una pseudo-onda FIJA por id (misma semilla, misma forma en cada
+        // visita), como Android.
+        return r.isEmpty ? Self.pseudoOnda(id, n: NotaDeVoz.numeroDeBarras) : r
+    }
+
+    /// Onda determinista a partir del id: ruido con semilla bajo una envolvente senoidal.
+    static func pseudoOnda(_ id: String, n: Int) -> [Float] {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in id.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
+        return (0..<n).map { i in
+            h = h &* 6364136223846793005 &+ 1442695040888963407
+            let ruido = Float((h >> 33) % 1000) / 1000
+            let envolvente = Float(0.45 + 0.55 * sin(Double(i) / Double(max(1, n - 1)) * .pi))
+            return max(0.12, min(1, (0.25 + 0.75 * ruido) * envolvente))
+        }
+    }
+
+    /// El texto del reloj: vacío si todavía no se sabe cuánto dura (nunca «0:00»).
+    private var textoDelReloj: String {
+        let t = sonando || arrastrando != nil || avance > 0 ? posicion : duracion
+        return duracion > 0 ? NotaDeVoz.reloj(t) : ""
     }
 
     private var duracion: Double {
@@ -137,17 +157,23 @@ struct BurbujaDeVoz: View {
                     .frame(height: 26)
                 if let fallo {
                     Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
-                } else {
-                    Text(NotaDeVoz.reloj(sonando || arrastrando != nil || avance > 0 ? posicion : duracion))
+                } else if !tiempoAlFinal {
+                    Text(textoDelReloj)
                         .gMono(size: 11)
                         .monospacedDigit()
                         .foregroundStyle(Color.gInk3)
                 }
             }
             .frame(maxWidth: .infinity)
+            if tiempoAlFinal {
+                Text(textoDelReloj)
+                    .font(.system(size: 13, weight: .medium).monospacedDigit())
+                    .foregroundStyle(Color.gInk3)
+                    .frame(minWidth: 34, alignment: .trailing)
+            }
             if lado == .mia { lateral }
         }
-        .frame(minWidth: 220, maxWidth: 270)
+        .frame(minWidth: 220, maxWidth: tiempoAlFinal ? .infinity : 270)
         .onAppear { escuchada = NotasEscuchadas.contiene(id) }
         .onDisappear { parar() }
         .onReceive(NotificationCenter.default.publisher(for: ReproduccionDeVoz.suena)) { n in

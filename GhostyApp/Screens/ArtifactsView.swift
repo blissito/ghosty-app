@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// Archivos: lo que subiste y lo que Ghosty generó (diseño de Brenda, 2026-09).
@@ -60,10 +61,14 @@ struct ArtifactsView: View {
     @Environment(\.openURL) private var abrir
     @Environment(Visor.self) private var visor: Visor?
 
-    /// Todo lo de la cuenta menos las notas de voz: ésas son la conversación, no archivos.
+    /// Todo lo de la cuenta menos TUS notas de voz: ésas son la conversación, no archivos.
+    /// Nota tuya = audio que no entregó un agente y trae duración o se llama «nota-de-voz…»
+    /// (las que sube iOS no traen `meta.segundos`). La misma regla que Android.
     private var archivos: [Entrega] {
         store.artifactsList(for: store.selectedAgentID).filter { e in
-            !(e.esNotaDeVoz || (e.categoria == .audio && e.titulo.lowercased().hasPrefix("nota-de-voz")))
+            guard e.categoria == .audio, !e.generada else { return true }
+            let n = e.titulo.lowercased()
+            return !(e.segundosDeVoz != nil || n.hasPrefix("nota-de-voz") || n.hasPrefix("nota de voz"))
         }
         .sorted { $0.recibida > $1.recibida }
     }
@@ -283,7 +288,11 @@ struct ArtifactsView: View {
                         }
                     case .audio:
                         ForEach(mes.entregas) { e in
-                            filaDeAudio(e).overlay(alignment: .bottom) { if e.id != mes.entregas.last?.id { divisor } }
+                            filaDeAudio(e).overlay(alignment: .bottom) {
+                                if e.id != mes.entregas.last?.id {
+                                    Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 62)
+                                }
+                            }
                         }
                     }
                 }
@@ -369,39 +378,16 @@ struct ArtifactsView: View {
         }
     }
 
-    /// Renglón de audio: insignia salmón con audífonos; a la derecha nombre, detalle y el
-    /// reproductor debajo.
+    /// Renglón de audio como una nota de WhatsApp: [micrófono] [▶] [onda] [duración] y
+    /// debajo, alineada con el play, «nombre · Generado · tamaño · fecha».
     private func filaDeAudio(_ e: Entrega) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: "headphones")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(Color.gSalmon, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(e.titulo)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.gInk)
-                    .lineLimit(1)
-                Text(Self.meta(e)).font(.system(size: 14)).foregroundStyle(Color.gInk3).lineLimit(1)
-                BurbujaDeVoz(id: e.remotoID ?? e.id, lado: .mia, segundos: e.segundosDeVoz ?? 0, onda: e.onda ?? []) {
-                    if let d = e.datos { return d }
-                    var d: Data?
-                    if let id = e.remotoID { d = try? await GhostyAPI.bajar(id) }
-                    if d == nil, let s = e.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
-                    guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
-                    return d
-                }
+        FilaDeAudio(entrega: e, detalle: Self.meta(e))
+            .padding(.horizontal, Theme.Space.screenH - 4)
+            .padding(.vertical, 8)
+            .accessibilityIdentifier("archivo-\(e.id)")
+            .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
+                Task { await store.deleteAccountFile(e) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, Theme.Space.screenH)
-        .padding(.vertical, 12)
-        .accessibilityIdentifier("archivo-\(e.id)")
-        .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
-            Task { await store.deleteAccountFile(e) }
-        }
     }
 
     private static func consecuencia(_ e: Entrega) -> String {
@@ -682,5 +668,63 @@ struct MiniaturaDeEntrega: View {
         guard let d, let img = UIImage(data: d) else { return }
         MiniaturasEnMemoria.guardar(img, clave: clave)
         imagen = img
+    }
+}
+
+/// Un audio de Archivos. La duración no viene en `/me/files`: se lee del archivo UNA vez
+/// (AVURLAsset sobre la URL firmada) y se guarda por id; mientras no se sabe, va vacía.
+struct FilaDeAudio: View {
+    let entrega: Entrega
+    let detalle: String
+    @State private var segundos: Double = 0
+
+    private var id: String { entrega.remotoID ?? entrega.id }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            BurbujaDeVoz(id: id, lado: .agente, segundos: segundos, onda: entrega.onda ?? [], tiempoAlFinal: true) {
+                if let d = entrega.datos { return d }
+                var d: Data?
+                if let rid = entrega.remotoID { d = try? await GhostyAPI.bajar(rid) }
+                if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
+                guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
+                return d
+            }
+            Text("\(entrega.titulo) · \(detalle)")
+                .font(.system(size: 13))
+                .foregroundStyle(Color.gInk3)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                // Alineada con el play: micrófono (46) + espacio (10).
+                .padding(.leading, 56)
+        }
+        .task(id: id) { await cargarDuracion() }
+    }
+
+    private func cargarDuracion() async {
+        if let s = entrega.segundosDeVoz, s > 0 { segundos = s; return }
+        if let s = DuracionesDeAudio.de(id) { segundos = s; return }
+        var url: URL?
+        if let rid = entrega.remotoID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
+        if url == nil, let s = entrega.url { url = URL(string: s) }
+        guard let url, let d = try? await AVURLAsset(url: url).load(.duration) else { return }
+        let s = CMTimeGetSeconds(d)
+        guard s.isFinite, s > 0 else { return }
+        DuracionesDeAudio.guardar(id, s)
+        segundos = s
+    }
+}
+
+/// Cuánto dura cada audio de la cuenta, por id: se mide una vez y ya.
+enum DuracionesDeAudio {
+    private static let clave = "ghosty.duracionesDeAudio"
+    static func de(_ id: String) -> Double? {
+        UserDefaults.standard.dictionary(forKey: clave)?[id] as? Double
+    }
+    static func guardar(_ id: String, _ s: Double) {
+        var d = UserDefaults.standard.dictionary(forKey: clave) ?? [:]
+        d[id] = s
+        if d.count > 1000 { d.removeValue(forKey: d.keys.first!) }
+        UserDefaults.standard.set(d, forKey: clave)
     }
 }
