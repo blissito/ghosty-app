@@ -24,6 +24,16 @@ struct AgentAccount: Identifiable, Codable, Equatable {
     var space: AgentSpace? = nil
     /// Modelo legible («DeepSeek Flash»), para la hoja del agente.
     var model: String? = nil
+    /// El tono del fantasma que manda gs (`lila`, `azul`, `durazno`). Desde el 2026-09-29
+    /// todo MiniGhosty va en lila; lo desconocido cae en lila.
+    var tono: String? = nil
+
+    /// El tono con el que se pinta: el del servidor o, sin él, la rotación de siempre.
+    func tonoDeAgente(indice i: Int) -> AgentTone {
+        if let tono { return AgentTone(rawValue: tono) ?? .lila }
+        let tonos: [AgentTone] = [.lila, .azul, .durazno]
+        return tonos[i % tonos.count]
+    }
 
     var esCompartido: Bool { compartidoPor != nil }
     /// «Ghosty · claude»: el nombre solo no distingue cuatro «Ghosty».

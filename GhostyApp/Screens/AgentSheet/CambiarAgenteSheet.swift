@@ -66,6 +66,12 @@ struct CambiarAgenteSheet: View {
                                    leading: { AgentAvatar(tone: agente.tone, size: 40) },
                                    // Sólo elegir: el uso vive en Perfil y en la hoja del agente de arriba.
                                    extra: { EmptyView() })
+                        .overlay(alignment: .bottom) {
+                            // Hairline desde donde empieza el nombre (82), menos en el último.
+                            if i < grupo.agentes.count - 1 {
+                                Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 82)
+                            }
+                        }
                         .accessibilityIdentifier("agente-\(agente.id)")
                         // Las filas entran escalonadas, como el `gin` del prototipo.
                         .gIn(duration: 0.25, delay: 0.04 + Double(min(g * 3 + i, 8)) * 0.04)

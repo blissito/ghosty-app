@@ -41,8 +41,9 @@ struct ChatsView: View {
     @State private var renombrando: (agente: String, sesion: String)?
     @State private var nombreNuevo = ""
 
-    /// Verde de no leídos: grass de la paleta oficial.
-    static let verde = Color.gGrass
+    /// Color de no leídos (insignia, hora y palomita de selección): el lila de la marca,
+    /// por decisión de bliss (2026-09-29), no el verde de WhatsApp.
+    static let verde = Color.gPrimary
 
     // MARK: - Modelo de la lista
 
@@ -739,6 +740,12 @@ struct NuevaConversacionSheet: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .overlay(alignment: .bottom) {
+                            // Hairline desde donde empieza el nombre (82), menos en el último.
+                            if a.id != agentes.last?.id {
+                                Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 82)
+                            }
+                        }
                         .accessibilityIdentifier("nueva-con-\(a.id)")
                     }
                 }

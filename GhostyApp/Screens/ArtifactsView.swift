@@ -1,3 +1,4 @@
+import AVKit
 import AVFoundation
 import SwiftUI
 
@@ -117,11 +118,8 @@ struct ArtifactsView: View {
             await cuenta
         }
         .refreshable { await store.loadAccountFiles() }
-        .sheet(item: $mirandoVideo) { e in
-            EntregaCard(entrega: e)
-                .padding(16)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+        .fullScreenCover(item: $mirandoVideo) { e in
+            VideoAPantallaCompleta(entrega: e)
         }
     }
 
@@ -327,7 +325,10 @@ struct ArtifactsView: View {
     /// Cuadro de la cuadrícula: la foto recortada (abre el visor) o el video con su ▶.
     private func cuadro(_ e: Entrega) -> some View {
         MiniaturaDeEntrega(entrega: e) { img in
-            if let img { visor?.abrir(img, titulo: e.titulo) } else { mirandoVideo = e }
+            // Foto: el visor sólo si ya cargó (un toque temprano no hace nada). Video: dentro
+            // de la app, a pantalla completa.
+            if e.categoria == .video { mirandoVideo = e }
+            else if let img { visor?.abrir(img, titulo: e.titulo) }
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityIdentifier("archivo-\(e.id)")
@@ -726,5 +727,46 @@ enum DuracionesDeAudio {
         d[id] = s
         if d.count > 1000 { d.removeValue(forKey: d.keys.first!) }
         UserDefaults.standard.set(d, forKey: clave)
+    }
+}
+
+/// Un video de Archivos a pantalla completa: fondo negro, el reproductor del sistema y una
+/// X blanca arriba a la izquierda, como Android.
+struct VideoAPantallaCompleta: View {
+    let entrega: Entrega
+    @Environment(\.dismiss) private var cerrar
+    @State private var player: AVPlayer?
+    @State private var fallo: String?
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.black.ignoresSafeArea()
+            if let player {
+                VideoPlayer(player: player).ignoresSafeArea()
+                    .onAppear { player.play() }
+            } else if let fallo {
+                Text(fallo).foregroundStyle(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            Button { player?.pause(); cerrar() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .padding(.leading, 8)
+            .accessibilityLabel("Cerrar")
+        }
+        .task {
+            var url: URL?
+            if let rid = entrega.remotoID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
+            if url == nil, let s = entrega.url { url = URL(string: s) }
+            if let url {
+                try? AVAudioSession.sharedInstance().setCategory(.playback)
+                player = AVPlayer(url: url)
+            } else { fallo = "No pude abrir el video." }
+        }
     }
 }

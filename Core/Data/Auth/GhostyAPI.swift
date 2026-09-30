@@ -625,7 +625,8 @@ enum GhostyAPI {
                 compartidoPor: a["compartidoPor"] as? String,
                 ultimaActividad: ultima,
                 space: AgentSpace(json: a["espacio"] as? [String: Any]),
-                model: a["modelo"] as? String
+                model: a["modelo"] as? String,
+                tono: a["tono"] as? String
             ))
         }
 

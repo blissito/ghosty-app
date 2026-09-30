@@ -567,10 +567,10 @@ final class LiveAgentStore: AgentStoring {
     /// Los `Agent` de la pantalla a partir de las cuentas. Conserva el estado del que ya
     /// existía (un turno vivo no se pierde por refrescar la flota).
     private func armarAgentes() {
-        let tonos: [AgentTone] = [.lila, .azul, .durazno]
         let antes = agents
         agents = cuentas.enumerated().map { i, c in
-            Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
+            // El tono lo manda gs (`tono`); sin él, la rotación de siempre.
+            Agent(id: c.id, name: c.name, tone: c.tonoDeAgente(indice: i),
                   status: antes.first(where: { $0.id == c.id })?.status ?? .idle(since: "listo"),
                   engine: c.motor ?? (c.esAgenteNativo ? "Ghosty Studio" : "EasyBits"),
                   compartidoPor: c.compartidoPor,

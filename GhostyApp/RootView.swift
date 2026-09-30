@@ -265,7 +265,7 @@ struct RootView: View {
         // apagada lo dice (decidido el 2026-09-09). Conversaciones salió de la barra.
         // Rediseño estilo WhatsApp (2026-09-29, igual que Android): Chats al final, pegado
         // al avatar del agente, que va a la derecha.
-        [.perfil, .artifacts, .connectors, .chat]
+        [.perfil, .connectors, .artifacts, .chat]
     }
 
     /// La barra flota a 28 pt del borde de la pantalla; esto es ese margen medido desde
@@ -317,12 +317,12 @@ struct RootView: View {
                 PerfilView(store: store, verUso: $verUso)
                     .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
                     .tag(GhostyTab.perfil)
-                ArtifactsView(store: store)
-                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-                    .tag(GhostyTab.artifacts)
                 ConectoresPane(store: store)
                     .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
                     .tag(GhostyTab.connectors)
+                ArtifactsView(store: store)
+                    .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                    .tag(GhostyTab.artifacts)
                 ChatsView(store: store, filtro: $filtroChats,
                           onAbrir: { withAnimation(.easeOut(duration: 0.25)) { enHilo = true } },
                           onPlanYUso: {

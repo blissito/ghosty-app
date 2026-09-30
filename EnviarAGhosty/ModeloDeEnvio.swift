@@ -52,9 +52,8 @@ final class ModeloDeEnvio {
     var agente: AgentAccount? { agentes.first { $0.id == agenteID } }
 
     func tono(de id: String) -> AgentTone {
-        let tonos: [AgentTone] = [.lila, .azul, .durazno]
         let i = agentes.firstIndex { $0.id == id } ?? 0
-        return tonos[i % tonos.count]
+        return agentes.indices.contains(i) ? agentes[i].tonoDeAgente(indice: i) : .lila
     }
 
     var hayAlgo: Bool { !piezas.isEmpty || !compartidoComoTexto.isEmpty }
