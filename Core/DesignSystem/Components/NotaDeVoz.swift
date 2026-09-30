@@ -158,18 +158,27 @@ struct BurbujaDeVoz: View {
         HStack(spacing: 10) {
             // El micrófono (o tu foto) va a la IZQUIERDA en las dos, como Android.
             lateral
-            botonDePlay
-            VStack(alignment: .leading, spacing: 3) {
-                ondaConCursor
-                    .frame(height: 26)
-                if let fallo {
-                    Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
-                } else if !tiempoAlFinal {
-                    Text(textoDelReloj)
-                        .gMono(size: 11)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.gInk3)
+            // ▶ y onda en la MISMA línea (como WhatsApp); el tiempo abajo, alineado con la
+            // onda. Antes el ▶ quedaba más bajo que la onda porque ésta compartía columna con
+            // el renglón del tiempo, aunque fuera vacío.
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    botonDePlay
+                    ondaConCursor
+                        .frame(height: 26)
                 }
+                Group {
+                    if let fallo {
+                        Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
+                    } else if !tiempoAlFinal {
+                        Text(textoDelReloj)
+                            .gMono(size: 11)
+                            .monospacedDigit()
+                            .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
+                    }
+                }
+                .frame(height: 14, alignment: .leading)
+                .padding(.leading, 40)
             }
             .frame(maxWidth: .infinity)
             if tiempoAlFinal {
@@ -243,11 +252,13 @@ struct BurbujaDeVoz: View {
                     }
                     .frame(width: 48, height: 48)
                     .clipShape(Circle())
+                    // El micrófono en un circulito del color de la burbuja: se lee sobre la foto.
                     Image(systemName: "mic.fill")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(escuchada ? Self.azulEscuchada : Self.oliva)
-                        .frame(width: 22, height: 22)
-                        .offset(x: 3, y: 2)
+                        .frame(width: 20, height: 20)
+                        .background(Self.limeBurbuja, in: Circle())
+                        .offset(x: 2, y: 2)
                 }
                 .transition(.scale(scale: 0.7).combined(with: .opacity))
                 .accessibilityHidden(true)
