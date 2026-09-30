@@ -61,13 +61,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let tone = tones?[agentId] ?? "lila"
         let size = CGSize(width: 180, height: 180)
         let renderer = UIGraphicsImageRenderer(size: size)
-        if tone == "lila", let portrait = UIImage(named: "ghosty-avatar") {
-            return renderer.pngData { _ in
-                UIColor.white.setFill()
-                UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
-                portrait.draw(in: CGRect(origin: .zero, size: size))
-            }
-        }
+        // El mismo fantasma para los tres tonos (el retrato `ghosty-avatar` estaba defectuoso).
         guard let mascot = UIImage(named: "ghosty-\(tone)") else { return nil }
         return renderer.pngData { _ in
             UIColor.white.setFill()

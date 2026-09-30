@@ -25,12 +25,7 @@ struct HojaDeEnvio: View {
 
     private var cabecera: some View {
         HStack(spacing: 12) {
-            Image("ghosty-avatar")
-                .resizable().scaledToFill()
-                .frame(width: 40, height: 40)
-                .background(Color.white)
-                .clipShape(Circle())
-                .accessibilityHidden(true)
+            AgentAvatar(tone: .lila, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Enviar a Ghosty").font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.gInk)
                 if modelo.estado == .listo, modelo.agentes.count > 0 { selectorDeAgente }
