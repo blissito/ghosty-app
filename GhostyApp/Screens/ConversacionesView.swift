@@ -519,7 +519,7 @@ struct ChatsView: View {
             }
         } else if let filtro, let agente = store.agents.first(where: { $0.id == filtro }) {
             VacioIlustrado(simbolo: "bubble.left.and.bubble.right.fill", titulo: "Todavía no hablas con \(agente.name)",
-                           texto: "Pídele algo y la conversación aparecerá aquí.",
+                           texto: "Pídeme algo y la conversación aparecerá aquí.",
                            accion: "Nueva conversación") { empezar(con: agente.id) }
         } else {
             VacioIlustrado(simbolo: "bubble.left.and.bubble.right.fill", titulo: "Empieza tu primera conversación",

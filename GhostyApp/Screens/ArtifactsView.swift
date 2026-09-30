@@ -403,10 +403,10 @@ struct ArtifactsView: View {
         case .todos:
             EmptyState(icon: pestana == .multimedia ? "photo.on.rectangle" : pestana == .audio ? "waveform" : "doc.text",
                        title: pestana == .multimedia ? "Sin fotos ni videos" : pestana == .audio ? "Sin audios" : "Sin documentos",
-                       detail: "Lo que subas o te entregue Ghosty —un PDF, una tabla, una foto— se queda aquí. Desliza hacia abajo para actualizar.")
+                       detail: "Lo que subas o te entregue —un PDF, una tabla, una foto— se queda aquí. Desliza hacia abajo para actualizar.")
         case .generados:
             EmptyState(icon: "sparkles", title: "Nada generado aún",
-                       detail: "Pídele a Ghosty una cotización, un resumen o una tabla y aparecerá aquí.")
+                       detail: "Pídeme una cotización, un resumen o una tabla y aparecerá aquí.")
         case .subidos:
             EmptyState(icon: "arrow.up.doc", title: "No has subido nada",
                        detail: "Lo que adjuntes en el chat se guarda aquí.")

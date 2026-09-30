@@ -243,7 +243,7 @@ struct ConversationView: View {
                    encargo: "Resume este PDF", icono: ChatIcons.pdf, pideArchivo: true),
         Sugerencia(titulo: "Búscame precios", sub: "Comparo proveedores en una tabla",
                    encargo: "Búscame precios y hazme una tabla", icono: ChatIcons.tabla),
-        Sugerencia(titulo: "Arma una cotización", sub: "Con tu catálogo, lista en PDF",
+        Sugerencia(titulo: "Arma una cotización", sub: "Con tu catálogo, te la dejo en PDF",
                    encargo: "Arma una cotización en PDF", icono: ChatIcons.cotizacion),
     ]
 
@@ -263,7 +263,7 @@ struct ConversationView: View {
                 .padding(.bottom, 26)
                 .gIn()
 
-            Text("¿Qué le encargamos hoy?")
+            Text("¿Qué trabajo me encargas hoy?")
                 .font(.system(size: 32, weight: .heavy))
                 .tracking(-0.96)
                 .lineSpacing(-2)
@@ -271,7 +271,7 @@ struct ConversationView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 4)
                 .gIn(delay: 0.04)
-            Text("No solo contesta: opera tus herramientas y te avisa cuando termina.")
+            Text("Uso tus herramientas, hago el trabajo y te aviso cuando está listo.")
                 .font(.system(size: 15))
                 .lineSpacing(3)
                 .foregroundStyle(Color.gInk2)
@@ -1317,7 +1317,7 @@ struct ConversationView: View {
             .opacity(store.currentTurn != nil ? 0.35 : 1)
 
             TextField("", text: $borrador,
-                      prompt: Text(store.currentTurn == nil ? "Pide algo o encarga una tarea" : "Dile algo más…")
+                      prompt: Text(store.currentTurn == nil ? "Pídeme algo o encárgame una tarea" : "Dime algo más…")
                         .foregroundStyle(Color.gInk4),
                       axis: .vertical)
                 .textFieldStyle(.plain)

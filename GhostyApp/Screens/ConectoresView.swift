@@ -43,10 +43,10 @@ struct ConectoresPane: View {
     private var resumen: String {
         let total = disponibles.count
         guard total > 0 else {
-            return "Se irán activando conforme estén listas. Ghosty solo usa las que actives."
+            return "Conecta tus servicios y los uso por ti."
         }
         let n = disponibles.filter(\.conectado).count
-        return "\(n) de \(total) conectada\(total == 1 ? "" : "s"). Ghosty solo usa las que actives."
+        return "\(n) de \(total) conectada\(total == 1 ? "" : "s"). Conecta tus servicios y los uso por ti."
     }
 
     var body: some View {
@@ -69,7 +69,7 @@ struct ConectoresPane: View {
             }
             Button("Cancelar", role: .cancel) { porDesconectar = nil }
         } message: {
-            Text("Tus agentes dejarán de poder usarla. Puedes volver a conectarla cuando quieras.")
+            Text("Ya no podré usar este servicio por ti.")
         }
     }
 

@@ -57,14 +57,14 @@ struct LoginView: View {
                 .foregroundStyle(Color.gInk)
                 .padding(.top, 20)
 
-            Text("Tu agente, en tu bolsillo.").gMeta().padding(.top, 6)
+            Text("Encárgame trabajo y te lo entrego hecho.").gMeta().padding(.top, 6)
 
             // Lo que un revisor —o cualquiera que instale sin conocer ghosty.studio— lee
             // en cinco segundos. Sin esto la pantalla era un logo y dos botones.
             VStack(spacing: 4) {
-                Text("Pídele cosas por texto o voz.")
-                Text("Te manda lo que hace: PDF, hojas, imágenes.")
-                Text("Te avisa cuando termina.")
+                Text("Pídeme cosas por texto o voz.")
+                Text("Te mando lo que hago: PDF, hojas, imágenes.")
+                Text("Te aviso cuando termino.")
             }
             .gMeta()
             .multilineTextAlignment(.center)
