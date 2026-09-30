@@ -340,7 +340,8 @@ struct RootView: View {
             if tab == .chat && enHilo {
                 // Sin barra: el compositor va pegado abajo, como WhatsApp.
                 ConversationView(store: store, onOpenSheet: abrirHojaDelChat,
-                                 onVolver: volverAChats)
+                                 onVolver: volverAChats,
+                                 onCambiarAgente: { cambiarAgente = true })
                     .padding(.bottom, 4)
                     .background(Color.gBg.ignoresSafeArea())
                     // Deslizar desde el borde izquierdo también regresa.

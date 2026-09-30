@@ -8,6 +8,8 @@ struct ConversationView: View {
     var onHistorial: (() -> Void)? = nil
     /// Regresa a «Chats». Con él, la cabecera lleva la flecha de atrás en vez del historial.
     var onVolver: (() -> Void)? = nil
+    /// Mantener presionado el agente de la cabecera: «Cambiar de agente».
+    var onCambiarAgente: (() -> Void)? = nil
 
     @State private var borrador = ""
     @FocusState private var escribiendo: Bool
@@ -96,6 +98,7 @@ struct ConversationView: View {
             if let agente = store.selectedAgent {
                 AgentHeader(agent: agente, estado: store.estado(de: agente.id),
                             onTap: { escribiendo = false; onOpenSheet() },
+                            onMantener: onCambiarAgente.map { f in { escribiendo = false; f() } },
                             onNueva: { store.nuevaConversacion() },
                             onHistorial: onHistorial.map { abrir in { escribiendo = false; abrir() } },
                             puntoHistorial: store.hayPendientes,

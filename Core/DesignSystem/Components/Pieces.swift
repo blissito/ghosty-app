@@ -184,6 +184,8 @@ struct AgentHeader: View {
     /// El estado se PREGUNTA al store: guardado en el `Agent` se desincroniza del turno.
     var estado: AgentStatus?
     var onTap: (() -> Void)?
+    /// Mantener presionado el agente: la lista para cambiarlo (tocar abre su ficha).
+    var onMantener: (() -> Void)?
     /// El botón de la derecha. `nil` = no se pinta.
     var onNueva: (() -> Void)?
     /// El botón de la izquierda: abre el historial de conversaciones (ya no es pestaña).
@@ -279,13 +281,13 @@ struct AgentHeader: View {
                         .tracking(-0.16)
                         .foregroundStyle(Color.gInk)
                         .lineLimit(1)
-                    GhostyIcons.chevronAbajo.dibujo(Color.gInk3, size: 10, ancho: 1.6)
                 }
                 .padding(.leading, 4).padding(.trailing, 8)
                 .frame(height: 44)
                 .contentShape(Capsule())
             }
             .buttonStyle(.gPressPill)
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in onMantener?() })
             .accessibilityIdentifier("cabecera-agente")
             .accessibilityLabel("\(agent.name), \(Self.subtitle(agent)). Cambiar de agente")
 
@@ -306,7 +308,9 @@ struct AgentHeader: View {
             }
             if let onNueva {
                 Button(action: onNueva) {
-                    ChatIcons.nuevoChat.dibujo(Color.gInk, size: 20)
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(Color.gInk)
                         .frame(width: 44, height: 44)
                         .contentShape(Circle())
                 }
