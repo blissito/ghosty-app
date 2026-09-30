@@ -27,6 +27,8 @@ struct AdjuntoGuardado: Codable {
     var segundos: Double?
     var onda: [Float]?
     var transcripcion: String?
+    /// La hora de la nota. ⚠️ Sin esto el hilo pintado desde el caché salía sin hora.
+    var creado: Date?
 
     init(_ a: Adjunto) {
         id = a.id
@@ -37,12 +39,14 @@ struct AdjuntoGuardado: Codable {
         segundos = a.segundos
         onda = a.onda
         transcripcion = a.transcripcion
+        creado = a.creado
     }
 
     var adjunto: Adjunto {
         var a = Adjunto(id: id, nombre: nombre, mime: mime, datos: Data(),
                         segundos: segundos, onda: onda)
         a.transcripcion = transcripcion
+        a.creado = creado
         if let remotoID {
             a.remoto = GhostyAPI.ArchivoRemoto(id: remotoID, nombre: nombre, mime: mime,
                                                bytes: bytes, url: "")

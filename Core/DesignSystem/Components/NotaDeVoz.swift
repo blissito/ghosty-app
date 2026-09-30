@@ -177,7 +177,7 @@ struct BurbujaDeVoz: View {
                     botonDePlay
                     ondaConCursor
                         .frame(height: 26)
-                    if lado == .mia, reproductor != nil { pastillaDeVelocidad }
+                    if lado == .mia, sonando || avance > 0 { pastillaDeVelocidad }
                 }
                 if !tiempoAlFinal {
                     HStack(spacing: 6) {
@@ -207,6 +207,16 @@ struct BurbujaDeVoz: View {
         }
         .frame(minWidth: 220, maxWidth: tiempoAlFinal || lado == .mia ? .infinity : 270)
         .onAppear { escuchada = NotasEscuchadas.contiene(id) }
+        // Sin duración conocida (una nota que llegó sin `meta`): se mide en silencio al
+        // aparecer, para que el renglón de abajo no quede vacío.
+        .task(id: id) {
+            guard segundos <= 0, reproductor == nil, !tiempoAlFinal else { return }
+            if let d = try? await cargar(), let p = try? AVAudioPlayer(data: d) {
+                p.enableRate = true
+                p.prepareToPlay()
+                if reproductor == nil { reproductor = p }
+            }
+        }
         .onDisappear { parar() }
         .onReceive(NotificationCenter.default.publisher(for: ReproduccionDeVoz.suena)) { n in
             // Otra nota empezó a sonar: ésta se calla, como en WhatsApp.
@@ -243,7 +253,7 @@ struct BurbujaDeVoz: View {
     @ViewBuilder
     private var lateral: some View {
         ZStack {
-            if reproductor != nil, lado == .agente {
+            if sonando || avance > 0, lado == .agente {
                 Button(action: cambiarVelocidad) {
                     Text(etiquetaDeVelocidad)
                         .font(.system(size: 13, weight: .bold).monospacedDigit())
@@ -294,7 +304,7 @@ struct BurbujaDeVoz: View {
             }
         }
         .frame(width: lado == .mia ? 50 : 46, height: lado == .mia ? 50 : 46)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: reproductor != nil)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: sonando || avance > 0)
     }
 
     /// La pastilla 1× / 1.5× / 2× de tu nota (junto a tu foto, como WhatsApp).
