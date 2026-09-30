@@ -256,7 +256,8 @@ struct BurbujaDeVoz: View {
         GeometryReader { g in
             let n = max(barras.count, 1)
             let paso = g.size.width / CGFloat(n)
-            let ancho = max(2, paso * 0.5)
+            // Delgadas, como Android: 34 % del paso con tope de 2.5.
+            let ancho = min(2.5, max(1.5, paso * 0.34))
             let frac = CGFloat(arrastrando ?? avance)
             let colorFuerte = Color.gPrimary
             ZStack(alignment: .leading) {
