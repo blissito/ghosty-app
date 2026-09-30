@@ -52,8 +52,8 @@ struct UserBubble: View {
         }
             .padding(.horizontal, soloVoz ? 0 : 16)
             .padding(.vertical, soloVoz ? 0 : 12)
-            .padding(EdgeInsets(top: soloVoz ? 8 : 0, leading: soloVoz ? 6 : 0,
-                                bottom: soloVoz ? 8 : 0, trailing: soloVoz ? 12 : 0))
+            .padding(EdgeInsets(top: soloVoz ? 6 : 0, leading: soloVoz ? 6 : 0,
+                                bottom: soloVoz ? 6 : 0, trailing: soloVoz ? 12 : 0))
             .frame(minWidth: soloVoz ? 260 : nil, maxWidth: soloVoz ? 320 : nil)
             .background {
                 if soloVoz {

@@ -167,18 +167,17 @@ struct BurbujaDeVoz: View {
                     ondaConCursor
                         .frame(height: 26)
                 }
-                Group {
-                    if let fallo {
-                        Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
-                    } else if !tiempoAlFinal {
-                        Text(textoDelReloj)
-                            .gMono(size: 11)
-                            .monospacedDigit()
-                            .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
-                    }
+                // Sólo si hay algo que decir: un renglón vacío dejaba aire de más abajo.
+                if let fallo {
+                    Text(fallo).gCaption().foregroundStyle(Color.gDangerInk).lineLimit(1)
+                        .padding(.leading, 40)
+                } else if !tiempoAlFinal, !textoDelReloj.isEmpty {
+                    Text(textoDelReloj)
+                        .gMono(size: 11)
+                        .monospacedDigit()
+                        .foregroundStyle(lado == .mia ? Self.oliva.opacity(0.8) : Color.gInk3)
+                        .padding(.leading, 40)
                 }
-                .frame(height: 14, alignment: .leading)
-                .padding(.leading, 40)
             }
             .frame(maxWidth: .infinity)
             if tiempoAlFinal {

@@ -179,7 +179,7 @@ struct EntregaCard: View {
                     .padding(.leading, 56)
             }
         }
-        .padding(EdgeInsets(top: 8, leading: 6, bottom: 8, trailing: 12))
+        .padding(EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 12))
         .frame(minWidth: 260, maxWidth: 320, alignment: .leading)
         .background(
             UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: 4,
