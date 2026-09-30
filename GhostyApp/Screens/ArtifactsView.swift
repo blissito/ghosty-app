@@ -642,16 +642,19 @@ struct MiniaturaDeEntrega: View {
                 if let imagen {
                     Image(uiImage: imagen).resizable().scaledToFill()
                 } else if entrega.categoria == .video {
-                    ZStack {
-                        Color.gDark
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 40, height: 40)
-                            .background(Color.white.opacity(0.2), in: Circle())
-                    }
+                    Color.gDark   // mientras llega el cuadro
                 } else {
                     Image(systemName: "photo").foregroundStyle(Color.gInk4)
+                }
+            }
+            .overlay {
+                // El ▶ sobre un círculo negro al 35 %, con o sin miniatura (como Android).
+                if entrega.categoria == .video {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 40)
+                        .background(Color.black.opacity(0.35), in: Circle())
                 }
             }
             .clipped()
@@ -661,13 +664,40 @@ struct MiniaturaDeEntrega: View {
     }
 
     private func cargar() async {
-        guard entrega.categoria == .imagen else { return }
         if let ya = MiniaturasEnMemoria.imagen(clave) { imagen = ya; return }
+        if entrega.categoria == .video { await cargarCuadroDeVideo(); return }
+        guard entrega.categoria == .imagen else { return }
         var d = entrega.datos
         if d == nil, let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
         if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
         guard let d, let img = UIImage(data: d) else { return }
         MiniaturasEnMemoria.guardar(img, clave: clave)
+        imagen = img
+    }
+
+    /// Un cuadro del primer segundo del video (360 px), en memoria y en disco: el id del
+    /// archivo no cambia, así que la miniatura no caduca.
+    private func cargarCuadroDeVideo() async {
+        let disco = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appending(path: "miniaturas-video")
+        try? FileManager.default.createDirectory(at: disco, withIntermediateDirectories: true)
+        let archivo = disco.appending(path: (entrega.remotoID ?? entrega.id).replacingOccurrences(of: "/", with: "_") + ".jpg")
+        if let d = try? Data(contentsOf: archivo), let img = UIImage(data: d) {
+            MiniaturasEnMemoria.guardar(img, clave: clave)
+            imagen = img
+            return
+        }
+        var url: URL?
+        if let rid = entrega.remotoID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
+        if url == nil, let s = entrega.url { url = URL(string: s) }
+        guard let url else { return }
+        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        gen.appliesPreferredTrackTransform = true
+        gen.maximumSize = CGSize(width: 360, height: 360)
+        guard let (cg, _) = try? await gen.image(at: CMTime(seconds: 1, preferredTimescale: 600)) else { return }
+        let img = UIImage(cgImage: cg)
+        MiniaturasEnMemoria.guardar(img, clave: clave)
+        if let d = img.jpegData(compressionQuality: 0.8) { try? d.write(to: archivo, options: .atomic) }
         imagen = img
     }
 }

@@ -19,7 +19,7 @@ final class NotaDeVozUITests: XCTestCase {
         for _ in 0..<5 where !play.isHittable { app.swipeDown() }
         let foto1 = XCUIScreen.main.screenshot()
         add(XCTAttachment(screenshot: foto1))
-        play.tap()
+        if play.isHittable { play.tap() } else { play.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
         let velocidad = app.buttons["voz-velocidad"].firstMatch
         let sono = velocidad.waitForExistence(timeout: 6)
         let foto2 = XCUIScreen.main.screenshot()
