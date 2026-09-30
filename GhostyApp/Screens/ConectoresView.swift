@@ -206,19 +206,22 @@ struct ConectoresPane: View {
     private func insignia(_ c: Conector) -> some View {
         if let marca = c.marca {
             // La marca va SIN teñir y sin fondo de color: un logo lleva su propia paleta.
+            // Cuadro blanco de 42, radio 12, borde fino y el logo de 26, como Android.
             Image(marca, bundle: GhostyAssets.bundle)
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(width: 36, height: 36)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous))
+                .frame(width: 26, height: 26)
+                .frame(width: 42, height: 42)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
         } else {
             Text(String(c.nombre.prefix(1)).uppercased())
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(light: 0x5E5D6B, dark: 0xA3A2B0))
-                .frame(width: 36, height: 36)
-                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.icon, style: .continuous)
-                    .strokeBorder(Color.gFillStrong, lineWidth: 1.5))
+                .frame(width: 42, height: 42)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.gSeparator, lineWidth: 1))
         }
     }
 

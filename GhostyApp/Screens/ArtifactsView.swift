@@ -48,6 +48,8 @@ struct ArtifactsView: View {
     }
 
     @State private var filtro: Filtro = .todos
+    /// Filtro por agente (`nil` = todos). Se combina con el origen y las pestañas.
+    @State private var agenteElegido: String?
     /// `nil` = la primera pestaña que tenga algo.
     @State private var pestanaElegida: Pestana?
     /// La fila de documento abierta: enseña su vista previa (`EntregaCard`).
@@ -66,8 +68,19 @@ struct ArtifactsView: View {
         .sorted { $0.recibida > $1.recibida }
     }
 
+    /// De qué agente es: el que dice gs o, si no, el dueño de la conversación donde nació.
+    private func agenteDe(_ e: Entrega) -> String? {
+        if !e.agentID.isEmpty { return e.agentID }
+        guard let sid = e.sesionID else { return nil }
+        return store.canales.first { _, c in
+            c.hilosRemotos.contains { $0.id == sid } || c.hilos.contains { $0.sesionID == sid }
+        }?.key
+    }
+
     var body: some View {
-        let base = porOrigen(archivos)
+        let conAgente = archivos.map { ($0, agenteDe($0)) }
+        let agentesConArchivos = store.agents.filter { a in conAgente.contains { $0.1 == a.id } }
+        let base = porOrigen(conAgente.filter { agenteElegido == nil || $0.1 == agenteElegido }.map(\.0))
         let conteo = Dictionary(grouping: base, by: Pestana.de).mapValues(\.count)
         let pestana = pestanaElegida ?? Pestana.allCases.first { (conteo[$0] ?? 0) > 0 } ?? .multimedia
         ScrollView {
@@ -76,7 +89,7 @@ struct ArtifactsView: View {
                     .padding(.horizontal, Theme.Space.screenH + 2)
                     .padding(.bottom, 12)
 
-                filtros.padding(.horizontal, Theme.Space.screenH).padding(.bottom, 4)
+                filtros(agentes: agentesConArchivos).padding(.bottom, 4)
                 pestanas(conteo: conteo, actual: pestana)
 
                 avisoDeBorrado.padding(.horizontal, Theme.Space.screenH).padding(.top, 10)
@@ -109,32 +122,52 @@ struct ArtifactsView: View {
 
     // MARK: - Filtros
 
-    /// De dónde salió: los chips de «Chats» (relleno lila suave el activo).
-    private var filtros: some View {
-        HStack(spacing: 8) {
-            ForEach(Filtro.allCases) { f in
-                let activo = filtro == f
-                Button {
-                    withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+    /// De dónde salió y de qué agente: los chips de «Chats» en una fila, con un filete
+    /// entre los de origen y los de agente. Sólo salen agentes con archivos.
+    private func filtros(agentes: [Agent]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Filtro.allCases) { f in
+                    chipDeFiltro(f.nombre, activo: filtro == f, id: f.identificador) {
                         filtro = f
-                        abierta = nil
-                    }
-                } label: {
-                    Text(f.nombre)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(activo ? Color.gPrimary : Color.gInk2)
-                        .padding(.horizontal, 16)
-                        .frame(height: 36)
-                        .background(activo ? ChatsView.chipActivo : Color.gCard, in: Capsule())
-                        .overlay(Capsule().strokeBorder(activo ? ChatsView.chipBorde : Color.gSeparator, lineWidth: 1.2))
-                        .contentShape(Capsule())
+                    } icono: { EmptyView() }
                 }
-                .buttonStyle(.gPressPill)
-                .accessibilityAddTraits(activo ? .isSelected : [])
-                .accessibilityIdentifier(f.identificador)
+                if agentes.count > 1 {
+                    Rectangle().fill(Color.gSeparator).frame(width: 1, height: 20)
+                    ForEach(agentes) { a in
+                        chipDeFiltro(a.name, activo: agenteElegido == a.id, id: "archivos-agente-\(a.id)") {
+                            agenteElegido = agenteElegido == a.id ? nil : a.id
+                        } icono: { AgentAvatar(tone: a.tone, size: 24) }
+                    }
+                }
             }
+            .padding(.horizontal, Theme.Space.screenH)
+            .padding(.vertical, 6)
         }
-        .padding(.vertical, 6)
+    }
+
+    private func chipDeFiltro<I: View>(_ titulo: String, activo: Bool, id: String,
+                                       accion: @escaping () -> Void, @ViewBuilder icono: () -> I) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                accion()
+                abierta = nil
+            }
+        } label: {
+            HStack(spacing: 6) {
+                icono()
+                Text(titulo).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+            }
+            .foregroundStyle(activo ? Color.gPrimary : Color.gInk2)
+            .padding(.leading, I.self == EmptyView.self ? 16 : 6).padding(.trailing, 16)
+            .frame(height: 36)
+            .background(activo ? ChatsView.chipActivo : Color.gCard, in: Capsule())
+            .overlay(Capsule().strokeBorder(activo ? ChatsView.chipBorde : Color.gSeparator, lineWidth: 1.2))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.gPressPill)
+        .accessibilityAddTraits(activo ? .isSelected : [])
+        .accessibilityIdentifier(id)
     }
 
     /// Segundo nivel, más ligero: texto que se subraya en la marca, como las pestañas de
@@ -245,9 +278,13 @@ struct ArtifactsView: View {
                             ForEach(mes.entregas) { e in cuadro(e) }
                         }
                     case .documentos:
-                        ForEach(mes.entregas) { e in filaDeDocumento(e) }
+                        ForEach(mes.entregas) { e in
+                            filaDeDocumento(e).overlay(alignment: .bottom) { if e.id != mes.entregas.last?.id { divisor } }
+                        }
                     case .audio:
-                        ForEach(mes.entregas) { e in filaDeAudio(e) }
+                        ForEach(mes.entregas) { e in
+                            filaDeAudio(e).overlay(alignment: .bottom) { if e.id != mes.entregas.last?.id { divisor } }
+                        }
                     }
                 }
             }
@@ -255,6 +292,11 @@ struct ArtifactsView: View {
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: pestana)
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: abierta)
         }
+    }
+
+    /// Hairline que empieza donde empieza el texto (72), como WhatsApp.
+    private var divisor: some View {
+        Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 72)
     }
 
     static func porMes(_ entregas: [Entrega], ahora: Date = Date()) -> [(titulo: String, entregas: [Entrega])] {
@@ -308,7 +350,7 @@ struct ArtifactsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
                 .padding(.horizontal, Theme.Space.screenH)
                 .contentShape(Rectangle())
             }
@@ -327,23 +369,35 @@ struct ArtifactsView: View {
         }
     }
 
+    /// Renglón de audio: insignia salmón con audífonos; a la derecha nombre, detalle y el
+    /// reproductor debajo.
     private func filaDeAudio(_ e: Entrega) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(e.titulo)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.gInk)
-                .lineLimit(1)
-            BurbujaDeVoz(id: e.remotoID ?? e.id, lado: .agente, segundos: e.segundosDeVoz ?? 0, onda: e.onda ?? []) {
-                if let d = e.datos { return d }
-                var d: Data?
-                if let id = e.remotoID { d = try? await GhostyAPI.bajar(id) }
-                if d == nil, let s = e.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
-                guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
-                return d
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "headphones")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(Color.gSalmon, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(e.titulo)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                    .lineLimit(1)
+                Text(Self.meta(e)).font(.system(size: 14)).foregroundStyle(Color.gInk3).lineLimit(1)
+                BurbujaDeVoz(id: e.remotoID ?? e.id, lado: .mia, segundos: e.segundosDeVoz ?? 0, onda: e.onda ?? []) {
+                    if let d = e.datos { return d }
+                    var d: Data?
+                    if let id = e.remotoID { d = try? await GhostyAPI.bajar(id) }
+                    if d == nil, let s = e.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
+                    guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
+                    return d
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, Theme.Space.screenH)
-        .padding(.vertical, 6)
+        .padding(.vertical, 12)
         .accessibilityIdentifier("archivo-\(e.id)")
         .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
             Task { await store.deleteAccountFile(e) }

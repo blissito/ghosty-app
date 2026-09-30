@@ -121,9 +121,14 @@ struct PerfilView: View {
             Task { await cambiarFoto(item) }
         }
         .task {
-            if let u = await GhostyAPI.avatarURL(), let d = await Descargas.bytes(u), let img = UIImage(data: d) {
-                foto = img
-                FotoDePerfil.guardar(d)
+            if let u = await GhostyAPI.avatarURL() {
+                if let d = await Descargas.bytes(u), let img = UIImage(data: d) {
+                    foto = img
+                    FotoDePerfil.guardar(d)
+                }
+            } else if let local = foto?.jpegData(compressionQuality: 0.85) {
+                // El servidor no tiene y el teléfono sí: se sube, como Android.
+                _ = try? await GhostyAPI.subirAvatar(local)
             }
         }
         .overlay(alignment: .topTrailing) {

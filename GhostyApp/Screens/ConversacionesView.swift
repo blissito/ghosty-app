@@ -499,9 +499,9 @@ struct ChatsView: View {
     private func fila(_ f: Fila) -> some View {
         let elegida = seleccionando && seleccion.contains(f.llaveArchivo)
         return HStack(spacing: 12) {
-            AgentAvatar(tone: f.agente.tone, size: 44)
+            // Sólo el fantasma, sin aro ni fondo: como la foto de un contacto.
+            AgentAvatar(tone: f.agente.tone, size: 52)
                 .frame(width: 52, height: 52)
-                .background(Circle().fill(Color.gPrimaryRing))
                 // Seleccionada: la palomita verde sobre el avatar, como WhatsApp.
                 .overlay(alignment: .bottomTrailing) {
                     if elegida {

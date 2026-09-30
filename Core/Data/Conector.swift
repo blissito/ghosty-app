@@ -35,16 +35,31 @@ struct Conector: Identifiable, Equatable, Sendable {
 
     /// La marca de casa, si la tenemos empaquetada.
     ///
-    /// ⚠️ Sólo las NUESTRAS. El logo de un tercero es una licencia que no tenemos, y además
-    /// la lista la manda el servidor: un conector nuevo tiene que verse decente sin
-    /// actualizar la app, y para eso está el símbolo.
+    /// La lista la manda el servidor: un conector nuevo sin logo aquí se ve decente con el
+    /// símbolo, sin actualizar la app.
     var marca: String? {
-        switch id {
-        case "easybits": return "marca-easybits"
-        case "denik":    return "marca-denik"
-        case "mailmask": return "marca-mailmask"
-        default:         return nil
-        }
+        // Logos OFICIALES de todos (lo pidió el dueño, 2026-09-29; los mismos de Android,
+        // sacados del catálogo de gs `app/lib/connectors/registry.ts`). Por id y, de
+        // respaldo, por nombre. Sin logo (facturama, contpaqi): el símbolo.
+        let porId: [String: String] = [
+            "google-drive": "logo-google-drive", "drive": "logo-google-drive",
+            "mercadopago": "logo-mercadopago", "skydropx": "logo-skydropx",
+            "elevenlabs": "logo-elevenlabs", "easybits": "logo-easybits",
+            "google-calendar": "logo-google-calendar", "calendar": "logo-google-calendar",
+            "denik": "logo-denik", "mailmask": "logo-mailmask", "github": "logo-github",
+            "google": "logo-google", "gmail": "logo-google", "calendly": "logo-calendly",
+            "spotify": "logo-spotify", "canva": "logo-canva", "odoo": "logo-odoo",
+            "kommo": "logo-kommo", "mercadolibre": "logo-mercadolibre", "stripe": "logo-stripe",
+            "shopify": "logo-shopify", "woocommerce": "logo-woocommerce", "hubspot": "logo-hubspot",
+            "notion": "logo-notion", "slack": "logo-slack", "telegram": "logo-telegram",
+            "zoom": "logo-zoom", "clip": "logo-clip", "tiendanube": "logo-tiendanube",
+            "excel": "logo-excel", "google-business": "logo-google-business",
+            "meta-ads": "logo-meta-ads", "amazon": "logo-amazon",
+        ]
+        if let m = porId[id] { return m }
+        let n = nombre.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .lowercased().replacingOccurrences(of: " ", with: "")
+        return porId.first { n.contains($0.key.replacingOccurrences(of: "-", with: "")) }?.value
     }
 
     /// El símbolo con el que se pinta cuando no hay marca propia.
