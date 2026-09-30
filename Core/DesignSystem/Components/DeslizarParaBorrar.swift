@@ -61,22 +61,17 @@ struct DeslizarParaBorrar: ViewModifier {
                 .allowsHitTesting(!abierta)
         }
         .clipped()
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12, coordinateSpace: .local)
-                .onChanged { v in
-                    guard abs(v.translation.width) > abs(v.translation.height) else { return }
-                    let base: CGFloat = abierta ? -ancho : 0
-                    desplazamiento = min(0, max(-ancho - 20, base + v.translation.width))
-                }
-                .onEnded { v in
-                    guard abs(v.translation.width) > abs(v.translation.height) else { return }
-                    let quedaAbierta = (abierta ? -ancho : 0) + v.translation.width < -60
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        abierta = quedaAbierta
-                        desplazamiento = quedaAbierta ? -ancho : 0
-                    }
-                }
-        )
+        // Sólo horizontal y sin robarle el scroll a la lista (ver `panHorizontal`).
+        .panHorizontal(alCambiar: { tx in
+            let base: CGFloat = abierta ? -ancho : 0
+            desplazamiento = min(0, max(-ancho - 20, base + tx))
+        }, alTerminar: { tx in
+            let quedaAbierta = (abierta ? -ancho : 0) + tx < -60
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                abierta = quedaAbierta
+                desplazamiento = quedaAbierta ? -ancho : 0
+            }
+        })
         .accessibilityAction(named: "Borrar") { preguntando = true }
         .confirmarBorrado(titulo, consecuencia: consecuencia, preguntando: $preguntando) {
             cerrar()

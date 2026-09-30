@@ -591,10 +591,14 @@ struct ChatsView: View {
             if seleccionando { alternarSeleccion(f) } else { abrir(f) }
         }
         // Mantener presionado entra al modo selección con esa fila elegida, como WhatsApp.
-        .onLongPressGesture(minimumDuration: 0.4) {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { seleccionando = true }
-            alternarSeleccion(f)
-        }
+        // ⚠️ SIMULTÁNEO, no `onLongPressGesture`: ése compite con el scroll de la lista y lo
+        // bloqueaba a ratos («hay que reintentar varias veces», 2026-09-29).
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { seleccionando = true }
+                alternarSeleccion(f)
+            }
+        )
         .sensoryFeedback(.selection, trigger: seleccion)
         // Deslizar como WhatsApp: izquierda → Archivar; derecha → Leído/No leído y Fijar.
         .modifier(DeslizarChat(
@@ -992,23 +996,19 @@ private struct DeslizarChat: ViewModifier {
             }
         }
         .clipped()
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 14, coordinateSpace: .local)
-                .onChanged { v in
-                    guard habilitado, abs(v.translation.width) > abs(v.translation.height) else { return }
-                    let base: CGFloat = lado == -1 ? -boton : lado == 1 ? boton * 2 : 0
-                    dx = min(boton * 2 + 20, max(-boton - 20, base + v.translation.width))
-                }
-                .onEnded { v in
-                    guard habilitado, abs(v.translation.width) > abs(v.translation.height) else { return }
-                    let fin = (lado == -1 ? -boton : lado == 1 ? boton * 2 : 0) + v.translation.width
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        if fin < -50 { lado = -1; dx = -boton }
-                        else if fin > 60 { lado = 1; dx = boton * 2 }
-                        else { lado = 0; dx = 0 }
-                    }
-                }
-        )
+        .panHorizontal(alCambiar: { tx in
+            guard habilitado else { return }
+            let base: CGFloat = lado == -1 ? -boton : lado == 1 ? boton * 2 : 0
+            dx = min(boton * 2 + 20, max(-boton - 20, base + tx))
+        }, alTerminar: { tx in
+            guard habilitado else { return }
+            let fin = (lado == -1 ? -boton : lado == 1 ? boton * 2 : 0) + tx
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                if fin < -50 { lado = -1; dx = -boton }
+                else if fin > 60 { lado = 1; dx = boton * 2 }
+                else { lado = 0; dx = 0 }
+            }
+        })
         .accessibilityAction(named: "Archivar", alArchivar)
         .accessibilityAction(named: sinLeer ? "Marcar como leído" : "Marcar como no leído", alLeido)
         .accessibilityAction(named: fijado ? "Desfijar" : "Fijar", alFijar)

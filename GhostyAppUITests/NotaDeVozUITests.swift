@@ -43,14 +43,21 @@ final class DeslizarChatUITests: XCTestCase {
         let foto = XCUIScreen.main.screenshot()
         let a = XCTAttachment(screenshot: foto); a.lifetime = .keepAlways; add(a)
         XCTAssertTrue(app.staticTexts["Chats"].firstMatch.exists, "el deslizar cambió de pestaña")
-        // Y a la derecha: Leído/No leído y Fijar, sin irse a Archivos.
-        fila.tap()   // cierra la izquierda
-        Thread.sleep(forTimeInterval: 0.5)
-        app.staticTexts["El informe"].firstMatch.swipeRight()
+        XCTAssertTrue(app.buttons["Archivar"].firstMatch.waitForExistence(timeout: 2), "no salió Archivar")
+    }
+
+    func testDeslizarDerecha() {
+        let app = XCUIApplication()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchArguments += ["-ai.consentGiven", "YES"]
+        app.launch()
+        let fila = app.staticTexts["cotización de abril"].firstMatch
+        XCTAssertTrue(fila.waitForExistence(timeout: 8))
+        fila.swipeRight()
         Thread.sleep(forTimeInterval: 0.8)
         let foto2 = XCUIScreen.main.screenshot()
         let b = XCTAttachment(screenshot: foto2); b.lifetime = .keepAlways; add(b)
-        XCTAssertTrue(app.buttons["Fijar"].firstMatch.exists, "no salió Fijar al deslizar a la derecha")
+        XCTAssertTrue(app.buttons["Fijar"].firstMatch.waitForExistence(timeout: 2), "no salió Fijar al deslizar a la derecha")
     }
 }
 
@@ -68,5 +75,28 @@ final class AvisoAbreConversacionUITests: XCTestCase {
         let a = XCTAttachment(screenshot: foto); a.lifetime = .keepAlways; add(a)
         XCTAssertTrue(app.staticTexts["solo me interesa la foto"].firstMatch.waitForExistence(timeout: 4),
                       "abrió otra conversación")
+    }
+}
+
+/// La lista de Chats hace scroll a la primera, varias veces seguidas.
+final class ScrollDeChatsUITests: XCTestCase {
+    func testScrollResponde() {
+        let app = XCUIApplication()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchArguments += ["-ai.consentGiven", "YES"]
+        app.launch()
+        let primera = app.staticTexts["cotización de abril"].firstMatch
+        XCTAssertTrue(primera.waitForExistence(timeout: 8))
+        let y0 = primera.frame.minY
+        for i in 0..<4 {
+            app.swipeUp(velocity: .slow)
+            Thread.sleep(forTimeInterval: 0.4)
+            app.swipeDown(velocity: .slow)
+            Thread.sleep(forTimeInterval: 0.4)
+            XCTAssertEqual(primera.frame.minY, y0, accuracy: 30, "vuelta \(i): la lista no regresó")
+        }
+        app.swipeUp(velocity: .slow)
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertLessThan(primera.frame.minY, y0 - 30, "el scroll no se movió")
     }
 }
