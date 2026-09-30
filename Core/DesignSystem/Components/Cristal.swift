@@ -20,17 +20,25 @@ extension View {
     func cristalCircular(tinte: Color? = nil) -> some View { modifier(CristalCircular(tinte: tinte)) }
 }
 
-/// El fondo de una barra superior flotante: difumina lo que pasa por debajo y se desvanece
-/// hacia abajo, como WhatsApp en iOS 26.
+/// El fondo de una barra superior flotante, como WhatsApp en iOS 26: en reposo no hay
+/// nada (se ve el fondo de la app); al desplazar, un difuminado casi blanco que cubre
+/// parejo desde la franja de la batería y se desvanece hacia abajo, sin corte duro.
 struct FondoDeBarraDifuminado: View {
+    /// 0 = en reposo (transparente) · 1 = con contenido pasando por debajo.
+    var intensidad: Double = 1
+
     var body: some View {
-        Rectangle()
-            .fill(.ultraThinMaterial)
-            .mask(LinearGradient(stops: [.init(color: .black, location: 0),
-                                         .init(color: .black, location: 0.6),
-                                         .init(color: .clear, location: 1)],
-                                 startPoint: .top, endPoint: .bottom))
-            // La franja de la hora y la batería queda transparente (lo pidió bliss).
-            .allowsHitTesting(false)
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            // El material solo tiñe de gris sobre blanco: se aclara hacia el color de la app.
+            Color.gBg.opacity(0.55)
+        }
+        .mask(LinearGradient(stops: [.init(color: .black, location: 0),
+                                     .init(color: .black, location: 0.7),
+                                     .init(color: .clear, location: 1)],
+                             startPoint: .top, endPoint: .bottom))
+        .opacity(intensidad)
+        .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
     }
 }

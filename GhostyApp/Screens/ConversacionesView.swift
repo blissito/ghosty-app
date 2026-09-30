@@ -282,7 +282,11 @@ struct ChatsView: View {
         .padding(.vertical, 4)
         .frame(height: 56)
         // Lo que pasa por debajo se difumina (Liquid Glass): la lista corre DETRÁS de la barra.
-        .background { FondoDeBarraDifuminado().padding(.bottom, -18) }
+        .background {
+            FondoDeBarraDifuminado(intensidad: tituloArriba ? 1 : 0)
+                .padding(.bottom, -18)
+                .animation(.easeOut(duration: 0.2), value: tituloArriba)
+        }
     }
 
     /// La barra del modo selección: ✕, cuántos, y las acciones sobre los elegidos.
