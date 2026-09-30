@@ -64,8 +64,13 @@ enum ReplayToMessages {
                 // sería pintar un widget que miente sobre lo que se grabó.
                 let recuperados: [Adjunto] = nombres.compactMap { nombre in
                     guard let f = archivos[nombre] else { return nil }
+                    // ⚠️ Una nota de voz que llegó por los adjuntos del turno (no por la subida
+                    // de la app) se guarda SIN `meta`: sin esto salía como clip y no se podía
+                    // oír. Por el nombre se sabe que es nota; la duración la da el audio al
+                    // sonar (0 = desconocida) y la onda es la fija por id.
+                    let esNota = f.mime.hasPrefix("audio/") && f.nombre.lowercased().hasPrefix("nota-de-voz")
                     var a = Adjunto(nombre: f.nombre, mime: f.mime, datos: Data(),
-                                    segundos: f.segundos, onda: f.onda)
+                                    segundos: f.segundos ?? (esNota ? 0 : nil), onda: f.onda)
                     a.remoto = GhostyAPI.ArchivoRemoto(id: f.id, nombre: f.nombre, mime: f.mime,
                                                        bytes: f.bytes, url: "")
                     return a

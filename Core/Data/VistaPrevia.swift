@@ -28,7 +28,8 @@ struct VistaPrevia: Equatable, Sendable {
         switch m.kind {
         case .user(let t, let adjuntos, _):
             if let voz = adjuntos.first(where: \.esVoz) {
-                return "🎤 Nota de voz (\(NotaDeVoz.reloj(voz.segundos ?? 0)))"
+                let s = voz.segundos ?? 0
+                return s > 0 ? "🎤 Nota de voz (\(NotaDeVoz.reloj(s)))" : "🎤 Nota de voz"
             }
             let limpio = plano(t)
             if !limpio.isEmpty { return limpio }

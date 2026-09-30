@@ -342,6 +342,7 @@ struct BurbujaDeVoz: View {
             reproductor = p
             return p
         } catch let e as GhostyAPI.Fallo {
+            EasyBitsClient.diag("[voz] \(id.prefix(12)) no bajó: \(e.errorDescription ?? "?")")
             fallo = e.errorDescription ?? "No pude bajarlo."
         } catch {
             fallo = "No pude reproducirlo."
@@ -351,6 +352,7 @@ struct BurbujaDeVoz: View {
     }
 
     private func alternar() async {
+        EasyBitsClient.diag("[voz] ▶ tocado \(id.prefix(12)) sonando=\(sonando) listo=\(reproductor != nil)")
         if sonando { parar(); return }
         guard let p = await preparado() else { return }
         // Terminó la vez anterior: vuelve a empezar, no se queda en el final.
@@ -376,7 +378,13 @@ struct BurbujaDeVoz: View {
         }
         NotificationCenter.default.post(name: ReproduccionDeVoz.suena, object: id)
         p.rate = velocidad
-        p.play()
+        let arranco = p.play()
+        EasyBitsClient.diag("[voz] \(id.prefix(12)) play=\(arranco) dur=\(p.duration) cat=\(AVAudioSession.sharedInstance().category.rawValue)")
+        if !arranco {
+            // ⚠️ Sin esto un play que no arranca se quedaba mudo y quieto, sin decir nada.
+            fallo = "No pude reproducirlo."
+            return
+        }
         withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) { sonando = true }
         if !escuchada {
             escuchada = true
