@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UserNotifications
 
@@ -81,32 +82,50 @@ struct PerfilView: View {
 
     private var usoDelPlan: PersonalUsage? { agenteDelPlan.flatMap { usos.usos[$0.id] } }
 
+    /// La foto: la copia local pinta al instante; al abrir se baja la del servidor.
+    @State private var foto: UIImage? = FotoDePerfil.local()
+    @State private var eligiendoFoto: PhotosPickerItem?
+    @State private var subiendoFoto = false
+    @State private var falloDeFoto: String?
+    /// Cuánto se ha subido el contenido: la portada hace parallax con esto.
+    @State private var subido: CGFloat = 0
+
+    /// Perfil como el de WhatsApp: portada con dibujitos, hoja blanca que sube encima, la
+    /// foto montada en su borde y las secciones en tarjetas redondeadas (las de iOS).
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                cabecera
-                    .padding(.top, 18)
-                    .padding(.bottom, 22)
-                    .gIn()
-                tarjetaDelPlan
-                    .padding(.bottom, 18)
-                    .gIn(delay: 0.05)
-                usoPorAgente
-                    .gIn(delay: 0.1)
-                ajustes
-                    .gIn(delay: 0.15)
-                cerrarSesion
-                    .padding(.top, 14)
-                Text(PerfilView.version)
-                    .gCaption()
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 4)
+            ZStack(alignment: .top) {
+                PortadaDePerfil()
+                    .frame(height: 260 + max(0, -subido))
+                    // Parallax: la portada sube a media velocidad; al tirar hacia abajo, crece.
+                    .offset(y: subido > 0 ? subido * 0.5 : subido)
+                    .clipped()
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 214)
+                        .background {
+                            GeometryReader { g in
+                                Color.clear.preference(key: SubidaDelPerfil.self, value: -g.frame(in: .named("perfil")).minY)
+                            }
+                        }
+                    hoja
+                }
             }
-            .padding(.horizontal, Theme.Space.screenH)
-            .padding(.top, 14)
-            .padding(.bottom, 20)
         }
+        .coordinateSpace(name: "perfil")
+        .onPreferenceChange(SubidaDelPerfil.self) { subido = $0 }
         .scrollIndicators(.hidden)
+        .ignoresSafeArea(edges: .top)
+        .background(Color.gBg.ignoresSafeArea())
+        .onChange(of: eligiendoFoto) { _, item in
+            guard let item else { return }
+            Task { await cambiarFoto(item) }
+        }
+        .task {
+            if let u = await GhostyAPI.avatarURL(), let d = await Descargas.bytes(u), let img = UIImage(data: d) {
+                foto = img
+                FotoDePerfil.guardar(d)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if enHoja {
                 Button { dismiss() } label: {
@@ -129,6 +148,271 @@ struct PerfilView: View {
                 .presentationCornerRadius(Theme.Radius.sheet)
                 #endif
         }
+    }
+
+    // MARK: - Perfil estilo WhatsApp
+
+    private var hoja: some View {
+        VStack(spacing: 0) {
+            avatar
+                .padding(.top, -64)
+                .padding(.bottom, 12)
+            if let nombre = Self.nombreCorto(store.correo) {
+                Text(nombre)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Color.gInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            if let correo = store.correo {
+                Text(correo).font(.system(size: 15)).foregroundStyle(Color.gInk3)
+            }
+            if let falloDeFoto {
+                Text(falloDeFoto).gCaption().foregroundStyle(Color.gDangerInk).padding(.top, 6)
+            }
+
+            VStack(spacing: 18) {
+                seccion {
+                    renglonWA("creditcard", "Suscripción",
+                              usoDelPlan.map { "Plan \($0.plan.name) · se administra en ghosty.studio" } ?? "Se administra en ghosty.studio")
+                    divisorWA
+                    Button { verUso = true } label: {
+                        VStack(alignment: .leading, spacing: 0) {
+                            renglonWA("chart.bar", "Uso", resumenDeUso, chevron: true)
+                            barrasDeUso
+                        }
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    .accessibilityIdentifier("tarjeta-plan")
+                    if let a = store.almacenamiento {
+                        divisorWA
+                        VStack(alignment: .leading, spacing: 0) {
+                            renglonWA("internaldrive", "Almacenamiento", a.texto)
+                            barra(fraccion: a.fraccion, fondo: .gSeparator,
+                                  relleno: a.fraccion > 0.9 ? .gDanger : .gPrimary, alto: 4)
+                                .padding(.leading, 56).padding(.trailing, 16).padding(.bottom, 14)
+                        }
+                    }
+                }
+                seccion {
+                    Button {
+                        #if os(iOS)
+                        if let u = URL(string: UIApplication.openNotificationSettingsURLString) { abrir(u) }
+                        #endif
+                    } label: { renglonWA("bell", "Notificaciones", textoDeAvisos, chevron: true) }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    .accessibilityIdentifier("ajuste-notificaciones")
+                    divisorWA
+                    // 5.1.2(i): el permiso de IA de terceros se revisa y se retira aquí.
+                    Button { abrirConsentimiento = true } label: {
+                        renglonWA("hand.raised", "IA de terceros", consentGiven ? "Permitido" : "No permitido", chevron: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    .accessibilityIdentifier("ai-consent-settings")
+                }
+                seccion {
+                    Button { abrir(Session.base.appendingPathComponent("privacidad")) } label: {
+                        renglonWA("lock", "Privacidad", "Cómo cuidamos tus datos", chevron: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    divisorWA
+                    Button { abrir(Session.base.appendingPathComponent("terminos")) } label: {
+                        renglonWA("doc.text", "Términos de servicio", "Lo que acordamos", chevron: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    divisorWA
+                    // ⚠️ El registro, a mano: es lo que se pide por teléfono cuando algo va mal.
+                    ShareLink(item: Bitacora.volcar()) {
+                        renglonWA("questionmark.circle", "Ayuda", "Compartir registro · \(PerfilView.versionCorta)", chevron: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                }
+                seccion {
+                    Button {
+                        saliendo = true
+                        Task {
+                            // Cierra ANTES de despedir la hoja: al revés, la tarea se queda a medias.
+                            await store.cerrarSesion()
+                            if enHoja { dismiss() }
+                        }
+                    } label: {
+                        renglonWA("rectangle.portrait.and.arrow.right", saliendo ? "Saliendo…" : "Cerrar sesión", nil, rojo: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    .disabled(saliendo)
+                    .accessibilityIdentifier("cerrar-sesion")
+                    divisorWA
+                    // Borrar la cuenta. Apple lo exige dentro de la app (5.1.1(v)).
+                    Button { confirmarBorrado = true } label: {
+                        renglonWA("trash", borrando ? "Borrando…" : "Borrar mi cuenta", nil, rojo: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    .disabled(borrando || saliendo)
+                    .accessibilityIdentifier("borrar-cuenta")
+                    .confirmationDialog("¿Borrar tu cuenta?", isPresented: $confirmarBorrado, titleVisibility: .visible) {
+                        Button("Borrar mi cuenta", role: .destructive) {
+                            borrando = true
+                            Task {
+                                falloAlBorrar = await store.borrarCuenta()
+                                borrando = false
+                                if falloAlBorrar == nil, enHoja { dismiss() }
+                            }
+                        }
+                        Button("Cancelar", role: .cancel) {}
+                    } message: {
+                        Text("Se borran tus agentes, tus conversaciones y tus archivos. No se puede deshacer.")
+                    }
+                }
+                if let falloAlBorrar {
+                    Text(falloAlBorrar).gCaption().foregroundStyle(Color.gDangerInk)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Text(PerfilView.version).gCaption().frame(maxWidth: .infinity)
+            }
+            .padding(.top, 24)
+            .padding(.horizontal, Theme.Space.screenH)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity)
+        .background(
+            UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28, style: .continuous)
+                .fill(Color.gBg)
+                .shadow(color: .black.opacity(0.06), radius: 8, y: -2)
+        )
+    }
+
+    /// La foto de 128, con borde blanco de 4, montada en el borde de la hoja, y el botón de
+    /// cámara. Sin foto, la inicial en marca.
+    private var avatar: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let foto {
+                    Image(uiImage: foto).resizable().scaledToFill()
+                } else {
+                    Text(String((Self.nombreCorto(store.correo) ?? "G").prefix(1)))
+                        .font(.system(size: 52, weight: .bold))
+                        .foregroundStyle(Color.gPrimary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.gPrimaryTint)
+                }
+            }
+            .frame(width: 128, height: 128)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Color.gBg, lineWidth: 4))
+            .overlay { if subiendoFoto { ProgressView().tint(.white).padding(8).background(.black.opacity(0.35), in: Circle()) } }
+
+            PhotosPicker(selection: $eligiendoFoto, matching: .images) {
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(Color.gPrimary, in: Circle())
+                    .overlay(Circle().stroke(Color.gBg, lineWidth: 3))
+            }
+            .accessibilityLabel("Cambiar foto")
+            .accessibilityIdentifier("perfil-foto")
+        }
+    }
+
+    /// Una sección: tarjeta redondeada gris claro, como los grupos del perfil de WhatsApp en iOS.
+    private func seccion<C: View>(@ViewBuilder _ contenido: () -> C) -> some View {
+        VStack(spacing: 0) { contenido() }
+            .background(Color.gFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var divisorWA: some View {
+        Rectangle().fill(Color.gSeparator).frame(height: 0.5).padding(.leading, 56)
+    }
+
+    /// Renglón de WhatsApp: icono metal de 22, título y subtítulo gris.
+    private func renglonWA(_ icono: String, _ titulo: String, _ subtitulo: String?,
+                           chevron: Bool = false, rojo: Bool = false) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icono)
+                .font(.system(size: 19))
+                .foregroundStyle(rojo ? Color.gDanger : Color.gInk2)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(titulo)
+                    .font(.system(size: 16))
+                    .foregroundStyle(rojo ? Color.gDanger : Color.gInk)
+                if let subtitulo, !subtitulo.isEmpty {
+                    Text(subtitulo)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.gInk3)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if chevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.gChevron)
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .contentShape(Rectangle())
+    }
+
+    private var resumenDeUso: String {
+        guard let u = usoDelPlan else { return "Toca para ver tu uso" }
+        if u.ownKey != nil { return "Tu llave · sin tope de uso" }
+        if u.exempt == true { return "Sin tope · acceso anticipado" }
+        if let p = u.week.pct { return "\(Self.porcentaje(p)) de tu semana · se renueva \(Self.renovacion(u.week.resetsAt))" }
+        return "Sin tope esta semana"
+    }
+
+    /// «Esta sesión» y «Esta semana», si el plan tiene tope.
+    @ViewBuilder
+    private var barrasDeUso: some View {
+        if let u = usoDelPlan, u.ownKey == nil, u.exempt != true {
+            VStack(alignment: .leading, spacing: 8) {
+                if let s = u.session {
+                    barraConNombre("Esta sesión", s.pct)
+                }
+                if let w = u.week.pct {
+                    barraConNombre("Esta semana", w)
+                }
+            }
+            .padding(.leading, 56).padding(.trailing, 16).padding(.bottom, 14)
+        }
+    }
+
+    private func barraConNombre(_ nombre: String, _ pct: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(nombre).font(.system(size: 12)).foregroundStyle(Color.gInk3)
+                Spacer()
+                Text(Self.porcentaje(pct)).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(Color.gInk2)
+            }
+            barra(fraccion: pct, fondo: .gSeparator, relleno: pct > 0.9 ? .gDanger : .gPrimary, alto: 4)
+        }
+    }
+
+    /// La parte del correo antes de @, con mayúscula («blissitos@…» → «Blissitos»).
+    static func nombreCorto(_ correo: String?) -> String? {
+        guard let local = correo?.split(separator: "@").first, !local.isEmpty else { return nil }
+        return local.prefix(1).uppercased() + local.dropFirst()
+    }
+
+    private func cambiarFoto(_ item: PhotosPickerItem) async {
+        defer { eligiendoFoto = nil }
+        guard let d = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: d) else {
+            falloDeFoto = "No pude leer esa foto."
+            return
+        }
+        // Reducida a 1024 px, como Android: al instante aquí y después al servidor.
+        let chica = FotoDePerfil.reducir(img, lado: 1024)
+        guard let jpeg = chica.jpegData(compressionQuality: 0.85) else { return }
+        foto = chica
+        FotoDePerfil.guardar(jpeg)
+        falloDeFoto = nil
+        subiendoFoto = true
+        defer { subiendoFoto = false }
+        do { _ = try await GhostyAPI.subirAvatar(jpeg) }
+        catch { falloDeFoto = "Se quedó en este teléfono; no pude subirla. \(error.localizedDescription)" }
     }
 
     // MARK: - Quién eres
@@ -625,5 +909,58 @@ struct DetalleDeUso: View {
         }
         .background(Color.gBg.ignoresSafeArea())
         .accessibilityIdentifier("detalle-uso")
+    }
+}
+
+private struct SubidaDelPerfil: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// La foto de perfil en este teléfono: pinta al instante sin esperar al servidor.
+enum FotoDePerfil {
+    private static var archivo: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appending(path: "foto-de-perfil.jpg")
+    }
+    static func local() -> UIImage? { (try? Data(contentsOf: archivo)).flatMap(UIImage.init(data:)) }
+    static func guardar(_ d: Data) { try? d.write(to: archivo, options: .atomic) }
+    static func reducir(_ img: UIImage, lado: CGFloat) -> UIImage {
+        let escala = min(1, lado / max(img.size.width, img.size.height))
+        guard escala < 1 else { return img }
+        let tam = CGSize(width: img.size.width * escala, height: img.size.height * escala)
+        return UIGraphicsImageRenderer(size: tam).image { _ in img.draw(in: CGRect(origin: .zero, size: tam)) }
+    }
+}
+
+/// La portada del perfil: fondo lila claro con dibujitos (chat, estrella, destellos,
+/// carpeta, pieza, corazón, micrófono, rayo) en la marca al 22 %, girados ±25° y en filas
+/// escalonadas, como el patrón de fondo de WhatsApp.
+struct PortadaDePerfil: View {
+    private static let dibujos = ["bubble.left.fill", "star.fill", "sparkles", "folder.fill",
+                                  "puzzlepiece.fill", "heart.fill", "mic.fill", "bolt.fill"]
+
+    var body: some View {
+        GeometryReader { g in
+            let paso: CGFloat = 56
+            let columnas = Int(g.size.width / paso) + 2
+            let filas = Int(g.size.height / paso) + 2
+            ZStack(alignment: .topLeading) {
+                Color(hex: 0xF5F5FC)
+                ForEach(0..<filas, id: \.self) { f in
+                    ForEach(0..<columnas, id: \.self) { c in
+                        let i = f * 3 + c
+                        Image(systemName: Self.dibujos[i % Self.dibujos.count])
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x8483E0).opacity(0.22))
+                            .rotationEffect(.degrees(i % 2 == 0 ? 25 : -25))
+                            .position(x: CGFloat(c) * paso + (f % 2 == 0 ? 0 : paso / 2),
+                                      y: CGFloat(f) * paso + 20)
+                    }
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }

@@ -513,6 +513,42 @@ enum GhostyAPI {
         return uso
     }
 
+    /// Sube la foto de perfil (`PUT /api/v2/me/avatar`, JPEG, máx. 5 MB). gs la recorta a
+    /// 512 y contesta `{avatarUrl}` (firmada, 6 h).
+    static func subirAvatar(_ jpeg: Data) async throws -> URL? {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/avatar"))
+        req.httpMethod = "PUT"
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
+        req.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 60
+        let (datos, resp) = try await URLSession.shared.upload(for: req, from: jpeg)
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+        guard codigo == 200 else { throw Fallo.mensaje((j?["error"] as? String) ?? "No pude subir la foto (\(codigo)).") }
+        return (j?["avatarUrl"] as? String).flatMap(URL.init(string:))
+    }
+
+    static func borrarAvatar() async throws {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/avatar"))
+        req.httpMethod = "DELETE"
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
+        _ = try await URLSession.shared.data(for: req)
+    }
+
+    /// La foto del servidor (`GET /api/v2/me` → `avatarUrl`). `nil` si no hay o falla.
+    static func avatarURL() async -> URL? {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me"))
+        req.assumesHTTP3Capable = false
+        guard let token = try? await Session.accessToken() else { return nil }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any] else { return nil }
+        return (j["avatarUrl"] as? String).flatMap(URL.init(string:))
+    }
+
     /// Cuánto almacenamiento lleva usado la cuenta.
     static func almacenamiento() async throws -> Almacenamiento? {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files"))

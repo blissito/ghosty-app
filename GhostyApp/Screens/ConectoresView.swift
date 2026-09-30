@@ -139,8 +139,8 @@ struct ConectoresPane: View {
                     .gIn(delay: min(Double(i), 8) * 0.03)
             }
         }
-        .background(Color.gCard)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.list, style: .continuous))
+        // Renglones de borde a borde, como Chats: sin tarjeta.
+        .padding(.horizontal, -Theme.Space.screenH)
     }
 
     private func fila(_ c: Conector) -> some View {
@@ -170,19 +170,32 @@ struct ConectoresPane: View {
             if !c.disponible {
                 Text("Muy pronto").gCaption()
             } else {
+                // Botones oscuros de la paleta, como Android: Conectar relleno, Desconectar
+                // con borde.
                 let cargando = trabajando == c.id
-                InterruptorGhosty(encendido: cargando ? (destino ?? c.conectado) : c.conectado,
-                                  cargando: cargando) {
+                Button {
                     guard trabajando == nil else { return }
                     if c.conectado { porDesconectar = c } else { conectar(c) }
+                } label: {
+                    Group {
+                        if cargando { ProgressView().controlSize(.small).tint(c.conectado ? Color.gDark : .white) }
+                        else { Text(c.conectado ? "Desconectar" : "Conectar") }
+                    }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(c.conectado ? Color.gDark : .white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 34)
+                    .background(c.conectado ? Color.clear : Color.gDark, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.gDark, lineWidth: c.conectado ? 1.2 : 0))
+                    .contentShape(Capsule())
                 }
-                .accessibilityLabel(c.nombre)
-                .accessibilityValue(c.conectado ? "Conectada" : "Apagada")
+                .buttonStyle(.gPressPill)
+                .accessibilityLabel("\(c.conectado ? "Desconectar" : "Conectar") \(c.nombre)")
                 .accessibilityIdentifier("switch-\(c.id)")
             }
         }
         .padding(.vertical, 12)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         // Lo que todavía no se puede conectar se ve, pero apagado: enseñar lo que viene es
         // útil; dejar que se toque y no pase nada, no.
         .opacity(c.disponible ? 1 : 0.55)
