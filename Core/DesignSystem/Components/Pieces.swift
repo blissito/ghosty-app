@@ -195,6 +195,9 @@ struct AgentHeader: View {
     var onVolver: (() -> Void)?
     /// Cuántas conversaciones te esperan en «Chats»: el número junto a la flecha.
     var pendientesAtras = 0
+    /// ⭐ de la conversación, como en Android: `nil` = sin estrella (hilo sin sesión aún).
+    var favorito: Bool?
+    var onFavorito: (() -> Void)?
 
     private var status: AgentStatus { estado ?? agent.status }
     private var trabajando: Bool { if case .working = status { return true } else { return false } }
@@ -288,6 +291,19 @@ struct AgentHeader: View {
 
             Spacer(minLength: 4)
 
+            if let favorito, let onFavorito {
+                Button(action: onFavorito) {
+                    Image(systemName: favorito ? "star.fill" : "star")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(favorito ? Color.gBird : Color.gInk)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 40, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.gPressIcon)
+                .accessibilityLabel(favorito ? "Quitar de favoritos" : "Agregar a favoritos")
+                .accessibilityIdentifier("hilo-favorito")
+            }
             if let onNueva {
                 Button(action: onNueva) {
                     ChatIcons.nuevoChat.dibujo(Color.gInk, size: 20)

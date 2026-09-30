@@ -48,6 +48,12 @@ struct ConversationView: View {
     @State private var gestoCancelado = false
     /// El globito «Mantén presionado para grabar…» sobre el micrófono, tras un toque corto.
     @State private var pistaDeVoz = false
+    /// Favoritas, para pintar la ⭐ de la cabecera.
+    @State private var favoritas: Set<String> = ChatsFavoritos.ids
+    private var llaveFavorita: String? {
+        guard let sid = store.hiloActivo?.sesionID else { return nil }
+        return ChatsFavoritos.llave(store.selectedAgentID, sid)
+    }
     @State private var fallo: String?
     /// El último mensaje visible, según el propio `ScrollView`.
     @State private var anclaje: String?
@@ -94,7 +100,13 @@ struct ConversationView: View {
                             onHistorial: onHistorial.map { abrir in { escribiendo = false; abrir() } },
                             puntoHistorial: store.hayPendientes,
                             onVolver: onVolver.map { volver in { escribiendo = false; volver() } },
-                            pendientesAtras: onVolver == nil ? 0 : store.chatsSinLeer)
+                            pendientesAtras: onVolver == nil ? 0 : store.chatsSinLeer,
+                            favorito: llaveFavorita.map { favoritas.contains($0) },
+                            onFavorito: {
+                                guard let k = llaveFavorita else { return }
+                                ChatsFavoritos.alternar(k)
+                                favoritas = ChatsFavoritos.ids
+                            })
             }
 
             // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y

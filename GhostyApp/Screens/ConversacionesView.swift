@@ -29,6 +29,8 @@ struct ChatsView: View {
     /// ¿Ya se fue el título grande hacia arriba? Entonces sale el chico en la barra.
     @State private var tituloArriba = false
     @State private var nueva = false
+    /// El ⋯: menú propio (tarjeta blanca, radio 18, borde fino), no el nativo.
+    @State private var menuAbierto = false
     /// Modo selección de WhatsApp: mantener presionada una fila o «Seleccionar chats».
     @State private var seleccionando = false
     @State private var seleccion: Set<String> = []
@@ -39,7 +41,8 @@ struct ChatsView: View {
     @State private var renombrando: (agente: String, sesion: String)?
     @State private var nombreNuevo = ""
 
-    static let verde = Color(hex: 0x25A35A)
+    /// Verde de no leídos: grass de la paleta oficial.
+    static let verde = Color.gGrass
 
     // MARK: - Modelo de la lista
 
@@ -172,6 +175,23 @@ struct ChatsView: View {
             store.repasarLaFlota()
             await store.precargarChats()
         }
+        .overlay(alignment: .topLeading) {
+            if menuAbierto {
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.001).ignoresSafeArea()
+                        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { menuAbierto = false } }
+                    MenuDeGhosty(opciones: [
+                        .init(titulo: "Marcar como leídos", simbolo: "checkmark.message") { store.leerTodo() },
+                        .init(titulo: "Seleccionar chats", simbolo: "checkmark.circle") {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { seleccionando = true }
+                        },
+                    ]) { withAnimation(.easeOut(duration: 0.15)) { menuAbierto = false } }
+                    .padding(.leading, Theme.Space.screenH - 6)
+                    .padding(.top, 46)
+                    .transition(.scale(scale: 0.9, anchor: .topLeading).combined(with: .opacity))
+                }
+            }
+        }
         .sheet(isPresented: $nueva) {
             NuevaConversacionSheet(agentes: agentesOrdenados(todas)) { agente in
                 nueva = false
@@ -198,11 +218,8 @@ struct ChatsView: View {
     private var barraSuperior: some View {
         HStack(spacing: 2) {
             // Como WhatsApp: icono solo, sin fondo.
-            Menu {
-                Button { store.leerTodo() } label: { Label("Marcar como leídos", systemImage: "checkmark.message") }
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { seleccionando = true }
-                } label: { Label("Seleccionar chats", systemImage: "checkmark.circle") }
+            Button {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { menuAbierto.toggle() }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 19, weight: .semibold))
@@ -210,6 +227,7 @@ struct ChatsView: View {
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
+            .buttonStyle(.gPressIcon)
             .accessibilityLabel("Menú")
             .accessibilityIdentifier("chats-mas")
 
@@ -342,7 +360,7 @@ struct ChatsView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.gInk3)
             TextField("", text: $busqueda,
-                      prompt: Text("Buscar").foregroundStyle(Color.gInk3))
+                      prompt: Text(soloFavoritos ? "Buscar en chats favoritos" : "Buscar").foregroundStyle(Color.gInk3))
                 .font(.system(size: 16))
                 .foregroundStyle(Color.gInk)
                 .focused($buscando)
@@ -431,20 +449,15 @@ struct ChatsView: View {
 
     static let chipActivo = Color(light: 0xECECFB, dark: 0x2A2650)
     static let chipBorde = Color(light: 0xAEADEF, dark: 0x5B55A8)
-    static let oro = Color(hex: 0xF5B300)
+    /// Estrella de favoritos: bird de la paleta oficial.
+    static let oro = Color.gBird
 
     // MARK: - La lista
 
     @ViewBuilder
     private func lista(_ filas: [Fila]) -> some View {
         if filas.isEmpty {
-            EmptyState(icon: !busqueda.isEmpty ? "magnifyingglass" : soloFavoritos ? "star" : "bubble.left.and.bubble.right",
-                       title: !busqueda.isEmpty ? "Nada con «\(busqueda)»" : soloFavoritos ? "Sin favoritos" : "Sin conversaciones",
-                       detail: !busqueda.isEmpty
-                        ? "Busca por el título, el agente o lo que se dijo."
-                        : soloFavoritos ? "Mantén presionado un chat y toca ☆." : "Toca + para empezar una.")
-                .padding(.vertical, 40)
-                .frame(maxWidth: .infinity)
+            vacio.padding(.vertical, 36).frame(maxWidth: .infinity)
         } else {
             LazyVStack(spacing: 0) {
                 ForEach(filas) { f in
@@ -452,6 +465,34 @@ struct ChatsView: View {
                         .transition(.scale(scale: 0.96).combined(with: .opacity))
                 }
             }
+        }
+    }
+
+    /// Los vacíos de WhatsApp: ilustración, qué pasa y una acción.
+    @ViewBuilder
+    private var vacio: some View {
+        let q = busqueda.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty {
+            VacioIlustrado(simbolo: "magnifyingglass", titulo: "Nada con «\(q)»",
+                           texto: "Busca por el título, el agente o lo que se dijo.",
+                           accion: "Borrar búsqueda") { withAnimation { busqueda = "" } }
+        } else if soloFavoritos {
+            VacioIlustrado(simbolo: "star.fill", titulo: "Añade a tu lista de favoritos",
+                           texto: "Tus chats favoritos salen aquí para encontrarlos rápido.",
+                           accion: "Elegir chats") {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    soloFavoritos = false
+                    seleccionando = true
+                }
+            }
+        } else if let filtro, let agente = store.agents.first(where: { $0.id == filtro }) {
+            VacioIlustrado(simbolo: "bubble.left.and.bubble.right.fill", titulo: "Todavía no hablas con \(agente.name)",
+                           texto: "Pídele algo y la conversación aparecerá aquí.",
+                           accion: "Nueva conversación") { empezar(con: agente.id) }
+        } else {
+            VacioIlustrado(simbolo: "bubble.left.and.bubble.right.fill", titulo: "Empieza tu primera conversación",
+                           texto: "Pídele a tu agente una cotización, un resumen o una tabla.",
+                           accion: "Nueva conversación") { nueva = true }
         }
     }
 
@@ -708,16 +749,100 @@ struct NuevaConversacionSheet: View {
     }
 }
 
-/// Las conversaciones favoritas, por `agente/sesión`. En el teléfono, como en Android.
-enum ChatsFavoritos {
-    private static let clave = "app.chats.favoritas"
-    static var ids: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: clave) ?? []) }
-        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: clave) }
+
+/// Un vacío estilo WhatsApp: libreta lila con contorno oscuro, la hoja de atrás girada y un
+/// sello morado con el icono. Luego el título, qué pasa y la acción en texto de marca.
+struct VacioIlustrado: View {
+    let simbolo: String
+    let titulo: String
+    let texto: String
+    let accion: String
+    var alTocar: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(hex: 0xAEADEF))
+                    .frame(width: 92, height: 112)
+                    .rotationEffect(.degrees(10))
+                    .offset(x: 14, y: -4)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(hex: 0xF5F5FC))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0x191A20), lineWidth: 3))
+                    .overlay(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 9) {
+                            ForEach(0..<3, id: \.self) { i in
+                                Capsule().fill(Color(hex: 0xAEADEF)).frame(width: i == 2 ? 30 : 48, height: 5)
+                            }
+                        }
+                        .padding(.leading, 16)
+                    }
+                    .frame(width: 92, height: 112)
+                Circle()
+                    .fill(Color.gPrimary)
+                    .frame(width: 46, height: 46)
+                    .overlay(Circle().stroke(Color(hex: 0x191A20), lineWidth: 3))
+                    .overlay { Image(systemName: simbolo).font(.system(size: 18, weight: .bold)).foregroundStyle(.white) }
+                    .offset(x: 40, y: 44)
+            }
+            .frame(height: 150)
+            .padding(.bottom, 6)
+            Text(titulo)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Color.gInk)
+                .multilineTextAlignment(.center)
+            Text(texto)
+                .font(.system(size: 15))
+                .foregroundStyle(Color.gInk2)
+                .multilineTextAlignment(.center)
+            Button(accion, action: alTocar)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.gPrimary)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: 300)
+        .gIn()
     }
-    static func alternar(_ id: String) {
-        var s = ids
-        if s.contains(id) { s.remove(id) } else { s.insert(id) }
-        ids = s
+}
+
+/// El menú de la app (⋯): tarjeta blanca, radio 18, borde fino y sombra. No el nativo:
+/// así se ve igual que en Android.
+struct MenuDeGhosty: View {
+    struct Opcion: Identifiable {
+        let titulo: String
+        let simbolo: String
+        var destructiva = false
+        let hacer: () -> Void
+        var id: String { titulo }
+    }
+    let opciones: [Opcion]
+    var cerrar: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(opciones) { o in
+                Button {
+                    cerrar()
+                    o.hacer()
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: o.simbolo).font(.system(size: 17)).frame(width: 24)
+                        Text(o.titulo).font(.system(size: 16))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(o.destructiva ? Color.gDanger : Color.gInk)
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFill))
+            }
+        }
+        .padding(.vertical, 6)
+        .frame(width: 240)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
     }
 }

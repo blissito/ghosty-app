@@ -41,59 +41,62 @@ extension Color {
     }
 
     // MARK: Superficies
-    static let gBg           = Color(light: 0xF4F4F7, dark: 0x0E0E12)
+    // ⚠️ Paleta OFICIAL de ghosty.studio (`app/app.css`) desde el 2026-09-29, la misma que
+    // Android: brand #8483E0, dark #191A20, metal #4B5563, irongray #81838E, outlines
+    // #E1E3E7, surfaceThree #F6F6FA, danger #ED695F. El cuerpo de la app es BLANCO.
+    static let gBg           = Color(light: 0xFFFFFF, dark: 0x0E0E12)
     static let gCard         = Color(light: 0xFFFFFF, dark: 0x1C1B22)
     /// La tarjeta al presionarla (`style-active` del prototipo).
     static let gCardPressed  = Color(light: 0xFAFAFD, dark: 0x23222A)
     /// Encabezado de tabla y cajitas de cita dentro de una tarjeta.
-    static let gCardSunken   = Color(light: 0xF7F7FA, dark: 0x17161C)
+    static let gCardSunken   = Color(light: 0xF6F6FA, dark: 0x17161C)
     /// La superficie oscura: barra de pestañas, toast, tarjeta del plan, botón de enviar.
     /// En modo oscuro se aclara un poco para despegarse del fondo.
-    static let gDark         = Color(light: 0x15141B, dark: 0x2A2933)
+    static let gDark         = Color(light: 0x191A20, dark: 0x2A2933)
     /// Texto secundario sobre `gDark`.
     static let gDarkInk2     = Color(hex: 0xA3A2B0)
     /// Icono de pestaña inactiva sobre `gDark`.
     static let gTabInactive  = Color(hex: 0x8E8D9C)
 
     // MARK: Tinta
-    static let gInk          = Color(light: 0x15141B, dark: 0xF2F1F6)
+    static let gInk          = Color(light: 0x191A20, dark: 0xF2F1F6)
     /// Texto de cuerpo un punto más suave (viñetas, pasos).
     static let gInkBody      = Color(light: 0x2A2933, dark: 0xDCDBE3)
-    static let gInk2         = Color(light: 0x6C6B7A, dark: 0xA3A2B0)
-    static let gInk3         = Color(light: 0x8A8998, dark: 0x8E8D9C)
-    static let gInk4         = Color(light: 0xA3A2B0, dark: 0x6C6B7A)
+    static let gInk2         = Color(light: 0x4B5563, dark: 0xA3A2B0)
+    static let gInk3         = Color(light: 0x81838E, dark: 0x8E8D9C)
+    static let gInk4         = Color(light: 0xB6B6BA, dark: 0x6C6B7A)
     /// Chevrones de fila.
     static let gChevron      = Color(light: 0xB9B8C6, dark: 0x5E5D6B)
 
     // MARK: Bordes y rellenos
     /// El borde fino de tarjetas y compositor.
-    static let gSeparator    = Color(light: 0xECEBF1, dark: 0x2C2B34)
+    static let gSeparator    = Color(light: 0xE1E3E7, dark: 0x2C2B34)
     /// La línea entre filas de una lista.
-    static let gHairline     = Color(light: 0xF0F0F4, dark: 0x26252D)
-    static let gFill         = Color(light: 0xF4F4F7, dark: 0x26252D)
+    static let gHairline     = Color(light: 0xE9EBEF, dark: 0x26252D)
+    static let gFill         = Color(light: 0xF6F6FA, dark: 0x26252D)
     /// Agarradera de hoja, interruptor apagado, aro de paso pendiente.
-    static let gFillStrong   = Color(light: 0xE2E1EA, dark: 0x3A3943)
+    static let gFillStrong   = Color(light: 0xE1E3E7, dark: 0x3A3943)
     static let gBubbleAgent  = Color(light: 0xF0F0F4, dark: 0x24232B)
     /// ⚠️ Tinte, no el morado lleno del diseño: la burbuja con texto blanco llega con el
     /// chat nuevo (fase 3). Hasta entonces la tinta de la burbuja es `gInk`.
     static let gBubbleUser   = Color(light: 0xEEECFD, dark: 0x2E2A55)
 
     // MARK: Primario (plano, sin degradado)
-    static let gPrimary      = Color(light: 0x5B4BD6, dark: 0x8B7DF2)
-    static let gPrimaryLight = Color(light: 0x8B7DF2, dark: 0xA89DF5)
-    static let gPrimaryPressed = Color(light: 0x3F31B0, dark: 0x6F60E0)
-    static let gPrimaryTint  = Color(light: 0xEEECFD, dark: 0x2A2650)
+    static let gPrimary      = Color(light: 0x8483E0, dark: 0x8B7DF2)
+    static let gPrimaryLight = Color(light: 0xAEADEF, dark: 0xA89DF5)
+    static let gPrimaryPressed = Color(light: 0x6E6DCC, dark: 0x6F60E0)
+    static let gPrimaryTint  = Color(light: 0xF5F5FC, dark: 0x2A2650)
     /// Fondo de la fila seleccionada en una hoja.
-    static let gPrimaryWash  = Color(light: 0xF6F5FE, dark: 0x24213F)
+    static let gPrimaryWash  = Color(light: 0xF5F5FC, dark: 0x24213F)
     /// El aro de la mascota en el chat vacío.
-    static let gPrimaryRing  = Color(light: 0xECEAFB, dark: 0x2A2650)
+    static let gPrimaryRing  = Color(light: 0xECECFB, dark: 0x2A2650)
     /// La insignia «Pro» sobre la tarjeta oscura.
     static let gLavender     = Color(hex: 0xC9C2FF)
 
     // MARK: Estados
-    static let gDanger       = Color(light: 0xD23B3B, dark: 0xFF6B6B)
+    static let gDanger       = Color(light: 0xED695F, dark: 0xFF6B6B)
     static let gDangerTint   = Color(light: 0xFDECEC, dark: 0x3A1C1E)
-    static let gDangerInk    = Color(light: 0xB82F2F, dark: 0xFF8A8A)
+    static let gDangerInk    = Color(light: 0xD2524A, dark: 0xFF8A8A)
     static let gGreen        = Color(light: 0x1E9E5A, dark: 0x3CCB7F)
     static let gGreenTint    = Color(light: 0xE3F5EA, dark: 0x16301F)
     static let gGreenInk     = Color(light: 0x1E9E5A, dark: 0x5FD896)

@@ -26,37 +26,69 @@ struct ArtifactsView: View {
         var identificador: String { self == .todos ? "filtro-todo" : "filtro-\(rawValue)" }
     }
 
+    /// Segundo filtro, como la galería de un chat de WhatsApp («Multimedia, enlaces y
+    /// documentos»): multimedia en cuadrícula, documentos en renglones, audio con reproductor.
+    enum Pestana: String, CaseIterable, Identifiable {
+        case multimedia, documentos, audio
+        var id: String { rawValue }
+        var nombre: String {
+            switch self {
+            case .multimedia: "Multimedia"
+            case .documentos: "Documentos"
+            case .audio: "Audio"
+            }
+        }
+        static func de(_ e: Entrega) -> Pestana {
+            switch e.categoria {
+            case .imagen, .video: .multimedia
+            case .audio: .audio
+            default: .documentos
+            }
+        }
+    }
+
     @State private var filtro: Filtro = .todos
-    /// Segundo filtro, por tipo (imágenes, documentos…); nil = todos. Se combina con el de origen.
-    @State private var tipo: Entrega.Categoria? = nil
-    /// La fila abierta: enseña su vista previa o su reproductor (`EntregaCard`).
+    /// `nil` = la primera pestaña que tenga algo.
+    @State private var pestanaElegida: Pestana?
+    /// La fila de documento abierta: enseña su vista previa (`EntregaCard`).
     @State private var abierta: String?
-    @Namespace private var pildora
+    /// El video que se está mirando (hoja con su reproductor).
+    @State private var mirandoVideo: Entrega?
+    @Namespace private var subrayado
     @Environment(\.openURL) private var abrir
+    @Environment(Visor.self) private var visor: Visor?
+
+    /// Todo lo de la cuenta menos las notas de voz: ésas son la conversación, no archivos.
+    private var archivos: [Entrega] {
+        store.artifactsList(for: store.selectedAgentID).filter { e in
+            !(e.esNotaDeVoz || (e.categoria == .audio && e.titulo.lowercased().hasPrefix("nota-de-voz")))
+        }
+        .sorted { $0.recibida > $1.recibida }
+    }
 
     var body: some View {
+        let base = porOrigen(archivos)
+        let conteo = Dictionary(grouping: base, by: Pestana.de).mapValues(\.count)
+        let pestana = pestanaElegida ?? Pestana.allCases.first { (conteo[$0] ?? 0) > 0 } ?? .multimedia
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Archivos").gScreenTitle()
-                    .padding(.horizontal, 2)
-                    .padding(.bottom, 4)
-                Text("Lo que subiste y lo que Ghosty generó.")
-                    .gScreenSubtitle()
-                    .padding(.horizontal, 2)
-                    .padding(.bottom, 18)
+                    .padding(.horizontal, Theme.Space.screenH + 2)
+                    .padding(.bottom, 12)
 
-                filtros.padding(.bottom, 10)
-                filtrosDeTipo.padding(.bottom, 14)
+                filtros.padding(.horizontal, Theme.Space.screenH).padding(.bottom, 4)
+                pestanas(conteo: conteo, actual: pestana)
 
-                avisoDeBorrado
+                avisoDeBorrado.padding(.horizontal, Theme.Space.screenH).padding(.top, 10)
 
-                lista
+                lista(base.filter { Pestana.de($0) == pestana }, pestana: pestana, hayAlgo: !archivos.isEmpty)
 
                 if filtro == .todos, store.puedeVerArchivos {
-                    almacenDeEasyBits.padding(.top, 22)
+                    almacenDeEasyBits
+                        .padding(.horizontal, Theme.Space.screenH)
+                        .padding(.top, 22)
                 }
             }
-            .padding(.horizontal, Theme.Space.screenH)
             .padding(.top, 14)
             .padding(.bottom, 20)
         }
@@ -67,12 +99,19 @@ struct ArtifactsView: View {
             await cuenta
         }
         .refreshable { await store.loadAccountFiles() }
+        .sheet(item: $mirandoVideo) { e in
+            EntregaCard(entrega: e)
+                .padding(16)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Filtros
 
+    /// De dónde salió: los chips de «Chats» (relleno lila suave el activo).
     private var filtros: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             ForEach(Filtro.allCases) { f in
                 let activo = filtro == f
                 Button {
@@ -82,22 +121,61 @@ struct ArtifactsView: View {
                     }
                 } label: {
                     Text(f.nombre)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(activo ? Color.white : Color.gInk2)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 13)
-                        .background {
-                            if activo {
-                                Capsule().fill(Color.gDark)
-                                    .matchedGeometryEffect(id: "filtro", in: pildora)
-                            }
-                        }
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(activo ? Color.gPrimary : Color.gInk2)
+                        .padding(.horizontal, 16)
+                        .frame(height: 36)
+                        .background(activo ? ChatsView.chipActivo : Color.gCard, in: Capsule())
+                        .overlay(Capsule().strokeBorder(activo ? ChatsView.chipBorde : Color.gSeparator, lineWidth: 1.2))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.gPressPill)
                 .accessibilityAddTraits(activo ? .isSelected : [])
                 .accessibilityIdentifier(f.identificador)
             }
+        }
+        .padding(.vertical, 6)
+    }
+
+    /// Segundo nivel, más ligero: texto que se subraya en la marca, como las pestañas de
+    /// WhatsApp, con cuántos hay.
+    private func pestanas(conteo: [Pestana: Int], actual: Pestana) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(Pestana.allCases) { t in
+                    let activa = t == actual
+                    Button {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                            pestanaElegida = t
+                            abierta = nil
+                        }
+                    } label: {
+                        VStack(spacing: 8) {
+                            Text(t.nombre + ((conteo[t] ?? 0) > 0 ? " \(conteo[t]!)" : ""))
+                                .font(.system(size: 14, weight: activa ? .semibold : .medium))
+                                .foregroundStyle(activa ? Color.gPrimary : Color.gInk2)
+                                .contentTransition(.numericText())
+                            ZStack {
+                                if activa {
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Color.gPrimary)
+                                        .matchedGeometryEffect(id: "subrayado", in: subrayado)
+                                }
+                            }
+                            .frame(height: 3)
+                            .padding(.horizontal, 18)
+                        }
+                        .padding(.top, 10)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(activa ? .isSelected : [])
+                    .accessibilityIdentifier("pestana-\(t.rawValue)")
+                }
+            }
+            .padding(.horizontal, 8)
+            Rectangle().fill(Color.gSeparator).frame(height: 1)
         }
     }
 
@@ -122,7 +200,6 @@ struct ArtifactsView: View {
             .padding(12)
             .background(Color.gDangerTint,
                         in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-            .padding(.bottom, 14)
             .transition(.gIn)
         }
     }
@@ -137,144 +214,155 @@ struct ArtifactsView: View {
         }
     }
 
-    /// Por tipo: sólo los tipos que hay (con su cuenta) dentro del filtro de origen. Más
-    /// ligeros que los de origen —tinte morado, no píldora oscura— para que se lean como
-    /// segundo nivel.
-    @ViewBuilder
-    private var filtrosDeTipo: some View {
-        let base = porOrigen(store.artifactsList(for: store.selectedAgentID))
-        let conteo = Dictionary(grouping: base, by: \.categoria).mapValues(\.count)
-        let tipos = Entrega.Categoria.allCases.filter { (conteo[$0] ?? 0) > 0 }
-        if tipos.count > 1 {
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    ForEach(tipos) { c in
-                        let activo = tipo == c
-                        Button {
-                            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                                tipo = activo ? nil : c
-                                abierta = nil
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: c.icono).font(.system(size: 11, weight: .semibold))
-                                Text(c.nombre).font(.system(size: 12, weight: .semibold))
-                                Text("\(conteo[c] ?? 0)")
-                                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                                    .opacity(0.6)
-                                    .contentTransition(.numericText())
-                            }
-                            .foregroundStyle(activo ? Color.gPrimary : Color.gInk2)
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 11)
-                            .background(Capsule().fill(activo ? Color.gPrimaryTint : Color.gCard))
-                            .overlay(Capsule().strokeBorder(activo ? Color.gPrimary.opacity(0.35) : Color.gSeparator, lineWidth: 1))
-                            .contentShape(Capsule())
-                        }
-                        .buttonStyle(.gPressPill)
-                        .accessibilityAddTraits(activo ? .isSelected : [])
-                        .accessibilityIdentifier("tipo-\(c.rawValue)")
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                    }
-                }
-                .padding(.horizontal, 1)
-            }
-            .scrollIndicators(.hidden)
-            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: tipos)
-            // Si al cambiar el origen el tipo elegido ya no existe, se suelta solo.
-            .onChange(of: tipos) { _, nuevos in if let t = tipo, !nuevos.contains(t) { tipo = nil } }
-        }
-    }
-
     // MARK: - La lista
 
-    /// Lo entregado y lo subido a la CUENTA (gs `/me/files`) más lo que llegó en vivo a
-    /// este teléfono y gs todavía no tiene, sin repetir.
+    /// Agrupada por mes («Este mes», «Agosto 2026»), como la galería de WhatsApp.
     @ViewBuilder
-    private var lista: some View {
-        let todo = store.artifactsList(for: store.selectedAgentID)
-        let visibles = porOrigen(todo).filter { e in tipo == nil || e.categoria == tipo }
-        if todo.isEmpty, store.accountFilesEsperando, !DemoData.encendido {
+    private func lista(_ visibles: [Entrega], pestana: Pestana, hayAlgo: Bool) -> some View {
+        if archivos.isEmpty, store.accountFilesEsperando, !DemoData.encendido {
             // Sólo la primera vez, sin nada en disco: con caché la lista sale al instante.
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(.top, 60)
                 .transition(.opacity)
         } else if visibles.isEmpty {
-            vacio(hayAlgo: !todo.isEmpty)
+            vacio(pestana: pestana)
                 .padding(.top, 40)
                 .transition(.opacity)
         } else {
-            VStack(spacing: 0) {
-                ForEach(Array(visibles.enumerated()), id: \.element.id) { i, e in
-                    fila(e, ultima: i == visibles.count - 1)
-                        .gIn(delay: min(Double(i), 8) * 0.03)
-                        .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
+            let meses = Self.porMes(visibles)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(meses, id: \.titulo) { mes in
+                    Text(mes.titulo)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.gInk3)
+                        .padding(.horizontal, Theme.Space.screenH)
+                        .padding(.top, 14)
+                        .padding(.bottom, 8)
+                    switch pestana {
+                    case .multimedia:
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
+                            ForEach(mes.entregas) { e in cuadro(e) }
+                        }
+                    case .documentos:
+                        ForEach(mes.entregas) { e in filaDeDocumento(e) }
+                    case .audio:
+                        ForEach(mes.entregas) { e in filaDeAudio(e) }
+                    }
                 }
             }
-            .background(Color.gCard)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.list, style: .continuous))
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: filtro)
-            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: tipo)
+            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: pestana)
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: abierta)
         }
     }
 
-    private func fila(_ e: Entrega, ultima: Bool) -> some View {
+    static func porMes(_ entregas: [Entrega], ahora: Date = Date()) -> [(titulo: String, entregas: [Entrega])] {
+        let cal = Calendar.current
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.dateFormat = "MMMM yyyy"
+        var orden: [String] = []
+        var grupos: [String: [Entrega]] = [:]
+        for e in entregas {
+            let t = cal.isDate(e.recibida, equalTo: ahora, toGranularity: .month)
+                ? "Este mes" : f.string(from: e.recibida).capitalized(with: Locale(identifier: "es_MX"))
+            if grupos[t] == nil { orden.append(t) }
+            grupos[t, default: []].append(e)
+        }
+        return orden.map { ($0, grupos[$0]!) }
+    }
+
+    /// Cuadro de la cuadrícula: la foto recortada (abre el visor) o el video con su ▶.
+    private func cuadro(_ e: Entrega) -> some View {
+        MiniaturaDeEntrega(entrega: e) { img in
+            if let img { visor?.abrir(img, titulo: e.titulo) } else { mirandoVideo = e }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityIdentifier("archivo-\(e.id)")
+        .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
+            Task { await store.deleteAccountFile(e) }
+        }
+    }
+
+    /// Renglón de documento: insignia de color con la sigla, nombre y «Generado · 84 KB · 12 sep».
+    /// Tocar abre su vista previa (la tarjeta de siempre: tocarla lo abre en el visor).
+    private func filaDeDocumento(_ e: Entrega) -> some View {
         let abiertaAhora = abierta == e.id
         return VStack(spacing: 0) {
             Button {
                 abierta = abiertaAhora ? nil : e.id
             } label: {
-                HStack(spacing: 12) {
-                    InsigniaDeArchivo(ext: Self.etiqueta(e))
+                HStack(spacing: 14) {
+                    InsigniaDeGaleria(ext: Self.etiqueta(e))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(e.titulo)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(Color.gInk)
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Text(Self.meta(e))
-                            .font(.system(size: 12))
+                            .font(.system(size: 14))
                             .foregroundStyle(Color.gInk3)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.gChevron)
-                        .rotationEffect(.degrees(abiertaAhora ? 180 : 0))
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .padding(.horizontal, Theme.Space.screenH)
                 .contentShape(Rectangle())
             }
             .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gCardPressed))
             .accessibilityIdentifier("archivo-\(e.id)")
 
             if abiertaAhora {
-                // La vista previa, el reproductor o la portada del PDF: lo de siempre.
                 EntregaCard(entrega: e)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, Theme.Space.screenH)
                     .padding(.bottom, 12)
                     .transition(.gIn)
             }
         }
-        .ghostySeparator(inset: ultima ? .infinity : 0)
-        .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
-                             consecuencia: e.remotoID != nil
-                                ? "Se borra de tu cuenta: deja de verse en el teléfono, la Mac y la web."
-                                : "Se quita de aquí y de la conversación donde te la entregó. Vive sólo en este teléfono.") {
+        .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
             Task { await store.deleteAccountFile(e) }
         }
     }
 
+    private func filaDeAudio(_ e: Entrega) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(e.titulo)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.gInk)
+                .lineLimit(1)
+            BurbujaDeVoz(id: e.remotoID ?? e.id, lado: .agente, segundos: e.segundosDeVoz ?? 0, onda: e.onda ?? []) {
+                if let d = e.datos { return d }
+                var d: Data?
+                if let id = e.remotoID { d = try? await GhostyAPI.bajar(id) }
+                if d == nil, let s = e.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
+                guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
+                return d
+            }
+        }
+        .padding(.horizontal, Theme.Space.screenH)
+        .padding(.vertical, 6)
+        .accessibilityIdentifier("archivo-\(e.id)")
+        .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
+            Task { await store.deleteAccountFile(e) }
+        }
+    }
+
+    private static func consecuencia(_ e: Entrega) -> String {
+        e.remotoID != nil
+            ? "Se borra de tu cuenta: deja de verse en el teléfono, la Mac y la web."
+            : "Se quita de aquí y de la conversación donde te la entregó. Vive sólo en este teléfono."
+    }
+
     @ViewBuilder
-    private func vacio(hayAlgo: Bool) -> some View {
+    private func vacio(pestana: Pestana) -> some View {
         switch filtro {
         case .todos:
-            EmptyState(icon: "tray", title: "Todavía nada",
-                       detail: "Lo que subas o te entregue Ghosty —un PDF, una tabla, una foto— se queda aquí.")
+            EmptyState(icon: pestana == .multimedia ? "photo.on.rectangle" : pestana == .audio ? "waveform" : "doc.text",
+                       title: pestana == .multimedia ? "Sin fotos ni videos" : pestana == .audio ? "Sin audios" : "Sin documentos",
+                       detail: "Lo que subas o te entregue Ghosty —un PDF, una tabla, una foto— se queda aquí. Desliza hacia abajo para actualizar.")
         case .generados:
             EmptyState(icon: "sparkles", title: "Nada generado aún",
                        detail: "Pídele a Ghosty una cotización, un resumen o una tabla y aparecerá aquí.")
@@ -384,8 +472,10 @@ struct ArtifactsView: View {
 
     /// «Generado · hoy, 8:01 · 84 KB», «Subido · ayer · 1.2 MB», «Subido · lun · 340 KB».
     static func meta(_ e: Entrega) -> String {
-        var partes = [e.generada ? "Generado" : "Subido", cuando(e.recibida)]
+        var partes = [e.generada ? "Generado" : "Subido"]
         if let peso = e.peso { partes.append(peso) }
+        let es = Locale(identifier: "es_MX")
+        partes.append(e.recibida.formatted(.dateTime.day().month(.abbreviated).locale(es)).replacingOccurrences(of: ".", with: ""))
         return partes.joined(separator: " · ")
     }
 
@@ -465,5 +555,78 @@ struct EmptyState: View {
         .frame(maxWidth: 280)
         .frame(maxWidth: .infinity)
         .gIn()
+    }
+}
+
+/// La insignia de la galería: 42×50, radio 8, la sigla en blanco. PDF rojo, hojas verde,
+/// textos morado; lo demás gris.
+struct InsigniaDeGaleria: View {
+    let ext: String
+
+    private var color: Color {
+        switch ext {
+        case "PDF": .gDanger
+        case "XLS", "XLSX", "CSV": .gGreen
+        case "DOC", "DOCX", "MD", "TXT": .gPrimary
+        default: .gInk3
+        }
+    }
+
+    var body: some View {
+        Text(ext)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(width: 42, height: 50)
+            .background(color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .accessibilityHidden(true)
+    }
+}
+
+/// Un cuadro de la cuadrícula de Multimedia: la foto recortada, o el video con su ▶.
+/// Baja los bytes al aparecer y los guarda en `MiniaturasEnMemoria`.
+struct MiniaturaDeEntrega: View {
+    let entrega: Entrega
+    /// Tocar: con la imagen si la hay (abre el visor); `nil` si es un video.
+    var alTocar: (UIImage?) -> Void
+
+    @State private var imagen: UIImage?
+
+    private var clave: String { "entrega:" + (entrega.remotoID ?? entrega.id) }
+
+    var body: some View {
+        Color.gFill
+            .overlay {
+                if let imagen {
+                    Image(uiImage: imagen).resizable().scaledToFill()
+                } else if entrega.categoria == .video {
+                    ZStack {
+                        Color.gDark
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(Color.white.opacity(0.2), in: Circle())
+                    }
+                } else {
+                    Image(systemName: "photo").foregroundStyle(Color.gInk4)
+                }
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .onTapGesture { alTocar(imagen) }
+            .task(id: entrega.id) { await cargar() }
+    }
+
+    private func cargar() async {
+        guard entrega.categoria == .imagen else { return }
+        if let ya = MiniaturasEnMemoria.imagen(clave) { imagen = ya; return }
+        var d = entrega.datos
+        if d == nil, let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+        if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
+        guard let d, let img = UIImage(data: d) else { return }
+        MiniaturasEnMemoria.guardar(img, clave: clave)
+        imagen = img
     }
 }
