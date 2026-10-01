@@ -37,7 +37,7 @@ struct ConectoresPane: View {
     private var disponibles: [Conector] {
         store.conectores.filter(\.disponible).sorted { $0.conectado && !$1.conectado }
     }
-    // Sólo lo conectable (2026-10-01): lo de «Muy pronto» ya no se enseña.
+    private var proximas: [Conector] { store.conectores.filter { !$0.disponible } }
 
     /// «2 de 5 conectadas. Ghosty solo usa las que actives.»
     private var resumen: String {
@@ -117,6 +117,14 @@ struct ConectoresPane: View {
             }
 
             if !disponibles.isEmpty { lista(disponibles) }
+
+            if !proximas.isEmpty {
+                Text("Próximamente").gSectionCaps()
+                    .padding(.horizontal, 4)
+                    .padding(.top, disponibles.isEmpty ? 0 : 22)
+                    .padding(.bottom, 8)
+                lista(proximas)
+            }
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)
