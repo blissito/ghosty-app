@@ -1598,7 +1598,7 @@ struct ConversationView: View {
         }
     }
 
-    /// Lo que llegó de «Usar en un chat» (Archivos): al compositor, sin pasar por la red.
+    /// Lo que llegó de «Enviar a un chat» (Archivos): al compositor, sin pasar por la red.
     private func recogerArchivosParaElChat() {
         guard !store.archivosParaElChat.isEmpty else { return }
         let nuevos = store.archivosParaElChat.filter { n in !adjuntos.contains { $0.remoto?.id == n.remoto?.id } }

@@ -957,21 +957,36 @@ final class LiveAgentStore: AgentStoring {
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
     var pestanaPedida: GhostyTab?
 
-    // MARK: - «Usar en un chat» (desde Archivos)
+    // MARK: - «Enviar a un chat» (desde Archivos)
 
-    /// Archivos de la cuenta que esperan al compositor de una conversación nueva. Viajan por
-    /// id (`fileId`), sin volver a subirse; el compositor los toma y vacía esto.
+    /// Archivos de la cuenta que esperan al compositor del chat elegido. Viajan por id
+    /// (`fileId`), sin volver a subirse; el compositor los toma y vacía esto. Nunca se
+    /// mandan solos: quedan adjuntos para que la persona escriba y envíe.
     var archivosParaElChat: [Adjunto] = []
-    /// Con más de un agente, la raíz pregunta a quién antes de abrir el chat.
+    /// La raíz enseña el selector tipo «Reenviar» (chats recientes + «Nuevo chat con…»).
+    var eligiendoChatParaArchivos = false
+    /// «Nuevo chat con…» con más de un agente: la raíz pregunta a quién.
     var eligiendoAgenteParaArchivos = false
 
-    func usarEnUnChat(_ e: Entrega) {
+    func enviarAUnChat(_ e: Entrega) {
         guard let id = e.remotoID else { return }
         let f = GhostyAPI.ArchivoDeSesion(id: id, nombre: e.titulo, mime: e.mime ?? "application/octet-stream",
                                           bytes: e.bytesRemotos ?? 0, segundos: nil, onda: nil)
         archivosParaElChat = [Adjunto(deBiblioteca: f)]
+        eligiendoChatParaArchivos = true
+    }
+
+    /// «Nuevo chat con…»: el flujo de siempre (agente → conversación nueva).
+    func nuevoChatConArchivos() {
         if agents.count == 1, let unico = agents.first { enviarArchivosA(unico.id) }
         else { eligiendoAgenteParaArchivos = true }
+        eligiendoChatParaArchivos = false
+    }
+
+    /// Ya abierto el chat elegido: a la pestaña del chat; el compositor recoge los archivos.
+    func archivosListosEnElChat() {
+        eligiendoChatParaArchivos = false
+        pestanaPedida = .chat
     }
 
     /// Ya elegido el agente: conversación nueva y al chat; el compositor recoge los archivos.

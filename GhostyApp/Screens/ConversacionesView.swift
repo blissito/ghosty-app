@@ -52,7 +52,8 @@ struct ChatsView: View {
     // MARK: - Modelo de la lista
 
     /// Una fila: una conversación abierta en el teléfono o una guardada en la caja.
-    private struct Fila: Identifiable {
+    /// La usa también «Enviar a un chat» (misma fuente que esta lista).
+    struct Fila: Identifiable {
         enum Tipo { case abierta(Hilo), guardada(ACPClient.Session) }
         let tipo: Tipo
         let agente: Agent
@@ -88,7 +89,14 @@ struct ChatsView: View {
 
     /// TODAS las filas de todos los agentes (sin filtro ni búsqueda): los chips cuentan
     /// sus no leídos de aquí.
-    private var todas: [Fila] {
+    private var todas: [Fila] { Self.filas(store) }
+
+    /// Las conversaciones de todos los agentes, como las pinta Chats.
+    static func filas(_ store: LiveAgentStore) -> [Fila] {
+        func titulo(_ s: ACPClient.Session, de agente: Agent) -> String {
+            if !TitleStore.isGeneric(s.title) { return s.title }
+            return store.titulos.titulo(agente.id, s.id) ?? "Conversación sin abrir"
+        }
         var filas: [Fila] = []
         for agente in store.agents {
             guard let canal = store.canales[agente.id] else { continue }

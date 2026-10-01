@@ -139,7 +139,7 @@ struct ArtifactsView: View {
         AccionesDeArchivo(titulo: e.titulo,
                           consecuencia: Self.consecuencia(e),
                           abrirChat: abrirChat(e),
-                          usarEnChat: e.remotoID != nil ? { store.usarEnUnChat(e) } : nil,
+                          usarEnChat: e.remotoID != nil ? { store.enviarAUnChat(e) } : nil,
                           compartir: { compartir(e) },
                           alBorrar: { Task { await store.deleteAccountFile(e) } })
     }
@@ -484,10 +484,10 @@ struct ArtifactsView: View {
             }
             .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gCardPressed))
             .accessibilityIdentifier("archivo-\(e.id)")
-            // «Usar en un chat»: al compositor del agente que elijas, por id y sin re-subir.
+            // «Enviar a un chat»: al compositor del chat que elijas, por id y sin re-subir.
             .overlay(alignment: .trailing) {
                 if e.remotoID != nil {
-                    Button { store.usarEnUnChat(e) } label: {
+                    Button { store.enviarAUnChat(e) } label: {
                         Image(systemName: "paperplane")
                             .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(Color.gInk3)
@@ -496,7 +496,7 @@ struct ArtifactsView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.trailing, Theme.Space.screenH - 10)
-                    .accessibilityLabel("Usar en un chat")
+                    .accessibilityLabel("Enviar a un chat")
                     .accessibilityIdentifier("usar-en-chat-\(e.id)")
                 }
             }
@@ -935,7 +935,7 @@ struct AccionesDeArchivo: ViewModifier {
                     Button(action: abrirChat) { Label("Abrir el chat", systemImage: "bubble.left.and.bubble.right") }
                 }
                 if let usarEnChat {
-                    Button(action: usarEnChat) { Label("Usar en un chat", systemImage: "paperplane") }
+                    Button(action: usarEnChat) { Label("Enviar a un chat", systemImage: "paperplane") }
                 }
                 Button(action: compartir) { Label("Descargar o compartir", systemImage: "square.and.arrow.down") }
                 Divider()

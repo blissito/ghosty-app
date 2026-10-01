@@ -129,7 +129,13 @@ struct RootView: View {
                 }
             }
         }
-        // «Usar en un chat» desde Archivos: a qué agente, antes de abrir el compositor.
+        // «Enviar a un chat» desde Archivos: a qué chat, como «Reenviar» de WhatsApp.
+        .ghostySheet(isPresented: Binding(get: { store.eligiendoChatParaArchivos },
+                                          set: { if !$0 { store.eligiendoChatParaArchivos = false; if !store.eligiendoAgenteParaArchivos { store.archivosParaElChat = [] } } }),
+                     title: "Enviar a un chat", identifier: "hoja-enviar-a-chat") {
+            EnviarAUnChatSheet(store: store)
+        }
+        // «Nuevo chat con…»: a qué agente, antes de abrir el compositor.
         .ghostySheet(isPresented: Binding(get: { store.eligiendoAgenteParaArchivos },
                                           set: { if !$0 { store.eligiendoAgenteParaArchivos = false; store.archivosParaElChat = [] } }),
                      title: "¿A qué agente se lo mando?", identifier: "hoja-agente-archivos") {
