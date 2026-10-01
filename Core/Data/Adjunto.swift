@@ -86,6 +86,17 @@ struct Adjunto: Identifiable, Equatable, Sendable {
         creado = Date()
     }
 
+    /// De «Mis archivos»: ya vive en la cuenta, así que no lleva bytes ni se vuelve a subir.
+    /// Viaja por su id (`fileId`) y gs resuelve nombre, tipo y liga.
+    init(deBiblioteca f: GhostyAPI.ArchivoDeSesion) {
+        self.init(nombre: f.nombre, mime: f.mime, datos: Data())
+        remoto = GhostyAPI.ArchivoRemoto(id: f.id, nombre: f.nombre, mime: f.mime, bytes: f.bytes, url: "")
+        creado = f.creado
+    }
+
+    /// ¿Viene de la biblioteca de la cuenta (sin bytes, sólo su id)?
+    var esDeBiblioteca: Bool { datos.isEmpty && remoto != nil }
+
     /// Desde un archivo del disco. El mime sale del sistema, no de la extensión a mano.
     init?(url: URL) {
         // ⚠️ Un archivo elegido con el explorador llega con alcance de seguridad prestado:

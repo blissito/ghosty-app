@@ -359,6 +359,7 @@ struct ArtifactsView: View {
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    if e.remotoID != nil { Color.clear.frame(width: 32, height: 1) }
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, Theme.Space.screenH)
@@ -366,6 +367,22 @@ struct ArtifactsView: View {
             }
             .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gCardPressed))
             .accessibilityIdentifier("archivo-\(e.id)")
+            // «Usar en un chat»: al compositor del agente que elijas, por id y sin re-subir.
+            .overlay(alignment: .trailing) {
+                if e.remotoID != nil {
+                    Button { store.usarEnUnChat(e) } label: {
+                        Image(systemName: "paperplane")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(Color.gInk3)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, Theme.Space.screenH - 10)
+                    .accessibilityLabel("Usar en un chat")
+                    .accessibilityIdentifier("usar-en-chat-\(e.id)")
+                }
+            }
 
             if abiertaAhora {
                 EntregaCard(entrega: e)

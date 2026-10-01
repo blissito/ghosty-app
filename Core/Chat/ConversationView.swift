@@ -24,6 +24,7 @@ struct ConversationView: View {
     @State private var fotos: [PhotosPickerItem] = []
     @State private var abrirFotos = false
     @State private var abrirArchivos = false
+    @State private var abrirMisArchivos = false
     @State private var abrirCamara = false
     /// La hoja «Agregar» y el overlay de voz se pintan en la raíz (ver `CapaDeChat`).
     @Environment(CapaDeChat.self) private var capa: CapaDeChat?
@@ -928,6 +929,15 @@ struct ConversationView: View {
                 fotos = []
             }
         }
+        .onChange(of: store.archivosParaElChat.count, initial: true) { _, _ in recogerArchivosParaElChat() }
+        .sheet(isPresented: $abrirMisArchivos) {
+            MisArchivosSheet(maximo: max(0, 8 - adjuntos.count)) { elegidos in
+                abrirMisArchivos = false
+                for f in elegidos where !adjuntos.contains(where: { $0.remoto?.id == f.id }) {
+                    agregar(Adjunto(deBiblioteca: f))
+                }
+            }
+        }
         .fileImporter(isPresented: $abrirArchivos, allowedContentTypes: [.item],
                       allowsMultipleSelection: true) { r in
             switch r {
@@ -957,6 +967,7 @@ struct ConversationView: View {
                 filaDeAgregar("Foto", "De tu galería", ChatIcons.foto) { abrirFotos = true }
                 filaDeAgregar("Cámara", "Toma una foto o escanea", ChatIcons.camara) { abrirCamara = true }
                 filaDeAgregar("Archivo", "PDF, Excel, Word", ChatIcons.documento) { abrirArchivos = true }
+                filaDeAgregar("Mis archivos", "Lo que ya subiste o te entregué", ChatIcons.carpeta) { abrirMisArchivos = true }
                 // Programar sólo tiene sentido con una conversación que ya existe en gs.
                 if programar {
                     filaDeAgregar("Programar", "Que lo haga solo, más tarde", ChatIcons.reloj) {
@@ -1504,6 +1515,14 @@ struct ConversationView: View {
             }
             store.falloDeSubida = nil
         }
+    }
+
+    /// Lo que llegó de «Usar en un chat» (Archivos): al compositor, sin pasar por la red.
+    private func recogerArchivosParaElChat() {
+        guard !store.archivosParaElChat.isEmpty else { return }
+        let nuevos = store.archivosParaElChat.filter { n in !adjuntos.contains { $0.remoto?.id == n.remoto?.id } }
+        store.archivosParaElChat = []
+        for a in nuevos.prefix(max(0, 8 - adjuntos.count)) { agregar(a) }
     }
 
     private func agregar(_ a: Adjunto?) {

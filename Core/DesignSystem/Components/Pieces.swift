@@ -349,6 +349,21 @@ enum ChatIcons {
         p.closeSubpath()
     }
 
+    /// Carpeta («Mis archivos»), viewBox 20: pestaña arriba a la izquierda y el cuerpo.
+    static let carpeta = GhostyStrokeIcon(viewBox: 20) { p in
+        p.move(to: CGPoint(x: 3, y: 6))
+        p.addQuadCurve(to: CGPoint(x: 4.5, y: 4.5), control: CGPoint(x: 3, y: 4.5))
+        p.addLine(to: CGPoint(x: 8, y: 4.5))
+        p.addLine(to: CGPoint(x: 9.5, y: 6.2))
+        p.addLine(to: CGPoint(x: 15.5, y: 6.2))
+        p.addQuadCurve(to: CGPoint(x: 17, y: 7.7), control: CGPoint(x: 17, y: 6.2))
+        p.addLine(to: CGPoint(x: 17, y: 14.5))
+        p.addQuadCurve(to: CGPoint(x: 15.5, y: 16), control: CGPoint(x: 17, y: 16))
+        p.addLine(to: CGPoint(x: 4.5, y: 16))
+        p.addQuadCurve(to: CGPoint(x: 3, y: 14.5), control: CGPoint(x: 3, y: 16))
+        p.closeSubpath()
+    }
+
     /// ＋ del compositor, viewBox 18: `M9 3v12M3 9h12`.
     static let mas = GhostyStrokeIcon(viewBox: 18) { p in
         p.move(to: CGPoint(x: 9, y: 3)); p.addLine(to: CGPoint(x: 9, y: 15))

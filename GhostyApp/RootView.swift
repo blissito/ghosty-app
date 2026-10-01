@@ -127,6 +127,12 @@ struct RootView: View {
                 }
             }
         }
+        // «Usar en un chat» desde Archivos: a qué agente, antes de abrir el compositor.
+        .ghostySheet(isPresented: Binding(get: { store.eligiendoAgenteParaArchivos },
+                                          set: { if !$0 { store.eligiendoAgenteParaArchivos = false; store.archivosParaElChat = [] } }),
+                     title: "¿A qué agente se lo mando?", identifier: "hoja-agente-archivos") {
+            CambiarAgenteSheet(store: store) { store.enviarArchivosA(store.selectedAgentID) }
+        }
         .capaDeChat(capaDelChat)
         .ghostyToast(toaster)
         // ⚠️ Sólo al VOLVER. Aquí hubo tres ramas —anotar el fondo, cerrar sockets con

@@ -69,12 +69,13 @@ enum BloqueDeHistorial {
         }
     }
 
-    /// «informe.pdf — bájalo: curl -sSL "<liga>" -o adjuntos/informe.pdf». La liga es firmada
-    /// (6 h): de un mensaje viejo puede haber caducado, y entonces el agente pide que se lo
-    /// vuelvan a mandar, que es lo mismo que pasaba antes pero sabiendo QUÉ archivo era.
+    /// «informe.pdf (archivo:<id> — tráelo con file_get si lo necesitas)». Por id y no por
+    /// liga firmada: la liga caducaba a las 6 h (un mensaje viejo dejaba al agente sin el
+    /// archivo) y una URL firmada en el contexto es justo lo que no debe viajar (se puede
+    /// reenviar). `file_get` le da una liga fresca y corta sólo si la necesita.
     private static func referencia(_ a: Adjunto) -> String {
-        guard let url = a.remoto?.url, !url.isEmpty, !a.esVoz else { return a.nombre }
-        return "\(a.nombre) — bájalo: mkdir -p adjuntos && curl -sSL \"\(url)\" -o \"adjuntos/\(a.nombre)\""
+        guard let id = a.remoto?.id, !id.isEmpty, !a.esVoz else { return a.nombre }
+        return "\(a.nombre) (archivo:\(id) — tráelo con file_get si lo necesitas)"
     }
 
     private static func recorte(_ t: String) -> String {

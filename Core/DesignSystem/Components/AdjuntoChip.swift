@@ -39,7 +39,7 @@ struct AdjuntoChip: View {
 
     @ViewBuilder
     private var miniatura: some View {
-        if adjunto.esImagen, let img = UIImage(data: adjunto.datos) {
+        if adjunto.esImagen, let img = UIImage(data: adjunto.datos) ?? CacheDeImagenes.enMemoria(adjunto) {
             Image(uiImage: img)
                 .resizable()
                 .scaledToFill()

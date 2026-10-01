@@ -921,6 +921,31 @@ final class LiveAgentStore: AgentStoring {
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
     var pestanaPedida: GhostyTab?
 
+    // MARK: - «Usar en un chat» (desde Archivos)
+
+    /// Archivos de la cuenta que esperan al compositor de una conversación nueva. Viajan por
+    /// id (`fileId`), sin volver a subirse; el compositor los toma y vacía esto.
+    var archivosParaElChat: [Adjunto] = []
+    /// Con más de un agente, la raíz pregunta a quién antes de abrir el chat.
+    var eligiendoAgenteParaArchivos = false
+
+    func usarEnUnChat(_ e: Entrega) {
+        guard let id = e.remotoID else { return }
+        let f = GhostyAPI.ArchivoDeSesion(id: id, nombre: e.titulo, mime: e.mime ?? "application/octet-stream",
+                                          bytes: e.bytesRemotos ?? 0, segundos: nil, onda: nil)
+        archivosParaElChat = [Adjunto(deBiblioteca: f)]
+        if agents.count == 1, let unico = agents.first { enviarArchivosA(unico.id) }
+        else { eligiendoAgenteParaArchivos = true }
+    }
+
+    /// Ya elegido el agente: conversación nueva y al chat; el compositor recoge los archivos.
+    func enviarArchivosA(_ agente: String) {
+        eligiendoAgenteParaArchivos = false
+        seleccionar(agente)
+        nuevaConversacion()
+        pestanaPedida = .chat
+    }
+
     /// Qué conversaciones hay, qué se dijo en la que miras, y volver a escucharla.
     func ponerseAlDia(_ canal: Canal) {
         guard !DemoData.encendido, Session.haySesion else { return }
@@ -1977,6 +2002,8 @@ final class LiveAgentStore: AgentStoring {
     private func subidos(_ adjuntos: [Adjunto], sesion: String?, agente: String) async throws -> [Adjunto] {
         var salida: [Adjunto] = []
         for var a in adjuntos {
+            // De «Mis archivos»: ya está en la cuenta y viaja por id. Nada que transcribir ni subir.
+            if a.esDeBiblioteca { salida.append(a); continue }
             // La voz se transcribe AQUÍ, en la plataforma. Medido en Teams: pedírselo al
             // agente costaba 3 llamadas de shell para leer 4 segundos de voz.
             //

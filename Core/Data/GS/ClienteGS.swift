@@ -449,11 +449,20 @@ actor ClienteGS: TransporteDeAgente {
         // ⚠️ Los adjuntos van en base64 y gs decide qué entra inline y qué se le entrega
         // al agente como URL con su comando (`attachments.server.ts`). Es lo mismo que
         // hacía `BloqueDeAdjuntos` en el teléfono, pero del lado que conoce a la caja.
-        let archivos: [[String: Any]] = adjuntos.map { a in
+        var archivos: [[String: Any]] = []
+        for a in adjuntos {
+            // De «Mis archivos»: por id y sin base64; gs resuelve nombre, tipo y liga. La liga
+            // fresca va también como `uri` para un servidor que aún no conozca `fileId`.
+            if a.esDeBiblioteca, let id = a.remoto?.id {
+                var d: [String: Any] = ["name": a.nombre, "mimeType": a.mime, "data": "", "fileId": id]
+                if let url = try? await GhostyAPI.urlDe(id) { d["uri"] = url }
+                archivos.append(d)
+                continue
+            }
             var d: [String: Any] = ["name": a.nombre, "mimeType": a.mime,
                                     "data": a.datos.base64EncodedString()]
-            if let url = a.remoto?.url { d["uri"] = url }
-            return d
+            if let url = a.remoto?.url, !url.isEmpty { d["uri"] = url }
+            archivos.append(d)
         }
         var cuerpo: [String: Any] = ["content": texto]
         if !archivos.isEmpty { cuerpo["images"] = archivos }
