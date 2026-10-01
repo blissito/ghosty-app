@@ -1064,7 +1064,7 @@ final class LiveAgentStore: AgentStoring {
             let cliente = try await asegurarSocket(canal)
             // Los archivos de la sesión viajan EN PARALELO con el hilo: iban detrás, y cada
             // viaje a gs es tiempo con el hilo sin pintar.
-            async let archivosEnCamino = GhostyAPI.archivosDe(sesion: sid)
+            async let archivosEnCamino = GhostyAPI.archivosDe(sesion: sid, agente: canal.cuenta.id)
             guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else {
                 // Sin historial porque hay un turno vivo: lo que pasa AHORA lo trae el
                 // SSE, así que hay que estar escuchando aunque no haya nada que pintar
@@ -1584,7 +1584,7 @@ final class LiveAgentStore: AgentStoring {
         let antes = hilo.mensajes.count
         do {
             let cliente = try await asegurarSocket(canal)
-            async let archivosEnCamino = GhostyAPI.archivosDe(sesion: sesion.id)
+            async let archivosEnCamino = GhostyAPI.archivosDe(sesion: sesion.id, agente: canal.cuenta.id)
             guard let replay = try await cliente.cargar(sesion.id, cwd: sesion.cwd) else { return }
             // Y engancharse a lo que esté pasando ahí ahora mismo: abrir una conversación
             // con un turno vivo tiene que enseñar lo que el agente está escribiendo, no
@@ -1863,7 +1863,7 @@ final class LiveAgentStore: AgentStoring {
                 self.titulos.anotarSiFalta(canal.cuenta.id, sid, desde: limpio)
                 // Todo adjunto se sube a la cuenta; una imagen viaja ADEMÁS inline, y una
                 // nota de voz se transcribe aquí.
-                let conArchivos = try await self.subidos(adjuntos, sesion: sid)
+                let conArchivos = try await self.subidos(adjuntos, sesion: sid, agente: canal.cuenta.id)
                 // Cancelado antes de encargar = el servidor no sabe nada. No se sigue como
                 // si nada: el `catch` lo dice y devuelve el mensaje al compositor.
                 try Task.checkCancellation()
@@ -1974,7 +1974,7 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Salvo si la tarea está CANCELADA: eso no es un archivo que no subió, es un envío
     /// que ya nadie espera, y seguir mandaba el turno sin la nota (o no lo mandaba).
     /// Se relanza para que el envío diga «no llegó a salir».
-    private func subidos(_ adjuntos: [Adjunto], sesion: String?) async throws -> [Adjunto] {
+    private func subidos(_ adjuntos: [Adjunto], sesion: String?, agente: String) async throws -> [Adjunto] {
         var salida: [Adjunto] = []
         for var a in adjuntos {
             // La voz se transcribe AQUÍ, en la plataforma. Medido en Teams: pedírselo al
@@ -1988,7 +1988,7 @@ final class LiveAgentStore: AgentStoring {
             }
             try Task.checkCancellation()
             do {
-                a.remoto = try await GhostyAPI.subir(a, sesion: sesion)
+                a.remoto = try await GhostyAPI.subir(a, sesion: sesion, agente: agente)
             } catch {
                 try Task.checkCancellation()
                 falloDeSubida = error.localizedDescription

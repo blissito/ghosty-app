@@ -106,7 +106,7 @@ final class ModeloDeEnvio {
                 var subidos: [Adjunto] = []
                 for (i, var a) in adjuntos.enumerated() {
                     estado = .enviando("Subiendo \(i + 1) de \(adjuntos.count)…")
-                    do { a.remoto = try await GhostyAPI.subir(a, sesion: sid) }
+                    do { a.remoto = try await GhostyAPI.subir(a, sesion: sid, agente: agente.id) }
                     catch { avisos.append(error.localizedDescription) }
                     subidos.append(a)
                 }

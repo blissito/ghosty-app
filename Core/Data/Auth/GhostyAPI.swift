@@ -58,11 +58,12 @@ enum GhostyAPI {
     /// ⚠️ Ya no va a la caja del agente. Un adjunto vivía sólo en `/data/work/adjuntos/`, y
     /// el janitor recicla esa caja a las 72 h dormida y la repone vacía: el archivo
     /// desaparecía sin que nada lo dijera. Aquí cuelga de la cuenta y sobrevive.
-    static func subir(_ adjunto: Adjunto, sesion: String?) async throws -> ArchivoRemoto {
+    static func subir(_ adjunto: Adjunto, sesion: String?, agente: String?) async throws -> ArchivoRemoto {
         var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/files"),
                               resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "nombre", value: adjunto.nombre)]
             + (sesion.map { [URLQueryItem(name: "sesion", value: $0)] } ?? [])
+            + (agente.map { [URLQueryItem(name: "agente", value: $0)] } ?? [])
             // Cómo se PINTA, para poder rehidratar su reproductor al recargar el hilo.
             + (metaDe(adjunto).map { [URLQueryItem(name: "meta", value: $0)] } ?? [])
 
@@ -384,15 +385,18 @@ enum GhostyAPI {
     ///
     /// Sin red contesta con la última lista guardada de esa conversación: sin ella, un hilo
     /// abierto sin conexión perdía sus adjuntos aunque ya se hubieran visto.
-    static func archivosDe(sesion: String) async -> [String: ArchivoDeSesion] {
-        let q = [URLQueryItem(name: "sesion", value: sesion)]
+    ///
+    /// ⚠️ Con el AGENTE: los ids de sesión (`20260930_1`) se repiten entre agentes y, sólo con
+    /// la sesión, un hilo enseñaba los archivos del homónimo de otro agente (2026-09-30).
+    static func archivosDe(sesion: String, agente: String) async -> [String: ArchivoDeSesion] {
+        let q = [URLQueryItem(name: "sesion", value: sesion), URLQueryItem(name: "agente", value: agente)]
         return mapaDeSesion(await accountFiles(query: q) ?? guardados(query: q) ?? [])
     }
 
     /// La última lista de una conversación que se guardó en disco, sin red. `nil` = nunca
     /// se guardó.
-    static func archivosGuardadosDe(sesion: String) -> [String: ArchivoDeSesion]? {
-        guardados(query: [URLQueryItem(name: "sesion", value: sesion)]).map(mapaDeSesion)
+    static func archivosGuardadosDe(sesion: String, agente: String) -> [String: ArchivoDeSesion]? {
+        guardados(query: [URLQueryItem(name: "sesion", value: sesion), URLQueryItem(name: "agente", value: agente)]).map(mapaDeSesion)
     }
 
     private static func mapaDeSesion(_ lista: [ArchivoDeSesion]) -> [String: ArchivoDeSesion] {
