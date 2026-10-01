@@ -145,6 +145,15 @@ struct PerfilView: View {
         .task { await store.cargarAlmacenamiento() }
         .task(id: fase) { await leerAvisos() }
         .sheet(isPresented: $abrirConsentimiento) { AIConsentSheet() }
+        .sheet(isPresented: Binding(get: { store.integracionesPedidas },
+                                    set: { store.integracionesPedidas = $0 })) {
+            ConectoresPane(store: store)
+                .padding(.top, 8)
+                .background(Color.gBg.ignoresSafeArea())
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .onAppear { if Gancho.valor("GHOSTY_TAB") == "connectors" { store.integracionesPedidas = true } }
         .sheet(isPresented: $verUso) {
             DetalleDeUso(agente: agenteDelPlan)
                 #if os(iOS)
@@ -200,6 +209,13 @@ struct PerfilView: View {
                     }
                 }
                 seccion {
+                    // Integraciones dejó de ser pestaña (2026-10-01): vive aquí.
+                    Button { store.integracionesPedidas = true } label: {
+                        renglonWA("powerplug", "Integraciones", resumenDeIntegraciones, chevron: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    .accessibilityIdentifier("ajuste-integraciones")
+                    divisorWA
                     Button {
                         #if os(iOS)
                         if let u = URL(string: UIApplication.openNotificationSettingsURLString) { abrir(u) }
@@ -359,6 +375,12 @@ struct PerfilView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
         .contentShape(Rectangle())
+    }
+
+    /// «2 conectadas» o la invitación a conectar.
+    private var resumenDeIntegraciones: String {
+        let n = store.conectores.filter(\.conectado).count
+        return n == 0 ? "Conecta tus servicios" : n == 1 ? "1 conectada" : "\(n) conectadas"
     }
 
     private var resumenDeUso: String {

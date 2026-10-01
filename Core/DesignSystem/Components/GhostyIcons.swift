@@ -69,6 +69,17 @@ enum GhostyIcons {
         p.move(to: CGPoint(x: 11, y: 16)); p.addLine(to: CGPoint(x: 11, y: 19))
     }
 
+    /// Memorias (un foco): arco de r 5.5 en (11, 9) de 130° a 50° por arriba, el cuello y
+    /// la base `M9 18h4`.
+    static let memorias = GhostyStrokeIcon(viewBox: 22) { p in
+        p.move(to: CGPoint(x: 7.46, y: 13.21))
+        arco(&p, centro: CGPoint(x: 11, y: 9), r: 5.5, de: 130, a: 410, horario: true)
+        p.addLine(to: CGPoint(x: 13.5, y: 15.5))
+        p.addLine(to: CGPoint(x: 8.5, y: 15.5))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 9, y: 18)); p.addLine(to: CGPoint(x: 13, y: 18))
+    }
+
     /// Perfil: `M11 11a3.8 3.8 0 100-7.6 3.8 3.8 0 000 7.6zM4 18.5c.8-3.2 3.6-5 7-5s6.2 1.8 7 5`
     static let perfil = GhostyStrokeIcon(viewBox: 22) { p in
         p.addEllipse(in: CGRect(x: 11 - 3.8, y: 7.2 - 3.8, width: 7.6, height: 7.6))

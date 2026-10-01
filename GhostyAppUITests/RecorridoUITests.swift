@@ -43,7 +43,7 @@ final class RecorridoUITests: XCTestCase {
     /// al chat con ese agente, y el velo la cierra.
     func testCambiarDeAgente() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
-        app.buttons["tab-connectors"].tap()
+        app.buttons["tab-memorias"].tap()
         app.buttons["tab-agente"].tap()
         XCTAssertTrue(app.staticTexts["Cambiar de agente"].waitForExistence(timeout: 3),
                       "el avatar de la barra no abrió la hoja")

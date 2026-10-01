@@ -93,6 +93,10 @@ struct ConversationView: View {
     /// Permiso de IA de terceros (5.1.2(i)): sin él, el envío abre la hoja y espera.
     @AppStorage(AIConsentSheet.key) private var consentGiven = false
     @State private var pendingSend: (() -> Void)?
+    /// Hilos largos cuyo aviso ya cerraste (`agente/sesión`), persistidos.
+    @State private var largosOcultos: Set<String> = HilosLargosOcultos.ids
+    @State private var siguiendoEnNuevo = false
+    @State private var falloAlSeguir: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -335,11 +339,83 @@ struct ConversationView: View {
         }
     }
 
-    /// «N herramientas conectadas»: las integraciones REALES de la cuenta. Lleva a la
-    /// pestaña de Integraciones. Sin ninguna conectada, invita a conectar.
+    /// «Viene de un chat anterior»: al inicio de un hilo seguido de otro; lo abre.
+    private func vieneDeOtroChat(_ hilo: Hilo, _ previa: String) -> some View {
+        Button { store.irA(agente: hilo.agenteID, sesion: previa) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .semibold))
+                Text("Viene de un chat anterior").font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(Color.gInk3)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Color.gFill, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.gPressPill)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 6)
+        .accessibilityIdentifier("viene-de-chat")
+    }
+
+    /// Franja sobre el compositor cuando gs dice que el hilo ya es largo: seguir en uno
+    /// nuevo (gs le pasa al agente el final de éste) o cerrarla para este hilo.
+    private func avisoDeHiloLargo(_ hilo: Hilo, llave: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "hourglass").font(.system(size: 13)).foregroundStyle(Color.gInk2)
+                Text(falloAlSeguir ?? "Este chat ya es largo: responde más lento y gasta más.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(falloAlSeguir == nil ? Color.gInk2 : Color.gDangerInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        largosOcultos.insert(llave)
+                        HilosLargosOcultos.ids = largosOcultos
+                    }
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.gInk3)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Ocultar aviso")
+            }
+            Button {
+                siguiendoEnNuevo = true
+                falloAlSeguir = nil
+                Task {
+                    falloAlSeguir = await store.seguirEnChatNuevo(hilo)
+                    siguiendoEnNuevo = false
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    if siguiendoEnNuevo { GhostySpinner(size: 12) }
+                    Text("Seguir en un chat nuevo").font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(Color.gPrimary)
+                .padding(.horizontal, 14).frame(height: 34)
+                .background(Color.gPrimaryTint, in: Capsule())
+            }
+            .buttonStyle(.gPressPill)
+            .disabled(siguiendoEnNuevo)
+            .padding(.leading, 21)
+            .accessibilityIdentifier("seguir-en-chat-nuevo")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+            .strokeBorder(Color.gSeparator, lineWidth: 1))
+        .transition(.gIn)
+    }
+
+    /// «N herramientas conectadas»: las integraciones REALES de la cuenta. Lleva a
+    /// Integraciones (en Perfil). Sin ninguna conectada, invita a conectar.
     private var chipDeHerramientas: some View {
         let n = store.conectores.filter(\.conectado).count
-        return Button { store.pestanaPedida = .connectors } label: {
+        return Button { store.abrirIntegraciones() } label: {
             HStack(spacing: 6) {
                 Circle().fill(n > 0 ? Color.gGreen : Color.gInk4).frame(width: 7, height: 7)
                 Text(n == 0 ? "Conecta tus herramientas"
@@ -617,7 +693,7 @@ struct ConversationView: View {
                 // un hilo en blanco. Medido en el iPhone: 2.7 s de «conversación nueva».
                 if let hilo = store.hiloActivo, hilo.sesionID != nil, let error = hilo.loadError {
                     loadFailed(error, hilo).padding(.top, 90)
-                } else if store.hiloActivo?.sesionID != nil {
+                } else if store.hiloActivo?.sesionID != nil, store.hiloActivo?.continuadoAqui != true {
                     trayendoElHilo.padding(.top, 90)
                 } else {
                     primeraVez
@@ -628,6 +704,7 @@ struct ConversationView: View {
                 .onChange(of: store.messages.count) { _, n in
                     EasyBitsClient.diag("[vista] ahora \(n) mensajes de \(store.claveDelHilo.prefix(8))")
                 }
+            if let hilo = store.hiloActivo, let previa = hilo.vieneDe { vieneDeOtroChat(hilo, previa) }
             ForEach(antesDelAncla) { mensaje in filaAnimada(mensaje) }
             // ⚠️ Lo que va desde TU último mensaje se mide aparte: es lo que
             // permite calcular cuánto aire hace falta debajo para que ese mensaje
@@ -905,6 +982,10 @@ struct ConversationView: View {
     /// propio icono aquí.
     private var compositor: some View {
         VStack(spacing: 8) {
+            if let h = store.hiloActivo, h.largo, let sid = h.sesionID,
+               !largosOcultos.contains(ChatsFavoritos.llave(h.agenteID, sid)) {
+                avisoDeHiloLargo(h, llave: ChatsFavoritos.llave(h.agenteID, sid))
+            }
             if !adjuntos.isEmpty || fallo != nil { antesDeMandar }
             // «N herramientas conectadas», sólo en el vacío (como el prototipo).
             if esVacio && adjuntos.isEmpty && fallo == nil { chipDeHerramientas }

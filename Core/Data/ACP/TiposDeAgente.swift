@@ -165,9 +165,15 @@ enum ACPClient {
             .compactMap { $0["path"] as? String }.first
             .map { ($0 as NSString).lastPathComponent }
 
+        let titulo = (u["title"] as? String) ?? "herramienta"
+        // `gs_compact`: gs compacta la memoria del hilo en vivo; el nombre crudo no dice nada.
+        if titulo.contains("gs_compact") {
+            return Herramienta(id: id, titulo: "Compactando la memoria…", clase: .think, estado: estado,
+                               salida: nil, donde: nil, detalle: nil)
+        }
         return Herramienta(
             id: id,
-            titulo: (u["title"] as? String) ?? "herramienta",
+            titulo: titulo,
             clase: .init(u["kind"] as? String),
             estado: estado,
             salida: Self.salidaDe(u["content"]),

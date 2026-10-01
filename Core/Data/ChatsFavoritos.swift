@@ -16,3 +16,12 @@ enum ChatsFavoritos {
         ids = s
     }
 }
+
+/// Hilos largos cuyo aviso «Este chat ya es largo» cerraste, por `agente/sesión`.
+enum HilosLargosOcultos {
+    private static let clave = "app.chats.largosOcultos"
+    static var ids: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: clave) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: clave) }
+    }
+}

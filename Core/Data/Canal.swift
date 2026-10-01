@@ -117,6 +117,13 @@ final class Hilo {
     /// No se pudo traer el hilo del servidor y no hay nada que enseñar. Sin esto la vista
     /// se quedaba en «Trayendo la conversación…» para siempre.
     var loadError: String?
+    /// gs dice que el hilo ya es largo: se ofrece seguir en uno nuevo.
+    var largo = false
+    /// La conversación de la que se siguió («Viene de un chat anterior»).
+    var vieneDe: String?
+    /// Recién abierto con «Seguir en un chat nuevo»: existe en gs pero está vacío a
+    /// propósito, así que se pinta como conversación nueva y no como «Trayendo…».
+    var continuadoAqui = false
     /// El agente sigue con esto, pero ya no lo estamos oyendo: se cayó nuestra conexión,
     /// casi siempre porque el teléfono se durmió.
     ///

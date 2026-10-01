@@ -4,14 +4,15 @@ enum GhostyTab: String, CaseIterable, Identifiable {
     // ⚠️ Conversaciones YA NO es pestaña (rediseño 2026-09): el historial se abre desde el
     // botón de la cabecera del chat. Su `rawValue` viejo (`conversations`) lo sigue
     // entendiendo el gancho `GHOSTY_TAB`, que abre la hoja del historial.
-    case chat, artifacts, connectors, perfil
+    // Integraciones dejó de ser pestaña (2026-10-01): vive en Perfil y su lugar es Memorias.
+    case chat, artifacts, memorias, perfil
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .chat:       return "Chats"
         case .artifacts:  return "Archivos"
-        case .connectors: return "Integraciones"
+        case .memorias:   return "Memorias"
         case .perfil:     return "Perfil"
         }
     }
@@ -20,7 +21,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
         switch self {
         case .chat:       return GhostyIcons.chat
         case .artifacts:  return GhostyIcons.archivos
-        case .connectors: return GhostyIcons.integraciones
+        case .memorias:   return GhostyIcons.memorias
         case .perfil:     return GhostyIcons.perfil
         }
     }

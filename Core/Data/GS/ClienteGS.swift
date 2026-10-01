@@ -195,6 +195,7 @@ actor ClienteGS: TransporteDeAgente {
             archivosDelHilo[id] = datos
         }
         ultimos[id] = ACPClient.UltimoTurno.desde(r["ultimoTurno"])
+        largos[id] = (r["largo"] as? Bool ?? false, r["continuesFrom"] as? String)
         // ⚠️ `enCurso: true` NO es «esta conversación está vacía»: es «hay un turno vivo y
         // no te doy el historial», porque pedirlo con un turno en marcha deja mudo al
         // agente (ver `NOTAS-DEL-RELE.md`). gs da por hecho que quien pregunta ya tiene lo
@@ -283,6 +284,22 @@ actor ClienteGS: TransporteDeAgente {
     /// Cuántos mensajes quedaron atrás en el último `cargar`. Es lo que permite ofrecer
     /// «ver lo anterior» en vez de fingir que la conversación empieza ahí.
     private(set) var saltados: [String: Int] = [:]
+    /// Lo que dijo el último `cargar` del tamaño del hilo: si ya es largo (responde más lento
+    /// y gasta más) y de qué conversación viene, si se siguió de otra.
+    private var largos: [String: (largo: Bool, vieneDe: String?)] = [:]
+    func largoDelHilo(_ id: String) -> (largo: Bool, vieneDe: String?)? { largos[id] }
+
+    /// «Seguir en un chat nuevo»: gs abre una conversación enlazada y el agente recibe el
+    /// final de ésta en su primer turno. Devuelve el id de la nueva.
+    func continuar(_ id: String) async throws -> String {
+        let r = try await pedir(base("/conversations/\(id)/continue"), metodo: "POST", cuerpo: [:])
+        guard let nuevo = r["id"] as? String, !nuevo.isEmpty else {
+            throw ACPClient.Fallo.remoto("No pude abrir el chat nuevo.")
+        }
+        largos[nuevo] = (false, id)
+        return nuevo
+    }
+
     /// Los archivos que trajo el último `cargar` de cada hilo (crudos, como `/me/files`).
     private var archivosDelHilo: [String: Data] = [:]
 

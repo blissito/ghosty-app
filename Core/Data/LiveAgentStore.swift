@@ -925,6 +925,33 @@ final class LiveAgentStore: AgentStoring {
         compartidoListo = r
     }
 
+    /// «Seguir en un chat nuevo» desde un hilo largo: gs abre uno enlazado y se pasa a él.
+    /// Devuelve el fallo a enseñar, o `nil`.
+    func seguirEnChatNuevo(_ hilo: Hilo) async -> String? {
+        guard let sid = hilo.sesionID, let canal = canalDe(hilo) else { return "No encuentro esta conversación." }
+        do {
+            guard let gs = try await asegurarSocket(canal) as? ClienteGS else { return "Este agente no permite seguir en otro chat." }
+            let nuevo = try await gs.continuar(sid)
+            let h = canal.abrir(nuevo)
+            h.vieneDe = sid
+            h.continuadoAqui = true
+            h.visto = true
+            mirar(h, de: canal.cuenta.id)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Integraciones ya no es pestaña: vive en Perfil. Quien quiera llevar ahí (el chip del
+    /// chat, un enlace) lo pide con esto y Perfil abre la hoja y lo limpia.
+    var integracionesPedidas = false
+
+    func abrirIntegraciones() {
+        integracionesPedidas = true
+        pestanaPedida = .perfil
+    }
+
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
     private var avisoPendiente: (agente: String, sesion: String)?
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
@@ -1098,7 +1125,12 @@ final class LiveAgentStore: AgentStoring {
             let cliente = try await asegurarSocket(canal)
             // Los archivos de la sesión llegan DENTRO del historial (un viaje menos); con un gs
             // que no los manda, se piden aparte (ver `archivosDeHilo`).
-            guard let replay = try await cliente.cargar(sid, cwd: "/data/work") else {
+            let replayOpcional = try await cliente.cargar(sid, cwd: "/data/work")
+            if let gs = cliente as? ClienteGS, let l = await gs.largoDelHilo(sid) {
+                hilo.largo = l.largo
+                hilo.vieneDe = l.vieneDe
+            }
+            guard let replay = replayOpcional else {
                 // Sin historial porque hay un turno vivo: lo que pasa AHORA lo trae el
                 // SSE, así que hay que estar escuchando aunque no haya nada que pintar
                 // todavía. Sin esto, llegar por un push a una conversación que este
@@ -1125,7 +1157,8 @@ final class LiveAgentStore: AgentStoring {
                 // ⚠️ Sin esto se quedaba en «Trayendo la conversación…» para siempre: una
                 // conversación borrada (o de un turno de prueba) contesta vacía, no con error,
                 // y abrir su push dejaba el spinner girando (2026-09-26).
-                if hilo.mensajes.isEmpty { hilo.loadError = "Esta conversación está vacía o ya no existe." }
+                // Una seguida de otra nace vacía a propósito: no es un fallo.
+                if hilo.mensajes.isEmpty, hilo.vieneDe == nil { hilo.loadError = "Esta conversación está vacía o ya no existe." }
                 return
             }
             // ⚠️ Si el SERVIDOR dice que el último turno ya acabó, el turno local es un

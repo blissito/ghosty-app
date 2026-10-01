@@ -7,8 +7,10 @@ struct RootView: View {
     // GHOSTY_TAB / GHOSTY_SHEET son ganchos de desarrollo: dejan abrir una pantalla
     // concreta desde la línea de comandos para poder verificarlas sin tocar la
     // pantalla del simulador, que no acepta toques por script.
+    // `connectors` (ya no es pestaña) abre Perfil con la hoja de Integraciones.
     @State private var tab: GhostyTab =
-        GhostyTab(rawValue: Gancho.valor("GHOSTY_TAB") ?? "") ?? .chat
+        Gancho.valor("GHOSTY_TAB") == "connectors" ? .perfil
+            : GhostyTab(rawValue: Gancho.valor("GHOSTY_TAB") ?? "") ?? .chat
     @State private var hoja: Agent?
     /// Perfil como hoja: sólo desde el fallo de conexión (la barra no está ahí).
     @State private var ajustes = false
@@ -274,7 +276,7 @@ struct RootView: View {
         // apagada lo dice (decidido el 2026-09-09). Conversaciones salió de la barra.
         // Rediseño estilo WhatsApp (2026-09-29, igual que Android): Chats al final, pegado
         // al avatar del agente, que va a la derecha.
-        [.perfil, .connectors, .artifacts, .chat]
+        [.perfil, .memorias, .artifacts, .chat]
     }
 
     /// La barra flota a 28 pt del borde de la pantalla; esto es ese margen medido desde
@@ -330,8 +332,8 @@ struct RootView: View {
                 case .perfil:
                     PerfilView(store: store, verUso: $verUso)
                         .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
-                case .connectors:
-                    ConectoresPane(store: store)
+                case .memorias:
+                    MemoriasView(store: store)
                         .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
                 case .artifacts:
                     ArtifactsView(store: store)
