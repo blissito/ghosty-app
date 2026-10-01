@@ -1538,6 +1538,8 @@ final class LiveAgentStore: AgentStoring {
             let (id, modos) = try await cliente.nuevaSesion(cwd: "/data/work")
             EasyBitsClient.diag("[hilo] sesión NUEVA \(id)")
             hilo.sesionID = id
+            ChatsFavoritos.compartido.migrar(de: ChatsFavoritos.llave(hilo.agenteID, hilo.clave),
+                                             a: ChatsFavoritos.llave(hilo.agenteID, id))
             hilo.modo = modos?.actual ?? "auto"
             return id
         }

@@ -35,7 +35,9 @@ struct ChatsView: View {
     @State private var seleccionando = false
     @State private var seleccion: Set<String> = []
     /// Conversaciones favoritas (`agente/sesión`) y el filtro «sólo favoritos».
-    @State private var favoritas: Set<String> = ChatsFavoritos.ids
+    private var favoritas: ChatsFavoritos { .compartido }
+    /// Cuándo terminó el último toque largo en una fila (ver `onTapGesture`).
+    @State private var toqueLargoEn: Date?
     @AppStorage("app.chats.soloFavoritos") private var soloFavoritos = false
     /// Chats fijados arriba (deslizar a la derecha → Fijar), como WhatsApp.
     @State private var fijadas: Set<String> = ChatsFijados.ids
@@ -338,10 +340,7 @@ struct ChatsView: View {
 
             accion(todasFavoritas ? "star.slash" : "star.fill",
                    todasFavoritas ? "Quitar de favoritos" : "Agregar a favoritos", activa: !elegidas.isEmpty) {
-                for f in elegidas where favoritas.contains(f.llaveArchivo) == todasFavoritas {
-                    ChatsFavoritos.alternar(f.llaveArchivo)
-                }
-                favoritas = ChatsFavoritos.ids
+                for f in elegidas { favoritas.poner(f.llaveArchivo, !todasFavoritas) }
                 salirDeSeleccion()
             }
             accion("checkmark.message", "Marcar como leídos", activa: !elegidas.isEmpty) {
@@ -596,6 +595,10 @@ struct ChatsView: View {
         .padding(.horizontal, -Theme.Space.screenH)
         .contentShape(Rectangle())
         .onTapGesture {
+            // ⚠️ Al soltar un toque largo llega TAMBIÉN este toque (el largo va simultáneo):
+            // deseleccionaba la fila recién elegida y la barra quedaba en «Selecciona chats»
+            // con todo apagado. Se ignora el toque que llega justo tras el largo.
+            if let t = toqueLargoEn, Date().timeIntervalSince(t) < 0.8 { toqueLargoEn = nil; return }
             if seleccionando { alternarSeleccion(f) } else { abrir(f) }
         }
         // Mantener presionado entra al modo selección con esa fila elegida, como WhatsApp.
@@ -603,6 +606,7 @@ struct ChatsView: View {
         // bloqueaba a ratos («hay que reintentar varias veces», 2026-09-29).
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                toqueLargoEn = Date()
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { seleccionando = true }
                 alternarSeleccion(f)
             }
