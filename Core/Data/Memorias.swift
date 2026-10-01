@@ -2,23 +2,21 @@ import Foundation
 
 /// Lo que el agente recuerda de la persona en TODOS sus chats (gs `api/v2/me/memories`).
 ///
-/// ⚠️ Es de la CUENTA: con `agentId` vacío vale para todos sus agentes; con uno, sólo para
-/// ése. Nunca entra en los turnos de los clientes de WhatsApp o Messenger (eso lo hace gs).
+/// ⚠️ Es de la PERSONA (de la app), nunca de un agente: no se manda `agentId` y si llega se
+/// ignora (decidido por bliss el 2026-10-01). Nunca entra en los turnos de los clientes
+/// de WhatsApp o Messenger (eso lo hace gs).
 struct MemoriaDelAgente: Identifiable, Equatable, Sendable {
     let id: String
     var texto: String
-    /// `nil` = la usan todos los agentes.
-    var agenteID: String?
     /// La guardó el agente («recuerda que…») o la persona a mano.
     var delAgente: Bool
     var creada: Date?
     var editada: Date?
 
-    init(id: String, texto: String, agenteID: String? = nil, delAgente: Bool = false,
+    init(id: String, texto: String, delAgente: Bool = false,
          creada: Date? = nil, editada: Date? = nil) {
         self.id = id
         self.texto = texto
-        self.agenteID = agenteID
         self.delAgente = delAgente
         self.creada = creada
         self.editada = editada
@@ -27,7 +25,6 @@ struct MemoriaDelAgente: Identifiable, Equatable, Sendable {
     init?(_ j: [String: Any]) {
         guard let id = j["id"] as? String, let texto = j["content"] as? String else { return nil }
         self.init(id: id, texto: texto,
-                  agenteID: (j["agentId"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                   delAgente: j["source"] as? String == "agent",
                   creada: MemoriasAPI.fecha(j["createdAt"]),
                   editada: MemoriasAPI.fecha(j["updatedAt"]))
@@ -37,17 +34,13 @@ struct MemoriaDelAgente: Identifiable, Equatable, Sendable {
 /// El cliente de las memorias. Los errores llegan legibles de gs (`{error}`, p. ej. el
 /// tope de 500 caracteres o el 409 de las 200 memorias): se enseñan tal cual.
 enum MemoriasAPI {
-    static func listar(agente: String? = nil) async throws -> [MemoriaDelAgente] {
-        var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/memories"),
-                              resolvingAgainstBaseURL: false)!
-        if let agente { c.queryItems = [URLQueryItem(name: "agente", value: agente)] }
-        let j = try await pedir(c.url!)
+    static func listar() async throws -> [MemoriaDelAgente] {
+        let j = try await pedir(Session.base.appendingPathComponent("api/v2/me/memories"))
         return (j["memories"] as? [[String: Any]] ?? []).compactMap(MemoriaDelAgente.init)
     }
 
-    static func crear(_ texto: String, agente: String?) async throws -> MemoriaDelAgente {
-        var cuerpo: [String: Any] = ["content": texto]
-        if let agente { cuerpo["agentId"] = agente }
+    static func crear(_ texto: String) async throws -> MemoriaDelAgente {
+        let cuerpo: [String: Any] = ["content": texto]
         let j = try await pedir(Session.base.appendingPathComponent("api/v2/me/memories"), metodo: "POST", cuerpo: cuerpo)
         guard let m = (j["memory"] as? [String: Any]).flatMap(MemoriaDelAgente.init) else { throw GhostyAPI.Fallo.mensaje("No pude guardarla.") }
         return m

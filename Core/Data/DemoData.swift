@@ -158,13 +158,13 @@ enum DemoData {
                           updatedAt: Date().addingTimeInterval(-86_400), messageCount: 6),
     ]
 
-    /// Memorias para mirar la pestaña: una del agente, una tuya y una sólo de «Nube».
+    /// Memorias para mirar la pestaña: dos guardadas por el agente y una tuya.
     static let memorias: [MemoriaDelAgente] = [
         MemoriaDelAgente(id: "mem-1", texto: "Prefiere las cotizaciones en PDF y con IVA desglosado.", delAgente: true,
                 creada: Date().addingTimeInterval(-3 * 86_400)),
         MemoriaDelAgente(id: "mem-2", texto: "Mi negocio es una imprenta en Puebla; atiendo de 9 a 6.",
                 creada: Date().addingTimeInterval(-86_400)),
-        MemoriaDelAgente(id: "mem-3", texto: "Los reportes semanales van los lunes.", agenteID: "demo-2", delAgente: true,
+        MemoriaDelAgente(id: "mem-3", texto: "Los reportes semanales van los lunes.", delAgente: true,
                 creada: Date().addingTimeInterval(-3_600)),
     ]
 

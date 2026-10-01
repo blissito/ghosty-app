@@ -3,7 +3,7 @@ import SwiftUI
 /// Memorias: lo que tu agente recuerda de ti en todos tus chats (gs `api/v2/me/memories`).
 /// Ocupa el lugar de la pestaña de Integraciones, que se fue a Perfil.
 ///
-/// ⚠️ Son de la CUENTA. Una con agente sólo la usa ése («Sólo Nube»); sin agente, todos.
+/// ⚠️ Son de la PERSONA (de la app), nunca de un agente: no hay «Sólo <agente>».
 /// Nunca se usan con los clientes de WhatsApp o Messenger: eso lo garantiza gs y aquí se dice.
 struct MemoriasView: View {
     let store: LiveAgentStore
@@ -95,8 +95,8 @@ struct MemoriasView: View {
         .task { await cargar() }
         .refreshable { await cargar() }
         .sheet(item: $editando) { m in
-            EditorDeMemoria(memoria: m, agentes: store.agents) { texto, agente in
-                await guardar(m, texto: texto, agente: agente)
+            EditorDeMemoria(memoria: m) { texto in
+                await guardar(m, texto: texto)
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
@@ -140,13 +140,9 @@ struct MemoriasView: View {
         .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 10)
     }
 
-    /// «Guardada por tu agente · Sólo Nube», «Tú».
+    /// «Guardada por tu agente» o «Tú».
     private func detalle(_ m: MemoriaDelAgente) -> String {
-        var partes = [m.delAgente ? "Guardada por tu agente" : "Tú"]
-        if let a = m.agenteID {
-            partes.append("Sólo \(store.agents.first { $0.id == a }?.name ?? "un agente")")
-        }
-        return partes.joined(separator: " · ")
+        m.delAgente ? "Guardada por tu agente" : "Tú"
     }
 
     private func cargar() async {
@@ -162,19 +158,19 @@ struct MemoriasView: View {
     }
 
     /// Devuelve el fallo para enseñarlo en la hoja (y no cerrarla), o `nil` si se guardó.
-    private func guardar(_ m: MemoriaDelAgente, texto: String, agente: String?) async -> String? {
+    private func guardar(_ m: MemoriaDelAgente, texto: String) async -> String? {
         if DemoData.encendido {
             var nueva = m
             nueva.texto = texto
             if m.id.isEmpty {
-                nueva = MemoriaDelAgente(id: UUID().uuidString, texto: texto, agenteID: agente, creada: Date())
+                nueva = MemoriaDelAgente(id: UUID().uuidString, texto: texto, creada: Date())
                 memorias.insert(nueva, at: 0)
             } else if let i = memorias.firstIndex(where: { $0.id == m.id }) { memorias[i] = nueva }
             return nil
         }
         do {
             if m.id.isEmpty {
-                memorias.insert(try await MemoriasAPI.crear(texto, agente: agente), at: 0)
+                memorias.insert(try await MemoriasAPI.crear(texto), at: 0)
             } else {
                 let editada = try await MemoriasAPI.editar(m.id, texto: texto)
                 if let i = memorias.firstIndex(where: { $0.id == m.id }) { memorias[i] = editada }
@@ -199,15 +195,13 @@ struct MemoriasView: View {
     }
 }
 
-/// La hoja de agregar/editar: el texto y, al crear, para qué agente es.
+/// La hoja de agregar/editar: sólo el texto.
 private struct EditorDeMemoria: View {
     let memoria: MemoriaDelAgente
-    let agentes: [Agent]
-    let alGuardar: (String, String?) async -> String?
+    let alGuardar: (String) async -> String?
 
     @Environment(\.dismiss) private var cerrar
     @State private var texto = ""
-    @State private var agente: String?
     @State private var guardando = false
     @State private var fallo: String?
     @FocusState private var enfocado: Bool
@@ -226,7 +220,7 @@ private struct EditorDeMemoria: View {
                 Button {
                     guardando = true
                     Task {
-                        fallo = await alGuardar(limpio, agente)
+                        fallo = await alGuardar(limpio)
                         guardando = false
                         if fallo == nil { cerrar() }
                     }
@@ -256,20 +250,6 @@ private struct EditorDeMemoria: View {
                 .accessibilityIdentifier("memoria-texto")
 
             HStack {
-                // Al crear se elige; después ya es de quien es (gs sólo edita el texto).
-                if nueva, agentes.count > 1 {
-                    Menu {
-                        Button("Todos tus agentes") { agente = nil }
-                        ForEach(agentes) { a in Button("Sólo \(a.name)") { agente = a.id } }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text(agente.flatMap { id in agentes.first { $0.id == id }.map { "Sólo \($0.name)" } } ?? "Todos tus agentes")
-                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 11))
-                        }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color.gInk2)
-                    }
-                }
                 Spacer()
                 Text("\(limpio.count)/500")
                     .font(.system(size: 12))
@@ -286,7 +266,6 @@ private struct EditorDeMemoria: View {
         .background(Color.gBg.ignoresSafeArea())
         .onAppear {
             texto = memoria.texto
-            agente = memoria.agenteID
             enfocado = true
         }
     }
