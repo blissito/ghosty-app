@@ -52,7 +52,10 @@ enum BloqueDeHistorial {
         switch m.kind {
         case .user(let t, let adjuntos, _):
             let cuerpo = recorte(t)
-            let conQue = adjuntos.isEmpty ? "" : " (con \(adjuntos.count) adjunto(s))"
+            // ⚠️ Antes sólo decía «(con 1 adjunto(s))»: el agente sabía que hubo un PDF pero no
+            // cuál ni cómo bajarlo, y contestaba «no me aparece el documento adjunto»
+            // (Moon, 27-sep). Ahora va el nombre y, si se subió, la liga para bajarlo.
+            let conQue = adjuntos.isEmpty ? "" : " (adjuntó: \(adjuntos.map(referencia).joined(separator: "; ")))"
             return cuerpo.isEmpty && conQue.isEmpty ? nil : "Persona: \(cuerpo)\(conQue)"
         case .agent(let t, _, _):
             let cuerpo = recorte(t)
@@ -64,6 +67,14 @@ enum BloqueDeHistorial {
         case .prCard, .typing, .sistema:
             return nil
         }
+    }
+
+    /// «informe.pdf — bájalo: curl -sSL "<liga>" -o adjuntos/informe.pdf». La liga es firmada
+    /// (6 h): de un mensaje viejo puede haber caducado, y entonces el agente pide que se lo
+    /// vuelvan a mandar, que es lo mismo que pasaba antes pero sabiendo QUÉ archivo era.
+    private static func referencia(_ a: Adjunto) -> String {
+        guard let url = a.remoto?.url, !url.isEmpty, !a.esVoz else { return a.nombre }
+        return "\(a.nombre) — bájalo: mkdir -p adjuntos && curl -sSL \"\(url)\" -o \"adjuntos/\(a.nombre)\""
     }
 
     private static func recorte(_ t: String) -> String {
