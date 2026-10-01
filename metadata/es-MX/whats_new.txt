@@ -1,6 +1,7 @@
-• Nueva pantalla de Chats: todas tus conversaciones en un solo lugar, con buscador, filtros por agente y cuántos mensajes te esperan.
-• Desliza un chat para archivarlo, marcarlo como leído o fijarlo arriba. Marca tus chats favoritos con una estrella.
-• Notas de voz como las conoces: mantén presionado para grabar, desliza para cancelar o hacia arriba para grabar con las manos libres, y pausa cuando quieras.
-• Escucha las notas a 1×, 1.5× o 2×, y adelanta tocando la onda.
-• Archivos se organiza en Multimedia, Documentos y Audio, agrupados por mes.
-• Perfil renovado con tu foto, e Integraciones con los logos de cada servicio.
+• Memorias: dile a Ghosty «recuerda que…» y lo tendrá presente en todos tus chats. Las ves, editas y borras en la nueva pestaña Memorias.
+• Integraciones ahora vive en tu Perfil.
+• Cuando un chat se hace muy largo, te propongo seguir en uno nuevo que ya sabe de qué hablábamos.
+• Archivos: cada foto y video muestra su nombre y de qué chat viene; mantén presionado para abrir el chat, enviarlo a otro chat, descargarlo o compartirlo.
+• Miniaturas de video en tus archivos y en el chat.
+• Los archivos ya no aparecen al final del chat como si fueran nuevos.
+• Marcar favoritos desde el chat y desde la lista funciona al primer toque.
