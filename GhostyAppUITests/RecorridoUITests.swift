@@ -97,7 +97,7 @@ final class RecorridoUITests: XCTestCase {
     /// el alto visible cambia y el aire de abajo se recalcula.
     func testMandarSubeElMensaje() {
         XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
-        let campo = app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
+        let campo = app.textViews["campo-mensaje"].firstMatch
         XCTAssertTrue(campo.waitForExistence(timeout: 3), "no hay campo de mensaje")
         campo.tap()
         campo.typeText("investiga qué es Clay")
@@ -500,7 +500,7 @@ extension RecorridoUITests {
         app.launchEnvironment["GHOSTY_DEMO_STEER"] = "acp"
         app.launch()
 
-        let campo = app.textFields.firstMatch
+        let campo = app.textViews["campo-mensaje"].firstMatch
         XCTAssertTrue(campo.waitForExistence(timeout: 5), "no hay compositor")
         // Con el campo VACÍO y el agente trabajando, el control es detener.
         XCTAssertTrue(app.buttons["detener"].exists, "con el campo vacío falta el detener")
@@ -526,7 +526,7 @@ extension RecorridoUITests {
         app.launchEnvironment["GHOSTY_DEMO_STEER"] = "nativo"
         app.launch()
 
-        let campo = app.textFields.firstMatch
+        let campo = app.textViews["campo-mensaje"].firstMatch
         XCTAssertTrue(campo.waitForExistence(timeout: 5), "no hay compositor")
         campo.tap()
         campo.typeText("mejor el de marzo")
@@ -540,7 +540,7 @@ extension RecorridoUITests {
             NSPredicate(format: "label IN {'Cancelar', 'Cancel'}")).firstMatch
         XCTAssertTrue(cancelar.exists, "el aviso no ofrece salida")
         cancelar.tap()
-        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 3),
+        XCTAssertTrue(app.textViews["campo-mensaje"].waitForExistence(timeout: 3),
                       "cancelar no devolvió al compositor")
     }
 

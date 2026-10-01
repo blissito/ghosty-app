@@ -1316,27 +1316,45 @@ struct ConversationView: View {
             .disabled(store.currentTurn != nil)
             .opacity(store.currentTurn != nil ? 0.35 : 1)
 
-            TextField("", text: $borrador,
-                      prompt: Text(store.currentTurn == nil ? "Pídeme algo o encárgame una tarea" : "Dime algo más…")
-                        .foregroundStyle(Color.gInk4),
-                      axis: .vertical)
-                .textFieldStyle(.plain)
+            // ⚠️ `TextEditor` y no `TextField(axis: .vertical)`: con el campo VACÍO, el
+            // vertical de SwiftUI no saca el menú de edición —ni tocando el cursor ni
+            // manteniendo—, así que no había forma de pegar (medido con prueba de UI en
+            // iOS 26, 2026-09-30; de una línea o `TextEditor` sí sale «Pegar»). El precio:
+            // Intro hace salto de línea y se manda con el botón, como WhatsApp.
+            //
+            // Crece de 1 a 5 renglones: el texto invisible da el alto y el editor va encima.
+            Text(borrador.isEmpty ? " " : borrador + " ")
                 .font(.system(size: 16))
-                .foregroundStyle(Color.gInk)
                 .lineLimit(1...5)
-                .padding(.horizontal, 6)
-                .focused($escribiendo)
-                .submitLabel(.send)
-                .onSubmit(enviar)
-                .accessibilityIdentifier("campo-mensaje")
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("Listo") { escribiendo = false }
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.gPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 8)
+                .opacity(0)
+                .accessibilityHidden(true)
+                .overlay(alignment: .topLeading) {
+                    TextEditor(text: $borrador)
+                        .font(.system(size: 16))
+                        .foregroundStyle(Color.gInk)
+                        .scrollContentBackground(.hidden)
+                        .focused($escribiendo)
+                        .accessibilityIdentifier("campo-mensaje")
+                }
+                .overlay(alignment: .topLeading) {
+                    if borrador.isEmpty {
+                        Text(store.currentTurn == nil ? "Pídeme algo o encárgame una tarea" : "Dime algo más…")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Color.gInk4)
+                            .lineLimit(1)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
                 }
+                .padding(.horizontal, 1)
+            // ⚠️ Sin barra «Listo» encima del teclado: en iOS 26 flota sobre el compositor
+            // y tapaba el botón de mandar (reporte 30-sep). El teclado se cierra deslizando
+            // el hilo, tocándolo o al mandar.
         }
     }
 

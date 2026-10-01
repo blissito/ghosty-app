@@ -23,7 +23,7 @@ final class PermisoSoloEnSuHiloUITests: XCTestCase {
         app.launchEnvironment["GHOSTY_AVISO"] = "demo-1/s-larga"
         app.launchArguments += ["-ai.consentGiven", "YES"]
         app.launch()
-        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 5) || app.textViews.firstMatch.exists)
+        XCTAssertTrue(app.textViews["campo-mensaje"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Sí, dale"].waitForExistence(timeout: 2), "el permiso de otra conversación salió aquí")
     }
 }
