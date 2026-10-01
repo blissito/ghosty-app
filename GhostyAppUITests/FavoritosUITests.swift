@@ -36,6 +36,26 @@ final class FavoritosUITests: XCTestCase {
         foto(app, "f3-chat-sin-estrella")
     }
 
+    /// Lista recién abierta, sin favoritos: el PRIMER toque en ★ de la selección marca.
+    func testPrimerToqueEnLaListaMarca() {
+        let app = XCUIApplication()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchArguments += ["-ai.consentGiven", "YES", "-app.chats.favoritas", "()"]
+        app.launch()
+
+        let fila = app.staticTexts["solo me interesa la foto"].firstMatch
+        XCTAssertTrue(fila.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.images["Favorito"].firstMatch.exists, "arrancó con favoritos")
+        fila.press(forDuration: 0.6)
+        let agregar = app.buttons["Agregar a favoritos"].firstMatch
+        XCTAssertTrue(agregar.waitForExistence(timeout: 3))
+        XCTAssertTrue(agregar.isEnabled, "la fila no quedó elegida tras el toque largo")
+        agregar.tap()
+        XCTAssertTrue(app.images["Favorito"].firstMatch.waitForExistence(timeout: 3),
+                      "el primer toque en ★ no marcó")
+        foto(app, "f4-primer-toque-lista")
+    }
+
     private func foto(_ app: XCUIApplication, _ nombre: String) {
         let a = XCTAttachment(screenshot: app.screenshot())
         a.name = nombre
