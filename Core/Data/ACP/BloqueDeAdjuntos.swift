@@ -149,7 +149,7 @@ enum BloqueDeAdjuntos {
         // ⚠️ `session/load` devuelve el prompt TAL CUAL se envió, así que al reabrir un
         // hilo la burbuja de la persona saldría con toda la conversación anterior dentro
         // —el mismo fallo que ya tuvo con la fontanería de los adjuntos, y por el que
-        // existe esta función—. Ver `BloqueDeHistorial`.
+        // existe esta función—.
         if let ini = t.range(of: "[CONVERSACIÓN PREVIA DE ESTE MISMO HILO") {
             let cierre = "AHORA.]"
             let fin = t.range(of: cierre, range: ini.upperBound..<t.endIndex)

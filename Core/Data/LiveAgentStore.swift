@@ -1966,28 +1966,12 @@ final class LiveAgentStore: AgentStoring {
                     .joined(separator: "\n\n")
                 let conVoz = dicho.isEmpty ? limpio
                     : (limpio.isEmpty ? dicho : "\(dicho)\n\n\(limpio)")
-                // ⚠️ La conversación previa viaja EN el turno. Ver `BloqueDeHistorial`:
-                // está medido que la caja reemite el transcript al cliente pero no
-                // reconstruye el contexto del modelo, así que si no se la mandamos
-                // nosotros, el agente empieza en blanco en cada mensaje. Es un parche con
-                // coste en tokens y se borra el día que la caja lo haga bien.
-                // ⚠️⚠️ VUELVE la conversación previa dentro del turno, y no me gusta más
-                // que a nadie. La quité con el refactor —«el contexto es del servidor»— y
-                // esa misma noche el agente contestó «no tengo contexto, éste es el primer
-                // mensaje de la conversación» a la tercera pregunta de un hilo largo, y
-                // luego «no encuentro a qué te refieres con ellas» sobre unas fotos que
-                // acababa de entregar.
-                //
-                // El arreglo del contexto existe en ghosty-lite pero NO está medido contra
-                // la caja de quien usa esto. Hasta que lo esté, la red de seguridad se
-                // queda: una app que olvida lo que acabas de decirle no sirve de nada, y
-                // pagar unos tokens es preferible a eso.
-                //
-                // Se borra el día que alguien mida dos turnos con la caja hibernada en
-                // medio y el agente recuerde. Ver `NOTAS-DEL-RELE.md`.
-                let conHistoria = BloqueDeHistorial.texto(hilo.mensajes)
-                    .map { "\($0)\n\n\(conVoz)" } ?? conVoz
-                await self.porSocket(canal, hilo, sid: sid, texto: conHistoria,
+                // La conversación previa ya NO viaja en el turno: el contexto es del servidor.
+                // Medido el 2026-10-01 con ghosty-lite: con su proceso reiniciado entre dos
+                // turnos, el agente recordó lo dicho en el primero. Los de pool los cubre gs
+                // (`thread-memory.server.ts`). Mandarlo costaba tokens en cada mensaje y se
+                // guardaba pegado al texto de la persona.
+                await self.porSocket(canal, hilo, sid: sid, texto: conVoz,
                                      adjuntos: conArchivos,
                                      respuesta: idRespuesta)
             } catch {
