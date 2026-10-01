@@ -1382,10 +1382,20 @@ final class LiveAgentStore: AgentStoring {
                 guard let self, let canal, let hilo = canal.hilo(sesion: sesion) else { return }
                 switch fase {
                 case "reposo":
+                    // ⚠️ Si aquí creíamos que había trabajo (turno local o cartel de «Sigo con
+                    // esto»), el turno acabó sin que su `done` nos llegara: el flujo se murió a
+                    // media respuesta. Apagar el estado no basta —la burbuja se quedaba con los
+                    // pasos a medias y la herramienta girando, sin la respuesta final que ya
+                    // estaba guardada en gs (Brenda, 2026-09-30: 22 min así)—. Se trae el hilo.
+                    let creiaTrabajo = hilo.turno != nil || hilo.interrumpido
                     hilo.interrumpido = false
                     hilo.turno = nil
                     hilo.cronometro?.cancel(); hilo.cronometro = nil
                     hilo.inicio = nil
+                    if creiaTrabajo, !hilo.isSending {
+                        EasyBitsClient.diag("[hilo] \(sesion): reposo con trabajo local; traigo la respuesta")
+                        Task { await self.traerLaConversacion(hilo, de: canal) }
+                    }
                 case "waking":
                     hilo.turno?.detail = "Despertando…"
                 default:
