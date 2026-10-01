@@ -288,6 +288,27 @@ enum GhostyAPI {
         return datos
     }
 
+    /// La misma liga del almacenamiento, recién firmada (`GET /api/v2/me/files/fresh?u=`).
+    /// `nil` si no es nuestra o ya no es de esta cuenta: quien llama se queda con la original.
+    static func urlFresca(_ original: URL) async throws -> URL? {
+        // ⚠️ A mano y no con `queryItems`: ése deja `&` y `=` sin codificar y la URL firmada
+        // (llena de `&X-Amz-…=`) llegaría partida.
+        var permitidos = CharacterSet.alphanumerics
+        permitidos.insert(charactersIn: "-._~")
+        guard let u = original.absoluteString.addingPercentEncoding(withAllowedCharacters: permitidos),
+              let pedir = URL(string: Session.base.appendingPathComponent("api/v2/me/files/fresh").absoluteString + "?u=" + u)
+        else { return nil }
+        var req = URLRequest(url: pedir)
+        req.assumesHTTP3Capable = false
+        req.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
+        let (datos, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200,
+              let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
+              let s = j["url"] as? String
+        else { return nil }
+        return URL(string: s)
+    }
+
     /// Una firma nueva para un archivo que ya está subido.
     static func urlDe(_ id: String) async throws -> String {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/files/\(id)"))

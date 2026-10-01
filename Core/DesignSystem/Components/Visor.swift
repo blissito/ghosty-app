@@ -38,8 +38,12 @@ enum Descargas {
     }
 
     private static func clave(_ url: URL) -> String {
+        // Una URL firmada cambia de firma pero no de objeto: la llave es sin la firma, así
+        // una liga re-firmada encuentra lo que ya se bajó.
+        var texto = url.absoluteString
+        if texto.contains("X-Amz-"), let corte = texto.firstIndex(of: "?") { texto = String(texto[..<corte]) }
         var h: UInt64 = 0xcbf29ce484222325
-        for b in url.absoluteString.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
+        for b in texto.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
         return "d" + String(h, radix: 36)
     }
 
@@ -53,10 +57,21 @@ enum Descargas {
             return d
         }
         let tarea = Task<Data?, Never> {
-            guard let (d, resp) = try? await URLSession.shared.data(from: url) else { return nil }
-            // El código sólo se mira si HAY respuesta HTTP: un `file://` no trae ninguna.
-            let codigo = (resp as? HTTPURLResponse)?.statusCode
-            guard codigo == nil || codigo == 200, !d.isEmpty else { return nil }
+            func bajar(_ u: URL) async -> Data? {
+                guard let (d, resp) = try? await URLSession.shared.data(from: u) else { return nil }
+                // El código sólo se mira si HAY respuesta HTTP: un `file://` no trae ninguna.
+                let codigo = (resp as? HTTPURLResponse)?.statusCode
+                guard codigo == nil || codigo == 200, !d.isEmpty else { return nil }
+                return d
+            }
+            // ⚠️ La URL que el agente escribió en un ```eb-audio```/```eb-file``` caduca a los
+            // 7 días: si ya no sirve, gs la vuelve a firmar (`/me/files/fresh`) y se reintenta.
+            // Era la nota de voz que «ya no está» al volver a un hilo viejo (30-sep).
+            var d = await bajar(url)
+            if d == nil, url.scheme == "https", let fresca = try? await GhostyAPI.urlFresca(url) {
+                d = await bajar(fresca)
+            }
+            guard let d else { return nil }
             try? d.write(to: destino, options: .atomic)
             return d
         }
@@ -87,8 +102,12 @@ enum CargadorDeImagen {
 
     /// Nombre en disco: la URL no sirve tal cual como nombre de archivo.
     private static func clave(_ url: URL) -> String {
+        // Una URL firmada cambia de firma pero no de objeto: la llave es sin la firma, así
+        // una liga re-firmada encuentra lo que ya se bajó.
+        var texto = url.absoluteString
+        if texto.contains("X-Amz-"), let corte = texto.firstIndex(of: "?") { texto = String(texto[..<corte]) }
         var h: UInt64 = 0xcbf29ce484222325
-        for b in url.absoluteString.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
+        for b in texto.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
         return "w" + String(h, radix: 36)
     }
 
