@@ -414,6 +414,16 @@ enum GhostyAPI {
         return mapaDeSesion(await accountFiles(query: q) ?? guardados(query: q) ?? [])
     }
 
+    /// Los archivos de una conversación que llegaron DENTRO del historial (`?archivos=1`):
+    /// mismo shape que `/me/files`; se guardan en disco igual, para abrir sin red. `nil` = no
+    /// se pudieron leer.
+    static func archivosDe(sesion: String, agente: String, datos: Data) -> [String: ArchivoDeSesion]? {
+        guard let lista = parsearArchivos(datos) else { return nil }
+        let q = [URLQueryItem(name: "sesion", value: sesion), URLQueryItem(name: "agente", value: agente)]
+        ListasDeArchivosEnDisco.guardar(datos, clave: claveDeLista(q))
+        return mapaDeSesion(lista)
+    }
+
     /// La última lista de una conversación que se guardó en disco, sin red. `nil` = nunca
     /// se guardó.
     static func archivosGuardadosDe(sesion: String, agente: String) -> [String: ArchivoDeSesion]? {

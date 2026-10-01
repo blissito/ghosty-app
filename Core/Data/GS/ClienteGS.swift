@@ -186,9 +186,14 @@ actor ClienteGS: TransporteDeAgente {
     /// alguien tocaba un aviso para ir a verlo.
     func cargar(_ id: String, cwd: String) async throws -> [ACPClient.Replay]? {
         var c = URLComponents(url: base("/conversations/\(id)"), resolvingAgainstBaseURL: false)!
-        c.queryItems = [URLQueryItem(name: "tail", value: "\(Self.cola)")]
+        // `archivos=1`: los archivos del hilo vienen en la MISMA respuesta (gs f0d8b97b) y no
+        // hace falta el viaje aparte a `/me/files`. Se quedan aquí hasta que el store los tome.
+        c.queryItems = [URLQueryItem(name: "tail", value: "\(Self.cola)"), URLQueryItem(name: "archivos", value: "1")]
         let r = try await leerConReintento(c.url!)
         saltados[id] = r["saltados"] as? Int ?? 0
+        if let files = r["files"] as? [[String: Any]], let datos = try? JSONSerialization.data(withJSONObject: ["files": files]) {
+            archivosDelHilo[id] = datos
+        }
         ultimos[id] = ACPClient.UltimoTurno.desde(r["ultimoTurno"])
         // ⚠️ `enCurso: true` NO es «esta conversación está vacía»: es «hay un turno vivo y
         // no te doy el historial», porque pedirlo con un turno en marcha deja mudo al
@@ -278,6 +283,13 @@ actor ClienteGS: TransporteDeAgente {
     /// Cuántos mensajes quedaron atrás en el último `cargar`. Es lo que permite ofrecer
     /// «ver lo anterior» en vez de fingir que la conversación empieza ahí.
     private(set) var saltados: [String: Int] = [:]
+    /// Los archivos que trajo el último `cargar` de cada hilo (crudos, como `/me/files`).
+    private var archivosDelHilo: [String: Data] = [:]
+
+    /// Los archivos del hilo que vinieron con el historial; se entregan una vez.
+    func tomarArchivos(de id: String) -> Data? {
+        archivosDelHilo.removeValue(forKey: id)
+    }
 
     func borrarSesion(_ id: String) async throws {
         // Archiva, no borra: la memoria del hilo sigue en la caja y es reversible.
