@@ -30,6 +30,10 @@ enum ReplayToMessages {
         var separarTrasHerramienta = false
         /// Adjuntos que gs guardó como dato (no dentro del texto) para el mensaje en curso.
         var serverAttachmentNames: [String] = []
+        /// El índice del SERVIDOR del mensaje en curso (`.turno("m<i>")`) y el de cada burbuja
+        /// pintada: contra él se ubican las entregas (`despuesDe`).
+        var mensajeDelServidor: Int?
+        var indiceDelServidor: [String: Int] = [:]
 
         enum Quien { case usuario, agente }
 
@@ -83,6 +87,7 @@ enum ReplayToMessages {
                 let texto = [visible, pie].filter { !$0.isEmpty }.joined(separator: "\n")
 
                 guard !texto.isEmpty || !recuperados.isEmpty else { return }
+                if let i = mensajeDelServidor { indiceDelServidor["u\(mensajes.count)"] = i }
                 mensajes.append(Message(id: "u\(mensajes.count)",
                                         kind: .user(texto, adjuntos: recuperados)))
 
@@ -98,6 +103,7 @@ enum ReplayToMessages {
                     entregasDelReplay.append((mensajes.count, hallado.entrega))
                 }
                 guard !limpio.isEmpty || tools != nil || !entregasDelReplay.isEmpty else { return }
+                if let i = mensajeDelServidor { indiceDelServidor["a\(mensajes.count)"] = i }
                 mensajes.append(Message(
                     id: "a\(mensajes.count)",
                     kind: .agent(text: limpio.isEmpty ? "_Trabajó sin escribir nada._" : limpio,
@@ -127,9 +133,14 @@ enum ReplayToMessages {
                 }
                 texto += t
 
-            case .turno, .cerrado:
+            case .turno(let t):
                 // Frontera de mensaje/turno: cierra la burbuja aunque el rol se repita
                 // (dos mensajes seguidos de la persona son dos burbujas).
+                cerrar(); quien = nil
+                // La copia de gs numera sus mensajes («m<i>»); el replay de ACP no.
+                mensajeDelServidor = t.hasPrefix("m") ? Int(t.dropFirst()) : nil
+
+            case .cerrado:
                 cerrar(); quien = nil
 
             case .thought:
@@ -205,7 +216,17 @@ enum ReplayToMessages {
             guard !mensajes.contains(where: { $0.id == id }) else { continue }
             var e = Entrega.fromAccountFile(f)
             e.agentID = ""
-            mensajes.append(Message(id: id, kind: .entrega(e)))
+            let m = Message(id: id, kind: .entrega(e))
+            // gs ya la ubicó por fecha: tras el último mensaje con índice ≤ `despuesDe`
+            // (-1 = arriba), detrás de las entregas que ya estén ahí.
+            if let despues = f.despuesDe {
+                let ancla = mensajes.lastIndex { (indiceDelServidor[$0.id] ?? Int.max) <= despues }
+                var sitio = (ancla ?? -1) + 1
+                while sitio < mensajes.count, mensajes[sitio].id.hasPrefix("entrega-") { sitio += 1 }
+                mensajes.insert(m, at: sitio)
+            } else {
+                mensajes.append(m)
+            }
         }
         return mensajes
     }

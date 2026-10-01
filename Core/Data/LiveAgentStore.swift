@@ -700,6 +700,15 @@ final class LiveAgentStore: AgentStoring {
     /// llega primero como ```eb-file``` con URL de 7 días, y gs la registra con la key que
     /// va dentro de esa URL. Sin esto el hilo enseñaba dos tarjetas, y la vieja dejaba de
     /// abrir a la semana.
+    /// Una entrega de la CUENTA que la lista del hilo ya no trae: gs la dejó fuera por ser
+    /// más vieja que la cola que se pidió. Coserla al final es lo que hacía que un archivo de
+    /// hace semanas apareciera como recién enviado (testers, 1-oct). Sólo cuando la lista ya
+    /// viene ubicada (`despuesDe`): con un gs viejo no se sabe y se conserva.
+    static func leftOutByServer(_ e: Entrega, archivos: [String: GhostyAPI.ArchivoDeSesion]) -> Bool {
+        guard let id = e.remotoID, archivos.values.contains(where: { $0.despuesDe != nil }) else { return false }
+        return !archivos.values.contains { $0.id == id }
+    }
+
     static func isShadowed(_ e: Entrega, by files: [String: GhostyAPI.ArchivoDeSesion]) -> Bool {
         guard e.remotoID == nil, let url = e.url?.removingPercentEncoding else { return false }
         return files.values.contains { f in
@@ -1102,7 +1111,7 @@ final class LiveAgentStore: AgentStoring {
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
             // Las entregas se cosen aquí: el hilo que devuelve el servidor es texto, y la
             // foto que te entregó el agente vive en este teléfono.
-            for e in entregas.deSesion(sid, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) {
+            for e in entregas.deSesion(sid, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) && !Self.leftOutByServer(e, archivos: archivos) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // El servidor es la verdad del hilo: se SUSTITUYE, no se compara. Aquí hubo
@@ -1632,7 +1641,7 @@ final class LiveAgentStore: AgentStoring {
             // —el relé las empuja en vivo y no las guarda—, así que sin esto la foto que
             // te entregó el agente desaparecía del hilo al reabrirlo: seguía en
             // Artefactos, pero la conversación se quedaba con el texto solo.
-            for e in entregas.deSesion(sesion.id, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) {
+            for e in entregas.deSesion(sesion.id, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) && !Self.leftOutByServer(e, archivos: archivos) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // ⚠️⚠️ Tres motivos para NO pisar lo que hay, y los tres pasaron:

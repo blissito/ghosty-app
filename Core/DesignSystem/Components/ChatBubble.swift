@@ -84,7 +84,8 @@ extension UserBubble {
     fileprivate var loMandado: some View {
         let imagenes = adjuntos.filter(\.esImagen)
         let voces = adjuntos.filter(\.esVoz)
-        let otros = adjuntos.filter { !$0.esImagen && !$0.esVoz }
+        let videos = adjuntos.filter { $0.mime.hasPrefix("video/") }
+        let otros = adjuntos.filter { !$0.esImagen && !$0.esVoz && !$0.mime.hasPrefix("video/") }
 
         VStack(alignment: .leading, spacing: 6) {
             if imagenes.count == 1 {
@@ -113,6 +114,7 @@ extension UserBubble {
                     }
                 }
             }
+            ForEach(videos) { a in CuadroDeAdjuntoDeVideo(adjunto: a) }
             ForEach(voces) { a in
                 NotaDeVoz(adjunto: a)
                     // El DESTINO del vuelo: la barra de grabación que acabas de soltar se
@@ -138,6 +140,45 @@ extension UserBubble {
                 .background(Color.gCard.opacity(0.7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
+    }
+}
+
+/// Un video que mandaste: su cuadro con el ▶ encima y el nombre abajo, como en WhatsApp.
+/// Antes caía con «otros» y se veía como un clip con su peso, sin saber cuál era.
+private struct CuadroDeAdjuntoDeVideo: View {
+    let adjunto: Adjunto
+    @State private var cuadro: UIImage?
+
+    var body: some View {
+        let forma = RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous)
+        Color.gDark
+            .overlay { if let cuadro { Image(uiImage: cuadro).resizable().scaledToFill() } }
+            .overlay {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Color.black.opacity(0.35), in: Circle())
+            }
+            .overlay(alignment: .bottomLeading) {
+                Text(adjunto.nombre)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.55))
+            }
+            .frame(width: 200, height: 140)
+            .clipShape(forma)
+            .accessibilityLabel("Video \(adjunto.nombre)")
+            .task(id: adjunto.remoto?.id ?? adjunto.id) {
+                cuadro = await CuadroDeVideo.de(id: adjunto.remoto?.id ?? adjunto.id, remotoID: adjunto.remoto?.id,
+                                                url: adjunto.remoto?.url.isEmpty == false ? adjunto.remoto?.url : nil,
+                                                datos: adjunto.datos, mime: adjunto.mime)
+            }
     }
 }
 

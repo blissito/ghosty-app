@@ -264,6 +264,9 @@ enum GhostyAPI {
         /// Una descarga/montaje de video (`VideoRun`): el agente la entrega SIEMPRE en el texto
         /// del hilo (```eb-file```), así que no se cose al final.
         var videoRunID: String? = nil
+        /// Tras qué mensaje del historial va (índice del servidor; -1 = arriba). `nil` = gs no
+        /// lo sabe (hilo sin horas, gs viejo) y se cose al final como antes.
+        var despuesDe: Int? = nil
     }
 
     /// Baja un archivo de la cuenta.
@@ -528,6 +531,7 @@ enum GhostyAPI {
             a.videoRunID = meta["videoRunId"] as? String
             a.sessionID = f["sessionId"] as? String
             a.creado = parseDate(f["createdAt"] as? String)
+            a.despuesDe = f["afterIndex"] as? Int
             result.append(a)
         }
         return result

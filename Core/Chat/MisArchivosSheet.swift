@@ -139,7 +139,21 @@ private struct MiniaturaDeBiblioteca: View {
         }
         .frame(width: 42, height: 42)
         .clipShape(forma)
+        // Un video con su cuadro y su ▶, no con la sigla: «MP4» no dice cuál de todos es.
+        .overlay {
+            if archivo.mime.hasPrefix("video/") {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(Color.black.opacity(0.35), in: Circle())
+            }
+        }
         .task(id: archivo.id) {
+            if archivo.mime.hasPrefix("video/") {
+                imagen = await CuadroDeVideo.de(id: archivo.id, remotoID: archivo.id, mime: archivo.mime)
+                return
+            }
             guard archivo.mime.hasPrefix("image/") else { return }
             imagen = await CacheDeImagenes.imagen(Adjunto(deBiblioteca: archivo))
         }

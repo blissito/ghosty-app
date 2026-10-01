@@ -58,6 +58,11 @@ struct ArtifactsView: View {
     @State private var abierta: String?
     /// El video que se está mirando (hoja con su reproductor).
     @State private var mirandoVideo: Entrega?
+    /// El archivo que se está bajando para «Descargar o compartir» (su id).
+    @State private var preparando: String?
+    /// Ya bajado y en disco: la hoja de compartir del sistema (Guardar en Archivos/Fotos).
+    @State private var paraCompartir: ArchivoParaCompartir?
+    @State private var falloAlCompartir: String?
     @Namespace private var subrayado
     @Environment(\.openURL) private var abrir
     @Environment(Visor.self) private var visor: Visor?
@@ -81,6 +86,62 @@ struct ArtifactsView: View {
         return store.canales.first { _, c in
             c.hilosRemotos.contains { $0.id == sid } || c.hilos.contains { $0.sesionID == sid }
         }?.key
+    }
+
+    /// De dónde salió, para nombrarlo: «Ghosty · Cotización de lonas». Sin conversación
+    /// conocida, sólo el agente; sin nada, `nil`.
+    private func procedencia(_ e: Entrega) -> String? {
+        let agente = agenteDe(e)
+        let nombre = agente.flatMap { id in store.agents.first { $0.id == id }?.name }
+        var chat: String?
+        if let a = agente, let sid = e.sesionID {
+            let canal = store.canales[a]
+            if let t = TitleStore.compartido.titulo(a, sid) { chat = t }
+            else if let s = canal?.hilosRemotos.first(where: { $0.id == sid }), !TitleStore.isGeneric(s.title) { chat = s.title }
+            else if let h = canal?.hilo(sesion: sid), h.titulo != "Conversación nueva" { chat = h.titulo }
+        }
+        let partes = [nombre, chat?.trimmingCharacters(in: .whitespacesAndNewlines)].compactMap { $0 }.filter { !$0.isEmpty }
+        return partes.isEmpty ? nil : partes.joined(separator: " · ")
+    }
+
+    /// «Abrir el chat»: la conversación donde nació, como si tocaras su aviso.
+    private func abrirChat(_ e: Entrega) -> (() -> Void)? {
+        guard let sid = e.sesionID, let a = agenteDe(e), store.canales[a] != nil else { return nil }
+        return { store.irA(agente: a, sesion: sid) }
+    }
+
+    /// «Descargar o compartir»: baja los bytes (con firma fresca si es de la cuenta), los
+    /// deja en disco con su extensión y abre la hoja del sistema. Con la extensión real, la
+    /// hoja ofrece «Guardar imagen/video» además de «Guardar en Archivos».
+    private func compartir(_ e: Entrega) {
+        guard preparando == nil else { return }
+        preparando = e.id
+        falloAlCompartir = nil
+        Task {
+            var c = e
+            if c.hayQueBajar {
+                if let id = c.remotoID { c.datos = try? await GhostyAPI.bajar(id) }
+                else if let s = c.url, let u = URL(string: s) { c.datos = await Descargas.bytes(u) }
+            }
+            preparando = nil
+            // ⚠️ Sin bytes, `aDisco` escribiría un archivo VACÍO y la hoja lo compartiría
+            // como si nada: se dice que no se pudo.
+            guard !c.hayQueBajar, let url = c.aDisco() else {
+                falloAlCompartir = "No pude bajar «\(e.titulo)». Revisa tu conexión e inténtalo otra vez."
+                return
+            }
+            paraCompartir = ArchivoParaCompartir(url: url)
+        }
+    }
+
+    /// Mantener pulsado cualquier archivo: abrir su chat, usarlo en otro, bajarlo o borrarlo.
+    private func acciones(_ e: Entrega) -> AccionesDeArchivo {
+        AccionesDeArchivo(titulo: e.titulo,
+                          consecuencia: Self.consecuencia(e),
+                          abrirChat: abrirChat(e),
+                          usarEnChat: e.remotoID != nil ? { store.usarEnUnChat(e) } : nil,
+                          compartir: { compartir(e) },
+                          alBorrar: { Task { await store.deleteAccountFile(e) } })
     }
 
     var body: some View {
@@ -120,6 +181,11 @@ struct ArtifactsView: View {
         .refreshable { await store.loadAccountFiles() }
         .fullScreenCover(item: $mirandoVideo) { e in
             VideoAPantallaCompleta(entrega: e)
+        }
+        .sheet(item: $paraCompartir) { a in
+            HojaDeCompartir(url: a.url)
+                .presentationDetents([.medium, .large])
+                .ignoresSafeArea()
         }
     }
 
@@ -219,6 +285,36 @@ struct ArtifactsView: View {
     /// es la peor variante del fallo mudo — te deja creer que el archivo ya no está.
     @ViewBuilder
     private var avisoDeBorrado: some View {
+        if let id = preparando {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Bajando «\(archivos.first { $0.id == id }?.titulo ?? "archivo")»…").gMeta()
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(Color.gCard,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .transition(.gIn)
+        } else if let fallo = falloAlCompartir {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.gDangerInk)
+                Text(fallo).gMeta().foregroundStyle(Color.gDangerInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button { falloAlCompartir = nil } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.gDangerInk)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(Color.gDangerTint,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .transition(.gIn)
+        }
         if let fallo = store.falloAlBorrar {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -322,7 +418,9 @@ struct ArtifactsView: View {
         return orden.map { ($0, grupos[$0]!) }
     }
 
-    /// Cuadro de la cuadrícula: la foto recortada (abre el visor) o el video con su ▶.
+    /// Cuadro de la cuadrícula: la foto recortada (abre el visor) o el video con su ▶, y
+    /// abajo una franja sólida con el nombre y de dónde salió (sin degradado: se lee igual
+    /// sobre una foto clara que sobre una oscura).
     private func cuadro(_ e: Entrega) -> some View {
         MiniaturaDeEntrega(entrega: e) { img in
             // Foto: el visor sólo si ya cargó (un toque temprano no hace nada). Video: dentro
@@ -331,10 +429,29 @@ struct ArtifactsView: View {
             else if let img { visor?.abrir(img, titulo: e.titulo) }
         }
         .aspectRatio(1, contentMode: .fit)
-        .accessibilityIdentifier("archivo-\(e.id)")
-        .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
-            Task { await store.deleteAccountFile(e) }
+        .overlay(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(e.titulo)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let de = procedencia(e) {
+                    Text(de)
+                        .font(.system(size: 10))
+                        .opacity(0.8)
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(Color.black.opacity(0.55))
+            .allowsHitTesting(false)
         }
+        .overlay { if preparando == e.id { Color.black.opacity(0.3); ProgressView().tint(.white) } }
+        .accessibilityIdentifier("archivo-\(e.id)")
+        .modifier(acciones(e))
     }
 
     /// Renglón de documento: insignia de color con la sigla, nombre y «Generado · 84 KB · 12 sep».
@@ -353,7 +470,7 @@ struct ArtifactsView: View {
                             .foregroundStyle(Color.gInk)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Text(Self.meta(e))
+                        Text(Self.meta(e, de: procedencia(e)))
                             .font(.system(size: 14))
                             .foregroundStyle(Color.gInk3)
                             .lineLimit(1)
@@ -391,21 +508,17 @@ struct ArtifactsView: View {
                     .transition(.gIn)
             }
         }
-        .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
-            Task { await store.deleteAccountFile(e) }
-        }
+        .modifier(acciones(e))
     }
 
     /// Renglón de audio como una nota de WhatsApp: [micrófono] [▶] [onda] [duración] y
     /// debajo, alineada con el play, «nombre · Generado · tamaño · fecha».
     private func filaDeAudio(_ e: Entrega) -> some View {
-        FilaDeAudio(entrega: e, detalle: Self.meta(e))
+        FilaDeAudio(entrega: e, detalle: Self.meta(e, de: procedencia(e)))
             .padding(.horizontal, Theme.Space.screenH - 4)
             .padding(.vertical, 8)
             .accessibilityIdentifier("archivo-\(e.id)")
-            .borrarConToqueLargo("¿Borrar «\(e.titulo)»?", consecuencia: Self.consecuencia(e)) {
-                Task { await store.deleteAccountFile(e) }
-            }
+            .modifier(acciones(e))
     }
 
     private static func consecuencia(_ e: Entrega) -> String {
@@ -528,12 +641,13 @@ struct ArtifactsView: View {
         }
     }
 
-    /// «Generado · hoy, 8:01 · 84 KB», «Subido · ayer · 1.2 MB», «Subido · lun · 340 KB».
-    static func meta(_ e: Entrega) -> String {
+    /// «Generado · 84 KB · 12 sep · Ghosty · Cotización», con de dónde salió al final.
+    static func meta(_ e: Entrega, de procedencia: String? = nil) -> String {
         var partes = [e.generada ? "Generado" : "Subido"]
         if let peso = e.peso { partes.append(peso) }
         let es = Locale(identifier: "es_MX")
         partes.append(e.recibida.formatted(.dateTime.day().month(.abbreviated).locale(es)).replacingOccurrences(of: ".", with: ""))
+        if let procedencia { partes.append(procedencia) }
         return partes.joined(separator: " · ")
     }
 
@@ -692,29 +806,11 @@ struct MiniaturaDeEntrega: View {
         imagen = img
     }
 
-    /// Un cuadro del primer segundo del video (360 px), en memoria y en disco: el id del
-    /// archivo no cambia, así que la miniatura no caduca.
+    /// El cuadro del video, de `CuadroDeVideo` (lo comparte con «Mis archivos» y el chat).
     private func cargarCuadroDeVideo() async {
-        let disco = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appending(path: "miniaturas-video")
-        try? FileManager.default.createDirectory(at: disco, withIntermediateDirectories: true)
-        let archivo = disco.appending(path: (entrega.remotoID ?? entrega.id).replacingOccurrences(of: "/", with: "_") + ".jpg")
-        if let d = try? Data(contentsOf: archivo), let img = UIImage(data: d) {
-            MiniaturasEnMemoria.guardar(img, clave: clave)
-            imagen = img
-            return
-        }
-        var url: URL?
-        if let rid = entrega.remotoID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
-        if url == nil, let s = entrega.url { url = URL(string: s) }
-        guard let url else { return }
-        let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-        gen.appliesPreferredTrackTransform = true
-        gen.maximumSize = CGSize(width: 360, height: 360)
-        guard let (cg, _) = try? await gen.image(at: CMTime(seconds: 1, preferredTimescale: 600)) else { return }
-        let img = UIImage(cgImage: cg)
+        guard let img = await CuadroDeVideo.de(id: entrega.remotoID ?? entrega.id, remotoID: entrega.remotoID,
+                                               url: entrega.url, datos: entrega.datos, mime: entrega.mime) else { return }
         MiniaturasEnMemoria.guardar(img, clave: clave)
-        if let d = img.jpegData(compressionQuality: 0.8) { try? d.write(to: archivo, options: .atomic) }
         imagen = img
     }
 }
@@ -816,4 +912,54 @@ struct VideoAPantallaCompleta: View {
             } else { fallo = "No pude abrir el video." }
         }
     }
+}
+
+/// Mantener pulsado un archivo de Archivos: el menú con todo lo que se puede hacer con él.
+/// «Borrar» va al final, en rojo, y siempre pregunta antes (ver `BorrarConToqueLargo`).
+struct AccionesDeArchivo: ViewModifier {
+    let titulo: String
+    let consecuencia: String?
+    /// `nil` = no se sabe de qué conversación salió: la opción no sale.
+    let abrirChat: (() -> Void)?
+    /// `nil` = vive sólo en el teléfono (sin id de la cuenta), no se puede mandar por id.
+    let usarEnChat: (() -> Void)?
+    let compartir: () -> Void
+    let alBorrar: () -> Void
+
+    @State private var preguntando = false
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                if let abrirChat {
+                    Button(action: abrirChat) { Label("Abrir el chat", systemImage: "bubble.left.and.bubble.right") }
+                }
+                if let usarEnChat {
+                    Button(action: usarEnChat) { Label("Usar en un chat", systemImage: "paperplane") }
+                }
+                Button(action: compartir) { Label("Descargar o compartir", systemImage: "square.and.arrow.down") }
+                Divider()
+                Button(role: .destructive) { preguntando = true } label: {
+                    Label("Borrar", systemImage: "trash")
+                }
+            }
+            .confirmarBorrado("¿Borrar «\(titulo)»?", consecuencia: consecuencia, preguntando: $preguntando,
+                              alBorrar: alBorrar)
+    }
+}
+
+/// Un archivo ya en disco, listo para la hoja de compartir.
+struct ArchivoParaCompartir: Identifiable {
+    let url: URL
+    var id: String { url.path }
+}
+
+/// La hoja de compartir del sistema con un archivo: «Guardar en Archivos», «Guardar imagen»
+/// o «Guardar video» según su extensión, AirDrop, otra app…
+struct HojaDeCompartir: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
 }

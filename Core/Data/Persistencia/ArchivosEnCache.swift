@@ -163,6 +163,7 @@ enum CacheDeArchivos {
         MiniaturasEnMemoria.borrarTodo()
         CacheDeImagenes.borrarTodo()
         PortadasDeVideo.borrarTodo()
+        CuadroDeVideo.borrarTodo()
         FirmasEnMemoria.borrarTodo()
         Task { @MainActor in ReproductoresDeVideo.borrarTodo() }
     }
