@@ -2,14 +2,19 @@ import Foundation
 
 /// El tono del fantasma. Cada agente tiene el suyo y no cambia: es su identidad
 /// visual en la lista, en la cabecera y en la hoja.
+///
+/// `lilaClaro` es SÓLO para MiniGhosty y su familia (gs manda `tono: "lila-claro"` desde el
+/// 2026-10-01); no entra en la rotación por posición, que sigue siendo lila/azul/durazno.
 enum AgentTone: String, Codable, Sendable {
     case lila, azul, durazno
+    case lilaClaro = "lila-claro"
 
     var assetName: String {
         switch self {
         case .lila:    return "ghosty-lila"
         case .azul:    return "ghosty-azul"
         case .durazno: return "ghosty-durazno"
+        case .lilaClaro: return "ghosty-lila-claro"
         }
     }
 }

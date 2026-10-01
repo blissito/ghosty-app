@@ -231,9 +231,9 @@ extension LiveAgentStore {
         correo = "demo@ghosty.studio"
         ponerCuentasDeDemo(DemoData.cuentas)
 
-        let tonos: [AgentTone] = [.lila, .azul]
+        // El mismo tono que en vivo (`tonoDeAgente`): el ghosty-lite de la demo sale lila claro.
         agents = DemoData.cuentas.enumerated().map { i, c in
-            Agent(id: c.id, name: c.name, tone: tonos[i % tonos.count],
+            Agent(id: c.id, name: c.name, tone: c.tonoDeAgente(indice: i),
                   status: .idle(since: "listo"), engine: c.motor ?? "Ghosty Studio", space: c.space, model: c.model)
         }
         selectedAgentID = DemoData.cuentas[0].id

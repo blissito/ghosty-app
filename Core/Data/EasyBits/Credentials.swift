@@ -24,17 +24,17 @@ struct AgentAccount: Identifiable, Codable, Equatable {
     var space: AgentSpace? = nil
     /// Modelo legible («DeepSeek Flash»), para la hoja del agente.
     var model: String? = nil
-    /// El tono del fantasma que manda gs (`lila`, `azul`, `durazno`). Desde el 2026-09-29
-    /// todo MiniGhosty va en lila; lo desconocido cae en lila.
+    /// El tono del fantasma que manda gs (`lila`, `azul`, `durazno`, `lila-claro`). Desde el
+    /// 2026-10-01 MiniGhosty y su familia van en lila claro; lo desconocido cae en lila.
     var tono: String? = nil
 
     /// El tono con el que se pinta: el del servidor o, sin él, la rotación de siempre.
     func tonoDeAgente(indice i: Int) -> AgentTone {
         // El mismo orden que Android (`toneOf`): el `tono` del servidor; si no, todo
-        // ghosty-lite o «Mini Ghosty…» en lila; si no, la rotación.
+        // ghosty-lite o «Mini Ghosty…» en lila claro; si no, la rotación.
         if let tono { return AgentTone(rawValue: tono) ?? .lila }
         let n = name.lowercased().replacingOccurrences(of: " ", with: "")
-        if motor == "ghosty-lite" || n.hasPrefix("minighosty") { return .lila }
+        if motor == "ghosty-lite" || n.hasPrefix("minighosty") { return .lilaClaro }
         let tonos: [AgentTone] = [.lila, .azul, .durazno]
         return tonos[i % tonos.count]
     }
