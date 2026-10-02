@@ -58,6 +58,9 @@ actor ClienteGS: TransporteDeAgente {
         // HTTP/3 fuera: por QUIC el cuerpo de un SSE puede no entregarse por trozos y el
         // turno se queda colgado SIN error. Ya mordió en dos clientes de este repo.
         r.assumesHTTP3Capable = false
+        // La zona del teléfono viaja en cada petición: gs le da al agente la hora de la persona
+        // (`timeZoneOf` en gs). Se lee por petición, no al crear la sesión: puede viajar.
+        r.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Timezone")
         if sse { r.setValue("text/event-stream", forHTTPHeaderField: "Accept") }
         // ⚠️ Una LECTURA no hereda los 600 s de la sesión (existen para el SSE). Al volver
         // del fondo por un push, URLSession reusa una conexión que murió dormida y el GET
