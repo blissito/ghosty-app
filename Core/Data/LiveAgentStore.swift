@@ -337,6 +337,16 @@ final class LiveAgentStore: AgentStoring {
         Conector(id: "canva", nombre: "Canva", conectado: false, disponible: false),
         Conector(id: "odoo", nombre: "Odoo", conectado: false, disponible: false),
         Conector(id: "kommo", nombre: "Kommo", conectado: false, disponible: false),
+        // Los de llave (4-oct), para que el respaldo coincida con la web.
+        Conector(id: "stripe", nombre: "Stripe", conectado: false, disponible: false),
+        Conector(id: "notion", nombre: "Notion", conectado: false, disponible: false),
+        Conector(id: "hubspot", nombre: "HubSpot", conectado: false, disponible: false),
+        Conector(id: "slack", nombre: "Slack", conectado: false, disponible: false),
+        Conector(id: "woocommerce", nombre: "WooCommerce", conectado: false, disponible: false),
+        Conector(id: "facturama", nombre: "Facturama", conectado: false, disponible: false),
+        Conector(id: "mercadopago", nombre: "Mercado Pago", conectado: false, disponible: false),
+        Conector(id: "skydropx", nombre: "Skydropx", conectado: false, disponible: false),
+        Conector(id: "elevenlabs", nombre: "ElevenLabs", conectado: false, disponible: false),
     ]
 
     /// Lo último que falló al hablar de integraciones. La pantalla lo pinta y lo limpia.

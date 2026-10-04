@@ -1,5 +1,6 @@
 import AuthenticationServices
 import SwiftUI
+import UIKit
 
 /// Las apps que tu agente puede usar en tu nombre.
 ///
@@ -216,6 +217,35 @@ struct ConectoresPane: View {
                 .frame(width: 42, height: 42)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
+        } else if let url = c.logoURL {
+            // Sin asset empaquetado: el logo que sirve gs. Mientras baja (o si falla), el
+            // símbolo o la inicial, para no dejar el cuadro vacío.
+            AsyncImage(url: url) { fase in
+                if let img = fase.image {
+                    img.resizable().interpolation(.high).scaledToFit()
+                        .frame(width: 26, height: 26)
+                        .frame(width: 42, height: 42)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
+                } else {
+                    insigniaSinLogo(c)
+                }
+            }
+        } else {
+            insigniaSinLogo(c)
+        }
+    }
+
+    /// El SF Symbol del servidor si este iOS lo tiene; si no, la inicial.
+    @ViewBuilder
+    private func insigniaSinLogo(_ c: Conector) -> some View {
+        if let simbolo = c.sfSymbol, UIImage(systemName: simbolo) != nil {
+            Image(systemName: simbolo)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Color(light: 0x5E5D6B, dark: 0xA3A2B0))
+                .frame(width: 42, height: 42)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.gSeparator, lineWidth: 1))
         } else {
             Text(String(c.nombre.prefix(1)).uppercased())
                 .font(.system(size: 14, weight: .bold))
@@ -226,8 +256,10 @@ struct ConectoresPane: View {
         }
     }
 
-    /// Qué hace cada una, en una línea. Mapa local mientras gs no mande descripción.
+    /// Qué hace cada una, en una línea. Manda la `descripcion` del servidor; el mapa local
+    /// sólo cubre a un servidor viejo o al catálogo de emergencia.
     static func descripcion(_ c: Conector) -> String {
+        if let d = c.descripcion?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty { return d }
         switch c.id {
         case "easybits":                 return "Archivos, documentos y páginas"
         case "denik":                    return "Agenda y citas"
@@ -245,6 +277,13 @@ struct ConectoresPane: View {
         case "stripe":                   return "Cobros y cortes"
         case "notion":                   return "Documentos y bases"
         case "shopify":                  return "Catálogo y pedidos"
+        case "hubspot":                  return "Contactos, negocios y notas"
+        case "slack":                    return "Avisa a tu equipo"
+        case "woocommerce":              return "Productos y pedidos"
+        case "facturama":                return "Timbra y busca facturas"
+        case "mercadopago":              return "Links de pago y cobros"
+        case "skydropx":                 return "Guías y envíos"
+        case "elevenlabs":               return "Voces y audio"
         default:                         return c.conectado ? "Conectada" : "Disponible"
         }
     }

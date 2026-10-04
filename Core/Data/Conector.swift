@@ -32,6 +32,19 @@ struct Conector: Identifiable, Equatable, Sendable {
     var disponible: Bool = true
     /// Desde cuándo, si está conectado.
     var desde: Date?
+    /// Qué hace, en una línea. Lo manda el servidor: un conector nuevo no pide versión nueva.
+    var descripcion: String? = nil
+    /// Ruta del logo en gs (`/connectors/x.png`), relativa a `Session.base`. Respaldo
+    /// remoto para los ids que no traen asset empaquetado.
+    var logoSrc: String? = nil
+    /// El SF Symbol que sugiere el servidor, antes de caer en la inicial.
+    var sfSymbol: String? = nil
+
+    /// La URL absoluta del logo remoto, si el servidor mandó uno.
+    var logoURL: URL? {
+        guard let logoSrc, !logoSrc.isEmpty else { return nil }
+        return URL(string: logoSrc, relativeTo: Session.base)?.absoluteURL
+    }
 
     /// La marca de casa, si la tenemos empaquetada.
     ///
@@ -40,7 +53,7 @@ struct Conector: Identifiable, Equatable, Sendable {
     var marca: String? {
         // Logos OFICIALES de todos (lo pidió el dueño, 2026-09-29; los mismos de Android,
         // sacados del catálogo de gs `app/lib/connectors/registry.ts`). Por id y, de
-        // respaldo, por nombre. Sin logo (facturama, contpaqi): el símbolo.
+        // respaldo, por nombre. Sin asset: el logo remoto de gs o su símbolo.
         let porId: [String: String] = [
             "google-drive": "logo-google-drive", "drive": "logo-google-drive",
             "mercadopago": "logo-mercadopago", "skydropx": "logo-skydropx",
@@ -54,7 +67,7 @@ struct Conector: Identifiable, Equatable, Sendable {
             "notion": "logo-notion", "slack": "logo-slack", "telegram": "logo-telegram",
             "zoom": "logo-zoom", "clip": "logo-clip", "tiendanube": "logo-tiendanube",
             "excel": "logo-excel", "google-business": "logo-google-business",
-            "meta-ads": "logo-meta-ads", "amazon": "logo-amazon",
+            "meta-ads": "logo-meta-ads", "amazon": "logo-amazon", "facturama": "logo-facturama",
         ]
         if let m = porId[id] { return m }
         let n = nombre.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
@@ -64,6 +77,7 @@ struct Conector: Identifiable, Equatable, Sendable {
 
     /// El símbolo con el que se pinta cuando no hay marca propia.
     var icono: String {
+        if let sfSymbol, !sfSymbol.isEmpty { return sfSymbol }
         switch id {
         case "github":                    return "chevron.left.forwardslash.chevron.right"
         case "google", "gmail":           return "envelope.fill"
