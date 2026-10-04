@@ -147,8 +147,48 @@ enum GhostyAPI {
                             desde: (c["desde"] as? String).flatMap { iso.date(from: $0) },
                             descripcion: (c["descripcion"] as? String) ?? (c["description"] as? String),
                             logoSrc: (c["logo"] as? [String: Any])?["src"] as? String,
-                            sfSymbol: c["sfSymbol"] as? String)
+                            sfSymbol: c["sfSymbol"] as? String,
+                            logoPng: c["logoPng"] as? String)
         })
+    }
+
+    /// Lo que contestó gs al conectar el MCP de la persona («Tu sistema»).
+    enum ResultadoMCP: Sendable {
+        /// Quedó agregado al agente con este nombre.
+        case agregado(String)
+        /// El MCP pide OAuth: abrir esta URL en `ASWebAuthenticationSession`.
+        case autorizar(URL)
+        /// Lo que dijo el servidor, tal cual.
+        case fallo(String)
+    }
+
+    /// Conecta un servidor MCP remoto al agente. `origin: "app"` hace que el OAuth vuelva a
+    /// `com.fixtergeek.ghostyapp://conector?conector=mcp&estado=…&mcp=<name>`.
+    static func conectarMCP(agente: String, nombre: String, url: String, token: String?) async -> ResultadoMCP {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/agents/\(agente)/mcp/connect"))
+        req.httpMethod = "POST"
+        req.assumesHTTP3Capable = false
+        // El servidor sondea el MCP antes de contestar: más holgura que una lectura.
+        req.timeoutInterval = 45
+        guard let bearer = try? await Session.accessToken() else { return .fallo("Tu sesión expiró. Vuelve a entrar.") }
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = ["name": nombre, "url": url, "origin": "app"]
+        if let token, !token.isEmpty { body["token"] = token }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req) else {
+            return .fallo("Sin conexión. Inténtalo de nuevo.")
+        }
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+        if codigo == 200 {
+            if let s = j?["authorizeUrl"] as? String, let u = URL(string: s) { return .autorizar(u) }
+            if let added = j?["added"] as? String { return .agregado(added) }
+        }
+        if let e = j?["error"] as? String { return .fallo(e) }
+        if codigo == 404 { return .fallo("No encontré a tu agente.") }
+        return .fallo("No pude conectar tu sistema (\(codigo)).")
     }
 
     /// Dónde mandar el navegador para conectar uno.

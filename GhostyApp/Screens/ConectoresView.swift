@@ -34,6 +34,8 @@ struct ConectoresPane: View {
     /// Apagar pide confirmación: desconectar revoca la llave y el agente deja de poder usarla.
     @State private var porDesconectar: Conector?
     @Environment(Toaster.self) private var toaster: Toaster?
+    /// La hoja de «Tu sistema» (MCP propio).
+    @State private var hojaMCP = false
 
     private var disponibles: [Conector] {
         store.conectores.filter(\.disponible).sorted { $0.conectado && !$1.conectado }
@@ -60,6 +62,11 @@ struct ConectoresPane: View {
         }
         .scrollIndicators(.hidden)
         .task { await store.cargarConectores() }
+        .sheet(isPresented: $hojaMCP) {
+            ConectarMCPSheet { nombre, url, token in
+                await conectarMCP(nombre: nombre, url: url, token: token)
+            }
+        }
         .confirmationDialog(porDesconectar.map { "¿Desconectar \($0.nombre)?" } ?? "",
                             isPresented: Binding(get: { porDesconectar != nil },
                                                  set: { if !$0 { porDesconectar = nil } }),
@@ -127,6 +134,10 @@ struct ConectoresPane: View {
                 lista(proximas)
             }
 
+            // Fija al final del catálogo: traer SU sistema (un servidor MCP) al agente activo.
+            filaTuSistema
+                .padding(.horizontal, -Theme.Space.screenH)
+                .padding(.top, 14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: store.conectores)
@@ -203,37 +214,46 @@ struct ConectoresPane: View {
         .opacity(c.disponible ? 1 : 0.55)
     }
 
-    /// La marca de casa si la hay; si no, la inicial en el cuadrito de borde del diseño.
+    /// El logo del servidor (`logoPng`) primero; mientras baja o si no hay red, el asset
+    /// empaquetado; sin él, el logo viejo de gs, el símbolo o la inicial.
     @ViewBuilder
     private func insignia(_ c: Conector) -> some View {
-        if let marca = c.marca {
-            // La marca va SIN teñir y sin fondo de color: un logo lleva su propia paleta.
-            // Cuadro blanco de 42, radio 12, borde fino y el logo de 26, como Android.
-            Image(marca, bundle: GhostyAssets.bundle)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(width: 26, height: 26)
-                .frame(width: 42, height: 42)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
-        } else if let url = c.logoURL {
-            // Sin asset empaquetado: el logo que sirve gs. Mientras baja (o si falla), el
-            // símbolo o la inicial, para no dejar el cuadro vacío.
+        if let url = c.logoPngURL {
             AsyncImage(url: url) { fase in
                 if let img = fase.image {
-                    img.resizable().interpolation(.high).scaledToFit()
-                        .frame(width: 26, height: 26)
-                        .frame(width: 42, height: 42)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
+                    cuadroDeLogo(img.resizable())
                 } else {
-                    insigniaSinLogo(c)
+                    insigniaLocal(c)
                 }
+            }
+        } else {
+            insigniaLocal(c)
+        }
+    }
+
+    /// Respaldo sin red: la marca empaquetada, el logo remoto viejo o el símbolo.
+    @ViewBuilder
+    private func insigniaLocal(_ c: Conector) -> some View {
+        if let marca = c.marca {
+            cuadroDeLogo(Image(marca, bundle: GhostyAssets.bundle).resizable())
+        } else if let url = c.logoURL {
+            AsyncImage(url: url) { fase in
+                if let img = fase.image { cuadroDeLogo(img.resizable()) } else { insigniaSinLogo(c) }
             }
         } else {
             insigniaSinLogo(c)
         }
+    }
+
+    /// La marca va SIN teñir y sin fondo de color: un logo lleva su propia paleta.
+    /// Cuadro blanco de 42, radio 12, borde fino y el logo de 26, como Android.
+    private func cuadroDeLogo(_ img: Image) -> some View {
+        img.interpolation(.high)
+            .scaledToFit()
+            .frame(width: 26, height: 26)
+            .frame(width: 42, height: 42)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.gSeparator, lineWidth: 1))
     }
 
     /// El SF Symbol del servidor si este iOS lo tiene; si no, la inicial.
@@ -360,6 +380,105 @@ struct ConectoresPane: View {
             .queryItems?.first { $0.name == "detalle" }?.value
     }
 
+    private var filaTuSistema: some View {
+        Button {
+            guard trabajando == nil else { return }
+            fallo = nil
+            hojaMCP = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color(light: 0x5E5D6B, dark: 0xA3A2B0))
+                    .frame(width: 42, height: 42)
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.gSeparator, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Tu sistema")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                    Text("Conecta su servidor MCP")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.gInk3)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if trabajando == "mcp" {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.gDark)
+                }
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("connector-mcp")
+    }
+
+    /// POST a `mcp/connect` con el agente activo. Devuelve el error para que la hoja lo
+    /// enseñe; `nil` = la hoja se cierra (agregado o pasando a autorizar).
+    private func conectarMCP(nombre: String, url: String, token: String?) async -> String? {
+        let agente = store.selectedAgentID
+        guard !agente.isEmpty else { return "Elige primero un agente." }
+        switch await GhostyAPI.conectarMCP(agente: agente, nombre: nombre, url: url, token: token) {
+        case .fallo(let e):
+            return e
+        case .agregado(let n):
+            hojaMCP = false
+            activadoMCP(n)
+            return nil
+        case .autorizar(let u):
+            hojaMCP = false
+            autorizarMCP(u, nombre: nombre)
+            return nil
+        }
+    }
+
+    /// El MCP pidió OAuth: la misma hoja de navegador que los conectores. gs vuelve a
+    /// `…://conector?conector=mcp&estado=ok&mcp=<name>` (o `estado=error&detalle=…`).
+    private func autorizarMCP(_ url: URL, nombre: String) {
+        trabajando = "mcp"
+        let s = ASWebAuthenticationSession(url: url, callbackURLScheme: Session.redirectScheme) { volvio, err in
+            if let err, (err as? ASWebAuthenticationSessionError)?.code != .canceledLogin {
+                trabajando = nil
+                fallo = err.localizedDescription
+                return
+            }
+            // Sin URL = la persona cerró la hoja: no es un fallo.
+            guard let volvio else { trabajando = nil; return }
+            let q = URLComponents(url: volvio, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let valor = { (k: String) in q.first { $0.name == k }?.value }
+            guard valor("conector") == "mcp", valor("estado") == "ok" else {
+                trabajando = nil
+                let detalle = valor("detalle")
+                if detalle != "cancelado" {
+                    fallo = detalle.map { "No se pudo conectar \(nombre): \($0)." } ?? "No se pudo conectar \(nombre)."
+                }
+                return
+            }
+            activadoMCP(valor("mcp") ?? nombre)
+        }
+        s.presentationContextProvider = ancla
+        sesion = s
+        s.start()
+    }
+
+    /// El agente congela sus tools al abrir la conversación: se abre una nueva y se dice.
+    private func activadoMCP(_ nombre: String) {
+        toaster?.show("\(nombre) conectado ✓ Tu agente lo usa desde la siguiente conversación", duracion: 3)
+        trabajando = "mcp"
+        reiniciando = nombre
+        Task {
+            await store.reiniciarSesionTrasConectar()
+            trabajando = nil
+            reiniciando = nil
+        }
+    }
+
     private func desconectar(_ c: Conector) async {
         trabajando = c.id
         destino = false
@@ -410,5 +529,98 @@ final class AnclaDeLaSesion: NSObject, ASWebAuthenticationPresentationContextPro
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow }
             .first ?? ASPresentationAnchor()
+    }
+}
+
+/// «Tu sistema»: nombre, URL https y token opcional del servidor MCP de la persona.
+struct ConectarMCPSheet: View {
+    /// Devuelve el error a enseñar, o `nil` si ya se cerró.
+    let conectar: (_ nombre: String, _ url: String, _ token: String?) async -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var nombre = ""
+    @State private var url = "https://"
+    @State private var token = ""
+    @State private var enviando = false
+    @State private var error: String?
+
+    /// El slug que acepta gs: `^[a-z0-9][a-z0-9_-]{0,40}$`.
+    private var nombreValido: Bool {
+        nombre.range(of: "^[a-z0-9][a-z0-9_-]{0,40}$", options: .regularExpression) != nil
+    }
+    /// a-z, 0-9, - y _ (espacio → guion), máximo 41.
+    static func slug(_ v: String) -> String {
+        let permitidos = Set("abcdefghijklmnopqrstuvwxyz0123456789-_")
+        let base = v.lowercased().replacingOccurrences(of: " ", with: "-")
+        return String(base.filter { permitidos.contains($0) }.prefix(41))
+    }
+    private var urlValida: Bool {
+        guard let u = URL(string: url.trimmingCharacters(in: .whitespaces)), u.scheme == "https",
+              let h = u.host, !h.isEmpty else { return false }
+        return true
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("mi-sistema", text: $nombre)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .onChange(of: nombre) { _, v in
+                            // a-z, 0-9, - y _: se normaliza al escribir.
+                            let limpio = Self.slug(v)
+                            if limpio != v { nombre = limpio }
+                        }
+                        .accessibilityIdentifier("mcp-nombre")
+                } header: { Text("Nombre") } footer: { Text("Minúsculas, números, - y _.") }
+                Section {
+                    TextField("https://tu-sistema.com/mcp", text: $url)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("mcp-url")
+                } header: { Text("URL del servidor MCP") }
+                Section {
+                    SecureField("Opcional", text: $token)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("mcp-token")
+                } header: { Text("Token") } footer: {
+                    Text("Si tu servidor usa OAuth, déjalo vacío: te pediré autorizar.")
+                }
+                if let error {
+                    Section { Text(error).foregroundStyle(Color.gDangerInk).font(.system(size: 13)) }
+                }
+            }
+            .navigationTitle("Tu sistema")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }.disabled(enviando)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if enviando {
+                        ProgressView()
+                    } else {
+                        Button("Conectar") { enviar() }
+                            .disabled(!nombreValido || !urlValida)
+                            .accessibilityIdentifier("mcp-conectar")
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(enviando)
+    }
+
+    private func enviar() {
+        enviando = true
+        error = nil
+        let t = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let e = await conectar(nombre, url.trimmingCharacters(in: .whitespaces), t.isEmpty ? nil : t)
+            enviando = false
+            error = e
+        }
     }
 }

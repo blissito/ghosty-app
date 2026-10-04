@@ -39,6 +39,15 @@ struct Conector: Identifiable, Equatable, Sendable {
     var logoSrc: String? = nil
     /// El SF Symbol que sugiere el servidor, antes de caer en la inicial.
     var sfSymbol: String? = nil
+    /// PNG de 96 px que gs sirve para TODOS los conectores (`/api/v2/connectors/<id>/logo.png`).
+    /// Es la fuente principal: un conector nuevo trae su logo sin versión nueva de la app.
+    var logoPng: String? = nil
+
+    /// La URL del PNG del servidor, si la mandó (absoluta; relativa se resuelve contra gs).
+    var logoPngURL: URL? {
+        guard let logoPng, !logoPng.isEmpty else { return nil }
+        return URL(string: logoPng, relativeTo: Session.base)?.absoluteURL
+    }
 
     /// La URL absoluta del logo remoto, si el servidor mandó uno.
     var logoURL: URL? {
@@ -52,8 +61,8 @@ struct Conector: Identifiable, Equatable, Sendable {
     /// símbolo, sin actualizar la app.
     var marca: String? {
         // Logos OFICIALES de todos (lo pidió el dueño, 2026-09-29; los mismos de Android,
-        // sacados del catálogo de gs `app/lib/connectors/registry.ts`). Por id y, de
-        // respaldo, por nombre. Sin asset: el logo remoto de gs o su símbolo.
+        // sacados del catálogo de gs `app/lib/connectors/registry.ts`). Respaldo offline
+        // del `logoPng` del servidor.
         let porId: [String: String] = [
             "google-drive": "logo-google-drive", "drive": "logo-google-drive",
             "mercadopago": "logo-mercadopago", "skydropx": "logo-skydropx",
@@ -69,10 +78,10 @@ struct Conector: Identifiable, Equatable, Sendable {
             "excel": "logo-excel", "google-business": "logo-google-business",
             "meta-ads": "logo-meta-ads", "amazon": "logo-amazon", "facturama": "logo-facturama",
         ]
-        if let m = porId[id] { return m }
-        let n = nombre.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-            .lowercased().replacingOccurrences(of: " ", with: "")
-        return porId.first { n.contains($0.key.replacingOccurrences(of: "-", with: "")) }?.value
+        // ⚠️ Sólo por id exacto. El respaldo por nombre con `contains` hacía que
+        // google-contacts cayera en el logo de Google; desde que gs manda `logoPng` para
+        // todos, el asset local es sólo el respaldo sin red.
+        return porId[id]
     }
 
     /// El símbolo con el que se pinta cuando no hay marca propia.
