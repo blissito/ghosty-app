@@ -2150,7 +2150,17 @@ final class LiveAgentStore: AgentStoring {
             if ponerseAlDia { await self.traerLaConversacion(hilo, de: canal) }
             guard let cliente = try? await self.asegurarSocket(canal),
                   let flujo = cliente.seguir(sessionID: sid) else { return }
-            let respuesta = "resp-\(UUID().uuidString.prefix(8))"
+            // ⚠️ El replay escribe en la burbuja que YA está en pantalla, no en una nueva.
+            // Las herramientas llegan antes que el texto (y antes de saber el turno), así
+            // que con una burbuja nueva cada vuelta del fondo dejaba otra copia de la lista
+            // de herramientas: dos, tres. Una burbuja del agente sin texto al final del
+            // hilo sólo puede ser el turno que sigue en curso.
+            let enPantalla: String? = hilo.respuestaEnCursoID ?? {
+                guard let m = hilo.mensajes.last, case .agent(let t, _, _) = m.kind,
+                      t.isEmpty else { return nil }
+                return m.id
+            }()
+            let respuesta = enPantalla ?? "resp-\(UUID().uuidString.prefix(8))"
             await self.consumir(flujo, canal, hilo, sid: sid, texto: "", respuesta: respuesta,
                                 enganchado: true)
         }
@@ -2241,6 +2251,13 @@ final class LiveAgentStore: AgentStoring {
                         }
                         respuesta = nueva
                         caughtUpWithShown = false
+                    }
+                    // Las que dejaron oyentes cancelados antes de conocer el turno: sólo
+                    // herramientas, sin texto. Son copias del mismo turno.
+                    hilo.mensajes.removeAll { m in
+                        guard m.id.hasPrefix("resp-"), m.id != nueva,
+                              case .agent(let t, _, _) = m.kind else { return false }
+                        return t.isEmpty
                     }
                     // El id ya se conoce incluso si el replay todavía no alcanza el
                     // texto parcial que la pantalla enseña; un steer en ese intervalo

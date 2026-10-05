@@ -32,6 +32,9 @@ final class Delegado: NSObject, UIApplicationDelegate {
     func application(_ app: UIApplication,
                      didFinishLaunchingWithOptions opciones: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         Task { @MainActor in Avisos.registrarSiYaHayPermiso() }
+        // La ✕ para borrar de un toque el texto de los campos de las alertas (renombrar
+        // conversación): el `TextField` de un `.alert` no deja configurarla desde SwiftUI.
+        UITextField.appearance(whenContainedInInstancesOf: [UIAlertController.self]).clearButtonMode = .whileEditing
         #if DEBUG
         VoiceBench.runIfRequested()
         #endif

@@ -348,7 +348,7 @@ struct ChatsView: View {
                 salirDeSeleccion()
             }
             if elegidas.count == 1, let f = elegidas.first, let sid = f.sesion {
-                accion("pencil", "Cambiar nombre", activa: true) {
+                accion("pencil.line", "Cambiar nombre", activa: true, tamano: 22) {
                     nombreNuevo = f.titulo == "Conversación sin abrir" || f.titulo == "Conversación nueva" ? "" : f.titulo
                     renombrando = (f.agente.id, sid)
                     salirDeSeleccion()
@@ -366,10 +366,12 @@ struct ChatsView: View {
         .transition(.opacity)
     }
 
-    private func accion(_ simbolo: String, _ nombre: String, activa: Bool, _ hacer: @escaping () -> Void) -> some View {
+    /// `tamano`: el lápiz es un trazo fino y a 18 se veía más chico que los demás.
+    private func accion(_ simbolo: String, _ nombre: String, activa: Bool, tamano: CGFloat = 18,
+                        _ hacer: @escaping () -> Void) -> some View {
         Button(action: hacer) {
             Image(systemName: simbolo)
-                .font(.system(size: 18, weight: .medium))
+                .font(.system(size: tamano, weight: .medium))
                 .frame(width: 42, height: 44)
                 .contentShape(Rectangle())
         }
