@@ -892,7 +892,15 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// Vuelve a pedir el hilo que no se pudo traer (botón «Reintentar» de la vista).
-    func retryLoad(_ hilo: Hilo) {
+    func retryLoad(_ hilo: Hilo) { refresh(hilo) }
+
+    /// Trae del servidor lo último de una conversación que ya estaba abierta en memoria.
+    ///
+    /// ⚠️ Entrar desde Chats a una abierta sólo la MIRABA: el aviso de «contestó» llegaba,
+    /// la lista lo decía, y adentro seguía lo viejo hasta que otra cosa la refrescara.
+    /// `ponerseAlDia` sólo trae la activa de cada agente; las demás abiertas se quedaban
+    /// con su caché.
+    func refresh(_ hilo: Hilo) {
         guard let canal = canalDe(hilo) else { return }
         Task { [weak self, weak canal] in
             guard let self, let canal else { return }
@@ -2161,8 +2169,13 @@ final class LiveAgentStore: AgentStoring {
                 return m.id
             }()
             let respuesta = enPantalla ?? "resp-\(UUID().uuidString.prefix(8))"
+            // El turno que el servidor ya dio por CERRADO. El SSE lo repite desde el
+            // principio a quien se suscribe, y esa repetición no es trabajo en curso.
+            let ultimo = await cliente.ultimoTurno(de: sid)
+                ?? canal.hilosRemotos.first(where: { $0.id == sid })?.ultimoTurno
+            let cerrado = ultimo.flatMap { ["running", "queued"].contains($0.estado) ? nil : $0.turnId }
             await self.consumir(flujo, canal, hilo, sid: sid, texto: "", respuesta: respuesta,
-                                enganchado: true)
+                                enganchado: true, turnoCerrado: cerrado)
         }
     }
 
@@ -2172,8 +2185,11 @@ final class LiveAgentStore: AgentStoring {
     private func consumir(_ flujo: AsyncThrowingStream<ACPClient.Replay, Error>,
                           _ canal: Canal, _ hilo: Hilo, sid: String,
                           texto: String, respuesta: String,
-                          enganchado: Bool = false) async {
+                          enganchado: Bool = false, turnoCerrado: String? = nil) async {
         var respuesta = respuesta
+        // De qué turno son los eventos que van llegando (lo dice el primer `chunk`).
+        var turnoDelFlujo: String?
+        var turnoCerrado = turnoCerrado
         var acumulado = ""
         var herramientas: [Herramienta] = []
         // Dónde arrancó cada herramienta dentro de `acumulado`: lo de antes es narración
@@ -2225,7 +2241,14 @@ final class LiveAgentStore: AgentStoring {
                 // backlog traen lo mismo— pero se arregla al CERRAR, comparando el texto
                 // completo. Una copia de más se ve fea; borrar una conversación no se
                 // arregla.
-                if enganchado, hilo.turno == nil {
+                //
+                // ⚠️ Pero NO con la repetición de un turno que el servidor ya cerró: al volver
+                // del reposo eso encendía el reloj y el botón «Detener» mientras el replay se
+                // ponía al día, sobre un turno que había terminado hacía rato. Antes de saber
+                // de qué turno es (las herramientas llegan sin id) se le cree al servidor.
+                if case .turno(let id) = evento { turnoDelFlujo = id }
+                let repeticion = turnoCerrado != nil && (turnoDelFlujo == nil || turnoDelFlujo == turnoCerrado)
+                if enganchado, hilo.turno == nil, !repeticion {
                     arrancarCronometro(hilo, titulo: hilo.prompt.isEmpty ? "lo de antes" : hilo.prompt)
                     refrescarEstado(canal)
                 }
@@ -2372,6 +2395,8 @@ final class LiveAgentStore: AgentStoring {
                     }
                     hilo.interrumpido = false
                     cerrarTurno(canal, hilo)
+                    // La repetición acabó: lo que llegue ahora ya es un turno nuevo.
+                    turnoCerrado = nil
                     acumulado = ""; herramientas = []; narrationCuts = []
                     respuesta = "resp-\(UUID().uuidString.prefix(8))"
                     Task { [weak self] in

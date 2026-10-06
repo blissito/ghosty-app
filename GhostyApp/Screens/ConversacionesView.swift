@@ -710,6 +710,7 @@ struct ChatsView: View {
         switch f.tipo {
         case .abierta(let h):
             store.mirar(h, de: f.agente.id)
+            if !h.trabajando { store.refresh(h) }
         case .guardada(let s):
             store.abrirDesdeChats(agente: f.agente.id, sesion: s)
         }
