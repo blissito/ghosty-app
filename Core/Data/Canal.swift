@@ -141,7 +141,11 @@ final class Hilo {
     /// reordenarla al tocar un chip movería las fichas debajo del dedo justo cuando estás
     /// eligiendo: miras para decidir, y lo que miras no debe cambiarse de sitio. Lo que
     /// revive una conversación es mandarle algo.
-    var tocado = Date()
+    ///
+    /// ⚠️ Nace en el pasado: una conversación guardada que se vuelve a abrir al arrancar
+    /// no se escribió ahora. Con `Date()` todas las filas de Chats salían con la hora en
+    /// que se abrió la app. Sólo una nueva (sin sesión) nace «ahora».
+    var tocado = Date.distantPast
 
     /// En qué anda, en una línea, para una lista.
     enum Estado: Equatable {
@@ -311,6 +315,7 @@ final class Canal {
         let h = Hilo()
         h.agenteID = cuenta.id
         h.sesionID = sesionID
+        if sesionID == nil { h.tocado = Date() }
         hilos.append(h)
         activa = h.clave
         return h
