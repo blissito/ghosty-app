@@ -141,6 +141,17 @@ struct RootView: View {
                      title: "¿A qué agente se lo mando?", identifier: "hoja-agente-archivos") {
             CambiarAgenteSheet(store: store) { store.enviarArchivosA(store.selectedAgentID) }
         }
+        // Integraciones desde el chat (el chip «N herramientas conectadas»): encima, sin
+        // cambiar de pestaña, para que al cerrarla sigas en la conversación.
+        .sheet(isPresented: Binding(get: { store.showIntegrationsOverlay },
+                                    set: { store.showIntegrationsOverlay = $0 })) {
+            ConectoresPane(store: store)
+                .padding(.top, 8)
+                .background(Color.gBg.ignoresSafeArea())
+                .presentationBackground(Color.gBg)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
         .capaDeChat(capaDelChat)
         .ghostyToast(toaster)
         // ⚠️ Sólo al VOLVER. Aquí hubo tres ramas —anotar el fondo, cerrar sockets con

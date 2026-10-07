@@ -965,9 +965,13 @@ final class LiveAgentStore: AgentStoring {
     /// chat, un enlace) lo pide con esto y Perfil abre la hoja y lo limpia.
     var integracionesPedidas = false
 
+    /// Integraciones encima de DONDE ESTÉS (el chip del chat). La pinta la raíz.
+    /// ⚠️ Antes llevaba a Perfil y abría ahí la hoja: al cerrarla ya no estabas en el chat
+    /// donde la abriste (bliss, 7-oct).
+    var showIntegrationsOverlay = false
+
     func abrirIntegraciones() {
-        integracionesPedidas = true
-        pestanaPedida = .perfil
+        showIntegrationsOverlay = true
     }
 
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
@@ -1209,6 +1213,19 @@ final class LiveAgentStore: AgentStoring {
                 hilo.mensajes.removeAll { $0.kind == .typing }
                 cerrarTurno(canal, hilo)
             }
+            // ⚠️ TU mensaje del turno en curso también se conserva. Esta copia del servidor pudo
+            // pedirse ANTES de que mandaras (al abrir la app se traen todos los hilos) y llegar
+            // después: sustituir el hilo con ella borraba tu petición recién enviada mientras el
+            // indicador de «trabajando» seguía (bliss, 7-oct). Si el servidor ya la trae (mismo
+            // texto entre sus últimos mensajes), gana la suya; si no, la tuya se queda.
+            var mine: Message?
+            if hilo.turno != nil || hilo.isSending, let a = hilo.anclaArriba,
+               let m = hilo.mensajes.first(where: { $0.id == a }), case .user(let text, _, _) = m.kind {
+                let alreadyThere = mensajes.suffix(6).contains { msg in
+                    if case .user(let t, _, _) = msg.kind { return t == text } else { return false }
+                }
+                if !alreadyThere { mine = m }
+            }
             let vivas = hilo.mensajes.filter { $0.id.hasPrefix("turno-") && hilo.turno != nil }
             if !vivas.isEmpty, mensajes.last?.esDelAgente == true,
                case .agent = mensajes.last!.kind {
@@ -1218,6 +1235,10 @@ final class LiveAgentStore: AgentStoring {
             // quedan fuera del emparejado: vuelven tal cual, con el suyo.
             let idsVivas = Set(vivas.map(\.id))
             mensajes = Self.conservarIDs(mensajes, de: hilo.mensajes.filter { !idsVivas.contains($0.id) })
+            if let mine, !mensajes.contains(where: { $0.id == mine.id }) {
+                EasyBitsClient.diag("[hilo] \(sid): la copia del servidor no trae tu mensaje en curso; lo conservo")
+                mensajes.append(mine)
+            }
             mensajes.append(contentsOf: vivas)
             EasyBitsClient.diag("[hilo] \(sid): el servidor trae \(mensajes.count) mensajes (había \(hilo.mensajes.count))")
             hilo.mensajes = mensajes

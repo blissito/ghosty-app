@@ -473,6 +473,14 @@ actor ClienteGS: TransporteDeAgente {
             } catch let e as URLError {
                 guard [.networkConnectionLost, .timedOut, .cannotConnectToHost, .notConnectedToInternet,
                        .cannotFindHost, .dnsLookupFailed].contains(e.code), intento < 5 else { throw e }
+            } catch let e as NSError where e.domain == NSPOSIXErrorDomain && [53, 54, 57].contains(e.code) {
+                // ⚠️ Lo que deja iOS al apagar la pantalla con el POST en el aire: el socket
+                // muere con un error POSIX («Software caused connection abort», 53; reset 54;
+                // not connected 57), no con un `URLError`. No se reintentaba y la app decía
+                // «No llegó a tu agente» de un turno que gs SÍ había corrido (7-oct, el
+                // turno dc917a74 terminó en 24 s). Reintentar es seguro: el `turnId` es la
+                // clave de idempotencia y gs contesta `repetido` en vez de arrancar otro.
+                guard intento < 5 else { throw e }
             }
             EasyBitsClient.diag("[gs] encargar: reintento \(intento) en \(espera) s")
             Self.alReintentar?("El servidor no responde. Reintento \(intento) de 4…")
@@ -522,6 +530,11 @@ actor ClienteGS: TransporteDeAgente {
         // conversación «trabajando» sin fin. Los chats grandes no preguntan por
         // herramienta; gs decide en su modo por defecto (auto). La tarjeta sigue existiendo
         // por si un día el servidor pregunta por su cuenta.
+        // ⚠️ Tiempo prestado por iOS para que el POST termine aunque apagues el teléfono justo
+        // después de mandar. Sin esto la app se congelaba con la petición en el aire y, al
+        // volver, la daba por perdida. iOS da ~30 s, de sobra para un POST.
+        let backgroundToken = await BackgroundTime.begin("encargar turno")
+        defer { Task { await BackgroundTime.end(backgroundToken) } }
         let r = try await conReintentos {
             try await self.pedir(self.base("/conversations/\(sesion)/messages"), metodo: "POST", cuerpo: cuerpo)
         }
@@ -738,4 +751,15 @@ private actor Semaforo {
         if abierto { return }
         await withCheckedContinuation { esperando.append($0) }
     }
+}
+
+
+/// Tiempo de ejecución en segundo plano que iOS presta a una tarea corta (`beginBackgroundTask`).
+/// `Core` también vive en la extensión «Enviar a Ghosty», donde `UIApplication.shared` no
+/// existe: por eso la APP conecta los ganchos al arrancar (`Delegado`). Sin ellos no hace nada.
+enum BackgroundTime {
+    @MainActor static var onBegin: ((String) -> Int)?
+    @MainActor static var onEnd: ((Int) -> Void)?
+    @MainActor static func begin(_ name: String) -> Int { onBegin?(name) ?? -1 }
+    @MainActor static func end(_ id: Int) { if id >= 0 { onEnd?(id) } }
 }

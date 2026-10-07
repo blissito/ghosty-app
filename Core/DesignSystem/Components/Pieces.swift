@@ -200,6 +200,9 @@ struct AgentHeader: View {
     /// ⭐ de la conversación, como en Android: `nil` = sin estrella (hilo sin sesión aún).
     var favorito: Bool?
     var onFavorito: (() -> Void)?
+    /// Los subagentes de esta conversación (su historial, como `/tasks` de Claude Code). `nil` =
+    /// sin botón: sólo sale en agentes que los tienen y cuando el hilo ya lanzó alguno.
+    var onSubagents: (() -> Void)? = nil
 
     private var status: AgentStatus { estado ?? agent.status }
     private var trabajando: Bool { if case .working = status { return true } else { return false } }
@@ -305,6 +308,18 @@ struct AgentHeader: View {
                 .buttonStyle(.gPressIcon)
                 .accessibilityLabel(favorito ? "Quitar de favoritos" : "Agregar a favoritos")
                 .accessibilityIdentifier("hilo-favorito")
+            }
+            if let onSubagents {
+                Button(action: onSubagents) {
+                    Image(systemName: "person.3")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Color.gInk)
+                        .frame(width: 40, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.gPressIcon)
+                .accessibilityLabel("Subagentes")
+                .accessibilityIdentifier("hilo-subagentes")
             }
             if let onNueva {
                 Button(action: onNueva) {
