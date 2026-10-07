@@ -114,7 +114,8 @@ struct ConversationView: View {
                             onFavorito: {
                                 guard let k = llaveFavorita else { return }
                                 favoritas.alternar(k)
-                            })
+                            },
+                            onSubagents: subagentsHistoryAction)
             }
 
             // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y
@@ -166,6 +167,14 @@ struct ConversationView: View {
             // ⚠️ Aquí vivió la barra de chips de conversaciones con su «+». Se fue: la
             // lista de verdad es la pestaña de Conversaciones, y «nueva» ya está en la
             // cabecera. Dos entradas para lo mismo encima del compositor era ruido.
+
+            // POC de subagentes nativos (Debug, sólo agentes con el POC en su caja): la lista
+            // viva encima del compositor. Ver SubagentsLayer.swift.
+            #if DEBUG && os(iOS)
+            if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID) {
+                SubagentsBar(store: store)
+            }
+            #endif
 
             compositor
                 // Venir de «Nueva conversación» abre el teclado: si te llevan a una
@@ -252,6 +261,39 @@ struct ConversationView: View {
                    encargo: "Arma una cotización en PDF", icono: ChatIcons.cotizacion),
     ]
 
+    /// POC de subagentes (Debug): con un agente que los tiene, el vacío propone encargos que
+    /// se reparten solos en paralelo, para ver la barra trabajar desde el primer toque. Casos
+    /// reales de la casa (competencia de /planes, nuestros productos, nuestra landing).
+    private static let subagentSuggestions = [
+        Sugerencia(titulo: "Compara 3 competidores a la vez", sub: "Un agente por cada uno, luego una tabla",
+                   encargo: "Lanza un subagente por cada competidor —Hostinger AI Builder, Wix y Lovable— y que cada uno averigüe precio de entrada en MXN, qué incluye y qué cobran aparte. Júntalo en una tabla y dime dónde le ganamos a cada uno.",
+                   icono: ChatIcons.tabla),
+        Sugerencia(titulo: "Revisa nuestros 3 productos", sub: "Mailmask, Deník y EasyBits en paralelo",
+                   encargo: "Con un subagente por sitio revisa mailmask.studio, denik.me y easybits.cloud: qué venden, a quién, precio y la frase principal del hero. Dame una tabla y una línea de qué mejorarías en cada uno.",
+                   icono: ChatIcons.documento),
+        Sugerencia(titulo: "Audita ghosty.studio desde 3 ángulos", sub: "Copy, velocidad y propuesta de valor",
+                   encargo: "Audita www.ghosty.studio con 3 subagentes en paralelo: uno el copy del hero y las secciones, uno velocidad y SEO básico, y uno la propuesta de valor contra Hostinger y Wix. Dame las 5 mejoras que más moverían la conversión.",
+                   icono: ChatIcons.cotizacion),
+    ]
+
+    /// El botón de la cabecera para ver los subagentes del hilo (POC, Debug).
+    private var subagentsHistoryAction: (() -> Void)? {
+        #if DEBUG && os(iOS)
+        let layer = SubagentsLayer.shared
+        if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID), !layer.tasks.isEmpty {
+            return { layer.isSheetOpen = true }
+        }
+        #endif
+        return nil
+    }
+
+    private var suggestionsForAgent: [Sugerencia] {
+        #if DEBUG && os(iOS)
+        if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID) { return Self.subagentSuggestions }
+        #endif
+        return Self.sugerencias
+    }
+
     /// El vacío del hilo: la mascota con su aro, «¿Qué le encargamos hoy?» y las
     /// sugerencias, pegado ABAJO (junto al compositor), como el prototipo.
     ///
@@ -287,7 +329,7 @@ struct ConversationView: View {
                 .gIn(delay: 0.08)
 
             VStack(spacing: 8) {
-                ForEach(Array(Self.sugerencias.enumerated()), id: \.element.id) { i, s in
+                ForEach(Array(suggestionsForAgent.enumerated()), id: \.element.id) { i, s in
                     tarjetaDeSugerencia(s)
                         .gIn(delay: 0.12 + Double(i) * 0.05)
                 }
@@ -1502,7 +1544,11 @@ struct ConversationView: View {
         escribiendo = false
         // Acabas de escribir: se sigue el final aunque estuvieras arriba. El mensaje se
         // añade después (el envío es asíncrono) y `seguir` lo baja al llegar.
+        // ⚠️ Las DOS banderas. Sólo se ponía `pegadoAbajo`, y `seguir` exige también
+        // `siguiendoElFinal`, que apaga cualquier arrastre: si habías subido a releer la
+        // respuesta anterior, tu mensaje nuevo no se clavaba arriba ni el hilo se movía (7-oct).
         pegadoAbajo = true
+        siguiendoElFinal = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             adjuntos = []
         }
@@ -1572,7 +1618,11 @@ struct ConversationView: View {
         escribiendo = false
         // Acabas de escribir: se sigue el final aunque estuvieras arriba. El mensaje se
         // añade después (el envío es asíncrono) y `seguir` lo baja al llegar.
+        // ⚠️ Las DOS banderas. Sólo se ponía `pegadoAbajo`, y `seguir` exige también
+        // `siguiendoElFinal`, que apaga cualquier arrastre: si habías subido a releer la
+        // respuesta anterior, tu mensaje nuevo no se clavaba arriba ni el hilo se movía (7-oct).
         pegadoAbajo = true
+        siguiendoElFinal = true
         fallo = nil
         subiendo = true
         Task {

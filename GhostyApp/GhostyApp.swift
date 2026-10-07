@@ -32,6 +32,16 @@ final class Delegado: NSObject, UIApplicationDelegate {
     func application(_ app: UIApplication,
                      didFinishLaunchingWithOptions opciones: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         Task { @MainActor in Avisos.registrarSiYaHayPermiso() }
+        // El POST de un turno termina aunque apagues el teléfono justo al mandar (ver ClienteGS).
+        BackgroundTime.onBegin = { name in
+            var id: UIBackgroundTaskIdentifier = .invalid
+            id = UIApplication.shared.beginBackgroundTask(withName: name) {
+                // Se acabó el préstamo: se devuelve, o iOS mata la app.
+                UIApplication.shared.endBackgroundTask(id)
+            }
+            return id.rawValue
+        }
+        BackgroundTime.onEnd = { UIApplication.shared.endBackgroundTask(UIBackgroundTaskIdentifier(rawValue: $0)) }
         // La ✕ para borrar de un toque el texto de los campos de las alertas (renombrar
         // conversación): el `TextField` de un `.alert` no deja configurarla desde SwiftUI.
         UITextField.appearance(whenContainedInInstancesOf: [UIAlertController.self]).clearButtonMode = .whileEditing

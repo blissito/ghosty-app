@@ -114,6 +114,48 @@ final class RecorridoUITests: XCTestCase {
         foto("51-respondido")
     }
 
+    /// El bug del 7-oct: si subías a releer y luego mandabas, tu mensaje no se clavaba arriba
+    /// (el arrastre apagaba «seguir el final» y el envío no lo volvía a prender).
+    func testSendAfterScrollingUp() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_CHAT"] = "1"
+        app.launch()
+        let field = app.textViews["campo-mensaje"].firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "no hay campo de mensaje")
+        // Subir a releer: arrastrar el hilo hacia abajo.
+        let thread = app.scrollViews.firstMatch
+        thread.swipeDown()
+        Thread.sleep(forTimeInterval: 0.6)
+        foto("52-releyendo")
+        field.tap()
+        field.typeText("y ahora resúmelo")
+        app.buttons["enviar"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 1.2)
+        foto("53-mandado-tras-releer")
+        let mine = app.staticTexts["y ahora resúmelo"].firstMatch
+        XCTAssertTrue(mine.waitForExistence(timeout: 3))
+        let y = mine.frame.minY
+        XCTAssertTrue(y > 90 && y < 160, "tras releer, el mensaje mandado quedó en y=\(y), no pegado arriba")
+    }
+
+    /// El chip «N herramientas conectadas» abre Integraciones ENCIMA del chat: al cerrarla
+    /// sigues en la conversación (antes te mandaba a Perfil, 7-oct).
+    func testToolsChipKeepsYouInChat() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_CHAT"] = "vacio"
+        app.launch()
+        let chip = app.buttons["chip-herramientas"].firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "no está el chip de herramientas")
+        chip.tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        foto("54-integraciones-encima")
+        app.swipeDown(velocity: .fast)
+        Thread.sleep(forTimeInterval: 1.0)
+        foto("55-de-vuelta-en-el-chat")
+        XCTAssertTrue(app.textViews["campo-mensaje"].firstMatch.waitForExistence(timeout: 3),
+                      "al cerrar Integraciones ya no estás en el chat")
+    }
+
     func testDetener() {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO_TRABAJANDO"] = "1"
