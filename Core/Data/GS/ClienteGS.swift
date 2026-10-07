@@ -41,6 +41,20 @@ actor ClienteGS: TransporteDeAgente {
         return URLSession(configuration: c)
     }()
 
+    /// ⚠️ Las LECTURAS van por una sesión que NO espera conectividad. Con `waitsForConnectivity`
+    /// el tope de la petición (15 s) no corre mientras iOS cree que no hay red, sólo el del recurso
+    /// (1 h): tras un corte (-1005 al cambiar de red) un GET se quedaba esperando y el hilo en
+    /// «Trayendo la conversación…» minutos (7-oct, 15:29 → 15:32 sin respuesta). Aquí falla pronto
+    /// y el reintento abre conexión nueva.
+    private static let readSession: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 15
+        c.timeoutIntervalForResource = 30
+        c.waitsForConnectivity = false
+        c.httpAdditionalHeaders = ["Accept-Encoding": "identity"]
+        return URLSession(configuration: c)
+    }()
+
     private func base(_ sufijo: String) -> URL {
         Session.base.appendingPathComponent("api/v2/me/agents/\(agentID)\(sufijo)")
     }
@@ -79,7 +93,7 @@ actor ClienteGS: TransporteDeAgente {
     private func pedir(_ url: URL, metodo: String = "GET",
                        cuerpo: [String: Any]? = nil, rejected: String? = nil) async throws -> [String: Any] {
         let req = try await peticion(url, metodo: metodo, cuerpo: cuerpo, rejected: rejected)
-        let (d, resp) = try await Self.sesion.data(for: req)
+        let (d, resp) = try await (metodo == "GET" ? Self.readSession : Self.sesion).data(for: req)
         let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if [502, 503, 504].contains(codigo) { throw ACPClient.Fallo.transitorio(codigo) }
         if codigo == 401 {
