@@ -328,6 +328,17 @@ enum SubagentsBarMode: Equatable {
     case done(count: Int)
 }
 
+extension SubagentRow {
+    /// «listo · 1,240 tokens · 3 herramientas», sin los ceros: «0 tokens · 0 herramientas» se
+    /// leía como algo roto (bliss, 8-oct).
+    static func rowDetail(_ t: LiveSubagent) -> String {
+        var parts = [stateLabel(t.status)]
+        if t.tokens > 0 { parts.append("\(thousands(t.tokens)) tokens") }
+        if t.toolUses > 0 { parts.append("\(t.toolUses) \(t.toolUses == 1 ? "herramienta" : "herramientas")") }
+        return parts.joined(separator: " · ")
+    }
+}
+
 extension SubagentsBar {
     /// Cuánto se quedan a la vista los que fallaron o se detuvieron: piden atención (30 s, con ✕).
     static let finishedGrace: TimeInterval = 30
@@ -474,7 +485,7 @@ private struct SubagentRow: View {
                     if let sub = (t.isLive ? (t.summary ?? t.lastTool) : t.lastTool) {
                         Text(sub).font(.system(size: 13)).foregroundStyle(Color.gInk2).lineLimit(1)
                     }
-                    Text("\(Self.stateLabel(t.status)) · \(Self.thousands(t.tokens)) tokens · \(t.toolUses) herramientas")
+                    Text(Self.rowDetail(t))
                         .font(.system(size: 12)).foregroundStyle(Color.gInk3)
                 }
             }
