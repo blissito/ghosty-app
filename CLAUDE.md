@@ -85,6 +85,12 @@ navegación, login, ajustes, listas e icono.
   `Core/` solo y se pone rojo si pasa:
   `xcodebuild -scheme GhostyCore -destination 'generic/platform=iOS Simulator' build`.
 - Si algo nuevo sirve a las dos apps, va en `Core/`; si es de Personal, en `GhostyApp/`.
+- **Decidido el 2026-09-30:** GTeams móvil (Work) **sale de aquí**, no de un open source
+  (Mattermost, Zulip, Rocket.Chat y Element X quedaron descartados porque su capa de datos está
+  atada a su servidor, y Element X además es AGPL). Será **otro target sobre `Core/`, nunca un
+  fork** que copie el código. Lo que se programe hoy (cliente de gs, SSE, hilo, adjuntos,
+  diseño) se escribe pensando en que lo va a reusar Work: sin textos, rutas ni supuestos
+  propios de Personal metidos en `Core/`.
 
 ## El turno es del SERVIDOR, no del teléfono
 
@@ -218,3 +224,23 @@ Perfil en tarjetas redondeadas y sin pager entre pestañas.
   en frío y foto de la burbuja. Correrlas antes de subir una build.
 - **Capturas de la tienda**: `./scripts/capturas-tienda.sh` (simulador «Ghosty Max» 6.9", 9:41)
   y luego `python3 scripts/asc.py capturas`. «Qué hay de nuevo» no acepta emojis como ⭐.
+
+## 🧪 Subagentes en el chat oficial (POC, 2026-10-07) — retomar el 8-oct
+
+Perfil → «Laboratorio · Subagentes» (sólo Debug) abre el **chat oficial** con PowerGhosty en una
+conversación nueva. No hay chat propio: lo único nuevo es `Core/Chat/CapaDeSubagentes.swift`, una
+barra encima del compositor («N agentes trabajando · reloj») con la hoja de la lista, el detalle de
+cada uno, deslizar = Detener y «escríbele» (va por `store.send`, steer incluido). Mira la lista viva
+por gs (`…/conversations/:id/subagents`, staff) y se reengancha al volver del fondo. Sólo aparece con
+los agentes de `CapaDeSubagentes.agentesConSubagentes` (cajas con el POC).
+
+- ⚠️ Lo que el agente dice solo al terminar un subagente todavía NO entra al hilo (gs no lo guarda):
+  se ve en la hoja, sección «Lo que te dijo al terminar».
+- Hojas **nunca transparentes** (regla de Brenda): `.presentationBackground(Color.gBg)`.
+- `project.yml` aún lleva `NSAllowsLocalNetworking` de la primera versión (iba a la Mac): quitarlo.
+- Arreglado de paso: mandar tras subir a releer no re-prendía `siguiendoElFinal` (prueba
+  `testMandarTrasSubirAReleer`). El «clavar arriba» que bliss reporta NO se reprodujo en simulador.
+- Contexto y qué sigue: `~/ghosty-studio/docs/claude/subagentes-tipo-claude-code.md` §9-10.
+
+## ⏰ Al publicarse la extensión de Chrome
+Leer `NAVEGADOR-CHROME.md`: tarjeta «Conecta tu Chrome», estado de conexión y sugerencias. Hoy la app no necesita nada para que funcione.
