@@ -25,6 +25,20 @@ struct LiveSubagent: Identifiable, Equatable {
     var toolUses: Int = 0
     var lastTool: String?
     var summary: String?
+    /// Con qué corre el hijo (id completo, p.ej. `claude-haiku-5-5`) y su effort.
+    var model: String?
+    var effort: String?
+
+    /// «Haiku · xhigh»: nombre corto del modelo y effort en minúsculas; nil si no llegó nada.
+    var engineLabel: String? {
+        let short = model.map { m -> String in
+            let l = m.lowercased()
+            for name in ["haiku", "sonnet", "opus", "fable"] where l.contains(name) { return name.capitalized }
+            return m
+        }
+        let parts = [short, effort?.lowercased()].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 
     var isLive: Bool { status == "running" || status == "paused" }
     func elapsed(_ now: Date) -> TimeInterval { (endedAt ?? now).timeIntervalSince(startedAt) }
@@ -215,7 +229,8 @@ final class SubagentsLayer {
             id: id, title: t["title"] as? String ?? "Agente", status: t["status"] as? String ?? "running",
             startedAt: ms("startedAt") ?? .now, endedAt: ms("endedAt"),
             tokens: u?["tokens"] as? Int ?? 0, toolUses: u?["toolUses"] as? Int ?? 0,
-            lastTool: t["lastTool"] as? String, summary: t["summary"] as? String
+            lastTool: t["lastTool"] as? String, summary: t["summary"] as? String,
+            model: t["model"] as? String, effort: t["effort"] as? String
         )
     }
 
@@ -435,6 +450,10 @@ private struct SubagentRow: View {
                     HStack {
                         Text(t.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(Color.gInk).lineLimit(1)
                         Spacer()
+                        // Sutil, junto al reloj: con qué modelo y effort corre.
+                        if let engine = t.engineLabel {
+                            Text(engine).font(.system(size: 12)).foregroundStyle(Color.gInk3).lineLimit(1).layoutPriority(1)
+                        }
                         Text(SubagentsLayer.clock(t.elapsed(ctx.date)))
                             .font(.system(size: 13).monospacedDigit()).foregroundStyle(Color.gInk3)
                     }
