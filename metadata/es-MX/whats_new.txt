@@ -1,7 +1,8 @@
-• Memorias: dile a Ghosty «recuerda que…» y lo tendrá presente en todos tus chats. Las ves, editas y borras en la nueva pestaña Memorias.
-• Integraciones ahora vive en tu Perfil.
-• Cuando un chat se hace muy largo, te propongo seguir en uno nuevo que ya sabe de qué hablábamos.
-• Archivos: cada foto y video muestra su nombre y de qué chat viene; mantén presionado para abrir el chat, enviarlo a otro chat, descargarlo o compartirlo.
-• Miniaturas de video en tus archivos y en el chat.
-• Los archivos ya no aparecen al final del chat como si fueran nuevos.
-• Marcar favoritos desde el chat y desde la lista funciona al primer toque.
+• Mis ayudantes: cuando un encargo se puede repartir, mando a varios ghostyllos a trabajar en paralelo. Ves cuántos van, qué hace cada uno y puedes detener al que quieras. Al terminar te traigo un solo resumen con lo que juntaron.
+• Tus conversaciones ya no parpadean ni desaparecen al mandar un mensaje.
+• Todo se sincroniza al momento entre tu teléfono, la web y tus otros dispositivos.
+• Abrir un aviso te lleva directo a la conversación, aunque la app esté cerrada.
+• Las conversaciones abren al instante, también sin conexión, y puedes subir para ver lo anterior.
+• Mis pasos ahora dicen lo que hago en palabras claras.
+• Nueva pantalla de inicio y una carga más amable.
+• «Cerrar sesión» ahora pide confirmación.
