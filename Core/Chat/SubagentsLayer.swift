@@ -28,6 +28,9 @@ struct LiveSubagent: Identifiable, Equatable {
     /// Con qué corre el hijo (id completo, p.ej. `claude-haiku-5-5`) y su effort.
     var model: String?
     var effort: String?
+    /// ¿El padre ya tiene su resultado? (gs: el padre lo recogió con `load` o ya salió en un
+    /// remate). `nil` = gs viejo que no lo manda.
+    var delivered: Bool?
 
     /// «Haiku · xhigh»: nombre corto del modelo y effort en minúsculas; nil si no llegó nada.
     var engineLabel: String? {
@@ -242,7 +245,8 @@ final class SubagentsLayer {
             startedAt: ms("startedAt") ?? .now, endedAt: ms("endedAt"),
             tokens: u?["tokens"] as? Int ?? 0, toolUses: u?["toolUses"] as? Int ?? 0,
             lastTool: t["lastTool"] as? String, summary: t["summary"] as? String,
-            model: t["model"] as? String, effort: t["effort"] as? String
+            model: t["model"] as? String, effort: t["effort"] as? String,
+            delivered: t["delivered"] as? Bool
         )
     }
 
@@ -379,8 +383,15 @@ extension SubagentsBar {
         let problems = recent.filter { ($0.status == "failed" || $0.status == "stopped") && !layer.dismissed.contains($0.id) }
         if !problems.isEmpty { return .problems(ids: problems.map(\.id)) }
         // El remate todavía no entra: lo mismo que «listo», pero diciendo que se está armando.
-        if let f = finishedAt, store.currentTurn == nil, !wrapArrived(after: f.messages),
-           now.timeIntervalSince(f.date) < Self.wrapGrace {
+        // Fuente de verdad: gs dice por hijo si el padre ya tiene su resultado (`delivered`: lo
+        // recogió con `load` o ya salió en el remate). «Juntando…» = terminados que el padre aún
+        // no tiene; cuando gs los marca, la barra se va sola. Sin mirar el hilo ni relojes.
+        if layer.finished.contains(where: { $0.delivered != nil }) {
+            let pending = layer.finished.filter { $0.delivered == false && $0.status == "completed" }.count
+            if pending > 0, store.currentTurn == nil { return .wrapping(count: pending) }
+        } else if let f = finishedAt, store.currentTurn == nil, !wrapArrived(after: f.messages),
+                  now.timeIntervalSince(f.date) < Self.wrapGrace {
+            // gs que todavía no manda `delivered`: se infiere por el hilo, con tope.
             let n = layer.finished.filter { now.timeIntervalSince($0.endedAt ?? now) < Self.wrapGrace }.count
             if n > 0 { return .wrapping(count: n) }
         }
