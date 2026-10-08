@@ -390,9 +390,19 @@ extension SubagentsBar {
         // Fuente de verdad: gs dice por hijo si el padre ya tiene su resultado (`delivered`: lo
         // recogió con `load` o ya salió en el remate). «Juntando…» = terminados que el padre aún
         // no tiene; cuando gs los marca, la barra se va sola. Sin mirar el hilo ni relojes.
+        // ⚠️ Pero `delivered` puede quedarse en false para siempre (gs no lo marcó tras el remate):
+        // la barra seguía en «Juntando…» seis horas después, con el remate ya en el hilo (bliss,
+        // 8-oct). Por eso también se va si el último mensaje del agente ya es el remate o si pasó
+        // el tope desde que terminaron.
         if layer.finished.contains(where: { $0.delivered != nil }) {
-            let pending = layer.finished.filter { $0.delivered == false && $0.status == "completed" }.count
-            if pending > 0, store.currentTurn == nil { return .wrapping(count: pending) }
+            let pending = layer.finished.filter {
+                $0.delivered == false && $0.status == "completed"
+                    && now.timeIntervalSince($0.endedAt ?? now) < Self.wrapGrace
+            }.count
+            if pending > 0, store.currentTurn == nil, !lastIsWrap,
+               finishedAt.map({ !wrapArrived(after: $0.messages) }) ?? true {
+                return .wrapping(count: pending)
+            }
         } else if let f = finishedAt, store.currentTurn == nil, !wrapArrived(after: f.messages),
                   now.timeIntervalSince(f.date) < Self.wrapGrace {
             // gs que todavía no manda `delivered`: se infiere por el hilo, con tope.
@@ -403,6 +413,14 @@ extension SubagentsBar {
         if !done.isEmpty { return .done(count: done.count) }
         if !layer.snapshotReceived, !layer.unavailable, delegatedInThread { return .loading }
         return nil
+    }
+
+    /// ¿El último mensaje del agente ya es el remate (trae el encabezado de ayudantes)? Sirve al
+    /// reabrir la conversación, cuando no hay `finishedAt` con qué comparar.
+    private var lastIsWrap: Bool {
+        guard let m = store.messages.last(where: { if case .agent = $0.kind { return true }; return false }),
+              case .agent(let t, _, _) = m.kind else { return false }
+        return HelpersHeader.split(t) != nil
     }
 
     /// ¿El hilo dice que el agente lanzó subagentes? (la tool `Agent`, ver `Herramienta.isDelegation`).
