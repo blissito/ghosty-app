@@ -57,6 +57,16 @@ struct PerfilView: View {
 
     @State private var usos = UsosDeAgentes.compartido
     @State private var saliendo = false
+    @State private var confirmLogout = false
+
+    private func logOut() {
+        saliendo = true
+        Task {
+            // Cierra ANTES de despedir la hoja: al revés, la tarea se queda a medias.
+            await store.cerrarSesion()
+            if enHoja { dismiss() }
+        }
+    }
     @State private var confirmarBorrado = false
     @State private var borrando = false
     @State private var falloAlBorrar: String?
@@ -250,18 +260,22 @@ struct PerfilView: View {
                 }
                 seccion {
                     Button {
-                        saliendo = true
-                        Task {
-                            // Cierra ANTES de despedir la hoja: al revés, la tarea se queda a medias.
-                            await store.cerrarSesion()
-                            if enHoja { dismiss() }
-                        }
+                        confirmLogout = true
                     } label: {
                         renglonWA("rectangle.portrait.and.arrow.right", saliendo ? "Saliendo…" : "Cerrar sesión", nil, rojo: true)
                     }
                     .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
                     .disabled(saliendo)
                     .accessibilityIdentifier("cerrar-sesion")
+                    // ⚠️ Con confirmación: un toque que caía en «Cerrar sesión» sacaba de la cuenta
+                    // sin preguntar —pasó el 8-oct al quitar un renglón de arriba— y daba de baja
+                    // los avisos del teléfono.
+                    .confirmationDialog("¿Cerrar sesión?", isPresented: $confirmLogout, titleVisibility: .visible) {
+                        Button("Cerrar sesión", role: .destructive) { logOut() }
+                        Button("Cancelar", role: .cancel) {}
+                    } message: {
+                        Text("Dejarás de recibir avisos de tus agentes en este teléfono.")
+                    }
                     divisorWA
                     // Borrar la cuenta. Apple lo exige dentro de la app (5.1.1(v)).
                     Button { confirmarBorrado = true } label: {
@@ -790,12 +804,7 @@ struct PerfilView: View {
 
     private var cerrarSesion: some View {
         Button {
-            saliendo = true
-            Task {
-                // Cierra ANTES de despedir la hoja: al revés, la tarea se queda a medias.
-                await store.cerrarSesion()
-                if enHoja { dismiss() }
-            }
+            confirmLogout = true
         } label: {
             Text(saliendo ? "Saliendo…" : "Cerrar sesión")
                 .font(.system(size: 15, weight: .semibold))
@@ -807,6 +816,12 @@ struct PerfilView: View {
         .buttonStyle(.gPressRow)
         .disabled(saliendo)
         .accessibilityIdentifier("cerrar-sesion")
+        .confirmationDialog("¿Cerrar sesión?", isPresented: $confirmLogout, titleVisibility: .visible) {
+            Button("Cerrar sesión", role: .destructive) { logOut() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Dejarás de recibir avisos de tus agentes en este teléfono.")
+        }
     }
 
     // MARK: - Piezas
