@@ -279,6 +279,9 @@ struct SubagentsBar: View {
     let store: LiveAgentStore
     @State private var layer = SubagentsLayer.shared
     @Environment(\.scenePhase) private var phase
+    /// Cuándo terminó el último y cuántos mensajes tenía el hilo entonces: si no ha llegado nada
+    /// nuevo, el remate está en camino.
+    @State private var finishedAt: (date: Date, messages: Int)?
 
     var body: some View {
         // ⚠️ VStack con un `Color.clear` de alto cero, NO un `Group`: un `Group` vacío no se
@@ -293,6 +296,17 @@ struct SubagentsBar: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
+        }
+        // ⚠️ Entre que terminan y entra el remate pasaban ~30 s sin nada en pantalla: la barra
+        // ya se había ido y se sentía colgado (bliss, 8-oct). Se anota ese momento.
+        .onChange(of: layer.running.isEmpty) { _, idle in
+            finishedAt = idle && !layer.finished.isEmpty ? (Date(), store.messages.count) : nil
+        }
+        // Si terminaron con el turno del padre aún vivo, el remate llega DESPUÉS de su respuesta:
+        // la cuenta empieza otra vez al cerrar ese turno.
+        .onChange(of: store.currentTurn == nil) { _, closed in
+            guard closed, finishedAt != nil, layer.running.isEmpty else { return }
+            finishedAt = (Date(), store.messages.count)
         }
         .animation(.snappy, value: layer.tasks.count)
         .animation(.snappy, value: layer.snapshotReceived)
@@ -326,6 +340,8 @@ enum SubagentsBarMode: Equatable {
     case running(count: Int)
     case problems(ids: [String])
     case done(count: Int)
+    /// Ya terminaron y el remate todavía no entra al hilo (gs lo arma con un turno aparte).
+    case wrapping(count: Int)
 }
 
 extension SubagentRow {
@@ -344,6 +360,9 @@ extension SubagentsBar {
     static let finishedGrace: TimeInterval = 30
     /// Los que terminaron bien se van rápido (bliss, 8-oct; igual que Android `DONE_GRACE_MS`).
     static let doneGrace: TimeInterval = 5
+    /// Lo más que se espera el remate con el aviso puesto (gs lo arma en ~20–40 s; si el padre
+    /// ya lo entregó, gs no manda nada y el aviso se va solo).
+    static let wrapGrace: TimeInterval = 60
 
     func mode(at now: Date) -> SubagentsBarMode? {
         let running = layer.running
@@ -351,6 +370,12 @@ extension SubagentsBar {
         let recent = layer.finished.filter { now.timeIntervalSince($0.endedAt ?? now) < Self.finishedGrace }
         let problems = recent.filter { ($0.status == "failed" || $0.status == "stopped") && !layer.dismissed.contains($0.id) }
         if !problems.isEmpty { return .problems(ids: problems.map(\.id)) }
+        // El remate todavía no entra: lo mismo que «listo», pero diciendo que se está armando.
+        if let f = finishedAt, store.messages.count == f.messages, store.currentTurn == nil,
+           now.timeIntervalSince(f.date) < Self.wrapGrace {
+            let n = layer.finished.filter { now.timeIntervalSince($0.endedAt ?? now) < Self.wrapGrace }.count
+            if n > 0 { return .wrapping(count: n) }
+        }
         let done = recent.filter { $0.status == "completed" && now.timeIntervalSince($0.endedAt ?? now) < Self.doneGrace }
         if !done.isEmpty { return .done(count: done.count) }
         if !layer.snapshotReceived, !layer.unavailable, delegatedInThread { return .loading }
@@ -393,6 +418,9 @@ extension SubagentsBar {
             case .done(let n):
                 SubagentStatusDot(status: "completed")
                 label("\(n) listo\(n == 1 ? "" : "s") · ver")
+            case .wrapping(let n):
+                ProgressView().controlSize(.small).tint(.white)
+                label(n == 1 ? "Juntando lo que trajo tu ghostillo…" : "Juntando lo que trajeron tus \(n) ghostillos…")
             }
             if case .running = mode {} else { Spacer() }
             Image(systemName: "chevron.up").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.gDarkInk2)
