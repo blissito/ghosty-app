@@ -16,7 +16,7 @@ struct Herramienta: Identifiable, Equatable, Sendable {
         /// «Creando imagen»/«Editando imagen» (el prompt va en `detalle`).
         case imagen = "image"
         /// Le encargó algo a un subagente (la tool `Agent`). gs la manda con `kind: "delegate"`
-        /// y título «Encargué: …» / «Mandé a un ghostillo: …»; antes, «Delegando».
+        /// y título «Encargué: …» / «Mandé a un ghostyllo: …»; antes, «Delegando».
         case delegate
 
         /// ⚠️ Una clase desconocida NO se esconde: cae en `other`. Es la regla de la casa
@@ -59,7 +59,7 @@ struct Herramienta: Identifiable, Equatable, Sendable {
     /// por el título.
     var isDelegation: Bool {
         clase == .delegate || titulo == "Delegando"
-            || titulo.hasPrefix("Encargué:") || titulo.hasPrefix("Mandé a un ghostillo:")
+            || titulo.hasPrefix("Encargué:") || titulo.hasPrefix("Mandé a un ghostyllo:")
     }
 
     let id: String

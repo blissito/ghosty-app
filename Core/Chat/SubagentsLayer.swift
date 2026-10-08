@@ -358,7 +358,7 @@ extension SubagentsBar {
     /// ya lo entregó, gs no manda nada y el aviso se va solo).
     static let wrapGrace: TimeInterval = 60
 
-    /// ¿Ya entró el remate desde que terminaron? Lo anuncia la línea del despertador («⏰ … ghostillos»,
+    /// ¿Ya entró el remate desde que terminaron? Lo anuncia la línea del despertador («⏰ … ghostyllos»,
     /// que aquí es `.sistema`) o el mensaje con el encabezado de ayudantes.
     /// ⚠️ No se mira «cuándo cierra el turno»: el remate llega con un turno propio cuya burbuja en vivo
     /// aún no trae el encabezado, y la barra se quedaba trabada en «Juntando…» (bliss, 8-oct).
@@ -428,7 +428,7 @@ extension SubagentsBar {
                 label("\(n) listo\(n == 1 ? "" : "s") · ver")
             case .wrapping(let n):
                 ProgressView().controlSize(.small).tint(.white)
-                label(n == 1 ? "Juntando lo que trajo tu ghostillo…" : "Juntando lo que trajeron tus \(n) ghostillos…")
+                label(n == 1 ? "Juntando lo que trajo tu ghostyllo…" : "Juntando lo que trajeron tus \(n) ghostyllos…")
             }
             if case .running = mode {} else { Spacer() }
             Image(systemName: "chevron.up").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.gDarkInk2)
