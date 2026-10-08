@@ -178,6 +178,10 @@ final class SubagentsLayer {
         case "snapshot":
             applyList((ev["tasks"] as? [[String: Any]]) ?? [])
             snapshotReceived = true
+            #if DEBUG
+            // Gancho del simulador: abre la hoja de subagentes en cuanto llega la lista.
+            if ProcessInfo.processInfo.environment["GHOSTY_SUBAGENTES"] == "1", !tasks.isEmpty { isSheetOpen = true }
+            #endif
         case "task":
             guard let t = ev["task"] as? [String: Any] else { return }
             upsert(t)
