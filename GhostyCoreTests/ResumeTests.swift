@@ -41,7 +41,8 @@ final class HelpersFoldTests: XCTestCase {
             Message(id: "u2", kind: .user("gracias")),
         ]
         let folded = HelpersHeader.fold(msgs)
-        XCTAssertEqual(folded.map(\.id), ["u", "w2", "u2"])
+        // El que queda conserva el id del PRIMERO: la fila no parpadea.
+        XCTAssertEqual(folded.map(\.id), ["u", "w1", "u2"])
         guard case .agent(let t, _, _) = folded[1].kind else { return XCTFail() }
         XCTAssertEqual(HelpersHeader.split(t)?.header.titles, ["A", "B"])
         XCTAssertEqual(HelpersHeader.split(t)?.rest, "dos")

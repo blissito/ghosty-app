@@ -114,7 +114,7 @@ final class RecorridoUITests: XCTestCase {
         foto("51-respondido")
     }
 
-    /// El bug del 7-oct: si subías a releer y luego mandabas, tu mensaje no se clavaba arriba
+    /// El bug del 7-oct: si subías a releer y luego mandabas, el hilo no bajaba a tu mensaje
     /// (el arrastre apagaba «seguir el final» y el envío no lo volvía a prender).
     func testSendAfterScrollingUp() {
         app.terminate()
@@ -134,8 +134,11 @@ final class RecorridoUITests: XCTestCase {
         foto("53-mandado-tras-releer")
         let mine = app.staticTexts["y ahora resúmelo"].firstMatch
         XCTAssertTrue(mine.waitForExistence(timeout: 3))
+        // Sin runway (8-oct): el hilo se pega abajo como WhatsApp; tu mensaje queda a la vista,
+        // en la mitad de abajo, aunque hubieras subido a releer.
         let y = mine.frame.minY
-        XCTAssertTrue(y > 90 && y < 160, "tras releer, el mensaje mandado quedó en y=\(y), no pegado arriba")
+        let h = app.windows.firstMatch.frame.height
+        XCTAssertTrue(mine.isHittable && y > h / 2, "tras releer, el mensaje mandado quedó en y=\(y) (no bajó)")
     }
 
     /// El chip «N herramientas conectadas» abre Integraciones ENCIMA del chat: al cerrarla

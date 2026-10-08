@@ -860,6 +860,11 @@ struct ConversationView: View {
     private func llegoMensaje(_ lector: ScrollViewProxy) {
         let last = mensajesVisibles.last
         defer { lastSeen = (hiloVisible, last?.id) }
+        // Lo que acabas de mandar TÚ siempre baja, estuvieras donde estuvieras.
+        if let last, case .user = last.kind, last.id != lastSeen.id {
+            irAbajo(animado: true)
+            return
+        }
         // ⚠️ Una respuesta NUEVA que no es la del turno en vivo (el remate de un subagente, lo
         // que trajo un push o el sync de otra superficie) quedaba fuera de pantalla: el ancla
         // de tu mensaje la retenía arriba, o se bajaba a su FINAL. Como Android: se suelta el
@@ -879,10 +884,10 @@ struct ConversationView: View {
 
     /// Tu último mensaje, si está en el hilo. Sin él (se recargó con otros ids) no hay nada
     /// que clavar: el aire sería la pantalla entera en blanco.
-    private var visibleAnchor: String? {
-        guard let ancla = store.anclaDelHilo, mensajesVisibles.contains(where: { $0.id == ancla }) else { return nil }
-        return ancla
-    }
+    /// ⚠️ Sin «runway» (8-oct, bliss): tu mensaje ya no sube hasta arriba con aire debajo,
+    /// el hilo se queda pegado abajo como WhatsApp, Telegram, Jetchat o Element X. Siempre `nil`
+    /// = sin aire y `reanclar` va al fondo.
+    private var visibleAnchor: String? { nil }
 
     /// La cola = del principio de tu mensaje al final del pie.
     private func measureTail() {
@@ -924,10 +929,10 @@ struct ConversationView: View {
             // `gin .3s`: todo mensaje NUEVO entra subiendo 8 pt con fade, como el
             // prototipo. Los que ya estaban al abrir el hilo no (ver `yaVistos`), y la
             // animación es de la FILA al nacer, no de cada trozo del streaming.
+            // UNA sola animación de entrada (el desvanecido de `EntradaGin`): con la transición
+            // además, la entrega se fundía dos veces.
             .modifier(EntradaGin(animar: semillaDeVistos == hiloVisible && !yaVistos.contains(mensaje.id)))
-            .transition(esEntrega(mensaje)
-                        ? .scale(scale: 0.94).combined(with: .opacity)
-                        : .identity)
+            .transition(.identity)
     }
 
     /// Da por vistos los mensajes que hay ahora. Al abrir un hilo, todos; después, cada
@@ -1695,13 +1700,13 @@ struct ConversationView: View {
 private struct EntradaGin: ViewModifier {
     let animar: Bool
     @State private var visible: Bool?
-    @Environment(\.accessibilityReduceMotion) private var sinMovimiento
 
     func body(content: Content) -> some View {
         let v = visible ?? !animar
         content
+            // Sólo el desvanecido: la subida de 8 pt sumaba su animación de posición al scroll
+            // y el hilo rebotaba al llegar cada mensaje (visto cuadro por cuadro en Android).
             .opacity(v ? 1 : 0)
-            .offset(y: v || sinMovimiento ? 0 : 8)
             .onAppear {
                 guard visible == nil else { return }
                 visible = !animar

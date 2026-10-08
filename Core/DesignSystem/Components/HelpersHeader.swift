@@ -36,23 +36,25 @@ struct HelpersHeader: View {
     /// último. Sin esto salían dos remates, un «Listo» antes de tiempo y el «Resumen» repetido.
     static func fold(_ messages: [Message]) -> [Message] {
         var out: [Message] = []
-        var pending: (index: Int, titles: [String])?
+        var pending: (index: Int, titles: [String], id: String)?
         for m in messages {
             if case .user = m.kind { pending = nil; out.append(m); continue }
             guard case .agent(let text, let tools, let trailing) = m.kind, let wake = split(text) else {
                 out.append(m); continue
             }
             var titles = wake.header.titles
+            // ⚠️ El que queda hereda el id de vista del PRIMERO del grupo: así la fila no sale ni
+            // entra, sólo cambia su texto en su sitio (con el id del último, parpadeaba tres veces).
+            let viewID = pending?.id ?? m.id
             if let p = pending {
                 for t in p.titles where !titles.contains(t) { titles.insert(t, at: 0) }
                 out.remove(at: p.index)
             }
             let what = titles.isEmpty ? "Resumen" : "Terminó " + titles.map { "«\($0)»" }.joined(separator: ", ")
             let rebuilt = "---\n*\(what) · \(wake.header.time)*\n\n" + wake.rest
-            var merged = m
-            merged.kind = .agent(text: rebuilt, tools: tools, trailing: trailing)
-            out.append(merged)
-            pending = (out.count - 1, titles)
+            out.append(Message(id: viewID, kind: .agent(text: rebuilt, tools: tools, trailing: trailing),
+                               seq: m.seq, turnId: m.turnId))
+            pending = (out.count - 1, titles, viewID)
         }
         return out
     }
