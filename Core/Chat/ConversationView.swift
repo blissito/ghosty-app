@@ -168,9 +168,9 @@ struct ConversationView: View {
             // lista de verdad es la pestaña de Conversaciones, y «nueva» ya está en la
             // cabecera. Dos entradas para lo mismo encima del compositor era ruido.
 
-            // POC de subagentes nativos (Debug, sólo agentes con el POC en su caja): la lista
-            // viva encima del compositor. Ver SubagentsLayer.swift.
-            #if DEBUG && os(iOS)
+            // POC de subagentes nativos (sólo agentes con el POC en su caja): la lista viva
+            // encima del compositor. Ver SubagentsLayer.swift.
+            #if os(iOS)
             if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID) {
                 SubagentsBar(store: store)
             }
@@ -276,9 +276,9 @@ struct ConversationView: View {
                    icono: ChatIcons.cotizacion),
     ]
 
-    /// El botón de la cabecera para ver los subagentes del hilo (POC, Debug).
+    /// El botón de la cabecera para ver los subagentes del hilo (POC).
     private var subagentsHistoryAction: (() -> Void)? {
-        #if DEBUG && os(iOS)
+        #if os(iOS)
         let layer = SubagentsLayer.shared
         if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID), !layer.tasks.isEmpty {
             return { layer.isSheetOpen = true }
@@ -288,7 +288,7 @@ struct ConversationView: View {
     }
 
     private var suggestionsForAgent: [Sugerencia] {
-        #if DEBUG && os(iOS)
+        #if os(iOS)
         if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID) { return Self.subagentSuggestions }
         #endif
         return Self.sugerencias

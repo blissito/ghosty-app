@@ -227,7 +227,7 @@ Perfil en tarjetas redondeadas y sin pager entre pestañas.
 
 ## 🧪 Subagentes en el chat oficial (POC, 2026-10-07) — retomar el 8-oct
 
-Perfil → «Laboratorio · Subagentes» (sólo Debug) abre el **chat oficial** con PowerGhosty en una
+Perfil → «Laboratorio · Subagentes» (también en Release, para testers) abre el **chat oficial** con PowerGhosty en una
 conversación nueva. No hay chat propio: lo único nuevo es `Core/Chat/CapaDeSubagentes.swift`, una
 barra encima del compositor («N agentes trabajando · reloj») con la hoja de la lista, el detalle de
 cada uno, deslizar = Detener y «escríbele» (va por `store.send`, steer incluido). Mira la lista viva
@@ -237,7 +237,8 @@ los agentes de `CapaDeSubagentes.agentesConSubagentes` (cajas con el POC).
 - ⚠️ Lo que el agente dice solo al terminar un subagente todavía NO entra al hilo (gs no lo guarda):
   se ve en la hoja, sección «Lo que te dijo al terminar».
 - Hojas **nunca transparentes** (regla de Brenda): `.presentationBackground(Color.gBg)`.
-- `project.yml` aún lleva `NSAllowsLocalNetworking` de la primera versión (iba a la Mac): quitarlo.
+- ⚠️ Antes de repartirlo en TestFlight: parchar las cajas de todos (hoy sólo PowerGhosty trae el POC) y
+  revisar que la lista viva (`…/subagents`) no sea sólo staff, o un tester no staff no verá la barra.
 - Arreglado de paso: mandar tras subir a releer no re-prendía `siguiendoElFinal` (prueba
   `testMandarTrasSubirAReleer`). El «clavar arriba» que bliss reporta NO se reprodujo en simulador.
 - Contexto y qué sigue: `~/ghosty-studio/docs/claude/subagentes-tipo-claude-code.md` §9-10.
