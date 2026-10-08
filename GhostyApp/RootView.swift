@@ -58,10 +58,8 @@ struct RootView: View {
             Group {
                 switch store.conexion {
                 case .cargando:
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Buscando tus agentes…").gMeta()
-                    }
+                    // La misma composición que el LaunchScreen, con la flama viva: sin salto.
+                    LaunchMark()
                 case .sinLlave:
                     // Ya no se pega ningún token: se entra con la cuenta.
                     LoginView { await store.cargar() }

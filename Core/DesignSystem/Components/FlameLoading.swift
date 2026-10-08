@@ -6,17 +6,9 @@ import SwiftUI
 /// Regla de marca de /c: se mece, no se deforma. Con «Reducir movimiento», quieta.
 struct FlameLoading: View {
     var text = "Trayendo nuestra conversación…"
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         VStack(spacing: 14) {
-            if reduceMotion {
-                Flame(t: 0)
-            } else {
-                TimelineView(.animation) { ctx in
-                    Flame(t: ctx.date.timeIntervalSinceReferenceDate)
-                }
-            }
+            AnimatedFlame(height: 72)
             Text(text)
                 .font(.system(size: 16))
                 .foregroundStyle(Color.gInk)
@@ -25,14 +17,48 @@ struct FlameLoading: View {
     }
 }
 
+/// La flamita animada, del alto que se pida. Con «Reducir movimiento», quieta.
+struct AnimatedFlame: View {
+    var height: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if reduceMotion {
+            Flame(t: 0, unit: height / 15)
+        } else {
+            TimelineView(.animation) { ctx in
+                Flame(t: ctx.date.timeIntervalSinceReferenceDate, unit: height / 15)
+            }
+        }
+    }
+}
+
+/// La pantalla de arranque de la app: la misma composición que el LaunchScreen
+/// (`launch-mark`: flama de 76 pt al centro, wordmark de 140 pt con su centro 78 pt abajo),
+/// ahora con la flama viva. Así no hay salto entre el arranque de iOS y la app. Igual que Android.
+struct LaunchMark: View {
+    var body: some View {
+        ZStack {
+            AnimatedFlame(height: 76)
+            Image("ghosty-wordmark")
+                .resizable()
+                .frame(width: 140, height: 140 * 28 / 110)
+                .offset(y: 78)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Ghosty")
+    }
+}
+
 /// La flama en el instante `t` (segundos). Todo sale de `t`: sin estado, sin derivas.
 private struct Flame: View {
     let t: Double
-    /// 72 pt de alto para un viewBox de 15 unidades.
-    private static let unit: CGFloat = 72 / 15
+    /// Puntos por unidad del viewBox (15 de alto).
+    let unit: CGFloat
 
     var body: some View {
-        let u = Self.unit
+        let u = unit
         // sway 1.7 s ida y vuelta, ease-in-out: skewX ±4°, rotate ∓1.5°.
         let sway = -cos(.pi * t / 1.7)
         // bob 2.3 s: sube 0.9 unidades.

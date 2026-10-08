@@ -139,7 +139,7 @@ targets:
         # mismos milisegundos se leen como la app abriéndose.
         UILaunchScreen:
           UIColorName: bg
-          UIImageName: ghosty-lila
+          UIImageName: launch-mark
           UIImageRespectsSafeAreaInsets: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
