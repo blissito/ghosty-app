@@ -85,6 +85,7 @@ struct ConversationView: View {
     /// Alto de lo que va desde el mensaje anclado hasta el final, y alto visible del
     /// hilo: la diferencia es el aire que se pone debajo para que el mensaje QUEPA arriba.
     @State private var altoDeLaCola: CGFloat = 0
+    @State private var interruptedVisible = false
     @State private var tailStart: CGFloat = 0
     @State private var tailEnd: CGFloat = 0
     @State private var altoVisible: CGFloat = 0
@@ -131,15 +132,22 @@ struct ConversationView: View {
             // `anclaje` es el ÚLTIMO mensaje visible. Si es el último del hilo, estás
             // abajo; si no, se enseña el botón. Bajar es asignarlo.
             hilo
+                // ⚠️ El cartel sale sólo si el corte dura más de 4 s: con cada reconexión de un
+                // segundo aparecía y se iba sin poder leerse, y daba ansiedad (bliss, 8-oct).
+                .task(id: store.hiloActivo?.interrumpido == true) {
+                    guard store.hiloActivo?.interrumpido == true else { interruptedVisible = false; return }
+                    try? await Task.sleep(for: .seconds(4))
+                    if !Task.isCancelled { withAnimation { interruptedVisible = true } }
+                }
 
             // ⚠️ Un CARTEL, no un mensaje. Que el aviso viva dentro de la respuesta lo
             // convertía en historia: quedaba «se cortó la conexión» pegado para siempre en
             // una conversación que acabó bien. Éste está atado al estado del hilo, así que
             // se va solo en cuanto la recogida trae la respuesta.
-            if let hilo = store.hiloActivo, hilo.interrumpido {
+            if let hilo = store.hiloActivo, hilo.interrumpido, interruptedVisible {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.mini)
-                    Text("Sigo con esto. Te aviso en cuanto termine.")
+                    Text("Estoy en ello. Te aviso en cuanto termine.")
                         .gMeta().foregroundStyle(Color.gInk2)
                     Spacer(minLength: 0)
                     // ⚠️ SIEMPRE una salida. Este cartel no ofrecía ninguna: si el turno

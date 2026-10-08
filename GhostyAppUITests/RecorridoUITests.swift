@@ -177,13 +177,13 @@ final class RecorridoUITests: XCTestCase {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO_INTERRUMPIDO"] = "1"
         app.launch()
-        let cartel = app.staticTexts["Sigo con esto. Te aviso en cuanto termine."]
+        let cartel = app.staticTexts["Estoy en ello. Te aviso en cuanto termine."]
         XCTAssertTrue(cartel.waitForExistence(timeout: 10),
                       "no salió el cartel del turno interrumpido")
         foto("22-interrumpido")
         // Y en la lista tiene que verse igual de tranquilo: gris, no rojo de fallo.
         abrirHistorial()
-        XCTAssertTrue(app.staticTexts["Sigo trabajando · te aviso"]
+        XCTAssertTrue(app.staticTexts["Estoy en ello · te aviso"]
                         .waitForExistence(timeout: 5),
                       "la lista no dice que el hilo sigue en el agente")
         foto("23-interrumpido-lista")

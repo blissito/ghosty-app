@@ -167,12 +167,14 @@ struct RootView: View {
             // hubieras exportado a mano se perdía al cerrar la app. Se perdieron varias
             // reproducciones así, la última la del push que abría una conversación vacía.
             if nueva != .active { Bitacora.volcar() }
+            if nueva == .background { store.irAlFondo() }
             #if DEBUG
             DevKeepAwake.update(active: nueva == .active)
             #endif
             guard nueva == .active else { return }
             Task { await store.volverDelFondo() }
-            Task { await AppConfig.shared.refresh() }
+            // La bandera `syncV2` puede llegar con la config: entonces se prende el stream.
+            Task { await AppConfig.shared.refresh(); store.startAccountEvents() }
         }
         // Tocar un aviso lleva al chat. El destino lo resuelve el store (`irA`); aquí
         // sólo se cambia de pestaña cuando lo pide, y se cierra lo que tape el chat.

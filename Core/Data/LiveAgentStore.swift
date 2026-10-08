@@ -33,6 +33,9 @@ final class LiveAgentStore: AgentStoring {
     func ponerCanalesDeDemo(_ nuevos: [String: Canal]) { canales = nuevos }
     func ponerCuentasDeDemo(_ nuevas: [AgentAccount]) { cuentas = nuevas }
     private var cuentas: [AgentAccount] = []
+    /// Sync v2: el stream de la cuenta y lo que cada aviso tiene pendiente de pedir.
+    let accountEvents = AccountEvents()
+    private var accountRefresh: [String: Task<Void, Never>] = [:]
 
     /// Lo que gs dijo de los subagentes de un agente (`subagentesNativos`); `nil` = no lo dijo.
     func nativeSubagents(of agentID: String) -> Bool? {
@@ -242,7 +245,7 @@ final class LiveAgentStore: AgentStoring {
         }
     }
 
-    private func precargar(_ s: ACPClient.Session, de canal: Canal) async {
+    private func precargar(_ s: ACPClient.Session, de canal: Canal, force: Bool = false) async {
         let agente = canal.cuenta.id
         let llave = "\(agente)|\(s.id)"
         guard !trayendo.contains(llave) else { return }
@@ -254,7 +257,7 @@ final class LiveAgentStore: AgentStoring {
             let mensajes = ReplayToMessages.convertir(replay)
             guard !mensajes.isEmpty else { return }
             // Si mientras bajaba la abriste, manda el hilo abierto: no se toca.
-            if let h = canal.hilo(sesion: s.id), !h.mensajes.isEmpty { return }
+            if let h = canal.hilo(sesion: s.id), !h.mensajes.isEmpty, !force { return }
             cache.guardarUno(agente, sesion: s.id, mensajes: mensajes)
             vistasPrevias["\(agente)/\(s.id)"] = VistaPrevia.de(mensajes)
         } catch {
@@ -805,6 +808,60 @@ final class LiveAgentStore: AgentStoring {
         Keychain.migrarAccesibilidad()
         GrupoDeApp.espejarConsentimiento()
         repasarLaFlota(forzado: true)
+        startAccountEvents()
+    }
+
+    /// Al irse al fondo: el stream de la cuenta se suelta (iOS lo cortaría de todos modos).
+    func irAlFondo() { accountEvents.stop() }
+
+    /// Escucha la cuenta entera (sync v2): lo que pase en otra superficie llega en vivo.
+    func startAccountEvents() {
+        guard syncV2, !DemoData.encendido, Session.haySesion else { return }
+        accountEvents.onEvent = { [weak self] e in self?.handleAccountEvent(e) }
+        // Lo que pasó mientras el stream estaba caído no llega como aviso: al (re)conectar,
+        // las listas de todos en una llamada y lo nuevo de lo que miras.
+        accountEvents.onConnected = { [weak self] in self?.catchUpAfterReconnect() }
+        accountEvents.start()
+    }
+
+    private var lastReconnectCatchUp: Date?
+
+    private func catchUpAfterReconnect() {
+        // La primera conexión ya la cubre la ronda de la flota.
+        defer { lastReconnectCatchUp = Date() }
+        guard lastReconnectCatchUp != nil else { return }
+        let channels = Array(canales.values)
+        Task { [weak self] in
+            guard let self, let any = channels.first,
+                  let client = try? await self.asegurarSocket(any) as? ClienteGS,
+                  let lists = try? await client.listsForAgents(channels.map(\.cuenta.id)) else { return }
+            for channel in channels { if let l = lists[channel.cuenta.id] { self.applyList(l, to: channel) } }
+            if let canal = self.canalActivo, let hilo = canal.hilo { await self.traerLaConversacion(hilo, de: canal) }
+        }
+    }
+
+    /// Algo cambió en una conversación (otro teléfono, la Mac, un turno programado). Se junta
+    /// un respiro por conversación: un turno emite varios avisos seguidos.
+    private func handleAccountEvent(_ e: AccountEvents.Event) {
+        let key = "\(e.agentID)/\(e.sessionID)"
+        accountRefresh[key]?.cancel()
+        accountRefresh[key] = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, !Task.isCancelled, let canal = self.canales[e.agentID] else { return }
+            self.accountRefresh[key] = nil
+            // La lista de ese agente: orden, título, estado del turno, permiso.
+            if let client = try? await self.asegurarSocket(canal) as? ClienteGS,
+               let list = try? await client.listsForAgents([e.agentID])[e.agentID] {
+                self.applyList(list, to: canal)
+            }
+            // Y lo nuevo de esa conversación: en memoria, por delta; si no, su cola para
+            // el renglón de Chats.
+            if let hilo = canal.hilo(sesion: e.sessionID) {
+                await self.traerLaConversacion(hilo, de: canal)
+            } else if let s = canal.hilosRemotos.first(where: { $0.id == e.sessionID }) {
+                await self.precargar(s, de: canal, force: true)
+            }
+        }
     }
 
     /// Cuándo se preguntó por última vez por TODOS los agentes.
@@ -1907,7 +1964,7 @@ final class LiveAgentStore: AgentStoring {
         // contradicen en la misma pantalla, y la de arriba es la que hace pensar que se
         // colgó. El turno local ya no existe —lo mató la suspensión— pero el trabajo sí.
         if canal.hilos.contains(where: { $0.interrumpido }) {
-            return .working(task: "Sigo trabajando…")
+            return .working(task: "Estoy en ello…")
         }
         return .idle(since: "listo")
     }
@@ -3138,11 +3195,12 @@ final class LiveAgentStore: AgentStoring {
         switch segundos {
         // En PRIMERA persona: lo dice la mascota, al lado suyo, en el hilo. «Sigue en
         // ello» leído junto a Ghosty sonaba a que hablaba de otro.
+        // Las mismas que Android (`TurnPhrases.kt`) y la web (bliss, 8-oct).
         case ..<6:   return "Pensando…"
         case ..<15:  return "Trabajando…"
-        case ..<30:  return "Sigo en ello…"
-        case ..<60:  return "Esto me lleva un poco…"
-        case ..<120: return "Sigo trabajando…"
+        case ..<30:  return "Ghostyando…"
+        case ..<60:  return "Estoy en ello…"
+        case ..<120: return "Esto me lleva un poco…"
         case ..<300: return "Llevo un buen rato…"
         default:     return "Me está tomando mucho — puedes detenerme"
         }
@@ -3216,6 +3274,7 @@ final class LiveAgentStore: AgentStoring {
         // ⚠️ En ronda (`catchUpFleet`): todos a la vez, el de tu conversación llegaba 20 s
         // tarde, después de que ya le habías escrito (bliss, 8-oct).
         if !newChannels.isEmpty { catchUpFleet(newChannels) }
+        startAccountEvents()
         for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
             canales[id]?.soltar(); canales[id] = nil
         }
