@@ -887,6 +887,9 @@ final class LiveAgentStore: AgentStoring {
         // 20 s, como WhatsApp: volver a «Chats» pinta lo que hay y sólo va a la red si
         // pasó más que eso.
         if !forzado, let u = ultimoRepaso, Date().timeIntervalSince(u) < 20 { return }
+        // Al arrancar llegan dos seguidas (montar los canales y volver al frente): la segunda
+        // cancelaba a la primera a medio camino (`-999`). Con una ronda de hace segundos basta.
+        if let u = ultimoRepaso, Date().timeIntervalSince(u) < 3 { return }
         ultimoRepaso = Date()
         catchUpFleet(Array(canales.values))
     }
@@ -905,6 +908,7 @@ final class LiveAgentStore: AgentStoring {
         let firstID = avisoPendiente?.0 ?? selectedAgentID
         let first = rest.firstIndex(where: { $0.cuenta.id == firstID }).map { rest.remove(at: $0) }
         fleetRound?.cancel()
+        ultimoRepaso = Date()
         fleetRound = Task { [weak self] in
             guard let self, !DemoData.encendido, Session.haySesion else { return }
             // ⚠️ Las listas de TODOS en una llamada (`/me/conversations?agentes=`). Los demás
