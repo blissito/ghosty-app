@@ -13,12 +13,18 @@ final class FavoritosUITests: XCTestCase {
         let fila = app.staticTexts["solo me interesa la foto"].firstMatch
         XCTAssertTrue(fila.waitForExistence(timeout: 8))
         fila.tap()
+        // La estrella vive en el menú «⋯» de la cabecera.
+        let mas = app.buttons["hilo-mas"]
         let estrella = app.buttons["hilo-favorito"]
-        XCTAssertTrue(estrella.waitForExistence(timeout: 4), "no está la estrella del chat")
+        XCTAssertTrue(mas.waitForExistence(timeout: 4), "no está el menú del chat")
+        mas.tap()
+        XCTAssertTrue(estrella.waitForExistence(timeout: 2), "no está la estrella en el menú")
         XCTAssertEqual(estrella.label, "Agregar a favoritos")
         estrella.tap()
+        mas.tap()
         XCTAssertEqual(estrella.label, "Quitar de favoritos", "el primer toque en el chat no marcó")
         foto(app, "f1-chat-marcado")
+        app.tap() // cierra el menú
 
         app.buttons["volver-a-chats"].tap()
         XCTAssertTrue(app.images["Favorito"].firstMatch.waitForExistence(timeout: 3), "la lista no muestra la ★")
@@ -31,7 +37,9 @@ final class FavoritosUITests: XCTestCase {
         quitar.tap()
         XCTAssertTrue(app.images["Favorito"].firstMatch.waitForNonExistence(timeout: 3), "la ★ siguió en la lista")
         fila.tap()
-        XCTAssertTrue(estrella.waitForExistence(timeout: 4))
+        XCTAssertTrue(mas.waitForExistence(timeout: 4))
+        mas.tap()
+        XCTAssertTrue(estrella.waitForExistence(timeout: 2))
         XCTAssertEqual(estrella.label, "Agregar a favoritos", "el chat no vio que se quitó en la lista")
         foto(app, "f3-chat-sin-estrella")
     }

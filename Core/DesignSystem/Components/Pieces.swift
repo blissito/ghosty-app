@@ -296,30 +296,39 @@ struct AgentHeader: View {
 
             Spacer(minLength: 4)
 
-            if let favorito, let onFavorito {
-                Button(action: onFavorito) {
-                    Image(systemName: favorito ? "star.fill" : "star")
+            // ⚠️ Favorito y subagentes van en un menú «⋯», como WhatsApp: con estrella, personas
+            // y lápiz sueltos la cabecera se amontonaba y el nombre del agente se cortaba (8-oct).
+            if (favorito != nil && onFavorito != nil) || onSubagents != nil {
+                Menu {
+                    if let favorito, let onFavorito {
+                        Button(action: onFavorito) {
+                            Label(favorito ? "Quitar de favoritos" : "Agregar a favoritos",
+                                  systemImage: favorito ? "star.slash" : "star")
+                        }
+                        .accessibilityIdentifier("hilo-favorito")
+                    }
+                    if let onSubagents {
+                        Button(action: onSubagents) { Label("Subagentes", systemImage: "person.3") }
+                            .accessibilityIdentifier("hilo-subagentes")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(favorito ? Color.gBird : Color.gInk)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 40, height: 44)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.gPressIcon)
-                .accessibilityLabel(favorito ? "Quitar de favoritos" : "Agregar a favoritos")
-                .accessibilityIdentifier("hilo-favorito")
-            }
-            if let onSubagents {
-                Button(action: onSubagents) {
-                    Image(systemName: "person.3")
-                        .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(Color.gInk)
                         .frame(width: 40, height: 44)
+                        // Una estrellita dice que es favorita sin abrir el menú.
+                        .overlay(alignment: .topTrailing) {
+                            if favorito == true {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(Color.gBird)
+                                    .offset(x: -4, y: 8)
+                            }
+                        }
                         .contentShape(Circle())
                 }
-                .buttonStyle(.gPressIcon)
-                .accessibilityLabel("Subagentes")
-                .accessibilityIdentifier("hilo-subagentes")
+                .accessibilityLabel("Más opciones")
+                .accessibilityIdentifier("hilo-mas")
             }
             if let onNueva {
                 Button(action: onNueva) {
