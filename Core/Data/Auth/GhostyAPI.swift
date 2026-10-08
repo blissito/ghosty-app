@@ -407,11 +407,13 @@ enum GhostyAPI {
     ///
     /// Si el servidor todavía no conoce el endpoint, se dice en la bitácora y no se rompe
     /// nada: la app queda lista para el día que lo tenga.
-    static func registrarDispositivo(token: String, entorno: String) async {
+    /// `true` si gs lo guardó.
+    @discardableResult
+    static func registrarDispositivo(token: String, entorno: String) async -> Bool {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/devices"))
         req.httpMethod = "POST"
         req.assumesHTTP3Capable = false
-        guard let bearer = try? await Session.accessToken() else { return }
+        guard let bearer = try? await Session.accessToken() else { return false }
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: [
@@ -419,7 +421,7 @@ enum GhostyAPI {
         ])
         guard let (_, resp) = try? await URLSession.shared.data(for: req) else {
             EasyBitsClient.diag("[push] no pude registrar el teléfono: sin conexión")
-            return
+            return false
         }
         let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
         switch codigo {
@@ -427,6 +429,7 @@ enum GhostyAPI {
         case 404, 405, 501: EasyBitsClient.diag("[push] gs todavía no sabe registrar teléfonos")
         default:            EasyBitsClient.diag("[push] el registro contestó \(codigo)")
         }
+        return (200..<300).contains(codigo)
     }
 
     /// Quita este teléfono de la cuenta con la que se está saliendo. Best-effort: sin red,

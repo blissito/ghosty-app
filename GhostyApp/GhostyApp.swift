@@ -31,6 +31,8 @@ struct GhostyApp: App {
 final class Delegado: NSObject, UIApplicationDelegate {
     func application(_ app: UIApplication,
                      didFinishLaunchingWithOptions opciones: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // ⚠️ Síncrono y primero: ver `Avisos.installDelegate`.
+        MainActor.assumeIsolated { Avisos.installDelegate() }
         Task { @MainActor in Avisos.registrarSiYaHayPermiso() }
         // El POST de un turno termina aunque apagues el teléfono justo al mandar (ver ClienteGS).
         BackgroundTime.onBegin = { name in

@@ -20,6 +20,14 @@ enum Avisos {
     private static var pedido = false
     private static let delegado = Delegado()
 
+    /// ⚠️ Se llama DENTRO de `didFinishLaunching`, antes de que regrese. Apple sólo entrega
+    /// el toque de un aviso que arrancó la app en frío si el delegado ya está puesto en ese
+    /// momento; antes se ponía después (en un `Task`, tras leer los ajustes) y tocar el push
+    /// abría la app sin abrir la conversación (bliss, 8-oct).
+    static func installDelegate() {
+        UNUserNotificationCenter.current().delegate = delegado
+    }
+
     /// Se pide la PRIMERA vez que dejas a un agente trabajando y te vas con otro, no al
     /// arrancar: ahí no hay contexto y el permiso se rechaza.
     static func pedirPermisoSiHaceFalta() {
@@ -82,6 +90,7 @@ enum Avisos {
     static func unregisterDevice() async {
         guard let token = tokenEnviado else { return }
         tokenEnviado = nil
+        forgetRegistration()
         await GhostyAPI.unregisterDevice(token: token)
     }
 
@@ -91,6 +100,7 @@ enum Avisos {
     /// servidor seguía atando el teléfono a la cuenta de antes hasta el siguiente arranque.
     static func registerForCurrentAccount() {
         tokenEnviado = nil
+        forgetRegistration()
         registrarSiYaHayPermiso()
     }
 
@@ -103,8 +113,29 @@ enum Avisos {
         let hex = token.map { String(format: "%02x", $0) }.joined()
         guard hex != tokenEnviado else { return }
         tokenEnviado = hex
+        // ⚠️ Una vez al día basta con el mismo token: antes se registraba en CADA arranque
+        // (gs vio ~15 POST /me/devices en 10 min, alguno de 5 s).
+        let stamp = "\(hex)|\(entorno)"
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: registeredKey) == stamp,
+           let at = defaults.object(forKey: registeredAtKey) as? Date, Date().timeIntervalSince(at) < 24 * 3600 {
+            return
+        }
         EasyBitsClient.diag("[push] token \(hex.prefix(12))… (\(entorno))")
-        Task { await GhostyAPI.registrarDispositivo(token: hex, entorno: entorno) }
+        Task {
+            guard await GhostyAPI.registrarDispositivo(token: hex, entorno: entorno) else { return }
+            defaults.set(stamp, forKey: registeredKey)
+            defaults.set(Date(), forKey: registeredAtKey)
+        }
+    }
+
+    private static let registeredKey = "push.registeredToken"
+    private static let registeredAtKey = "push.registeredAt"
+
+    /// Al cambiar de cuenta o salir, el siguiente registro va sí o sí.
+    private static func forgetRegistration() {
+        UserDefaults.standard.removeObject(forKey: registeredKey)
+        UserDefaults.standard.removeObject(forKey: registeredAtKey)
     }
 
     /// ⚠️ Lo decide el BUILD, no una preferencia. **TestFlight usa producción** aunque sea
