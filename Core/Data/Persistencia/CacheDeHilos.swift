@@ -110,8 +110,10 @@ final class CacheDeHilos {
     /// Todas las conversaciones guardadas de un agente.
     func abiertos(_ agentID: String) -> [(sesionID: String, mensajes: [Message], sospechoso: Bool)] {
         (try? db?.read { db -> [(sesionID: String, mensajes: [Message], sospechoso: Bool)] in
-            let rows = try Row.fetchAll(db, sql: "SELECT sessionId, suspicious FROM thread WHERE agentId = ?",
-                                        arguments: [agentID])
+            // Sólo las más usadas suben a memoria al arrancar; las demás se leen al abrirlas.
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT sessionId, suspicious FROM thread WHERE agentId = ? ORDER BY touchedAt DESC LIMIT ?
+                """, arguments: [agentID, Self.topeDeHilos])
             return try rows.map { r in
                 let sid: String = r["sessionId"]
                 return (sid, try Self.readMessages(db, agentID, sid), r["suspicious"])
@@ -135,15 +137,23 @@ final class CacheDeHilos {
     /// ⚠️ FUNDE con lo que ya había en vez de reemplazarlo: una conversación vacía en
     /// memoria por un tropiezo no se lleva su copia del disco. Sólo se recorta lo que sobra
     /// del tope, por lo menos reciente.
-    func guardarAbiertos(_ hilos: [(sesionID: String, mensajes: [Message])], de agentID: String) {
-        let batch = hilos.suffix(Self.topeDeHilos).compactMap { h -> (String, [MensajeGuardado])? in
+    /// `protected`: sesiones que no se recortan nunca (la que miras, las que trabajan o
+    /// esperan un permiso). Los favoritos se protegen solos.
+    func guardarAbiertos(_ hilos: [(sesionID: String, mensajes: [Message])], de agentID: String,
+                         protected: Set<String> = []) {
+        let favorites = Set(ChatsFavoritos.compartido.ids.compactMap { key -> String? in
+            let parts = key.split(separator: "/", maxSplits: 1)
+            return parts.count == 2 && parts[0] == agentID ? String(parts[1]) : nil
+        })
+        let keep = protected.union(favorites)
+        let batch = hilos.compactMap { h -> (String, [MensajeGuardado])? in
             let saved = h.mensajes.compactMap(MensajeGuardado.init)
             return saved.isEmpty ? nil : (h.sesionID, saved)
         }
         guard !batch.isEmpty else { return }
         db?.asyncWrite({ db in
             for (sid, messages) in batch { try Self.writeThread(db, agentID, sid, messages, suspicious: false) }
-            try Self.trim(db, agentID)
+            try Self.trim(db, agentID, keeping: keep)
         }, completion: Self.logFailure)
     }
 
@@ -152,11 +162,6 @@ final class CacheDeHilos {
         let saved = mensajes.compactMap(MensajeGuardado.init)
         guard !saved.isEmpty else { return }
         db?.asyncWrite({ db in
-            let exists = try Bool.fetchOne(db, sql: "SELECT 1 FROM thread WHERE agentId = ? AND sessionId = ?",
-                                           arguments: [agentID, sesion]) != nil
-            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM thread WHERE agentId = ?",
-                                         arguments: [agentID]) ?? 0
-            guard exists || count < Self.topeDeHilos else { return }
             // ⚠️ Fría: lo precargado no cuenta como usado, o desalojaría el hilo que sí abriste.
             try Self.writeThread(db, agentID, sesion, saved, suspicious: false, touch: false)
         }, completion: Self.logFailure)
@@ -259,12 +264,31 @@ final class CacheDeHilos {
         try db.execute(sql: "DELETE FROM thread WHERE agentId = ? AND sessionId = ?", arguments: [agent, sid])
     }
 
-    /// Sólo se quedan las `topeDeHilos` más recientes de cada agente.
-    nonisolated private static func trim(_ db: Database, _ agent: String) throws {
-        let extra = try String.fetchAll(db, sql: """
+    /// Mensajes que conserva un hilo que ya no está entre los recientes: lo justo para su
+    /// renglón en Chats y para pintar algo al abrirlo; lo de antes se pide con `before=`.
+    nonisolated private static let coldTail = 20
+
+    /// ⚠️ Como Signal (`trimAllThreads`) y Telegram: NUNCA se borra la conversación, sólo se
+    /// recortan sus mensajes viejos. Las `topeDeHilos` más usadas y las protegidas (la que
+    /// miras, las que trabajan, favoritas) se quedan enteras; las demás, con su cola.
+    nonisolated private static func trim(_ db: Database, _ agent: String, keeping protected: Set<String>) throws {
+        let cold = try String.fetchAll(db, sql: """
             SELECT sessionId FROM thread WHERE agentId = ? ORDER BY touchedAt DESC LIMIT -1 OFFSET ?
             """, arguments: [agent, topeDeHilos])
-        for sid in extra { try deleteThread(db, agent, sid) }
+        for sid in cold where !protected.contains(sid) {
+            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM message WHERE agentId = ? AND sessionId = ?",
+                                         arguments: [agent, sid]) ?? 0
+            guard count > coldTail else { continue }
+            let cut = count - coldTail
+            try db.execute(sql: "DELETE FROM message WHERE agentId = ? AND sessionId = ? AND position < ?",
+                           arguments: [agent, sid, cut])
+            try db.execute(sql: "UPDATE message SET position = position - ? WHERE agentId = ? AND sessionId = ?",
+                           arguments: [cut, agent, sid])
+            let oldest = try Int.fetchOne(db, sql: "SELECT MIN(seq) FROM message WHERE agentId = ? AND sessionId = ?",
+                                          arguments: [agent, sid])
+            try db.execute(sql: "UPDATE thread SET hasMoreBefore = 1, oldestSeq = ? WHERE agentId = ? AND sessionId = ?",
+                           arguments: [oldest, agent, sid])
+        }
     }
 
     nonisolated private static let logFailure: @Sendable (Database, Result<Void, Error>) -> Void = { _, result in

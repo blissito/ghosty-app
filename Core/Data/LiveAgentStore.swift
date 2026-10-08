@@ -1859,10 +1859,15 @@ final class LiveAgentStore: AgentStoring {
         // Una conversación nueva recibe su `sesionID` después de volverse la activa: aquí
         // ya lo tiene.
         canal.recordarActiva()
+        // Lo que miras y lo que trabaja o espera un permiso no se recorta nunca.
+        let protected = Set(canal.hilos.compactMap { h -> String? in
+            guard let sid = h.sesionID else { return nil }
+            return h.clave == canal.activa || h.turno != nil || h.permisoPendiente != nil ? sid : nil
+        })
         cache.guardarAbiertos(canal.hilos.compactMap { h in
             guard let sid = h.sesionID, !h.mensajes.isEmpty else { return nil }
             return (sid, h.mensajes)
-        }, de: canal.cuenta.id)
+        }, de: canal.cuenta.id, protected: protected)
     }
 
     /// Guarda YA la conversación que se está mirando.
