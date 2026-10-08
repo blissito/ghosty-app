@@ -48,6 +48,12 @@ struct RootView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.gBg.ignoresSafeArea()
+            #if DEBUG
+            // Gancho: `GHOSTY_FLAMA=1` pinta sólo la carga del hilo, para mirarla.
+            if Gancho.valor("GHOSTY_FLAMA") == "1" {
+                FlameLoading().frame(maxHeight: .infinity).background(Color.gBg).zIndex(10)
+            }
+            #endif
 
             Group {
                 switch store.conexion {

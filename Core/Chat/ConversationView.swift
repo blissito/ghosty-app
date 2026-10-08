@@ -693,13 +693,11 @@ struct ConversationView: View {
 
     /// Lo que se ve mientras la conversación viene en camino. No dice «vacío», que sería
     /// mentira, ni finge mensajes: dice que está llegando.
+    /// Igual que Android: la flamita animada y la frase en primera persona.
     private var trayendoElHilo: some View {
-        VStack(spacing: 12) {
-            ProgressView().controlSize(.small)
-            Text("Trayendo la conversación…").gMeta()
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityIdentifier("trayendo-el-hilo")
+        FlameLoading()
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("trayendo-el-hilo")
     }
 
     /// El hilo no llegó: se dice y se ofrece otra vez, en vez de girar para siempre.
