@@ -304,9 +304,11 @@ struct SubagentsBar: View {
         }
         // Si terminaron con el turno del padre aún vivo, el remate llega DESPUÉS de su respuesta:
         // la cuenta empieza otra vez al cerrar ese turno.
+        // ⚠️ Pero NO cuando el turno que cierra es el del remate (lo abre el despertador): ahí el
+        // remate ya está en pantalla y la barra se quedaba trabada en «Juntando…».
         .onChange(of: store.currentTurn == nil) { _, closed in
             guard closed, finishedAt != nil, layer.running.isEmpty else { return }
-            finishedAt = (Date(), store.messages.count)
+            finishedAt = lastIsWrap ? nil : (Date(), store.messages.count)
         }
         .animation(.snappy, value: layer.tasks.count)
         .animation(.snappy, value: layer.snapshotReceived)
@@ -364,6 +366,12 @@ extension SubagentsBar {
     /// ya lo entregó, gs no manda nada y el aviso se va solo).
     static let wrapGrace: TimeInterval = 60
 
+    /// ¿Lo último que dijo el agente ya es el remate de los ayudantes?
+    var lastIsWrap: Bool {
+        guard let last = store.messages.last(where: \.esDelAgente), case .agent(let t, _, _) = last.kind else { return false }
+        return HelpersHeader.split(t) != nil
+    }
+
     func mode(at now: Date) -> SubagentsBarMode? {
         let running = layer.running
         if !running.isEmpty { return .running(count: running.count) }
@@ -371,7 +379,7 @@ extension SubagentsBar {
         let problems = recent.filter { ($0.status == "failed" || $0.status == "stopped") && !layer.dismissed.contains($0.id) }
         if !problems.isEmpty { return .problems(ids: problems.map(\.id)) }
         // El remate todavía no entra: lo mismo que «listo», pero diciendo que se está armando.
-        if let f = finishedAt, store.messages.count == f.messages, store.currentTurn == nil,
+        if let f = finishedAt, !lastIsWrap, store.messages.count == f.messages, store.currentTurn == nil,
            now.timeIntervalSince(f.date) < Self.wrapGrace {
             let n = layer.finished.filter { now.timeIntervalSince($0.endedAt ?? now) < Self.wrapGrace }.count
             if n > 0 { return .wrapping(count: n) }
