@@ -36,7 +36,9 @@ struct VistaPrevia: Equatable, Sendable {
             if let a = adjuntos.first { return (a.esImagen ? "📷 " : "📎 ") + a.nombre }
             return nil
         case .agent(let t, _, let trailing):
-            let limpio = plano(trailing.map { t + " " + $0 } ?? t)
+            // El remate de los ayudantes sin su encabezado («--- Terminó «…» · hora»).
+            let cuerpo = HelpersHeader.stripped(t)
+            let limpio = plano(trailing.map { cuerpo + " " + $0 } ?? cuerpo)
             return limpio.isEmpty ? nil : limpio
         case .entrega(let e):
             if e.esNotaDeVoz { return "🎤 Nota de voz" + (e.segundosDeVoz.map { $0 > 0 ? " (\(NotaDeVoz.reloj($0)))" : "" } ?? "") }

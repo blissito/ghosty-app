@@ -503,7 +503,7 @@ struct ConversationView: View {
     /// caja «Creando imagen» de su turno (si salieran también sueltas, la imagen nacería
     /// dos veces y la de abajo empujaría el hilo).
     private var mensajesVisibles: [Message] {
-        let todos = mensajesÚnicos
+        let todos = HelpersHeader.fold(mensajesÚnicos)
         let dentro = Set(todos.compactMap { imagenDelTurno($0, en: todos).entrega })
         guard !dentro.isEmpty else { return todos }
         return todos.filter { !dentro.contains($0.id) }

@@ -31,3 +31,22 @@ final class HelperColorTests: XCTestCase {
     }
 }
 
+
+final class HelpersFoldTests: XCTestCase {
+    func testTwoWakesBeforeNextUserMessageBecomeOne() {
+        let msgs = [
+            Message(id: "u", kind: .user("lanza dos")),
+            Message(id: "w1", kind: .agent(text: "---\n*Terminó «A» · 9:00*\n\nuno", tools: nil, trailing: nil)),
+            Message(id: "w2", kind: .agent(text: "---\n*Terminó «B» · 9:01*\n\ndos", tools: nil, trailing: nil)),
+            Message(id: "u2", kind: .user("gracias")),
+        ]
+        let folded = HelpersHeader.fold(msgs)
+        XCTAssertEqual(folded.map(\.id), ["u", "w2", "u2"])
+        guard case .agent(let t, _, _) = folded[1].kind else { return XCTFail() }
+        XCTAssertEqual(HelpersHeader.split(t)?.header.titles, ["A", "B"])
+        XCTAssertEqual(HelpersHeader.split(t)?.rest, "dos")
+    }
+    func testPreviewDropsHeader() {
+        XCTAssertEqual(HelpersHeader.stripped("---\n*Resumen · 9:58 a.m.*\n\nListo todo"), "Listo todo")
+    }
+}

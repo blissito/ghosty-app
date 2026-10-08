@@ -26,6 +26,37 @@ struct HelpersHeader: View {
         return (HelpersHeader(titles: titles, time: time), String(text[whole.upperBound...]))
     }
 
+    /// El texto sin el encabezado del remate (para la vista previa de Chats).
+    static func stripped(_ text: String) -> String {
+        split(text)?.rest ?? text
+    }
+
+    /// ⚠️ Un solo remate por encargo (como Android `WakeHeader.fold` y /c): si a un remate le
+    /// sigue otro antes de tu siguiente mensaje, el anterior se esconde y sus títulos pasan al
+    /// último. Sin esto salían dos remates, un «Listo» antes de tiempo y el «Resumen» repetido.
+    static func fold(_ messages: [Message]) -> [Message] {
+        var out: [Message] = []
+        var pending: (index: Int, titles: [String])?
+        for m in messages {
+            if case .user = m.kind { pending = nil; out.append(m); continue }
+            guard case .agent(let text, let tools, let trailing) = m.kind, let wake = split(text) else {
+                out.append(m); continue
+            }
+            var titles = wake.header.titles
+            if let p = pending {
+                for t in p.titles where !titles.contains(t) { titles.insert(t, at: 0) }
+                out.remove(at: p.index)
+            }
+            let what = titles.isEmpty ? "Resumen" : "Terminó " + titles.map { "«\($0)»" }.joined(separator: ", ")
+            let rebuilt = "---\n*\(what) · \(wake.header.time)*\n\n" + wake.rest
+            var merged = m
+            merged.kind = .agent(text: rebuilt, tools: tools, trailing: trailing)
+            out.append(merged)
+            pending = (out.count - 1, titles)
+        }
+        return out
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
