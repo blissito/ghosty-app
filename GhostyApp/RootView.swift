@@ -158,6 +158,9 @@ struct RootView: View {
         // tiempo de gracia, marcar turnos como interrumpidos— porque el turno era del
         // teléfono y había que salvarlo al dormirse. El turno es del servidor: irse no
         // requiere hacer nada, y al volver sólo hay que preguntar qué pasó.
+        #if DEBUG
+        .onAppear { DevKeepAwake.update(active: true) }
+        #endif
         .onChange(of: fase) { _, nueva in
             // ⚠️ El registro se vuelca al IRSE. Su comentario decía que ya pasaba, pero
             // `volcar()` sólo lo llamaba el botón de compartir de Ajustes: lo que no
