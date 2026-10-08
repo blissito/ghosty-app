@@ -891,3 +891,43 @@ extension ClienteGS {
     /// Prende la reanudación por `Last-Event-ID` (bandera `syncV2`).
     func setResumeFromLastEvent(_ on: Bool) { resumeFromLastEvent = on }
 }
+
+// MARK: - Sync v2: la cuenta entera (`/me/sync`)
+
+extension ClienteGS {
+    struct AccountSync: Sendable {
+        struct Item: Sendable {
+            var agentID: String
+            var session: ACPClient.Session
+            var lastSeq: Int?
+            var preview: (text: String, fromUser: Bool)?
+            var archived: Bool
+        }
+        var cursor: String?
+        var agents: [String]
+        var items: [Item]
+        var hasMore: Bool
+    }
+
+    /// Lo que cambió desde `since` en TODOS los agentes (sin `since`, todo). Una llamada.
+    func syncAccount(since: String?) async throws -> AccountSync {
+        var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/sync"), resolvingAgainstBaseURL: false)!
+        var q = [URLQueryItem(name: "client", value: "ios")]
+        if let since { q.append(URLQueryItem(name: "since", value: since)) }
+        c.queryItems = q
+        let r = try await leerConReintento(c.url!)
+        let raw = r["conversations"] as? [[String: Any]] ?? []
+        let items = raw.compactMap { c -> AccountSync.Item? in
+            guard let agent = c["agentId"] as? String, let session = Self.parseSessions([c]).first else { return nil }
+            let p = c["preview"] as? [String: Any]
+            return AccountSync.Item(
+                agentID: agent, session: session, lastSeq: c["lastSeq"] as? Int,
+                preview: (p?["text"] as? String).map { ($0, p?["role"] as? String == "user") },
+                archived: c["archived"] as? Bool ?? false)
+        }
+        let cursor = (r["cursor"] as? String) ?? (r["cursor"] as? NSNumber)?.stringValue
+        return AccountSync(cursor: cursor, agents: r["agents"] as? [String] ?? [], items: items,
+                           hasMore: r["hasMore"] as? Bool ?? false)
+    }
+}
+

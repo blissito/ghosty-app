@@ -8,3 +8,16 @@ final class ResumeTests: XCTestCase {
         XCTAssertEqual(r.url?.query, "resume=1")
     }
 }
+
+final class HelpersHeaderTests: XCTestCase {
+    func testSplitsWakeHeader() {
+        let text = "---\n*Terminó «Ríos de México», «Lagos» · 8:12 a. m.*\n\nAquí va el resumen."
+        let s = HelpersHeader.split(text)
+        XCTAssertEqual(s?.header.titles, ["Ríos de México", "Lagos"])
+        XCTAssertEqual(s?.header.time, "8:12 a. m.")
+        XCTAssertEqual(s?.rest, "Aquí va el resumen.")
+    }
+    func testPlainTextIsNotAHeader() {
+        XCTAssertNil(HelpersHeader.split("Hola, ¿qué tal?"))
+    }
+}

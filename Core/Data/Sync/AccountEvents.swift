@@ -46,7 +46,10 @@ final class AccountEvents {
         var delay = 1.0
         while !Task.isCancelled {
             do {
-                var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/events"))
+                // `client=ios`: gs no avisa de los agentes apagados para esta app.
+                var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/events"), resolvingAgainstBaseURL: false)!
+                c.queryItems = [URLQueryItem(name: "client", value: "ios")]
+                var req = URLRequest(url: c.url!)
                 req.setValue("Bearer \(try await Session.accessToken(rejected: nil))", forHTTPHeaderField: "Authorization")
                 req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                 req.assumesHTTP3Capable = false

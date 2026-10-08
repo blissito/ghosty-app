@@ -832,6 +832,10 @@ final class LiveAgentStore: AgentStoring {
         guard lastReconnectCatchUp != nil else { return }
         let channels = Array(canales.values)
         Task { [weak self] in
+            if let self, self.syncV2, await self.runAccountSync() {
+                if let canal = self.canalActivo, let hilo = canal.hilo { await self.traerLaConversacion(hilo, de: canal) }
+                return
+            }
             guard let self, let any = channels.first,
                   let client = try? await self.asegurarSocket(any) as? ClienteGS,
                   let lists = try? await client.listsForAgents(channels.map(\.cuenta.id)) else { return }
@@ -849,8 +853,9 @@ final class LiveAgentStore: AgentStoring {
             try? await Task.sleep(for: .milliseconds(500))
             guard let self, !Task.isCancelled, let canal = self.canales[e.agentID] else { return }
             self.accountRefresh[key] = nil
-            // La lista de ese agente: orden, título, estado del turno, permiso.
-            if let client = try? await self.asegurarSocket(canal) as? ClienteGS,
+            // Orden, título, estado del turno, permiso: el delta de la cuenta (o la lista).
+            if !(await self.runAccountSync()),
+               let client = try? await self.asegurarSocket(canal) as? ClienteGS,
                let list = try? await client.listsForAgents([e.agentID])[e.agentID] {
                 self.applyList(list, to: canal)
             }
@@ -908,6 +913,11 @@ final class LiveAgentStore: AgentStoring {
             // hilo y abría su SSE: 17 + 17 contra gs al volver al frente (8-oct).
             let anyChannel = first ?? rest.first
             var lists: [String: [ACPClient.Session]] = [:]
+            // Sync v2: lo que cambió desde el cursor, de todos, en una llamada.
+            if self.syncV2, await self.runAccountSync() {
+                if let first { await self.catchUp(first, list: first.hilosRemotos) }
+                return
+            }
             if let anyChannel, let client = try? await self.asegurarSocket(anyChannel) as? ClienteGS {
                 lists = (try? await client.listsForAgents(([first].compactMap { $0 } + rest).map(\.cuenta.id))) ?? [:]
             }
@@ -3318,6 +3328,9 @@ extension LiveAgentStore {
         let sendsAtStart = hilo.sendCount
         let meta = cache.meta(agent, session: sid)
         let knownSeq = meta?.epoch == nil ? nil : hilo.mensajes.compactMap(\.seq).max()
+        // Un hilo recortado en la caché (sus últimos 20) tiene más arriba: sin esto se quedaba
+        // sin centinela y no había cómo subir.
+        if meta?.hasMoreBefore == true { hilo.hasMoreBefore = true }
         let started = Date()
         do {
             guard let gs = try await asegurarSocket(canal) as? ClienteGS else { return false }
@@ -3429,6 +3442,84 @@ extension LiveAgentStore {
         } catch {
             EasyBitsClient.diag("[sync] no pude traer lo anterior de \(sid): \(error)")
         }
+    }
+}
+
+// MARK: - Sync v2: la cuenta por cursor (`/me/sync`)
+
+extension LiveAgentStore {
+    private static let accountCursorKey = "me/sync"
+
+    /// Trae lo que cambió en TODOS los agentes desde el último cursor y lo funde en las listas.
+    /// `false` = no se pudo (gs viejo, sin red): quien llama usa las listas.
+    @discardableResult
+    func runAccountSync() async -> Bool {
+        guard syncV2, let any = canalActivo ?? canales.values.first,
+              let client = try? await asegurarSocket(any) as? ClienteGS else { return false }
+        var cursor = cache.syncCursor(Self.accountCursorKey)
+        let started = Date()
+        var changed = 0
+        do {
+            repeat {
+                let page = try await client.syncAccount(since: cursor)
+                let full = cursor == nil && !page.hasMore
+                let byAgent = Dictionary(grouping: page.items, by: \.agentID)
+                // La primera vez la respuesta es la lista COMPLETA de cada agente.
+                let agents = full ? Set(page.agents).union(byAgent.keys) : Set(byAgent.keys)
+                for agent in agents {
+                    guard let canal = canales[agent] else { continue }
+                    let items = byAgent[agent] ?? []
+                    if full {
+                        applyList(items.filter { !$0.archived }.map(\.session), to: canal)
+                    } else {
+                        applySyncDelta(items, to: canal)
+                    }
+                    for item in items where !item.archived { notePreview(item) }
+                    changed += items.count
+                }
+                if let c = page.cursor { cursor = c; cache.setSyncCursor(c, for: Self.accountCursorKey) }
+                if !page.hasMore { break }
+            } while true
+            EasyBitsClient.diag("[sync] cuenta: \(changed) conversaciones en \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            return true
+        } catch {
+            EasyBitsClient.diag("[sync] /me/sync falló: \(error)")
+            return false
+        }
+    }
+
+    /// Funde un delta en la lista de un agente: lo que cambió se reemplaza, lo nuevo entra y lo
+    /// archivado sale. NO es la lista completa: lo que no vino, sigue.
+    private func applySyncDelta(_ items: [ClienteGS.AccountSync.Item], to canal: Canal) {
+        var list = canal.hilosRemotos
+        for item in items {
+            if let i = list.firstIndex(where: { $0.id == item.session.id }) { list[i] = item.session }
+            else if !item.archived { list.append(item.session) }
+        }
+        let archived = Set(items.filter(\.archived).map(\.session.id))
+        list.removeAll { archived.contains($0.id) }
+        list.sort { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        canal.hilosRemotos = list
+        canal.estadoHilos = .listo
+        cache.guardarLista(list, de: canal.cuenta.id)
+        for item in items where !item.archived {
+            if let h = canal.hilo(sesion: item.session.id) { aplicarUltimoTurno(item.session.ultimoTurno, a: h, de: canal) }
+            else { marcarSinVerRemota(item.session, agente: canal.cuenta.id) }
+        }
+        // Lo archivado en otra superficie se cierra aquí, salvo lo que miras o lo que trabaja.
+        for h in canal.hilos where h.turno == nil {
+            guard let sid = h.sesionID, archived.contains(sid), h.clave != canal.activa else { continue }
+            cache.olvidarAbierta(sid, de: canal.cuenta.id)
+            canal.cerrar(h)
+        }
+    }
+
+    /// El renglón de Chats sin bajar el hilo: la vista previa que manda gs.
+    private func notePreview(_ item: ClienteGS.AccountSync.Item) {
+        guard let p = item.preview else { return }
+        let key = "\(item.agentID)/\(item.session.id)"
+        let respuestas = p.fromUser ? 0 : (vistasPrevias[key]?.respuestas ?? 1)
+        vistasPrevias[key] = VistaPrevia(texto: VistaPrevia.plano(p.text), deTi: p.fromUser, respuestas: respuestas)
     }
 }
 

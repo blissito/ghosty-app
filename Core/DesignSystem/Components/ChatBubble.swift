@@ -238,7 +238,13 @@ struct AgentBubble: View {
                 if let imagen { TarjetaCreandoImagen(estado: imagen, alEditar: alEditarImagen) }
 
                 // El texto se suelta a ritmo constante y cada tramo entra con su fade.
-                if !narrated.rest.isEmpty { TextoAlRitmo(id: id, texto: narrated.rest, vivo: vivo) }
+                // El remate de los ayudantes trae su encabezado: se pinta como en /c.
+                if let wake = HelpersHeader.split(narrated.rest) {
+                    wake.header
+                    if !wake.rest.isEmpty { TextoAlRitmo(id: id, texto: wake.rest, vivo: vivo) }
+                } else if !narrated.rest.isEmpty {
+                    TextoAlRitmo(id: id, texto: narrated.rest, vivo: vivo)
+                }
 
                 if let trailing {
                     GhostyMarkdown(markdown: trailing)
