@@ -18,35 +18,57 @@ struct Herramienta: Identifiable, Equatable, Sendable {
         /// Le encargó algo a un subagente (la tool `Agent`). gs la manda con `kind: "delegate"`
         /// y título «Solicité: …» / «Mandé a un ghostyllo: …» (antes «Encargué»); antes, «Delegando».
         case delegate
+        /// Los demás `kind` que arma gs en `pasos.server.ts` (`nombrarPaso`). Sin ellos caían en
+        /// `other` y casi todo el hilo salía con la misma llave inglesa (bliss, 8-oct).
+        case webSearch = "web_search"
+        case guide, todo, memory, mcp, deliver, view, sheet, pdf
+        case toolSearch = "tool_search"
+        /// Lo que hace el padre con sus ghostyllos (`load`): recoger, preguntar cómo van, detener.
+        case collect, status, stop
 
         /// ⚠️ Una clase desconocida NO se esconde: cae en `other`. Es la regla de la casa
         /// —una tool que no reconocemos se humaniza, nunca se descarta— y viene de cuando
         /// el agente corría ocho herramientas y la lista enseñaba tres.
         init(_ crudo: String?) { self = Clase(rawValue: crudo ?? "") ?? .other }
 
+        /// SF Symbols por lo que el paso HACE, no por la herramienta técnica.
         var icono: String {
             switch self {
-            case .read:    "doc.text.magnifyingglass"
-            case .edit:    "pencil.line"
-            case .execute: "terminal"
-            case .search:  "magnifyingglass"
-            case .fetch:   "globe"
-            case .think:   "sparkles"
-            case .move:    "arrow.right.doc.on.clipboard"
-            case .delete:  "trash"
-            case .imagen:  "photo"
-            case .delegate: "person.2"
-            case .other:   "wrench.adjustable"
+            case .read:       "eyeglasses"
+            case .edit:       "pencil.line"
+            case .execute:    "apple.terminal"
+            case .search:     "doc.text.magnifyingglass"
+            case .webSearch:  "globe.americas"
+            case .fetch:      "link"
+            case .think:      "lightbulb.max"
+            case .move:       "folder.badge.plus"
+            case .delete:     "trash"
+            case .imagen:     "paintpalette"
+            case .delegate:   "person.2.wave.2"
+            case .collect:    "tray.and.arrow.down"
+            case .status:     "stopwatch"
+            case .stop:       "hand.raised"
+            case .guide:      "book.closed"
+            case .todo:       "checklist"
+            case .memory:     "clock.arrow.circlepath"
+            case .mcp:        "app.connected.to.app.below.fill"
+            case .deliver:    "paperplane"
+            case .view:       "eye"
+            case .sheet:      "tablecells"
+            case .pdf:        "doc.richtext"
+            case .toolSearch: "puzzlepiece.extension"
+            case .other:      "wrench.adjustable"
             }
         }
 
         var tinte: (fg: Color, bg: Color) {
             switch self {
-            case .delete:          (.gDangerInk, .gDangerTint)
-            case .edit, .move:     (.gPrimary, .gPrimaryTint)
-            case .search, .fetch, .imagen: (.gPrimary, .gPrimaryTint)
-            case .think:           (.gInk3, .gFill)
-            default:               (.gInk2, .gFill)
+            case .delete, .stop:                       (.gDangerInk, .gDangerTint)
+            case .deliver, .collect:                   (.gGreenInk, .gGreenTint)
+            case .edit, .move, .search, .webSearch, .fetch, .imagen, .delegate, .sheet, .pdf:
+                                                       (.gPrimary, .gPrimaryTint)
+            case .think:                               (.gInk3, .gFill)
+            default:                                   (.gInk2, .gFill)
             }
         }
     }

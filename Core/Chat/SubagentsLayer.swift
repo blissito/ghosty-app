@@ -52,6 +52,8 @@ struct SubagentStep: Identifiable {
     /// `tool` | `text` (del subagente) | `yo` (lo que le escribiste desde su detalle).
     let kind: String
     let text: String
+    /// La clase de un paso `tool` (`web_search`, `read`…, como los `kind` de gs): elige el ícono.
+    var toolClass: String? = nil
 }
 
 @MainActor @Observable
@@ -214,7 +216,8 @@ final class SubagentsLayer {
         #endif
         tasks[task.id] = task
         let fromServer = ((t["steps"] as? [[String: Any]]) ?? []).map {
-            SubagentStep(kind: $0["kind"] as? String ?? "tool", text: $0["text"] as? String ?? "")
+            SubagentStep(kind: $0["kind"] as? String ?? "tool", text: $0["text"] as? String ?? "",
+                         toolClass: $0["class"] as? String)
         }
         steps[task.id] = fromServer + (steps[task.id] ?? []).filter { $0.kind == "yo" }
     }
@@ -228,7 +231,8 @@ final class SubagentsLayer {
             guard let task = Self.task(t) else { continue }
             fresh[task.id] = task
             let fromServer = ((t["steps"] as? [[String: Any]]) ?? []).map {
-                SubagentStep(kind: $0["kind"] as? String ?? "tool", text: $0["text"] as? String ?? "")
+                SubagentStep(kind: $0["kind"] as? String ?? "tool", text: $0["text"] as? String ?? "",
+                         toolClass: $0["class"] as? String)
             }
             freshSteps[task.id] = fromServer + (steps[task.id] ?? []).filter { $0.kind == "yo" }
         }
@@ -568,7 +572,7 @@ private struct SubagentDetail: View {
                                     .background(Color.gBubbleUser, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                             } else if s.kind == "tool" {
-                                Label(s.text, systemImage: "wrench.and.screwdriver")
+                                Label(s.text, systemImage: Herramienta.Clase(s.toolClass).icono)
                                     .font(.system(size: 13)).foregroundStyle(Color.gInk3).lineLimit(2)
                             } else {
                                 Text(s.text).font(.system(size: 15)).foregroundStyle(Color.gInkBody)
