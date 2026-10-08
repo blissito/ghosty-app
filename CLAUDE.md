@@ -53,6 +53,9 @@ del agente. La 1.0.4 (build 65: Chats estilo WhatsApp igual que Android —desli
 fijar, favoritos—, notas de voz como WhatsApp, Archivos por pestañas, Perfil con foto, logos de
 integraciones, paleta oficial, Ghosty en primera persona) se mandó a revisión el 2026-09-29 con
 capturas nuevas (`scripts/capturas-tienda.sh`); salida MANUAL.
+La 1.0.7 (build 75: historial con sync v2 —sin parpadeo, base local GRDB, /me/sync + /me/events—,
+subagentes nativos con barra/hoja/remate para PowerGhosty y MiniGhosty, push que abre la conversación en
+frío, LaunchScreen con flamita) se mandó a revisión el 2026-10-08; salida MANUAL.
 ⚠️ Una versión aprobada y sin publicar (`PENDING_DEVELOPER_RELEASE`) BLOQUEA crear la siguiente
 (`asc.py ficha` da 409): publícala o descártala antes. La receta:
 
