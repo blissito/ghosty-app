@@ -289,8 +289,12 @@ enum Avisos {
             // tuvieras abierta — y parecía que el aviso era de ésa.
             let hilo = (info["aps"] as? [String: Any])?["thread-id"] as? String
             let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String) ?? hilo
+            // Aviso de TEAMS: si el agente no es tuyo, `irA` se va a la liga (`url`).
+            let respaldo = (info["tipo"] as? String) == "teams"
+                ? (info["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
+                : nil
             await MainActor.run {
-                if let sesion { LiveAgentStore.compartido.irA(agente: id, sesion: sesion) }
+                if let sesion { LiveAgentStore.compartido.irA(agente: id, sesion: sesion, respaldo: respaldo) }
                 else { LiveAgentStore.compartido.seleccionar(id) }
             }
         }

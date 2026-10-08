@@ -582,6 +582,24 @@ final class LiveAgentStore: AgentStoring {
         // uno borrado desde la web dejaría la app apuntando a la nada.
         montarCanales()
         conexion = .lista
+        abrirRespaldoSiNoEsTuyo()
+    }
+
+    /// Ya con la flota del SERVIDOR (no la del caché): si el aviso pendiente es de un agente
+    /// que no tienes y trae liga, se abre la liga.
+    ///
+    /// ⚠️ Las menciones de Teams traen agentId + sessionId de un agente del espacio de Teams
+    /// que no está en tu lista: se abría un chat vacío que reintentaba con 404 sin fin
+    /// (bliss, 8-oct).
+    private func abrirRespaldoSiNoEsTuyo() {
+        guard let (agente, _) = avisoPendiente, let url = respaldoDelAviso,
+              !cuentas.contains(where: { $0.id == agente }) else { return }
+        avisoPendiente = nil
+        respaldoDelAviso = nil
+        EasyBitsClient.diag("[push] \(agente.prefix(9)) no es tuyo; abro \(url.absoluteString)")
+        #if canImport(UIKit) && !GHOSTY_EXTENSION
+        UIApplication.shared.open(url)
+        #endif
     }
 
     /// Los `Agent` de la pantalla a partir de las cuentas. Conserva el estado del que ya
@@ -973,8 +991,9 @@ final class LiveAgentStore: AgentStoring {
     /// frío: el aviso se tocaba antes de que la vista se hubiera suscrito, y
     /// `seleccionar` fallaba en silencio si las cuentas no habían cargado. Resultado:
     /// tocar un aviso abría la app en la conversación de siempre, como si fuera de ésa.
-    func irA(agente: String, sesion: String) {
+    func irA(agente: String, sesion: String, respaldo: URL? = nil) {
         avisoPendiente = (agente, sesion)
+        respaldoDelAviso = respaldo
         aplicarAvisoPendiente()
         // ⚠️ Un agente creado DESPUÉS de la última carga (en la web, en otra superficie)
         // no está en `cuentas`: el aviso se quedaba guardado esperando un `montarCanales`
@@ -997,6 +1016,7 @@ final class LiveAgentStore: AgentStoring {
               cuentas.contains(where: { $0.id == agentID }),
               let canal = canales[agentID] else { return }
         avisoPendiente = nil
+        respaldoDelAviso = nil
         let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
         EasyBitsClient.diag("[push] abro \(sesion) de \(agentID.prefix(9)) (\(hilo.mensajes.count) mensajes en caché)")
         mirar(hilo, de: agentID)
@@ -1094,6 +1114,8 @@ final class LiveAgentStore: AgentStoring {
 
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
     private var avisoPendiente: (agente: String, sesion: String)?
+    /// La liga a abrir si el agente del aviso resulta no ser tuyo (avisos de Teams).
+    private var respaldoDelAviso: URL?
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
     var pestanaPedida: GhostyTab?
 
