@@ -302,14 +302,6 @@ struct SubagentsBar: View {
         .onChange(of: layer.running.isEmpty) { _, idle in
             finishedAt = idle && !layer.finished.isEmpty ? (Date(), store.messages.count) : nil
         }
-        // Si terminaron con el turno del padre aún vivo, el remate llega DESPUÉS de su respuesta:
-        // la cuenta empieza otra vez al cerrar ese turno.
-        // ⚠️ Pero NO cuando el turno que cierra es el del remate (lo abre el despertador): ahí el
-        // remate ya está en pantalla y la barra se quedaba trabada en «Juntando…».
-        .onChange(of: store.currentTurn == nil) { _, closed in
-            guard closed, finishedAt != nil, layer.running.isEmpty else { return }
-            finishedAt = lastIsWrap ? nil : (Date(), store.messages.count)
-        }
         .animation(.snappy, value: layer.tasks.count)
         .animation(.snappy, value: layer.snapshotReceived)
         .task(id: "\(store.selectedAgentID)/\(store.hiloActivo?.sesionID ?? "")") {
@@ -366,10 +358,18 @@ extension SubagentsBar {
     /// ya lo entregó, gs no manda nada y el aviso se va solo).
     static let wrapGrace: TimeInterval = 60
 
-    /// ¿Lo último que dijo el agente ya es el remate de los ayudantes?
-    var lastIsWrap: Bool {
-        guard let last = store.messages.last(where: \.esDelAgente), case .agent(let t, _, _) = last.kind else { return false }
-        return HelpersHeader.split(t) != nil
+    /// ¿Ya entró el remate desde que terminaron? Lo anuncia la línea del despertador («⏰ … ghostillos»,
+    /// que aquí es `.sistema`) o el mensaje con el encabezado de ayudantes.
+    /// ⚠️ No se mira «cuándo cierra el turno»: el remate llega con un turno propio cuya burbuja en vivo
+    /// aún no trae el encabezado, y la barra se quedaba trabada en «Juntando…» (bliss, 8-oct).
+    func wrapArrived(after count: Int) -> Bool {
+        store.messages.dropFirst(count).contains { m in
+            switch m.kind {
+            case .sistema: return true
+            case .agent(let t, _, _): return HelpersHeader.split(t) != nil
+            default: return false
+            }
+        }
     }
 
     func mode(at now: Date) -> SubagentsBarMode? {
@@ -379,7 +379,7 @@ extension SubagentsBar {
         let problems = recent.filter { ($0.status == "failed" || $0.status == "stopped") && !layer.dismissed.contains($0.id) }
         if !problems.isEmpty { return .problems(ids: problems.map(\.id)) }
         // El remate todavía no entra: lo mismo que «listo», pero diciendo que se está armando.
-        if let f = finishedAt, !lastIsWrap, store.messages.count == f.messages, store.currentTurn == nil,
+        if let f = finishedAt, store.currentTurn == nil, !wrapArrived(after: f.messages),
            now.timeIntervalSince(f.date) < Self.wrapGrace {
             let n = layer.finished.filter { now.timeIntervalSince($0.endedAt ?? now) < Self.wrapGrace }.count
             if n > 0 { return .wrapping(count: n) }
