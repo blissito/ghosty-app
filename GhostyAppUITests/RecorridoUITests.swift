@@ -134,11 +134,8 @@ final class RecorridoUITests: XCTestCase {
         foto("53-mandado-tras-releer")
         let mine = app.staticTexts["y ahora resúmelo"].firstMatch
         XCTAssertTrue(mine.waitForExistence(timeout: 3))
-        // Sin runway (8-oct): el hilo se pega abajo como WhatsApp; tu mensaje queda a la vista,
-        // en la mitad de abajo, aunque hubieras subido a releer.
         let y = mine.frame.minY
-        let h = app.windows.firstMatch.frame.height
-        XCTAssertTrue(mine.isHittable && y > h / 2, "tras releer, el mensaje mandado quedó en y=\(y) (no bajó)")
+        XCTAssertTrue(y > 90 && y < 160, "tras releer, el mensaje mandado quedó en y=\(y), no pegado arriba")
     }
 
     /// El chip «N herramientas conectadas» abre Integraciones ENCIMA del chat: al cerrarla

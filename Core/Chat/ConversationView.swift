@@ -884,10 +884,13 @@ struct ConversationView: View {
 
     /// Tu último mensaje, si está en el hilo. Sin él (se recargó con otros ids) no hay nada
     /// que clavar: el aire sería la pantalla entera en blanco.
-    /// ⚠️ Sin «runway» (8-oct, bliss): tu mensaje ya no sube hasta arriba con aire debajo,
-    /// el hilo se queda pegado abajo como WhatsApp, Telegram, Jetchat o Element X. Siempre `nil`
-    /// = sin aire y `reanclar` va al fondo.
-    private var visibleAnchor: String? { nil }
+    /// Tu último mensaje, si está en el hilo: sube hasta arriba con aire debajo para que la
+    /// respuesta nazca donde miras, como Claude. ⚠️ Se quitó un rato el 8-oct (estilo WhatsApp)
+    /// y bliss lo pidió de vuelta. Sin él (se recargó con otros ids) no hay nada que clavar.
+    private var visibleAnchor: String? {
+        guard let ancla = store.anclaDelHilo, mensajesVisibles.contains(where: { $0.id == ancla }) else { return nil }
+        return ancla
+    }
 
     /// La cola = del principio de tu mensaje al final del pie.
     private func measureTail() {
