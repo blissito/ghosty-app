@@ -164,6 +164,9 @@ struct RootView: View {
             // hubieras exportado a mano se perdía al cerrar la app. Se perdieron varias
             // reproducciones así, la última la del push que abría una conversación vacía.
             if nueva != .active { Bitacora.volcar() }
+            #if DEBUG
+            DevKeepAwake.update(active: nueva == .active)
+            #endif
             guard nueva == .active else { return }
             Task { await store.volverDelFondo() }
             Task { await AppConfig.shared.refresh() }
@@ -410,3 +413,24 @@ struct RootView: View {
         abrirHoja()
     }
 }
+
+#if DEBUG
+/// Sólo en builds de desarrollo (las del cable): la pantalla no se apaga mientras la app está
+/// delante, hasta 10 min sin volver a abrirla. Para probar con la consola sin que el teléfono
+/// se bloquee a media prueba. iOS no permite cambiar el bloqueo automático desde fuera.
+@MainActor
+enum DevKeepAwake {
+    private static var timer: Task<Void, Never>?
+
+    static func update(active: Bool) {
+        timer?.cancel()
+        UIApplication.shared.isIdleTimerDisabled = active
+        guard active else { return }
+        timer = Task {
+            try? await Task.sleep(for: .seconds(600))
+            if !Task.isCancelled { UIApplication.shared.isIdleTimerDisabled = false }
+        }
+    }
+}
+#endif
+
