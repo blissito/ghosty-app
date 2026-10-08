@@ -242,7 +242,6 @@ struct PerfilView: View {
                     }
                     .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
                     divisorWA
-                    #if DEBUG
                     // El chat OFICIAL con PowerGhosty, en una conversación nueva: la barra de
                     // subagentes sale sola encima del compositor (SubagentsLayer.swift).
                     Button {
@@ -256,7 +255,6 @@ struct PerfilView: View {
                     }
                     .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
                     divisorWA
-                    #endif
                     // ⚠️ El registro, a mano: es lo que se pide por teléfono cuando algo va mal.
                     ShareLink(item: Bitacora.volcar()) {
                         renglonWA("questionmark.circle", "Ayuda", "Compartir registro · \(PerfilView.versionCorta)", chevron: true)
