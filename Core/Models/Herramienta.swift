@@ -60,6 +60,7 @@ struct Herramienta: Identifiable, Equatable, Sendable {
     var isDelegation: Bool {
         clase == .delegate || titulo == "Delegando"
             || titulo.hasPrefix("Encargué:") || titulo.hasPrefix("Mandé a un ghostyllo:")
+            || titulo.hasPrefix("Mandé a un ghostillo:")
     }
 
     let id: String
