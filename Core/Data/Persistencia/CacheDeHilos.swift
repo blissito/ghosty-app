@@ -157,7 +157,8 @@ final class CacheDeHilos {
             let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM thread WHERE agentId = ?",
                                          arguments: [agentID]) ?? 0
             guard exists || count < Self.topeDeHilos else { return }
-            try Self.writeThread(db, agentID, sesion, saved, suspicious: false)
+            // ⚠️ Fría: lo precargado no cuenta como usado, o desalojaría el hilo que sí abriste.
+            try Self.writeThread(db, agentID, sesion, saved, suspicious: false, touch: false)
         }, completion: Self.logFailure)
     }
 
@@ -225,12 +226,16 @@ final class CacheDeHilos {
 
     /// Reescribe los mensajes de UN hilo (no los de todos) y conserva su `epoch`/`lastSeq`.
     nonisolated private static func writeThread(_ db: Database, _ agent: String, _ sid: String,
-                                    _ messages: [MensajeGuardado], suspicious: Bool) throws {
+                                    _ messages: [MensajeGuardado], suspicious: Bool, touch: Bool = true) throws {
         let kept = Array(messages.suffix(tope))
-        try db.execute(sql: """
+        // `touchedAt` = cuándo la USASTE (abrir, escribir). Es lo que decide qué se desaloja.
+        try db.execute(sql: touch ? """
             INSERT INTO thread (agentId, sessionId, suspicious, touchedAt) VALUES (?, ?, ?, ?)
             ON CONFLICT(agentId, sessionId) DO UPDATE SET suspicious = excluded.suspicious, touchedAt = excluded.touchedAt
-            """, arguments: [agent, sid, suspicious, Date().timeIntervalSince1970])
+            """ : """
+            INSERT INTO thread (agentId, sessionId, suspicious, touchedAt) VALUES (?, ?, ?, 0)
+            ON CONFLICT(agentId, sessionId) DO UPDATE SET suspicious = excluded.suspicious
+            """, arguments: touch ? [agent, sid, suspicious, Date().timeIntervalSince1970] : [agent, sid, suspicious])
         try db.execute(sql: "DELETE FROM message WHERE agentId = ? AND sessionId = ?", arguments: [agent, sid])
         for (i, m) in kept.enumerated() {
             try db.execute(sql: "INSERT INTO message (agentId, sessionId, position, id, seq, payload) VALUES (?, ?, ?, ?, ?, ?)",
