@@ -242,19 +242,6 @@ struct PerfilView: View {
                     }
                     .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
                     divisorWA
-                    // El chat OFICIAL con PowerGhosty, en una conversación nueva: la barra de
-                    // subagentes sale sola encima del compositor (SubagentsLayer.swift).
-                    Button {
-                        // La conversación de PowerGhosty que estabas usando, no una nueva cada vez
-                        // (para empezar otra está el lápiz de la cabecera).
-                        store.seleccionar("cmuio5hq80001gb17mi7tki0c")
-                        store.pestanaPedida = .chat
-                        if enHoja { dismiss() }
-                    } label: {
-                        renglonWA("person.3.sequence", "Laboratorio · Subagentes", "Chat con PowerGhosty y sus subagentes", chevron: true)
-                    }
-                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
-                    divisorWA
                     // ⚠️ El registro, a mano: es lo que se pide por teléfono cuando algo va mal.
                     ShareLink(item: Bitacora.volcar()) {
                         renglonWA("questionmark.circle", "Ayuda", "Compartir registro · \(PerfilView.versionCorta)", chevron: true)

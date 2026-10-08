@@ -27,6 +27,9 @@ struct AgentAccount: Identifiable, Codable, Equatable {
     /// El tono del fantasma que manda gs (`lila`, `azul`, `durazno`, `lila-claro`). Desde el
     /// 2026-10-01 MiniGhosty y su familia van en lila claro; lo desconocido cae en lila.
     var tono: String? = nil
+    /// gs dice si este agente tiene subagentes nativos en esta app (`subagentesNativos`).
+    /// `nil` = gs viejo que no lo manda.
+    var nativeSubagents: Bool? = nil
 
     /// El tono con el que se pinta: el del servidor o, sin él, la rotación de siempre.
     func tonoDeAgente(indice i: Int) -> AgentTone {

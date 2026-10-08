@@ -227,8 +227,9 @@ Perfil en tarjetas redondeadas y sin pager entre pestañas.
 
 ## 🧪 Subagentes en el chat oficial (POC, 2026-10-07) — retomar el 8-oct
 
-Perfil → «Laboratorio · Subagentes» (también en Release, para testers) abre el **chat oficial** con PowerGhosty en una
-conversación nueva. No hay chat propio: lo único nuevo es `Core/Chat/CapaDeSubagentes.swift`, una
+Ya no hay «Laboratorio» en Perfil (quitado el 8-oct): la barra sale en el **chat oficial** de
+cualquier agente que gs marque con `subagentesNativos` en `/me/agents` (respaldo: PowerGhosty si
+gs no lo manda; un 403 de la lista viva = no tiene). No hay chat propio: lo único nuevo es `Core/Chat/CapaDeSubagentes.swift`, una
 barra encima del compositor («N agentes trabajando · reloj») con la hoja de la lista, el detalle de
 cada uno, deslizar = Detener y «escríbele» (va por `store.send`, steer incluido). Mira la lista viva
 por gs (`…/conversations/:id/subagents`, staff) y se reengancha al volver del fondo. Sólo aparece con
@@ -245,3 +246,15 @@ los agentes de `CapaDeSubagentes.agentesConSubagentes` (cajas con el POC).
 
 ## ⏰ Al publicarse la extensión de Chrome
 Leer `NAVEGADOR-CHROME.md`: tarjeta «Conecta tu Chrome», estado de conexión y sugerencias. Hoy la app no necesita nada para que funcione.
+
+## Sync v2 del historial (8-oct)
+Contrato: `~/ghosty-studio/docs/claude/sync-v2.md` (lee sus desviaciones). Bandera remota `syncV2`
+(apagada por defecto; en Debug `GHOSTY_SYNC_V2=1`). Con ella: el hilo se FUNDE por `seq`/`turnId`
+(`Core/Data/Sync/ThreadMerge.swift`, nunca reemplazar), páginas `messages?after|before`, SSE con
+`Last-Event-ID` + `?resume=1`, y «cargar anteriores» arriba. Siempre (con o sin bandera): base local
+SQLite (`Core/Data/Store/LocalDB.swift`, GRDB, en el App Group), el `turnId` nace en el teléfono, las
+listas de todos los agentes en una llamada (`/me/conversations?agentes=`) y sólo el agente visible
+baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore`.
+⚠️ La suite de UI (`RecorridoUITests`) tiene 11 fallas que vienen del rediseño de Chats: hay que
+ponerla al día antes de la próxima subida a la tienda.
+

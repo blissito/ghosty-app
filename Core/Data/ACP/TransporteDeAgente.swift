@@ -33,8 +33,10 @@ protocol TransporteDeAgente: Actor {
     func fijarModo(_ modo: String, sessionID: String) async throws
 
     /// Un turno, con sus eventos conforme llegan.
-    nonisolated func prompt(sessionID: String, texto: String,
-                            adjuntos: [Adjunto]) -> AsyncThrowingStream<ACPClient.Replay, Error>
+    /// `turnId` lo pone quien manda: es la clave de idempotencia del POST y la identidad
+    /// de tu mensaje optimista en el hilo (sync v2).
+    nonisolated func prompt(sessionID: String, texto: String, adjuntos: [Adjunto],
+                            turnId: String) -> AsyncThrowingStream<ACPClient.Replay, Error>
 
     /// Engancharse a una conversación que ya está trabajando, sin mandar nada.
     ///
@@ -56,7 +58,7 @@ protocol TransporteDeAgente: Actor {
     func alConocerCapacidades(_ handler: @escaping @Sendable (Bool) -> Void)
 
     /// Un mensaje más para el turno que ya corre. Devuelve si de verdad entró.
-    func mandarMas(sessionID: String, texto: String) async throws -> Bool
+    func mandarMas(sessionID: String, texto: String, turnId: String) async throws -> Bool
 
     func cancelar(_ sessionID: String) async
 

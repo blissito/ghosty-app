@@ -103,10 +103,14 @@ struct MensajeGuardado: Codable {
     var herramientas: [HerramientaGuardada]
     var trailing: String?
     var entrega: Entrega?
+    var seq: Int?
+    var turnId: String?
 
     /// `nil` para lo que no se guarda (los tres puntos, la tarjeta de PR).
     init?(_ m: Message) {
         id = m.id
+        seq = m.seq
+        turnId = m.turnId
         adjuntos = []
         herramientas = []
         switch m.kind {
@@ -129,6 +133,13 @@ struct MensajeGuardado: Codable {
     }
 
     var mensaje: Message? {
+        guard var m = baseMessage else { return nil }
+        m.seq = seq
+        m.turnId = turnId
+        return m
+    }
+
+    private var baseMessage: Message? {
         switch quien {
         case .usuario:
             return Message(id: id, kind: .user(texto, adjuntos: adjuntos.map(\.adjunto)))

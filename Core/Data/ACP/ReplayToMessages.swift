@@ -13,6 +13,14 @@ enum ReplayToMessages {
     /// nota de voz vuelve como una línea muerta con el nombre del archivo.
     static func convertir(_ replay: [ACPClient.Replay],
                           archivos: [String: GhostyAPI.ArchivoDeSesion] = [:]) -> [Message] {
+        convertWithServerIndex(replay, archivos: archivos).messages
+    }
+
+    /// Lo mismo, y de cada burbuja el índice del servidor que la produjo (`.turno("m<i>")`).
+    /// Con la página de sync v2 ese índice ES el `seq` (ver `ClienteGS.messages`).
+    static func convertWithServerIndex(_ replay: [ACPClient.Replay],
+                                       archivos: [String: GhostyAPI.ArchivoDeSesion] = [:])
+        -> (messages: [Message], serverIndex: [String: Int]) {
         var mensajes: [Message] = []
         /// Las tarjetas de `eb-file` que salieron del texto, con dónde van.
         var entregasDelReplay: [(Int, Entrega)] = []
@@ -46,6 +54,7 @@ enum ReplayToMessages {
                 // Un mensaje de la plataforma («⏰ Turno programado … (causa)») es una línea
                 // de sistema, no una burbuja de la persona.
                 if limpio.hasPrefix("⏰ ") {
+                    if let i = mensajeDelServidor { indiceDelServidor["s\(mensajes.count)"] = i }
                     mensajes.append(Message(id: "s\(mensajes.count)", kind: .sistema(ClienteGS.causaDeSistema(limpio))))
                     return
                 }
@@ -140,7 +149,7 @@ enum ReplayToMessages {
                 // La copia de gs numera sus mensajes («m<i>»); el replay de ACP no.
                 mensajeDelServidor = t.hasPrefix("m") ? Int(t.dropFirst()) : nil
 
-            case .cerrado:
+            case .cerrado, .resumed:
                 cerrar(); quien = nil
 
             case .thought:
@@ -228,6 +237,6 @@ enum ReplayToMessages {
                 mensajes.append(m)
             }
         }
-        return mensajes
+        return (mensajes, indiceDelServidor)
     }
 }

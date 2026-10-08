@@ -96,6 +96,13 @@ final class Hilo {
     /// `@State`: al volver, el aire había desaparecido y tu pregunta caía al fondo. El
     /// ancla es un hecho de la conversación, no de la instancia de la vista.
     var anclaArriba: String?
+    /// Cuántas veces se le ha escrito (turno o steer). Un historial pedido ANTES de un
+    /// envío y que llega DESPUÉS es una foto vieja: decía que el turno anterior ya había
+    /// terminado, así que mataba el turno nuevo y se llevaba tu mensaje (bliss, 8-oct).
+    var sendCount = 0
+    /// Sync v2: gs tiene mensajes más viejos que los que hay aquí, y si ya se están pidiendo.
+    var hasMoreBefore = false
+    var loadingOlder = false
     /// ¿La caja no ha mandado ninguna herramienta en este turno? Entonces lo único que
     /// sabemos es cuánto lleva, y el estado lo pone el cronómetro.
     var sinHerramientas = true

@@ -708,7 +708,8 @@ enum GhostyAPI {
                 ultimaActividad: ultima,
                 space: AgentSpace(json: a["espacio"] as? [String: Any]),
                 model: a["modelo"] as? String,
-                tono: a["tono"] as? String
+                tono: a["tono"] as? String,
+                nativeSubagents: a["subagentesNativos"] as? Bool
             ))
         }
 

@@ -170,10 +170,28 @@ actor ClienteGS: TransporteDeAgente {
 
     func sesiones() async throws -> [ACPClient.Session] {
         let r = try await pedir(base("/conversations"))
+        return Self.parseSessions(r["conversaciones"] as? [[String: Any]] ?? [])
+    }
+
+    /// Las listas de VARIOS agentes en una sola llamada (`/me/conversations?agentes=`).
+    /// Un agente sin acceso no viene en la respuesta.
+    func listsForAgents(_ ids: [String]) async throws -> [String: [ACPClient.Session]] {
+        var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/conversations"),
+                              resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "agentes", value: ids.joined(separator: ","))]
+        let r = try await leerConReintento(c.url!)
+        let byAgent = r["porAgente"] as? [String: Any] ?? [:]
+        return byAgent.compactMapValues { v in
+            let list = (v as? [String: Any])?["conversaciones"] as? [[String: Any]] ?? v as? [[String: Any]]
+            return list.map(Self.parseSessions)
+        }
+    }
+
+    static func parseSessions(_ list: [[String: Any]]) -> [ACPClient.Session] {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let iso2 = ISO8601DateFormatter()
-        return (r["conversaciones"] as? [[String: Any]] ?? []).compactMap { c in
+        return list.compactMap { c in
             guard let id = c["id"] as? String else { return nil }
             let f = (c["actualizada"] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
             let permiso = (c["permisoPendiente"] as? [String: Any])?["title"] as? String
@@ -230,28 +248,31 @@ actor ClienteGS: TransporteDeAgente {
         // conversor pega trozos consecutivos del mismo rol (existe para los `*_chunk` de
         // ACP), y sin frontera dos mensajes seguidos del mismo lado salían fundidos en una
         // burbuja («baja este videoya?»). El endpoint no devuelve `seq`; la posición basta.
-        return (r["messages"] as? [[String: Any]] ?? []).enumerated().flatMap { (i, m) -> [ACPClient.Replay] in
-            // Una foto sola, sin texto, también es un mensaje.
-            let hasFiles = !((m["attachments"] as? [Any]) ?? []).isEmpty
-            guard let t = m["text"] as? String, !t.isEmpty || hasFiles else { return [] }
-            guard m["role"] as? String == "user" else { return [.turno("m\(i)"), .agent(t)] }
-            // Un turno abierto por la plataforma (agenda, entrega de un encargo): línea de
-            // sistema con la causa, no burbuja de la persona con las instrucciones al modelo.
-            if t.hasPrefix("⏰ ") { return [.turno("m\(i)"), .user(t)] }
-            // ⚠️ Lo que se guardó es lo que se MANDÓ, con toda la fontanería dentro: el
-            // bloque de conversación previa que ponía la app antes de esta mudanza, y los
-            // `curl` de los adjuntos. Sin limpiarlo, al recargar el hilo la burbuja de la
-            // persona sale con un muro de texto que ella nunca escribió — se vio tal cual
-            // en el teléfono.
-            //
-            // ⚠️ Pero esa limpieza la hace `ReplayToMessages` y NO aquí: limpiar dos veces
-            // borraba los NOMBRES de los adjuntos antes de que allá se reconstruyeran, y tu
-            // foto desaparecía de tu mensaje en cuanto llegaba la respuesta (2026-09-26).
-            // Un turno programado lleva pegadas las instrucciones al agente («nadie está
-            // mirando… contesta OK»). Son para él; a la persona se le enseña lo que pidió.
-            let names = (m["attachments"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-            return [.turno("m\(i)"), .user(Self.sinReglasDeAgenda(t))] + (names.isEmpty ? [] : [.userAttachments(names)])
-        }
+        return (r["messages"] as? [[String: Any]] ?? []).enumerated().flatMap { (i, m) in Self.replay(of: m, index: i) }
+    }
+
+    /// Un mensaje de la copia de gs como replay, precedido de su frontera `.turno("m<index>")`.
+    static func replay(of m: [String: Any], index i: Int) -> [ACPClient.Replay] {
+        // Una foto sola, sin texto, también es un mensaje.
+        let hasFiles = !((m["attachments"] as? [Any]) ?? []).isEmpty
+        guard let t = m["text"] as? String, !t.isEmpty || hasFiles else { return [] }
+        guard m["role"] as? String == "user" else { return [.turno("m\(i)"), .agent(t)] }
+        // Un turno abierto por la plataforma (agenda, entrega de un encargo): línea de
+        // sistema con la causa, no burbuja de la persona con las instrucciones al modelo.
+        if t.hasPrefix("⏰ ") { return [.turno("m\(i)"), .user(t)] }
+        // ⚠️ Lo que se guardó es lo que se MANDÓ, con toda la fontanería dentro: el
+        // bloque de conversación previa que ponía la app antes de esta mudanza, y los
+        // `curl` de los adjuntos. Sin limpiarlo, al recargar el hilo la burbuja de la
+        // persona sale con un muro de texto que ella nunca escribió — se vio tal cual
+        // en el teléfono.
+        //
+        // ⚠️ Pero esa limpieza la hace `ReplayToMessages` y NO aquí: limpiar dos veces
+        // borraba los NOMBRES de los adjuntos antes de que allá se reconstruyeran, y tu
+        // foto desaparecía de tu mensaje en cuanto llegaba la respuesta (2026-09-26).
+        // Un turno programado lleva pegadas las instrucciones al agente («nadie está
+        // mirando… contesta OK»). Son para él; a la persona se le enseña lo que pidió.
+        let names = (m["attachments"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        return [.turno("m\(i)"), .user(Self.sinReglasDeAgenda(t))] + (names.isEmpty ? [] : [.userAttachments(names)])
     }
 
     /// Un GET que reintenta si la conexión se cayó o no contestó a tiempo. Sin aviso en
@@ -357,6 +378,9 @@ actor ClienteGS: TransporteDeAgente {
 
     /// Las escuchas SSE vivas, por conversación.
     private var escuchas: [String: Task<Void, Never>] = [:]
+    /// Sync v2: último `id:` visto por conversación y si se manda al reconectar.
+    fileprivate var lastEventIDs: [String: String] = [:]
+    fileprivate var resumeFromLastEvent = false
     var turnosVivos: Int { escuchas.count }
 
     private var permisoPendiente: (@Sendable (ACPClient.Permiso) -> Void)?
@@ -406,13 +430,13 @@ actor ClienteGS: TransporteDeAgente {
     /// texto». Se arregló en el servidor: ese `done` ahora viene con `reposo: true` y se
     /// distingue del que cierra un turno de verdad. Mientras no existía, esto iba al revés
     /// —encargar y luego escuchar— apoyándose en que el backlog tapara el hueco.
-    nonisolated func prompt(sessionID: String, texto: String,
-                            adjuntos: [Adjunto]) -> AsyncThrowingStream<ACPClient.Replay, Error> {
+    nonisolated func prompt(sessionID: String, texto: String, adjuntos: [Adjunto],
+                            turnId: String) -> AsyncThrowingStream<ACPClient.Replay, Error> {
         AsyncThrowingStream { cont in
             let tarea = Task {
                 do {
                     try await self.escuchar(sessionID, cont, esperandoTurno: true)
-                    let encargo = try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos)
+                    let encargo = try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos, turnId: turnId)
                     // La burbuja se llama como el turno desde el primer momento.
                     cont.yield(.turno(encargo.turnId))
                 } catch {
@@ -499,7 +523,8 @@ actor ClienteGS: TransporteDeAgente {
         let enCola: Int
     }
 
-    private func encargar(_ sesion: String, texto: String, adjuntos: [Adjunto]) async throws -> Encargo {
+    private func encargar(_ sesion: String, texto: String, adjuntos: [Adjunto],
+                          turnId: String = UUID().uuidString.lowercased()) async throws -> Encargo {
         // ⚠️ Los adjuntos van en base64 y gs decide qué entra inline y qué se le entrega
         // al agente como URL con su comando (`attachments.server.ts`). Es lo mismo que
         // hacía `BloqueDeAdjuntos` en el teléfono, pero del lado que conoce a la caja.
@@ -523,7 +548,6 @@ actor ClienteGS: TransporteDeAgente {
         // Clave de idempotencia: la pone el TELÉFONO. Un POST que se corta después de
         // llegar se reintenta con el mismo id y gs devuelve el turno que ya corre en vez
         // de arrancar otro. Sin esto, «reintentar» duplicaba el turno.
-        let turnId = UUID().uuidString.lowercased()
         cuerpo["turnId"] = turnId
         // ⚠️ NO se pide `preguntar`. Detenía el turno por CADA herramienta esperando una
         // tarjeta que la app pinta a medias, y un permiso que caía en otro hilo dejaba la
@@ -553,8 +577,8 @@ actor ClienteGS: TransporteDeAgente {
     ///
     /// ⚠️ No abre SSE: el que escucha el turno en vuelo ya está abierto y es el que va a
     /// traer la respuesta. Abrir otro duplicaría el texto en la misma burbuja.
-    nonisolated func mandarMas(sessionID: String, texto: String) async throws -> Bool {
-        try await encargar(sessionID, texto: texto, adjuntos: []).inyectado
+    nonisolated func mandarMas(sessionID: String, texto: String, turnId: String) async throws -> Bool {
+        try await encargar(sessionID, texto: texto, adjuntos: [], turnId: turnId).inyectado
     }
 
     /// Encarga un turno SIN escuchar su respuesta: el mismo POST que `prompt`, para quien
@@ -573,9 +597,13 @@ actor ClienteGS: TransporteDeAgente {
         // que veía la persona («El servidor contestó 401 al escuchar») y nadie refrescaba.
         // Ahora: un intento con token nuevo; si tampoco entra, sesión muerta → login.
         var req = try await peticion(base("/conversations/\(sesion)/events"), sse: true)
+        // Sync v2: con el último id visto, gs repite sólo lo que falta del turno vivo.
+        let resumeID = resumeFromLastEvent ? lastEventIDs[sesion] : nil
+        if let resumeID { req = Self.resuming(req, from: resumeID) }
         var (bytes, resp) = try await Self.sesion.bytes(for: req)
         if (resp as? HTTPURLResponse)?.statusCode == 401, let used = Self.bearerToken(req) {
             req = try await peticion(base("/conversations/\(sesion)/events"), sse: true, rejected: used)
+            if let resumeID { req = Self.resuming(req, from: resumeID) }
             (bytes, resp) = try await Self.sesion.bytes(for: req)
             if (resp as? HTTPURLResponse)?.statusCode == 401 {
                 await Self.sessionDead()
@@ -614,6 +642,10 @@ actor ClienteGS: TransporteDeAgente {
                 for try await linea in bytes.lines {
                     if Task.isCancelled { break }
                     if linea.hasPrefix("event: ") { evento = String(linea.dropFirst(7)); continue }
+                    if linea.hasPrefix("id: ") {
+                        await self.noteEventID(String(linea.dropFirst(4)), sesion: sesion)
+                        continue
+                    }
                     guard linea.hasPrefix("data: ") else { continue }
                     let crudo = String(linea.dropFirst(6))
                     if await self.traducir(evento, crudo, sesion: sesion, cont,
@@ -726,6 +758,12 @@ actor ClienteGS: TransporteDeAgente {
             // vuelo ENTRA en él o lo CORTA. Sin saberlo no se puede avisar antes, sólo
             // después — cuando el trabajo ya se tiró.
             alSaberCapacidades?(p["steer"] as? Bool == true)
+        case "started":
+            // Sync v2: con `resume`, gs sigue desde nuestro cursor en vez de repetir el turno
+            // desde el principio. Se dice ANTES de pintar nada.
+            if let cursor = p["resume"] as? String, let turn = cursor.split(separator: ":").first {
+                cont.yield(.resumed(String(turn)))
+            }
         default:
             // `title`, `status`, `models`… todavía no se usan. No se tiran a la basura en
             // silencio: que aparezca uno nuevo tiene que poder verse.
@@ -762,4 +800,94 @@ enum BackgroundTime {
     @MainActor static var onEnd: ((Int) -> Void)?
     @MainActor static func begin(_ name: String) -> Int { onBegin?(name) ?? -1 }
     @MainActor static func end(_ id: Int) { if id >= 0 { onEnd?(id) } }
+}
+
+// MARK: - Sync v2 (`docs/claude/sync-v2.md` en gs)
+
+extension ClienteGS {
+    /// Una página del hilo por `seq`.
+    struct MessagesPage: Sendable {
+        /// Qué copia de gs es. Si cambia, lo guardado de ese hilo ya no vale.
+        var epoch: String?
+        /// Con `seq`, `turnId` e id de vista `s<seq>`; las entregas de la página, sin `seq`.
+        var messages: [Message]
+        var hasMoreBefore: Bool
+        var hasMoreAfter: Bool
+        var lastSeq: Int?
+        var enCurso: Bool
+        var ultimoTurno: ACPClient.UltimoTurno?
+        var largo: Bool
+        var continuesFrom: String?
+        /// Los archivos de la página, por nombre (para entregas y adjuntos).
+        var files: [String: GhostyAPI.ArchivoDeSesion]
+    }
+
+    /// `after` = lo nuevo, `before` = lo anterior; sin ninguno, la última página.
+    func messages(_ sid: String, agentID: String, after: Int? = nil, before: Int? = nil,
+                  limit: Int = 40) async throws -> MessagesPage {
+        var c = URLComponents(url: base("/conversations/\(sid)/messages"), resolvingAgainstBaseURL: false)!
+        var q = [URLQueryItem(name: "limit", value: "\(limit)"), URLQueryItem(name: "archivos", value: "1")]
+        if let after { q.append(URLQueryItem(name: "after", value: "\(after)")) }
+        if let before { q.append(URLQueryItem(name: "before", value: "\(before)")) }
+        c.queryItems = q
+        let r = try await leerConReintento(c.url!)
+        let raw = r["messages"] as? [[String: Any]] ?? []
+        // El conversor ubica las entregas por `despuesDe` contra el índice del servidor: con
+        // `afterSeq` como `afterIndex` y `m<seq>` como frontera, todo cae en su sitio por seq.
+        var files: [String: GhostyAPI.ArchivoDeSesion] = [:]
+        if let list = r["files"] as? [[String: Any]] {
+            let renamed = list.map { f -> [String: Any] in
+                var f = f
+                if let a = f["afterSeq"] { f["afterIndex"] = a is NSNull ? -1 : a }
+                return f
+            }
+            if let datos = try? JSONSerialization.data(withJSONObject: ["files": renamed]) {
+                files = GhostyAPI.archivosDe(sesion: sid, agente: agentID, datos: datos) ?? [:]
+            }
+        }
+        let replay = raw.flatMap { m -> [ACPClient.Replay] in
+            guard let seq = m["seq"] as? Int else { return [] }
+            return Self.replay(of: m, index: seq)
+        }
+        let turnBySeq = Dictionary(raw.compactMap { m -> (Int, String)? in
+            guard let seq = m["seq"] as? Int, let t = m["turnId"] as? String else { return nil }
+            return (seq, t)
+        }, uniquingKeysWith: { a, _ in a })
+        let converted = ReplayToMessages.convertWithServerIndex(replay, archivos: files)
+        let messages = converted.messages.map { m -> Message in
+            guard let seq = converted.serverIndex[m.id] else { return m }
+            return Message(id: "s\(seq)", kind: m.kind, seq: seq, turnId: turnBySeq[seq])
+        }
+        let epoch: String? = (r["epoch"] as? String) ?? (r["epoch"] as? NSNumber)?.stringValue
+        return MessagesPage(
+            epoch: epoch, messages: messages,
+            hasMoreBefore: r["hasMoreBefore"] as? Bool ?? false,
+            hasMoreAfter: r["hasMoreAfter"] as? Bool ?? false,
+            lastSeq: r["lastSeq"] as? Int, enCurso: r["enCurso"] as? Bool ?? false,
+            ultimoTurno: ACPClient.UltimoTurno.desde(r["ultimoTurno"]),
+            largo: r["largo"] as? Bool ?? false, continuesFrom: r["continuesFrom"] as? String,
+            files: files)
+    }
+
+    /// El último `id:` de evento visto en cada conversación (`<turnId>:<n>`).
+    func noteEventID(_ id: String, sesion: String) {
+        lastEventIDs[sesion] = id
+    }
+
+    func lastEventID(of sesion: String) -> String? { lastEventIDs[sesion] }
+
+    /// ⚠️ gs sólo hace caso al header con `?resume=1`: el EventSource de la web lo manda solo
+    /// al reconectar y le comía el principio de la respuesta (desviación 1 del contrato).
+    static func resuming(_ request: URLRequest, from cursor: String) -> URLRequest {
+        var r = request
+        r.setValue(cursor, forHTTPHeaderField: "Last-Event-ID")
+        if let url = r.url, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            c.queryItems = (c.queryItems ?? []) + [URLQueryItem(name: "resume", value: "1")]
+            r.url = c.url
+        }
+        return r
+    }
+
+    /// Prende la reanudación por `Last-Event-ID` (bandera `syncV2`).
+    func setResumeFromLastEvent(_ on: Bool) { resumeFromLastEvent = on }
 }

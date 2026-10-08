@@ -102,6 +102,9 @@ enum ACPClient {
         /// Un turno AJENO terminó mientras vigilábamos la conversación en reposo (gs lo
         /// abrió: entrega de un encargo, agenda). El flujo sigue abierto para el siguiente.
         case cerrado(String)
+        /// gs retomó el turno donde íbamos (`Last-Event-ID`): lo que sigue es lo que FALTA,
+        /// no la repetición desde el principio. Sync v2.
+        case resumed(String)
         case user(String)
         /// Los adjuntos (nombres) del mensaje del usuario en curso, como DATO: gs los guarda
         /// aparte del texto (`ConversationMessage.attachments`). Van después de su `.user`.

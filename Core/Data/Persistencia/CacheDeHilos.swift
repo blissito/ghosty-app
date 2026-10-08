@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import GRDB
 
 /// Las conversaciones, guardadas en este teléfono.
 ///
@@ -15,155 +16,253 @@ import Observation
 /// el replay es la verdad —un hilo puede haber avanzado desde otro cliente— y bajarlo es
 /// justo lo que hay que hacer cuando lo abres.
 ///
-/// Mismo molde que `TitleStore` y `TurnLogStore`: un JSON en Application Support, tope y
-/// escritura atómica.
+/// Desde sync v2 vive en la base local (`LocalDB`): cada hilo se escribe solo y guarda con
+/// qué copia de gs coincide.
 @Observable
 @MainActor
 final class CacheDeHilos {
     /// El mismo número que la bitácora de turnos. Un hilo más largo se recorta por el
     /// principio: lo que importa al volver es el final.
-    private static let tope = 200
+    nonisolated private static let tope = 200
     /// Cuántas conversaciones por agente se guardan. Son las que retomas, no un archivo:
     /// el archivo es la caja. 20, como WhatsApp: abrir cualquiera de las recientes pinta
     /// al instante (lo que precarga `LiveAgentStore.precargarChats`).
-    static let topeDeHilos = 20
+    nonisolated static let topeDeHilos = 20
+
+    // MARK: - Lo que había antes (sólo para migrarlo una vez)
 
     private struct Disco: Codable {
-        /// ⚠️ La versión existe por un fallo concreto: hasta la v1, un turno vivo podía
-        /// escribir sus mensajes bajo el `sessionId` de OTRA conversación, así que lo
-        /// guardado puede estar cruzado. Al no coincidir, las conversaciones guardadas se
-        /// marcan **sospechosas**: se siguen pintando —no se le quita nada a nadie sin
-        /// red— pero se recargan de la caja en cuanto se abren, y la caja sí tiene la
-        /// verdad. La lista de hilos se conserva tal cual: es inofensiva.
         var version = 2
         var lista: [String: [SesionGuardada]] = [:]
         var abiertos: [String: [String: [MensajeGuardado]]] = [:]
         var sospechosos: [String] = []
     }
 
-    private var disco = Disco()
-
-    private var archivo: URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appending(path: "hilos.json")
-    }
-
-    init() {
-        guard let d = try? Data(contentsOf: archivo) else { return }
-        if let leido = try? JSONDecoder().decode(Disco.self, from: d), leido.version == 2 {
-            disco = leido
-            return
-        }
-        // Formato viejo: se rescata lo que se puede y se marca lo dudoso.
-        if let viejo = try? JSONDecoder().decode(DiscoV1.self, from: d) {
-            disco.lista = viejo.lista
-            for (agente, g) in viejo.abierto {
-                disco.abiertos[agente] = [g.sesionID: g.mensajes]
-                disco.sospechosos.append(g.sesionID)
-            }
-            guardar()
-        }
-    }
-
-    /// El formato anterior, sólo para leerlo una vez.
     private struct DiscoV1: Codable {
         struct Guardado: Codable { var sesionID: String; var mensajes: [MensajeGuardado] }
         var lista: [String: [SesionGuardada]] = [:]
         var abierto: [String: Guardado] = [:]
     }
 
+    private var legacyFile: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return dir.appending(path: "hilos.json")
+    }
+
+    private let db = LocalDB.queue
+    nonisolated(unsafe) private static let encoder = JSONEncoder()
+    nonisolated(unsafe) private static let decoder = JSONDecoder()
+
+    init() {
+        migrateLegacyFile()
+    }
+
+    /// ⚠️ Una sola vez: `hilos.json` pasa a la base y se borra. Las conversaciones del
+    /// formato v1 (que podían estar cruzadas) entran marcadas como sospechosas.
+    private func migrateLegacyFile() {
+        guard let db, let d = try? Data(contentsOf: legacyFile) else { return }
+        var disco = Disco()
+        if let leido = try? Self.decoder.decode(Disco.self, from: d), leido.version == 2 {
+            disco = leido
+        } else if let viejo = try? Self.decoder.decode(DiscoV1.self, from: d) {
+            disco.lista = viejo.lista
+            for (agente, g) in viejo.abierto {
+                disco.abiertos[agente] = [g.sesionID: g.mensajes]
+                disco.sospechosos.append(g.sesionID)
+            }
+        }
+        do {
+            try db.write { db in
+                for (agent, list) in disco.lista {
+                    try Self.writeList(db, agent, list)
+                }
+                for (agent, threads) in disco.abiertos {
+                    for (sid, messages) in threads {
+                        try Self.writeThread(db, agent, sid, messages,
+                                             suspicious: disco.sospechosos.contains(sid))
+                    }
+                }
+            }
+            try FileManager.default.removeItem(at: legacyFile)
+            EasyBitsClient.diag("[db] migré hilos.json: \(disco.abiertos.values.map(\.count).reduce(0, +)) conversaciones")
+        } catch {
+            EasyBitsClient.diag("[db] no pude migrar hilos.json: \(error)")
+        }
+    }
+
     // MARK: - La lista
 
     func lista(_ agentID: String) -> [ACPClient.Session] {
-        (disco.lista[agentID] ?? []).map(\.sesion)
+        let data = try? db?.read { db in
+            try Data.fetchOne(db, sql: "SELECT payload FROM agentList WHERE agentId = ?", arguments: [agentID])
+        }
+        guard let data, let list = try? Self.decoder.decode([SesionGuardada].self, from: data) else { return [] }
+        return list.map(\.sesion)
     }
 
     func guardarLista(_ hilos: [ACPClient.Session], de agentID: String) {
-        disco.lista[agentID] = hilos.map(SesionGuardada.init)
-        guardar()
+        let list = hilos.map(SesionGuardada.init)
+        db?.asyncWrite({ db in try Self.writeList(db, agentID, list) }, completion: Self.logFailure)
     }
 
-    // MARK: - El hilo abierto
+    // MARK: - Los hilos guardados
 
     /// Todas las conversaciones guardadas de un agente.
     func abiertos(_ agentID: String) -> [(sesionID: String, mensajes: [Message], sospechoso: Bool)] {
-        (disco.abiertos[agentID] ?? [:]).map { sid, guardados in
-            (sid, guardados.compactMap(\.mensaje), disco.sospechosos.contains(sid))
-        }
+        (try? db?.read { db -> [(sesionID: String, mensajes: [Message], sospechoso: Bool)] in
+            let rows = try Row.fetchAll(db, sql: "SELECT sessionId, suspicious FROM thread WHERE agentId = ?",
+                                        arguments: [agentID])
+            return try rows.map { r in
+                let sid: String = r["sessionId"]
+                return (sid, try Self.readMessages(db, agentID, sid), r["suspicious"])
+            }
+        }) ?? []
     }
 
-    /// Una conversación concreta.
-    /// Olvida UNA conversación abierta. Es lo que hace que cerrarla sea de verdad.
-    ///
-    /// ⚠️ Hace falta un borrado explícito porque `guardarAbiertos` FUNDE con lo que había
-    /// —para que un hilo vaciado por un tropiezo no se lleve por delante su copia— y con
-    /// esa regla, cerrar una conversación nunca ganaba: desaparecía de la pantalla y
-    /// volvía en cuanto se leía el disco otra vez.
+    /// Olvida UNA conversación. Es lo que hace que cerrarla sea de verdad.
     func olvidarAbierta(_ sesion: String, de agentID: String) {
-        guard disco.abiertos[agentID]?.removeValue(forKey: sesion) != nil else { return }
-        guardar()
+        db?.asyncWrite({ db in try Self.deleteThread(db, agentID, sesion) }, completion: Self.logFailure)
     }
 
     func abierto(_ agentID: String, sesion: String) -> [Message]? {
-        disco.abiertos[agentID]?[sesion]?.compactMap(\.mensaje)
+        try? db?.read { db -> [Message]? in
+            guard try Bool.fetchOne(db, sql: "SELECT 1 FROM thread WHERE agentId = ? AND sessionId = ?",
+                                    arguments: [agentID, sesion]) != nil else { return nil }
+            return try Self.readMessages(db, agentID, sesion)
+        }
     }
 
+    /// ⚠️ FUNDE con lo que ya había en vez de reemplazarlo: una conversación vacía en
+    /// memoria por un tropiezo no se lleva su copia del disco. Sólo se recorta lo que sobra
+    /// del tope, por lo menos reciente.
     func guardarAbiertos(_ hilos: [(sesionID: String, mensajes: [Message])], de agentID: String) {
-        var mapa: [String: [MensajeGuardado]] = [:]
-        // Las más recientes primero: si hay más de las que caben, sobran las viejas.
-        for h in hilos.suffix(Self.topeDeHilos) {
-            let guardables = h.mensajes.compactMap(MensajeGuardado.init)
-            guard !guardables.isEmpty else { continue }
-            mapa[h.sesionID] = Array(guardables.suffix(Self.tope))
+        let batch = hilos.suffix(Self.topeDeHilos).compactMap { h -> (String, [MensajeGuardado])? in
+            let saved = h.mensajes.compactMap(MensajeGuardado.init)
+            return saved.isEmpty ? nil : (h.sesionID, saved)
         }
-        // ⚠️ Se FUNDE con lo que ya había en vez de reemplazarlo. Reemplazando, una
-        // conversación que se quedara vacía en memoria por un tropiezo borraba también su
-        // copia de disco: el hilo desaparecía del todo y no había de dónde recuperarlo.
-        var previo = disco.abiertos[agentID] ?? [:]
-        for (sid, msgs) in mapa { previo[sid] = msgs }
-        // Sólo se recorta cuando de verdad sobran, y por lo más viejo de lo que hay.
-        if previo.count > Self.topeDeHilos {
-            let vivos = Set(mapa.keys)
-            for sid in previo.keys where !vivos.contains(sid) {
-                guard previo.count > Self.topeDeHilos else { break }
-                previo[sid] = nil
-            }
-        }
-        disco.abiertos[agentID] = previo
-        // Lo que se acaba de escribir ya no es sospechoso: salió del ruteo por hilo.
-        disco.sospechosos.removeAll { mapa.keys.contains($0) }
-        guardar()
+        guard !batch.isEmpty else { return }
+        db?.asyncWrite({ db in
+            for (sid, messages) in batch { try Self.writeThread(db, agentID, sid, messages, suspicious: false) }
+            try Self.trim(db, agentID)
+        }, completion: Self.logFailure)
     }
 
-    /// Guarda UNA conversación bajada en segundo plano (precarga de «Chats»). Si ya está,
-    /// la sustituye; si no cabe, no desplaza a ninguna: lo que ya tienes abierto manda.
+    /// Guarda UNA conversación bajada en segundo plano. Si no cabe, no desplaza a ninguna.
     func guardarUno(_ agentID: String, sesion: String, mensajes: [Message]) {
-        let guardables = mensajes.compactMap(MensajeGuardado.init)
-        guard !guardables.isEmpty else { return }
-        var previo = disco.abiertos[agentID] ?? [:]
-        guard previo[sesion] != nil || previo.count < Self.topeDeHilos else { return }
-        previo[sesion] = Array(guardables.suffix(Self.tope))
-        disco.abiertos[agentID] = previo
-        disco.sospechosos.removeAll { $0 == sesion }
-        guardar()
+        let saved = mensajes.compactMap(MensajeGuardado.init)
+        guard !saved.isEmpty else { return }
+        db?.asyncWrite({ db in
+            let exists = try Bool.fetchOne(db, sql: "SELECT 1 FROM thread WHERE agentId = ? AND sessionId = ?",
+                                           arguments: [agentID, sesion]) != nil
+            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM thread WHERE agentId = ?",
+                                         arguments: [agentID]) ?? 0
+            guard exists || count < Self.topeDeHilos else { return }
+            try Self.writeThread(db, agentID, sesion, saved, suspicious: false)
+        }, completion: Self.logFailure)
+    }
+
+    // MARK: - Con qué copia de gs coincide (sync v2)
+
+    func meta(_ agentID: String, session: String) -> ThreadMeta? {
+        try? db?.read { db -> ThreadMeta? in
+            guard let r = try Row.fetchOne(db, sql: """
+                SELECT epoch, lastSeq, oldestSeq, hasMoreBefore FROM thread WHERE agentId = ? AND sessionId = ?
+                """, arguments: [agentID, session]) else { return nil }
+            return ThreadMeta(epoch: r["epoch"], lastSeq: r["lastSeq"], oldestSeq: r["oldestSeq"],
+                              hasMoreBefore: r["hasMoreBefore"])
+        }
+    }
+
+    func saveMeta(_ meta: ThreadMeta, _ agentID: String, session: String) {
+        db?.asyncWrite({ db in
+            try db.execute(sql: """
+                INSERT INTO thread (agentId, sessionId, epoch, lastSeq, oldestSeq, hasMoreBefore, touchedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(agentId, sessionId) DO UPDATE SET
+                  epoch = excluded.epoch, lastSeq = excluded.lastSeq,
+                  oldestSeq = excluded.oldestSeq, hasMoreBefore = excluded.hasMoreBefore
+                """, arguments: [agentID, session, meta.epoch, meta.lastSeq, meta.oldestSeq,
+                                 meta.hasMoreBefore, Date().timeIntervalSince1970])
+        }, completion: Self.logFailure)
+    }
+
+    func syncCursor(_ key: String) -> String? {
+        try? db?.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM syncState WHERE key = ?", arguments: [key])
+        }
+    }
+
+    func setSyncCursor(_ value: String, for key: String) {
+        db?.asyncWrite({ db in
+            try db.execute(sql: "INSERT OR REPLACE INTO syncState (key, value) VALUES (?, ?)", arguments: [key, value])
+        }, completion: Self.logFailure)
     }
 
     // MARK: - Olvidar
 
     func olvidar(_ agentID: String) {
-        disco.lista[agentID] = nil
-        disco.abiertos[agentID] = nil
-        guardar()
+        db?.asyncWrite({ db in
+            try db.execute(sql: "DELETE FROM agentList WHERE agentId = ?", arguments: [agentID])
+            try db.execute(sql: "DELETE FROM message WHERE agentId = ?", arguments: [agentID])
+            try db.execute(sql: "DELETE FROM thread WHERE agentId = ?", arguments: [agentID])
+        }, completion: Self.logFailure)
     }
 
     func limpiar() {
-        disco = Disco()
-        guardar()
+        db?.asyncWrite({ db in
+            for table in ["agentList", "message", "thread", "syncState"] {
+                try db.execute(sql: "DELETE FROM \(table)")
+            }
+        }, completion: Self.logFailure)
     }
 
-    private func guardar() {
-        guard let d = try? JSONEncoder().encode(disco) else { return }
-        try? d.write(to: archivo, options: .atomic)
+    // MARK: - SQL
+
+    nonisolated private static func writeList(_ db: Database, _ agent: String, _ list: [SesionGuardada]) throws {
+        try db.execute(sql: "INSERT OR REPLACE INTO agentList (agentId, payload) VALUES (?, ?)",
+                       arguments: [agent, try encoder.encode(list)])
+    }
+
+    /// Reescribe los mensajes de UN hilo (no los de todos) y conserva su `epoch`/`lastSeq`.
+    nonisolated private static func writeThread(_ db: Database, _ agent: String, _ sid: String,
+                                    _ messages: [MensajeGuardado], suspicious: Bool) throws {
+        let kept = Array(messages.suffix(tope))
+        try db.execute(sql: """
+            INSERT INTO thread (agentId, sessionId, suspicious, touchedAt) VALUES (?, ?, ?, ?)
+            ON CONFLICT(agentId, sessionId) DO UPDATE SET suspicious = excluded.suspicious, touchedAt = excluded.touchedAt
+            """, arguments: [agent, sid, suspicious, Date().timeIntervalSince1970])
+        try db.execute(sql: "DELETE FROM message WHERE agentId = ? AND sessionId = ?", arguments: [agent, sid])
+        for (i, m) in kept.enumerated() {
+            try db.execute(sql: "INSERT INTO message (agentId, sessionId, position, id, seq, payload) VALUES (?, ?, ?, ?, ?, ?)",
+                           arguments: [agent, sid, i, m.id, m.seq, try encoder.encode(m)])
+        }
+        // Lo recortado por el principio ya no está aquí: lo de antes hay que pedirlo.
+        if messages.count > kept.count, let first = kept.first(where: { $0.seq != nil })?.seq {
+            try db.execute(sql: "UPDATE thread SET oldestSeq = ?, hasMoreBefore = 1 WHERE agentId = ? AND sessionId = ?",
+                           arguments: [first, agent, sid])
+        }
+    }
+
+    nonisolated private static func readMessages(_ db: Database, _ agent: String, _ sid: String) throws -> [Message] {
+        try Data.fetchAll(db, sql: "SELECT payload FROM message WHERE agentId = ? AND sessionId = ? ORDER BY position",
+                          arguments: [agent, sid])
+            .compactMap { try? decoder.decode(MensajeGuardado.self, from: $0).mensaje }
+    }
+
+    nonisolated private static func deleteThread(_ db: Database, _ agent: String, _ sid: String) throws {
+        try db.execute(sql: "DELETE FROM message WHERE agentId = ? AND sessionId = ?", arguments: [agent, sid])
+        try db.execute(sql: "DELETE FROM thread WHERE agentId = ? AND sessionId = ?", arguments: [agent, sid])
+    }
+
+    /// Sólo se quedan las `topeDeHilos` más recientes de cada agente.
+    nonisolated private static func trim(_ db: Database, _ agent: String) throws {
+        let extra = try String.fetchAll(db, sql: """
+            SELECT sessionId FROM thread WHERE agentId = ? ORDER BY touchedAt DESC LIMIT -1 OFFSET ?
+            """, arguments: [agent, topeDeHilos])
+        for sid in extra { try deleteThread(db, agent, sid) }
+    }
+
+    nonisolated private static let logFailure: @Sendable (Database, Result<Void, Error>) -> Void = { _, result in
+        if case .failure(let e) = result { EasyBitsClient.diag("[db] no pude escribir: \(e)") }
     }
 }

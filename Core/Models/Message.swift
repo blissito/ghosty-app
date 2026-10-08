@@ -68,4 +68,10 @@ struct Message: Identifiable, Equatable, Sendable {
 
     let id: String
     var kind: Kind
+    /// Su número en la copia de gs (`ConversationMessage.seq`): la identidad que deja
+    /// FUNDIR lo que llega en vez de reemplazar el hilo. `nil` = aún no lo confirma gs
+    /// (tu mensaje recién mandado, la respuesta en streaming, una entrega local).
+    var seq: Int? = nil
+    /// El turno al que pertenece: con él se reconcilia lo optimista con lo guardado.
+    var turnId: String? = nil
 }

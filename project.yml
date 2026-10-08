@@ -15,6 +15,10 @@ packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     from: 2.4.0
+  # La base local (SQLite) de conversaciones: sync v2, ver `Core/Data/Store/LocalDB.swift`.
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: 7.0.0
 
 settings:
   base:
@@ -37,6 +41,7 @@ targets:
       - path: Core
     dependencies:
       - package: MarkdownUI
+      - package: GRDB
       # La entrada «Enviar a Ghosty» de la hoja de compartir (ver EnviarAGhosty/).
       - target: EnviarAGhosty
       # El avatar de cada agente en sus avisos (ver NotificationService/).
@@ -160,6 +165,7 @@ targets:
       # por su alfa; con el icono de la app salía un cuadro gris.
     dependencies:
       - package: MarkdownUI
+      - package: GRDB
     configFiles:
       Debug: Local.xcconfig
       Release: Local.xcconfig
@@ -249,11 +255,25 @@ targets:
       - path: Core
     dependencies:
       - package: MarkdownUI
+      - package: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostycore
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
+
+  # Pruebas unitarias de `Core/` (sin simulador de por medio): el merge del hilo, la base local.
+  GhostyCoreTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: GhostyCoreTests
+    dependencies:
+      - target: GhostyCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostycore.tests
+        GENERATE_INFOPLIST_FILE: YES
 
   # ⚠️ Existe para poder TOCAR la pantalla. Se enviaron cinco builds seguidas con fallos
   # de interacción —una fila que no responde, un botón que no hace nada— porque lo único
@@ -277,6 +297,10 @@ schemes:
     build:
       targets:
         GhostyCore: all
+        GhostyCoreTests: [test]
+    test:
+      targets:
+        - GhostyCoreTests
   GhostyApp:
     build:
       targets:

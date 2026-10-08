@@ -53,9 +53,14 @@ struct SubagentStep: Identifiable {
 
 @MainActor @Observable
 final class SubagentsLayer {
-    /// Agentes cuya caja trae el worker del POC (hoy sólo PowerGhosty). Para los demás no
-    /// existe la capa: su lista viva contestaría 502.
-    static let agentsWithSubagents: Set<String> = ["cmuio5hq80001gb17mi7tki0c"]
+    /// Respaldo para un gs que todavía no manda `subagentesNativos`: sólo PowerGhosty.
+    private static let fallbackAgents: Set<String> = ["cmuio5hq80001gb17mi7tki0c"]
+
+    /// ¿Este agente tiene subagentes nativos? Lo dice gs por agente y por app (`/me/agents`).
+    static func hasSubagents(_ agentID: String) -> Bool {
+        if let flag = LiveAgentStore.compartido.nativeSubagents(of: agentID) { return flag }
+        return fallbackAgents.contains(agentID)
+    }
 
     /// Una para toda la app, creada una vez (ver el aviso de `SubagentesLab`: un `init` con
     /// efectos dentro de un `@State` re-evaluado trabó la app el 7-oct).
@@ -68,6 +73,9 @@ final class SubagentsLayer {
     /// Ya llegó el snapshot de esta conversación. Antes, la barra enseña «Cargando…» si el hilo
     /// dice que el agente delegó (el esqueleto: se pinta lo que ya se sabe).
     private(set) var snapshotReceived = false
+    /// gs contestó 403/404: este agente (o esta conversación) no tiene subagentes. La barra
+    /// no se queda en «Cargando…» esperando un snapshot que no va a llegar.
+    private(set) var unavailable = false
     /// Fallidos o detenidos que quitaste con la `x` (como en Claude Code).
     private(set) var dismissed: Set<String> = []
 
@@ -84,8 +92,8 @@ final class SubagentsLayer {
         guard key != watching else { return }
         watching = key
         listener?.cancel()
-        tasks = [:]; steps = [:]; connected = false; snapshotReceived = false; dismissed = []
-        guard let session, Self.agentsWithSubagents.contains(agent) else { return }
+        tasks = [:]; steps = [:]; connected = false; snapshotReceived = false; dismissed = []; unavailable = false
+        guard let session, Self.hasSubagents(agent) else { return }
         listener = Task { [weak self] in await self?.listen(agent: agent, session: session) }
     }
 
@@ -141,7 +149,7 @@ final class SubagentsLayer {
                 let (bytes, resp) = try await Self.httpSession.bytes(for: try await request(agent, session, ""))
                 let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 // 401/403/404 no se arreglan reintentando (no eres staff, no es tu conversación).
-                if [401, 403, 404].contains(status) { connected = false; return }
+                if [401, 403, 404].contains(status) { connected = false; unavailable = true; return }
                 if status == 200 {
                     connected = true
                     delay = 1.0
@@ -332,7 +340,7 @@ extension SubagentsBar {
         if !problems.isEmpty { return .problems(ids: problems.map(\.id)) }
         let done = recent.filter { $0.status == "completed" }
         if !done.isEmpty { return .done(count: done.count) }
-        if !layer.snapshotReceived, delegatedInThread { return .loading }
+        if !layer.snapshotReceived, !layer.unavailable, delegatedInThread { return .loading }
         return nil
     }
 

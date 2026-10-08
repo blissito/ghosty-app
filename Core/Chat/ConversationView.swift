@@ -85,6 +85,8 @@ struct ConversationView: View {
     /// Alto de lo que va desde el mensaje anclado hasta el final, y alto visible del
     /// hilo: la diferencia es el aire que se pone debajo para que el mensaje QUEPA arriba.
     @State private var altoDeLaCola: CGFloat = 0
+    @State private var tailStart: CGFloat = 0
+    @State private var tailEnd: CGFloat = 0
     @State private var altoVisible: CGFloat = 0
 
     /// La agenda de la conversación que se mira. Se rehace al cambiar de hilo: es por
@@ -171,7 +173,7 @@ struct ConversationView: View {
             // POC de subagentes nativos (sólo agentes con el POC en su caja): la lista viva
             // encima del compositor. Ver SubagentsLayer.swift.
             #if os(iOS)
-            if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID) {
+            if SubagentsLayer.hasSubagents(store.selectedAgentID) {
                 SubagentsBar(store: store)
             }
             #endif
@@ -261,38 +263,18 @@ struct ConversationView: View {
                    encargo: "Arma una cotización en PDF", icono: ChatIcons.cotizacion),
     ]
 
-    /// POC de subagentes (Debug): con un agente que los tiene, el vacío propone encargos que
-    /// se reparten solos en paralelo, para ver la barra trabajar desde el primer toque. Casos
-    /// reales de la casa (competencia de /planes, nuestros productos, nuestra landing).
-    private static let subagentSuggestions = [
-        Sugerencia(titulo: "Compara 3 competidores a la vez", sub: "Un agente por cada uno, luego una tabla",
-                   encargo: "Lanza un subagente por cada competidor —Hostinger AI Builder, Wix y Lovable— y que cada uno averigüe precio de entrada en MXN, qué incluye y qué cobran aparte. Júntalo en una tabla y dime dónde le ganamos a cada uno.",
-                   icono: ChatIcons.tabla),
-        Sugerencia(titulo: "Revisa nuestros 3 productos", sub: "Mailmask, Deník y EasyBits en paralelo",
-                   encargo: "Con un subagente por sitio revisa mailmask.studio, denik.me y easybits.cloud: qué venden, a quién, precio y la frase principal del hero. Dame una tabla y una línea de qué mejorarías en cada uno.",
-                   icono: ChatIcons.documento),
-        Sugerencia(titulo: "Audita ghosty.studio desde 3 ángulos", sub: "Copy, velocidad y propuesta de valor",
-                   encargo: "Audita www.ghosty.studio con 3 subagentes en paralelo: uno el copy del hero y las secciones, uno velocidad y SEO básico, y uno la propuesta de valor contra Hostinger y Wix. Dame las 5 mejoras que más moverían la conversión.",
-                   icono: ChatIcons.cotizacion),
-    ]
-
     /// El botón de la cabecera para ver los subagentes del hilo (POC).
     private var subagentsHistoryAction: (() -> Void)? {
         #if os(iOS)
         let layer = SubagentsLayer.shared
-        if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID), !layer.tasks.isEmpty {
+        if SubagentsLayer.hasSubagents(store.selectedAgentID), !layer.tasks.isEmpty {
             return { layer.isSheetOpen = true }
         }
         #endif
         return nil
     }
 
-    private var suggestionsForAgent: [Sugerencia] {
-        #if os(iOS)
-        if SubagentsLayer.agentsWithSubagents.contains(store.selectedAgentID) { return Self.subagentSuggestions }
-        #endif
-        return Self.sugerencias
-    }
+    private var suggestionsForAgent: [Sugerencia] { Self.sugerencias }
 
     /// El vacío del hilo: la mascota con su aro, «¿Qué le encargamos hoy?» y las
     /// sugerencias, pegado ABAJO (junto al compositor), como el prototipo.
@@ -746,23 +728,30 @@ struct ConversationView: View {
                 .onChange(of: store.messages.count) { _, n in
                     EasyBitsClient.diag("[vista] ahora \(n) mensajes de \(store.claveDelHilo.prefix(8))")
                 }
+            // Lo anterior se pide al llegar arriba (sync v2).
+            if store.hiloActivo?.hasMoreBefore == true { olderSentinel }
             if let hilo = store.hiloActivo, let previa = hilo.vieneDe { vieneDeOtroChat(hilo, previa) }
-            ForEach(antesDelAncla) { mensaje in filaAnimada(mensaje) }
-            // ⚠️ Lo que va desde TU último mensaje se mide aparte: es lo que
-            // permite calcular cuánto aire hace falta debajo para que ese mensaje
-            // se quede pegado arriba mientras la respuesta crece (como Claude). El
-            // aire se come conforme la cola crece, y cuando la cola ya no cabe, el
-            // hilo vuelve a comportarse como siempre.
-            VStack(spacing: 14) {
-                ForEach(desdeElAncla) { mensaje in filaAnimada(mensaje) }
-                pieDeTrabajo
+            // ⚠️ UNA sola lista con identidad estable. Antes iban dos (`antesDelAncla` y
+            // `desdeElAncla` en otro contenedor) y al mandar, las filas que cambiaban de
+            // bloque se DESTRUÍAN y volvían a nacer: el hilo parpadeaba. Lo que va desde tu
+            // último mensaje (la «cola», para el aire que lo clava arriba como Claude) se
+            // mide ahora con dos marcas: dónde empieza tu mensaje y dónde acaba el pie.
+            ForEach(mensajesVisibles) { mensaje in
+                filaAnimada(mensaje)
+                    .background {
+                        if mensaje.id == visibleAnchor {
+                            GeometryReader { g in
+                                Color.clear.preference(key: TailStartKey.self, value: g.frame(in: .named(Self.threadSpace)).minY)
+                            }
+                        }
+                    }
             }
-            // El indicador entra sin prisa: la respuesta tarda segundos de todos modos.
-            // Antes no había animación que recogiera el `.transition` y salía de golpe.
-            .animation(.easeOut(duration: 0.5), value: store.currentTurn != nil)
-            .background(GeometryReader { g in
-                Color.clear.preference(key: AltoDeLaCola.self, value: g.size.height)
-            })
+            pieDeTrabajo
+                // El indicador entra sin prisa: la respuesta tarda segundos de todos modos.
+                .animation(.easeOut(duration: 0.5), value: store.currentTurn != nil)
+                .background(GeometryReader { g in
+                    Color.clear.preference(key: TailEndKey.self, value: g.frame(in: .named(Self.threadSpace)).maxY)
+                })
             // ⚠️ SIEMPRE presente y con altura animable. `defaultScrollAnchor(.bottom)`
             // sigue el crecimiento del contenido al instante, así que un aire que aparece
             // de golpe es un salto seco por mucho `scrollTo` animado que venga después;
@@ -770,7 +759,7 @@ struct ConversationView: View {
             // ve.
             // Sin el mensaje ancla en el hilo (se recargó con otros ids) no hay nada que
             // clavar: el aire sería la pantalla entera en blanco.
-            Color.clear.frame(height: desdeElAncla.isEmpty ? 0 : aireDebajo)
+            Color.clear.frame(height: visibleAnchor == nil ? 0 : aireDebajo)
             // El fondo de verdad: a donde se baja. Un mensaje largo que crece
             // con el streaming no cambia de id, y «bajar» a un id que ya es
             // el ancla no mueve nada.
@@ -795,7 +784,9 @@ struct ConversationView: View {
             // golpe, y sin esto el re-anclaje instantáneo se comía la animación.
             reanclar(lector)
         }
-        .onPreferenceChange(AltoDeLaCola.self) { altoDeLaCola = $0 }
+        .coordinateSpace(name: Self.threadSpace)
+        .onPreferenceChange(TailStartKey.self) { tailStart = $0; measureTail() }
+        .onPreferenceChange(TailEndKey.self) { tailEnd = $0; measureTail() }
     }
 
     /// Que el agente SIGUE, al final del hilo y bajo la última respuesta.
@@ -814,7 +805,7 @@ struct ConversationView: View {
         // pantalla el hilo bajaría de golpe. Al cerrar el turno NADA se mueve; el siguiente
         // envío pone su ancla y el hueco se va con ella. Los puntos entran y salen DENTRO
         // del hueco, sólo con opacidad: su salida no ocupa sitio de más.
-        if store.currentTurn != nil || !desdeElAncla.isEmpty {
+        if store.currentTurn != nil || visibleAnchor != nil {
             ZStack(alignment: .leading) {
                 if store.currentTurn != nil {
                     // Los tres puntos (`gdot`) en el margen de la respuesta.
@@ -862,18 +853,29 @@ struct ConversationView: View {
         seguir(animado: true)
     }
 
-    /// Los mensajes antes de tu último envío, y desde él (inclusive).
-    private var antesDelAncla: [Message] {
-        let visibles = mensajesVisibles
-        guard let ancla = store.anclaDelHilo,
-              let i = visibles.firstIndex(where: { $0.id == ancla }) else { return visibles }
-        return Array(visibles[..<i])
+    private static let threadSpace = "hilo"
+
+    /// Tu último mensaje, si está en el hilo. Sin él (se recargó con otros ids) no hay nada
+    /// que clavar: el aire sería la pantalla entera en blanco.
+    private var visibleAnchor: String? {
+        guard let ancla = store.anclaDelHilo, mensajesVisibles.contains(where: { $0.id == ancla }) else { return nil }
+        return ancla
     }
-    private var desdeElAncla: [Message] {
-        let visibles = mensajesVisibles
-        guard let ancla = store.anclaDelHilo,
-              let i = visibles.firstIndex(where: { $0.id == ancla }) else { return [] }
-        return Array(visibles[i...])
+
+    /// La cola = del principio de tu mensaje al final del pie.
+    private func measureTail() {
+        altoDeLaCola = visibleAnchor == nil ? 0 : max(0, tailEnd - tailStart)
+    }
+
+    /// Al verse arriba, pide lo anterior. La posición la conserva el ancla del scroll.
+    private var olderSentinel: some View {
+        HStack {
+            Spacer()
+            ProgressView().opacity(store.hiloActivo?.loadingOlder == true ? 1 : 0.4)
+            Spacer()
+        }
+        .frame(height: 32)
+        .onAppear { Task { await store.loadOlder() } }
     }
     /// A dónde se «sigue el final». Con un mensaje recién mandado que aún cabe con su
     /// respuesta en la pantalla, el final ES ese mensaje arriba: se ancla por su `id` con
@@ -1698,11 +1700,14 @@ private struct MedidorDeAlto: View {
     }
 }
 
-/// Alto de lo que va desde tu último mensaje, para el aire que lo clava arriba.
-private struct AltoDeLaCola: PreferenceKey {
+/// Dónde empieza tu último mensaje y dónde acaba el pie, para el aire que lo clava arriba.
+/// ⚠️ `max`, no «el último»: los hermanos que no ponen la clave aportan 0.
+private struct TailStartKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
-    // ⚠️ `max`, no «el último»: los hermanos que no ponen la clave aportan 0 y con
-    // «el último gana» la medida llegaba siempre en cero.
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+private struct TailEndKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
