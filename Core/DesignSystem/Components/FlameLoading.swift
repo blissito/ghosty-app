@@ -20,16 +20,30 @@ struct FlameLoading: View {
 /// La flamita animada, del alto que se pida. Con «Reducir movimiento», quieta.
 struct AnimatedFlame: View {
     var height: CGFloat
+    /// El color del cuerpo; `nil` = el lila de la casa.
+    var bodyColor: Color? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if reduceMotion {
-            Flame(t: 0, unit: height / 15)
+            Flame(t: 0, unit: height / 15, bodyColor: bodyColor)
         } else {
             TimelineView(.animation) { ctx in
-                Flame(t: ctx.date.timeIntervalSinceReferenceDate, unit: height / 15)
+                Flame(t: ctx.date.timeIntervalSinceReferenceDate, unit: height / 15, bodyColor: bodyColor)
             }
         }
+    }
+
+    /// El color de un ayudante por su título: idéntico a `agentColor(seed)` de gs
+    /// (`AgentAvatar.tsx`) y a Android (`WakeHeader.kt`). Hash de unidades UTF-16 (como
+    /// `charCodeAt`), uint32 con desbordamiento.
+    static func color(for seed: String) -> Color {
+        let palette: [UInt32] = [0x9a99ea, 0xedc75a, 0x8ad7c9, 0xe4ae8e, 0x7fbe60, 0x76d3cb, 0xbfdd78, 0xed695f]
+        var h: UInt32 = 0
+        for c in seed.utf16 { h = h &* 31 &+ UInt32(c) }
+        let rgb = palette[Int(h % 8)]
+        return Color(red: Double((rgb >> 16) & 0xff) / 255, green: Double((rgb >> 8) & 0xff) / 255,
+                     blue: Double(rgb & 0xff) / 255)
     }
 }
 
@@ -56,6 +70,7 @@ private struct Flame: View {
     let t: Double
     /// Puntos por unidad del viewBox (15 de alto).
     let unit: CGFloat
+    var bodyColor: Color? = nil
 
     var body: some View {
         let u = unit
@@ -65,8 +80,14 @@ private struct Flame: View {
         let bob = -0.9 * (1 - cos(2 * .pi * t / 2.3)) / 2
         ZStack(alignment: .bottom) {
             ZStack {
-                Image("flame-body").resizable()
-                    .scaleEffect(x: flicker.x, y: flicker.y, anchor: .bottom)
+                Group {
+                    if let bodyColor {
+                        Image("flame-body").resizable().renderingMode(.template).foregroundStyle(bodyColor)
+                    } else {
+                        Image("flame-body").resizable()
+                    }
+                }
+                .scaleEffect(x: flicker.x, y: flicker.y, anchor: .bottom)
                 Image("flame-eyes").resizable()
                     .scaleEffect(x: 1, y: blink, anchor: UnitPoint(x: 0.54, y: 0.52))
                 Image("flame-glasses").resizable()

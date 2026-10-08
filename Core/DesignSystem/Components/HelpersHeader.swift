@@ -30,8 +30,8 @@ struct HelpersHeader: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 HStack(spacing: -6) {
-                    ForEach(Array(titles.prefix(4).enumerated()), id: \.offset) { _, _ in
-                        AnimatedFlame(height: 18)
+                    ForEach(Array(titles.prefix(4).enumerated()), id: \.offset) { _, title in
+                        AnimatedFlame(height: 18, bodyColor: AnimatedFlame.color(for: title))
                             .frame(width: 18 * 13 / 15, height: 18)
                             .padding(2)
                             .background(Circle().fill(Color.gBg))

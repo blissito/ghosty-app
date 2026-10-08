@@ -21,3 +21,13 @@ final class HelpersHeaderTests: XCTestCase {
         XCTAssertNil(HelpersHeader.split("Hola, ¿qué tal?"))
     }
 }
+
+final class HelperColorTests: XCTestCase {
+    /// Igual que `agentColor` de gs: "a" → 97 → índice 1 → #edc75a.
+    func testSameHashAsWeb() {
+        var h: UInt32 = 0
+        for c in "a".utf16 { h = h &* 31 &+ UInt32(c) }
+        XCTAssertEqual(h % 8, 1)
+    }
+}
+

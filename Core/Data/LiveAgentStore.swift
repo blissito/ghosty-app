@@ -3459,6 +3459,7 @@ extension LiveAgentStore {
         var cursor = cache.syncCursor(Self.accountCursorKey)
         let started = Date()
         var changed = 0
+        var moved: [ClienteGS.AccountSync.Item] = []
         do {
             repeat {
                 let page = try await client.syncAccount(since: cursor)
@@ -3474,13 +3475,27 @@ extension LiveAgentStore {
                     } else {
                         applySyncDelta(items, to: canal)
                     }
-                    for item in items where !item.archived { notePreview(item) }
+                    for item in items where !item.archived {
+                        notePreview(item)
+                        // Lo que avanzó y no está en memoria: se baja en frío (abajo).
+                        if canal.hilo(sesion: item.session.id) == nil, let seq = item.lastSeq,
+                           seq > (cache.meta(agent, session: item.session.id)?.lastSeq ?? -1) {
+                            moved.append(item)
+                        }
+                    }
                     changed += items.count
                 }
                 if let c = page.cursor { cursor = c; cache.setSyncCursor(c, for: Self.accountCursorKey) }
                 if !page.hasMore { break }
             } while true
             EasyBitsClient.diag("[sync] cuenta: \(changed) conversaciones en \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            // Como Android: sólo lo que avanzó, lo más reciente primero, con tope. En frío: no
+            // cuenta como uso ni desaloja lo que abriste.
+            let prefetch = moved.sorted { ($0.session.updatedAt ?? .distantPast) > ($1.session.updatedAt ?? .distantPast) }
+                .prefix(6)
+            Task { [weak self] in
+                for item in prefetch { await self?.prefetchCold(item, client: client) }
+            }
             return true
         } catch {
             EasyBitsClient.diag("[sync] /me/sync falló: \(error)")
@@ -3512,6 +3527,35 @@ extension LiveAgentStore {
             cache.olvidarAbierta(sid, de: canal.cuenta.id)
             canal.cerrar(h)
         }
+    }
+
+    /// Baja lo nuevo de un hilo que no está en memoria y lo funde con su copia del disco.
+    private func prefetchCold(_ item: ClienteGS.AccountSync.Item, client: ClienteGS) async {
+        let agent = item.agentID, sid = item.session.id
+        let key = "\(agent)|\(sid)"
+        guard !trayendo.contains(key), canales[agent]?.hilo(sesion: sid) == nil else { return }
+        trayendo.insert(key)
+        defer { trayendo.remove(key) }
+        let meta = cache.meta(agent, session: sid)
+        let saved = cache.abierto(agent, sesion: sid) ?? []
+        let after = meta?.epoch == nil ? nil : saved.compactMap(\.seq).max()
+        guard var page = try? await client.messages(sid, agentID: agent, after: after) else { return }
+        var base = saved
+        if after != nil, page.epoch != meta?.epoch || page.hasMoreAfter {
+            guard let fresh = try? await client.messages(sid, agentID: agent) else { return }
+            page = fresh
+            base = []
+        } else if after == nil {
+            base = [] // caché de antes de v2: sin `seq`, la sustituye la página
+        }
+        let merged = ThreadMerge.merge(base, with: page.messages)
+        guard !merged.isEmpty, canales[agent]?.hilo(sesion: sid) == nil else { return }
+        cache.guardarUno(agent, sesion: sid, mensajes: merged)
+        let seqs = merged.compactMap(\.seq)
+        cache.saveMeta(ThreadMeta(epoch: page.epoch, lastSeq: seqs.max(), oldestSeq: seqs.min(),
+                                  hasMoreBefore: after == nil ? page.hasMoreBefore : (meta?.hasMoreBefore ?? false)),
+                       agent, session: sid)
+        vistasPrevias["\(agent)/\(sid)"] = VistaPrevia.de(merged)
     }
 
     /// El renglón de Chats sin bajar el hilo: la vista previa que manda gs.
