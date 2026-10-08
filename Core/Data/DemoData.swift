@@ -107,6 +107,10 @@ enum DemoData {
         var foto = Adjunto(nombre: "bukowski.png", mime: "image/png", datos: png)
         foto.remoto = GhostyAPI.ArchivoRemoto(id: "demo-file", nombre: "bukowski.png",
                                               mime: "image/png", bytes: png.count, url: "")
+        // `GHOSTY_DEMO_GIF=<ruta>`: la foto mandada es ese GIF, para ver que anime.
+        if let ruta = Gancho.valor("GHOSTY_DEMO_GIF"), let gif = try? Data(contentsOf: URL(fileURLWithPath: ruta)) {
+            foto = Adjunto(nombre: "demo.gif", mime: "image/gif", datos: gif)
+        }
         // Un MP3 mínimo pero REAL: empieza por `ID3`, que es justo el caso que se
         // guardaba como `.txt` y salía como un muro de basura en el visor del sistema.
         let mp3 = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A]
@@ -117,9 +121,10 @@ enum DemoData {
         let doc = Entrega(id: "demo-doc", agentID: "demo-1", sesionID: "s-foto",
                           forma: .doc, titulo: "Resumen del trimestre", recibida: Date(),
                           contenido: "# Resumen\n\nTres cosas.", datos: nil)
+        let gifDemo = Gancho.valor("GHOSTY_DEMO_GIF").flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
         let entrega = Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto",
-                              forma: .archivo, titulo: "recorte.png", recibida: Date(),
-                              contenido: nil, datos: png)
+                              forma: .archivo, titulo: gifDemo == nil ? "recorte.png" : "demo.gif",
+                              recibida: Date(), contenido: nil, datos: gifDemo ?? png)
         // El texto pasa por el MISMO puente que en vivo, o la demo probaría otra cosa.
         let crudo = "Ya está, recortada. Te la entrego.\n\n"
             // La nota de voz TAL CUAL la imprime `voice.speak` del SDK: sólo URL, sin bytes.

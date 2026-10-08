@@ -1045,8 +1045,10 @@ struct ConversationView: View {
                     let datos = try? await item.loadTransferable(type: Data.self)
                     // El nombre no viaja con la foto: se inventa uno legible, porque es lo
                     // que la persona va a ver en el chip y lo que el agente verá si sube.
-                    agregar(datos.map {
-                        Adjunto(nombre: "foto-\(adjuntos.count + 1).jpg", mime: "image/jpeg", datos: $0)
+                    agregar(datos.map { d in
+                        let mime = DecodificadorDeImagen.mime(d) ?? "image/jpeg"
+                        let ext = mime == "image/jpeg" ? "jpg" : String(mime.dropFirst("image/".count))
+                        return Adjunto(nombre: "foto-\(adjuntos.count + 1).\(ext)", mime: mime, datos: d)
                     })
                 }
                 fotos = []

@@ -370,9 +370,7 @@ private struct ImagenDeRespuesta: View {
         Group {
             // La de memoria se pinta YA: volver al hilo no enseña el hueco con spinner.
             if let imagen = imagen ?? url.flatMap(CargadorDeImagen.enMemoria) {
-                Image(uiImage: imagen)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
+                ImagenAnimable(imagen, modo: .fit)
                     .frame(maxWidth: 250, maxHeight: 250)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
                     .contentShape(Rectangle())

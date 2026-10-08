@@ -22,7 +22,7 @@ enum CacheDeImagenes {
 
     @MainActor
     static func imagen(_ adjunto: Adjunto) async -> UIImage? {
-        if !adjunto.datos.isEmpty, let i = UIImage(data: adjunto.datos) { return i }
+        if !adjunto.datos.isEmpty, let i = DecodificadorDeImagen.imagen(adjunto.datos) { return i }
         guard let id = adjunto.remoto?.id else { return nil }
         if let ya = MiniaturasEnMemoria.imagen(id) { return ya }
         if let tarea = enVuelo[id] { return await tarea.value }
@@ -30,7 +30,7 @@ enum CacheDeImagenes {
         // `bajar` mira primero el disco; sólo va a la red si no está.
         let tarea = Task<UIImage?, Never> {
             guard let d = try? await GhostyAPI.bajar(id) else { return nil }
-            return await Task.detached(priority: .userInitiated) { UIImage(data: d)?.preparingForDisplay() ?? UIImage(data: d) }.value
+            return await Task.detached(priority: .userInitiated) { DecodificadorDeImagen.imagenLista(d) }.value
         }
         enVuelo[id] = tarea
         let img = await tarea.value
