@@ -33,9 +33,7 @@ struct VisorDeImagen: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            Image(uiImage: imagen)
-                .resizable()
-                .scaledToFit()
+            ImagenAnimable(imagen, modo: .fit)
                 .scaleEffect(escala * pellizco)
                 .gesture(
                     MagnifyGesture()

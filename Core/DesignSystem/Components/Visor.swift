@@ -120,14 +120,14 @@ enum CargadorDeImagen {
         if let t = enVuelo[k] { return await t.value }
 
         let destino = carpeta.appending(path: k)
-        if let d = try? Data(contentsOf: destino), let img = UIImage(data: d) {
+        if let d = try? Data(contentsOf: destino), let img = DecodificadorDeImagen.imagen(d) {
             memoria[k] = img
             return img
         }
         let tarea = Task<UIImage?, Never> {
             guard let (d, _) = try? await URLSession.shared.data(from: url) else { return nil }
             try? d.write(to: destino, options: .atomic)
-            return UIImage(data: d)
+            return DecodificadorDeImagen.imagen(d)
         }
         enVuelo[k] = tarea
         let img = await tarea.value

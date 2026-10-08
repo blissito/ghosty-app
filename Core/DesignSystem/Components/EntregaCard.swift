@@ -37,7 +37,7 @@ struct EntregaCard: View {
         let clave = "entrega:" + (entrega.remotoID ?? entrega.id)
         if let ya = MiniaturasEnMemoria.imagen(clave) { return ya }
         guard let d = datos else { return nil }
-        let img = entrega.tipo == "pdf" ? Self.portada(d) : UIImage(data: d)
+        let img = entrega.tipo == "pdf" ? Self.portada(d) : DecodificadorDeImagen.imagen(d)
         if let img { MiniaturasEnMemoria.guardar(img, clave: clave) }
         return img
     }
@@ -82,7 +82,7 @@ struct EntregaCard: View {
             bajados = d
             falloAlBajar = nil
             if yAbrir {
-                if entrega.tipo != "pdf", let img = UIImage(data: d), entrega.esAudio == false { mirando = img }
+                if entrega.tipo != "pdf", let img = DecodificadorDeImagen.imagen(d), entrega.esAudio == false { mirando = img }
                 else { compartiendo = conBytes()?.aDisco() }
             }
         }
@@ -246,9 +246,7 @@ struct EntregaCard: View {
     @ViewBuilder
     private var vistaPrevia: some View {
         if let img = imagen {
-            Image(uiImage: img)
-                .resizable()
-                .scaledToFill()
+            ImagenAnimable(img, modo: .fill)
                 // Un documento se recorta por ABAJO, no por el centro: lo que identifica una
                 // página es su encabezado. Una foto sí se centra.
                 .frame(maxWidth: .infinity, maxHeight: 180,

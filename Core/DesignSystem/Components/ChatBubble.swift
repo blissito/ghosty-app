@@ -90,8 +90,7 @@ extension UserBubble {
         VStack(alignment: .leading, spacing: 6) {
             if imagenes.count == 1 {
                 ImagenDeAdjunto(adjunto: imagenes[0], alto: 140) { img in
-                    Image(uiImage: img)
-                        .resizable().scaledToFit()
+                    ImagenAnimable(img, modo: .fit)
                         // ⚠️ Se acota tanto por arriba COMO por el tamaño real: `resizable` a
                         // secas agranda lo que sea hasta llenar el ancho, y una imagen chica
                         // acababa como un bloque gigante y pixelado. Que se vea pequeña si es
@@ -105,8 +104,7 @@ extension UserBubble {
                                     GridItem(.flexible(), spacing: 6)], spacing: 6) {
                     ForEach(imagenes) { a in
                         ImagenDeAdjunto(adjunto: a, alto: 86) { img in
-                            Image(uiImage: img)
-                                .resizable().scaledToFill()
+                            ImagenAnimable(img, modo: .fill)
                                 .frame(height: 86)
                                 .clipped()
                                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.chip, style: .continuous))
