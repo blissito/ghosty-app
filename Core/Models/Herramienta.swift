@@ -57,10 +57,15 @@ struct Herramienta: Identifiable, Equatable, Sendable {
 
     /// ¿Es un encargo a un subagente? Por la clase y, en hilos guardados antes de `delegate`,
     /// por el título.
+    /// Los verbos con que gs titula un encargo (van al azar) y los de hilos viejos.
+    static let delegationPrefixes = [
+        "Solicité:", "Encargué:", "Envié:", "Delegué:", "Pedí:",
+        "Mandé a un ghostyllo:", "Mandé a un ghostillo:",
+    ]
+
     var isDelegation: Bool {
         clase == .delegate || titulo == "Delegando"
-            || titulo.hasPrefix("Solicité:") || titulo.hasPrefix("Encargué:") || titulo.hasPrefix("Mandé a un ghostyllo:")
-            || titulo.hasPrefix("Mandé a un ghostillo:")
+            || Self.delegationPrefixes.contains { titulo.hasPrefix($0) }
     }
 
     let id: String
