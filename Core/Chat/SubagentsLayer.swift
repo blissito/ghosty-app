@@ -344,10 +344,10 @@ extension SubagentsBar {
         return nil
     }
 
-    /// ¿El hilo dice que el agente lanzó subagentes? (la tool `Agent` se pinta «Delegando»).
+    /// ¿El hilo dice que el agente lanzó subagentes? (la tool `Agent`, ver `Herramienta.isDelegation`).
     private var delegatedInThread: Bool {
         store.messages.suffix(8).contains { m in
-            if case .agent(_, let tools, _) = m.kind { return tools?.herramientas.contains { $0.titulo == "Delegando" } == true }
+            if case .agent(_, let tools, _) = m.kind { return tools?.herramientas.contains(where: \.isDelegation) == true }
             return false
         }
     }

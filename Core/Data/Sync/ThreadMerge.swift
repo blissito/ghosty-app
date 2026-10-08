@@ -47,12 +47,12 @@ enum ThreadMerge {
                 }
                 continue
             }
-            // 2b. Tu mensaje cuyo turno aún no se conoce (`pending-…`; un steer nunca lo
-            //     sabe): mismo texto, mismo lado. Es el único caso que compara texto.
+            // 2b. Tu mensaje que gs guardó con OTRO turno: un steer se guarda con el `turnId`
+            //     del turno vivo, no con el del POST (8-oct). Mismo texto, mismo lado, aún sin
+            //     `seq`. Es el único caso que compara texto.
             if role(incoming) == .user, case .user(let text, _, _) = incoming.kind,
                let i = result.firstIndex(where: { m in
-                   guard m.seq == nil, m.turnId?.hasPrefix("pending-") == true,
-                         case .user(let t, _, _) = m.kind else { return false }
+                   guard m.seq == nil, m.turnId != nil, case .user(let t, _, _) = m.kind else { return false }
                    return t == text
                }) {
                 result[i] = updated(result[i], with: incoming)

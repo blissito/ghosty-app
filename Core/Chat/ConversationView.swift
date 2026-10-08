@@ -86,6 +86,8 @@ struct ConversationView: View {
     /// hilo: la diferencia es el aire que se pone debajo para que el mensaje QUEPA arriba.
     @State private var altoDeLaCola: CGFloat = 0
     @State private var interruptedVisible = false
+    /// El último mensaje que ya estaba en pantalla, y de qué hilo (ver `llegoMensaje`).
+    @State private var lastSeen: (thread: String, id: String?) = ("", nil)
     @State private var tailStart: CGFloat = 0
     @State private var tailEnd: CGFloat = 0
     @State private var altoVisible: CGFloat = 0
@@ -856,6 +858,20 @@ struct ConversationView: View {
     /// reconstruir —y volver de otra pestaña lo perdía—. Ahora lo pone `send`, que es
     /// quien sabe de verdad qué acabas de mandar, y vive en el hilo.
     private func llegoMensaje(_ lector: ScrollViewProxy) {
+        let last = mensajesVisibles.last
+        defer { lastSeen = (hiloVisible, last?.id) }
+        // ⚠️ Una respuesta NUEVA que no es la del turno en vivo (el remate de un subagente, lo
+        // que trajo un push o el sync de otra superficie) quedaba fuera de pantalla: el ancla
+        // de tu mensaje la retenía arriba, o se bajaba a su FINAL. Como Android: se suelta el
+        // ancla y se baja al INICIO de la nueva (bliss, 8-oct).
+        if siguiendoElFinal, let last, case .agent = last.kind,
+           lastSeen.thread == hiloVisible, let previous = lastSeen.id, previous != last.id,
+           mensajesVisibles.contains(where: { $0.id == previous }),
+           last.id != store.hiloActivo?.respuestaEnCursoID, store.currentTurn == nil {
+            store.anclaDelHilo = nil
+            withAnimation(.easeOut(duration: 0.35)) { lector.scrollTo(last.id, anchor: .top) }
+            return
+        }
         seguir(animado: true)
     }
 

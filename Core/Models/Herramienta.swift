@@ -15,6 +15,9 @@ struct Herramienta: Identifiable, Equatable, Sendable {
         /// Generar o editar una imagen. Studio la manda con `kind: "image"` y título
         /// «Creando imagen»/«Editando imagen» (el prompt va en `detalle`).
         case imagen = "image"
+        /// Le encargó algo a un subagente (la tool `Agent`). gs la manda con `kind: "delegate"`
+        /// y título «Encargué: …» / «Mandé a un ghostillo: …»; antes, «Delegando».
+        case delegate
 
         /// ⚠️ Una clase desconocida NO se esconde: cae en `other`. Es la regla de la casa
         /// —una tool que no reconocemos se humaniza, nunca se descarta— y viene de cuando
@@ -32,6 +35,7 @@ struct Herramienta: Identifiable, Equatable, Sendable {
             case .move:    "arrow.right.doc.on.clipboard"
             case .delete:  "trash"
             case .imagen:  "photo"
+            case .delegate: "person.2"
             case .other:   "wrench.adjustable"
             }
         }
@@ -50,6 +54,13 @@ struct Herramienta: Identifiable, Equatable, Sendable {
     /// Cómo va. ⚠️ Antes esto era un `Bool`, así que "corriendo" y "falló" eran lo mismo:
     /// un paso que revienta se pintaba igual que uno que salió bien.
     enum Estado: Sendable { case corriendo, hecha, fallida }
+
+    /// ¿Es un encargo a un subagente? Por la clase y, en hilos guardados antes de `delegate`,
+    /// por el título.
+    var isDelegation: Bool {
+        clase == .delegate || titulo == "Delegando"
+            || titulo.hasPrefix("Encargué:") || titulo.hasPrefix("Mandé a un ghostillo:")
+    }
 
     let id: String
     var titulo: String

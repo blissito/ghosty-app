@@ -95,3 +95,16 @@ final class ThreadMergePendingTests: XCTestCase {
         XCTAssertTrue(steer)
     }
 }
+
+final class ThreadMergeSteerTests: XCTestCase {
+    /// gs guarda el steer con el turno VIVO, no con el del POST: no debe duplicarse.
+    func testSteerSavedWithLiveTurnIsNotDuplicated() {
+        let local = [Message(id: "u1", kind: .user("haz esto"), seq: 1, turnId: "t1"),
+                     Message(id: "steer", kind: .user("y también aquello", steer: true), turnId: "t2-post")]
+        let page = [Message(id: "s2", kind: .user("y también aquello"), seq: 2, turnId: "t1")]
+        let merged = ThreadMerge.merge(local, with: page)
+        XCTAssertEqual(merged.map(\.id), ["u1", "steer"])
+        XCTAssertEqual(merged[1].seq, 2)
+    }
+}
+
