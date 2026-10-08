@@ -329,8 +329,10 @@ enum SubagentsBarMode: Equatable {
 }
 
 extension SubagentsBar {
-    /// Cuánto se quedan a la vista los que ya terminaron (Claude Code: 30 s).
+    /// Cuánto se quedan a la vista los que fallaron o se detuvieron: piden atención (30 s, con ✕).
     static let finishedGrace: TimeInterval = 30
+    /// Los que terminaron bien se van rápido (bliss, 8-oct; igual que Android `DONE_GRACE_MS`).
+    static let doneGrace: TimeInterval = 5
 
     func mode(at now: Date) -> SubagentsBarMode? {
         let running = layer.running
@@ -338,7 +340,7 @@ extension SubagentsBar {
         let recent = layer.finished.filter { now.timeIntervalSince($0.endedAt ?? now) < Self.finishedGrace }
         let problems = recent.filter { ($0.status == "failed" || $0.status == "stopped") && !layer.dismissed.contains($0.id) }
         if !problems.isEmpty { return .problems(ids: problems.map(\.id)) }
-        let done = recent.filter { $0.status == "completed" }
+        let done = recent.filter { $0.status == "completed" && now.timeIntervalSince($0.endedAt ?? now) < Self.doneGrace }
         if !done.isEmpty { return .done(count: done.count) }
         if !layer.snapshotReceived, !layer.unavailable, delegatedInThread { return .loading }
         return nil
