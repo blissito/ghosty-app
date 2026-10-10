@@ -56,7 +56,8 @@ capturas nuevas (`scripts/capturas-tienda.sh`); salida MANUAL.
 La 1.0.7 (build 75: historial con sync v2 —sin parpadeo, base local GRDB, /me/sync + /me/events—,
 subagentes nativos con barra/hoja/remate para PowerGhosty y MiniGhosty, push que abre la conversación en
 frío, LaunchScreen con flamita) se mandó a revisión el 2026-10-08; salida MANUAL.
-**Siguiente (decidido por bliss el 8-oct):** la 1.0.8 (build 77 en TestFlight —la 76 más «Juntando…» que no se cuelga y push de Teams que abre su liga—: íconos por clase de
+La 1.0.7 ya está en la tienda; la 1.0.8 (build 77) se mandó a revisión el 2026-10-10, salida MANUAL.
+**Antes (decidido por bliss el 8-oct):** la 1.0.8 (build 77 en TestFlight —la 76 más «Juntando…» que no se cuelga y push de Teams que abre su liga—: íconos por clase de
 paso, hoja del ghostyllo legible, «Juntando…» por `delivered` de gs; textos en `whats_new.txt`) va a
 revisión EN CUANTO se apruebe y publique la 1.0.7: `asc.py publicar` → `asc.py ficha 1.0.8 <id build 77>`
 → `asc.py enviar-tienda` → `suggestBuild` a 75/77. Pendiente para la build siguiente: pintar los
