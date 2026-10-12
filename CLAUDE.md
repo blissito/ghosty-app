@@ -57,11 +57,11 @@ La 1.0.7 (build 75: historial con sync v2 —sin parpadeo, base local GRDB, /me/
 subagentes nativos con barra/hoja/remate para PowerGhosty y MiniGhosty, push que abre la conversación en
 frío, LaunchScreen con flamita) se mandó a revisión el 2026-10-08; salida MANUAL.
 La 1.0.8 (build 77) se publicó el 2026-10-12; falta subir `suggestBuild` a 77 en `/admin/settings`.
+La 1.0.9 (pasos guardados al reabrir el hilo + suite de UI al día) está lista en `main` para subir.
 **Antes (decidido por bliss el 8-oct):** la 1.0.8 (build 77 en TestFlight —la 76 más «Juntando…» que no se cuelga y push de Teams que abre su liga—: íconos por clase de
 paso, hoja del ghostyllo legible, «Juntando…» por `delivered` de gs; textos en `whats_new.txt`) va a
 revisión EN CUANTO se apruebe y publique la 1.0.7: `asc.py publicar` → `asc.py ficha 1.0.8 <id build 77>`
-→ `asc.py enviar-tienda` → `suggestBuild` a 75/77. Pendiente para la build siguiente: pintar los
-`steps` que ya guarda gs en `GET …/messages` (tarjeta de pasos al reabrir; Android ya lo hace).
+→ `asc.py enviar-tienda` → `suggestBuild` a 75/77. Los `steps` de `GET …/messages` ya se pintan (1.0.9).
 ⚠️ Una versión aprobada y sin publicar (`PENDING_DEVELOPER_RELEASE`) BLOQUEA crear la siguiente
 (`asc.py ficha` da 409): publícala o descártala antes. La receta:
 
@@ -264,6 +264,6 @@ Contrato: `~/ghosty-studio/docs/claude/sync-v2.md` (lee sus desviaciones). Bande
 SQLite (`Core/Data/Store/LocalDB.swift`, GRDB, en el App Group), el `turnId` nace en el teléfono, las
 listas de todos los agentes en una llamada (`/me/conversations?agentes=`) y sólo el agente visible
 baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore`.
-⚠️ La suite de UI (`RecorridoUITests`) tiene 11 fallas que vienen del rediseño de Chats: hay que
-ponerla al día antes de la próxima subida a la tienda.
+La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
+desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 

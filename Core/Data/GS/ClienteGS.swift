@@ -256,7 +256,16 @@ actor ClienteGS: TransporteDeAgente {
         // Una foto sola, sin texto, también es un mensaje.
         let hasFiles = !((m["attachments"] as? [Any]) ?? []).isEmpty
         guard let t = m["text"] as? String, !t.isEmpty || hasFiles else { return [] }
-        guard m["role"] as? String == "user" else { return [.turno("m\(i)"), .agent(t)] }
+        // Los pasos que gs guarda con la respuesta (`stored-steps.ts`): sin ellos, al reabrir el
+        // hilo la tarjeta de pasos desaparecía y sólo quedaba el texto. Van antes del texto,
+        // igual que llegaron en vivo.
+        guard m["role"] as? String == "user" else {
+            let steps = (m["steps"] as? [[String: Any]] ?? []).compactMap { s -> ACPClient.Replay? in
+                guard let id = s["id"] as? String else { return nil }
+                return .tool(ACPClient.herramienta(s, id: id))
+            }
+            return [.turno("m\(i)")] + steps + [.agent(t)]
+        }
         // Un turno abierto por la plataforma (agenda, entrega de un encargo): línea de
         // sistema con la causa, no burbuja de la persona con las instrucciones al modelo.
         if t.hasPrefix("⏰ ") { return [.turno("m\(i)"), .user(t)] }

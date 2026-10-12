@@ -1,4 +1,3 @@
-• Cada paso de tus ayudantes ahora tiene su propio ícono: se nota de un vistazo si estoy buscando en la web, leyendo, organizando o entregándote algo.
-• Al ver lo que hace cada ghostyllo, su texto sale de corrido y sus herramientas en palabras claras.
-• El aviso «Juntando lo que trajeron…» desaparece en cuanto tienes el resultado, sin quedarse esperando.
-• Mejoras de estabilidad cuando tus ayudantes tardan o se pierde la conexión.
+• Al volver a una conversación, cada respuesta conserva la lista de pasos que seguí para llegar a ella: qué busqué, qué leí y qué te entregué.
+• También la ves si la conversación empezó en la web o en otro dispositivo.
+• Mejoras de estabilidad.

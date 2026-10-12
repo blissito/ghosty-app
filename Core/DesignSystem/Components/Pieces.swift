@@ -208,6 +208,15 @@ struct AgentHeader: View {
     private var trabajando: Bool { if case .working = status { return true } else { return false } }
     @State private var latiendo = false
 
+    /// Lo que dice el punto, en palabras (VoiceOver y las pruebas de UI). En reposo, nada.
+    private var spokenStatus: String {
+        switch status {
+        case .working(let task): return task
+        case .awaitingApproval: return "Espera tu visto bueno"
+        case .idle: return ""
+        }
+    }
+
     private var punto: Color? {
         switch status {
         case .working: return .gGreen
@@ -293,6 +302,8 @@ struct AgentHeader: View {
             .simultaneousGesture(LongPressGesture(minimumDuration: 0.45).onEnded { _ in onMantener?() })
             .accessibilityIdentifier("cabecera-agente")
             .accessibilityLabel("\(agent.name), \(Self.subtitle(agent)). Cambiar de agente")
+            // El punto de estado no se oye con VoiceOver: aquí se dice en palabras.
+            .accessibilityValue(spokenStatus)
 
             Spacer(minLength: 4)
 

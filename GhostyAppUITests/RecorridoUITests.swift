@@ -27,22 +27,46 @@ final class RecorridoUITests: XCTestCase {
         app.launch()
     }
 
-    /// El historial ya no es pestaña: se abre con el botón de la cabecera del chat (hoja).
-    /// Si ya está abierto, no hace nada; si estás en otra pestaña, vuelve a Chat primero.
-    private func abrirHistorial() {
-        if app.buttons["nueva-conversacion-lista"].exists
-            && !app.buttons["abrir-historial"].isHittable { return }
-        if !app.buttons["abrir-historial"].exists { app.buttons["tab-chat"].tap() }
-        let boton = app.buttons["abrir-historial"]
-        XCTAssertTrue(boton.waitForExistence(timeout: 3), "no está el botón del historial")
-        boton.tap()
+    /// La fila de «Chats» de esa conversación, por su título (y su agente). Las filas son
+    /// `h-<agente>-…` (abiertas en el teléfono) o `s-<agente>-…` (guardadas en la caja).
+    private func filaDeChat(_ titulo: String, agente: String = "demo-1") -> XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "(identifier BEGINSWITH %@ OR identifier BEGINSWITH %@) AND label BEGINSWITH %@",
+            "h-\(agente)-", "s-\(agente)-", titulo)).firstMatch
+    }
+
+    /// Todas las filas de «Chats», para contarlas.
+    private var filasDeChats: XCUIElementQuery {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'h-' OR identifier BEGINSWITH 's-'"))
+    }
+
+    /// Chats es el inicio (rediseño estilo WhatsApp): para mirar un hilo hay que tocar su
+    /// fila. Comprueba que el toque entró (la flecha de regreso), que es el fallo de siempre.
+    private func abrirChat(_ titulo: String, agente: String = "demo-1",
+                           file: StaticString = #filePath, line: UInt = #line) {
+        let fila = filaDeChat(titulo, agente: agente)
+        XCTAssertTrue(fila.waitForExistence(timeout: 10), "no está «\(titulo)» en Chats", file: file, line: line)
+        fila.tap()
+        XCTAssertTrue(app.buttons["volver-a-chats"].waitForExistence(timeout: 3),
+                      "tocar «\(titulo)» no entró al hilo", file: file, line: line)
+        // Con el hilo asentado: entra deslizándose y un toque a media animación se pierde.
         Thread.sleep(forTimeInterval: 0.6)
     }
 
+    /// La flecha del hilo: de vuelta a «Chats».
+    private func volverAChats(file: StaticString = #filePath, line: UInt = #line) {
+        if app.keyboards.count > 0 { app.swipeDown() }
+        app.buttons["volver-a-chats"].tap()
+        XCTAssertTrue(app.buttons["volver-a-chats"].waitForNonExistence(timeout: 3),
+                      "la flecha no regresó a Chats", file: file, line: line)
+        Thread.sleep(forTimeInterval: 0.4)
+    }
+
     /// «Cambiar de agente»: el avatar de la barra abre la hoja, elegir otro agente lleva
-    /// al chat con ese agente, y el velo la cierra.
+    /// a «Chats» con SUS conversaciones (su chip puesto), y el velo la cierra.
     func testCambiarDeAgente() {
-        XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["tab-agente"].waitForExistence(timeout: 10))
+        // Desde otra pestaña: elegir agente tiene que traerte de vuelta a Chats.
         app.buttons["tab-memorias"].tap()
         app.buttons["tab-agente"].tap()
         XCTAssertTrue(app.staticTexts["Cambiar de agente"].waitForExistence(timeout: 3),
@@ -53,9 +77,12 @@ final class RecorridoUITests: XCTestCase {
         nube.tap()
         XCTAssertTrue(app.staticTexts["Cambiar de agente"].waitForNonExistence(timeout: 3),
                       "elegir un agente no cerró la hoja")
-        XCTAssertTrue(app.buttons["abrir-historial"].waitForExistence(timeout: 3),
-                      "elegir un agente no llevó al chat")
-        XCTAssertTrue(app.staticTexts["Nube"].exists, "no cambió de agente")
+        XCTAssertTrue(app.buttons["tab-chat"].waitForExistence(timeout: 3) && app.buttons["tab-chat"].isSelected,
+                      "elegir un agente no llevó a Chats")
+        XCTAssertTrue(app.buttons["chip-demo-2"].waitForExistence(timeout: 3) && app.buttons["chip-demo-2"].isSelected,
+                      "no cambió de agente: el chip de Nube no quedó puesto")
+        XCTAssertTrue(filaDeChat("resume el trimestre", agente: "demo-2").exists, "no salen las conversaciones de Nube")
+        XCTAssertFalse(filaDeChat("solo me interesa la foto").exists, "siguen saliendo las conversaciones de Ghosty")
         foto("61-agente-cambiado")
         // El velo cierra.
         app.buttons["tab-agente"].tap()
@@ -81,7 +108,7 @@ final class RecorridoUITests: XCTestCase {
         app.launchEnvironment["GHOSTY_DEMO"] = nil
         app.launchEnvironment["GHOSTY_SIN_SESION"] = "1"
         app.launch()
-        XCTAssertTrue(app.staticTexts["Tu agente, en tu bolsillo."].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.staticTexts["Encárgame trabajo y te lo entrego hecho."].waitForExistence(timeout: 3),
                       "no salió la pantalla de entrar")
         XCTAssertTrue(app.staticTexts["Necesitas una cuenta de ghosty.studio."].exists,
                       "el login no dice que hace falta cuenta")
@@ -96,7 +123,7 @@ final class RecorridoUITests: XCTestCase {
     /// debajo (como Claude). Se fotografía con el teclado recién cerrado, que es cuando
     /// el alto visible cambia y el aire de abajo se recalcula.
     func testMandarSubeElMensaje() {
-        XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
+        abrirChat("El informe")
         let campo = app.textViews["campo-mensaje"].firstMatch
         XCTAssertTrue(campo.waitForExistence(timeout: 3), "no hay campo de mensaje")
         campo.tap()
@@ -160,6 +187,7 @@ final class RecorridoUITests: XCTestCase {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO_TRABAJANDO"] = "1"
         app.launch()
+        abrirChat("El informe")
         XCTAssertTrue(app.buttons["detener"].waitForExistence(timeout: 10),
                       "no salió el botón de detener con un turno vivo")
         foto("20-detener")
@@ -176,16 +204,25 @@ final class RecorridoUITests: XCTestCase {
     func testInterrumpido() {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO_INTERRUMPIDO"] = "1"
+        // Al volver del fondo sigues DENTRO del hilo, no tocas su fila: tocarla lo trae de
+        // nuevo del servidor, y en la demo eso lo da por terminado.
+        app.launchEnvironment["GHOSTY_EN_HILO"] = "1"
         app.launch()
         let cartel = app.staticTexts["Estoy en ello. Te aviso en cuanto termine."]
         XCTAssertTrue(cartel.waitForExistence(timeout: 10),
                       "no salió el cartel del turno interrumpido")
+        // La cabecera no puede decir «en reposo» encima del cartel que dice que sigue.
+        // (En la demo otra conversación espera permiso, y eso gana: también vale.)
+        let cabecera = app.buttons["cabecera-agente"]
+        let dice = (cabecera.value as? String) ?? ""
+        XCTAssertFalse(dice.isEmpty, "la cabecera dice que el agente está en reposo encima del cartel")
         foto("22-interrumpido")
         // Y en la lista tiene que verse igual de tranquilo: gris, no rojo de fallo.
-        abrirHistorial()
-        XCTAssertTrue(app.staticTexts["Estoy en ello · te aviso"]
-                        .waitForExistence(timeout: 5),
-                      "la lista no dice que el hilo sigue en el agente")
+        volverAChats()
+        let fila = filaDeChat("El informe")
+        XCTAssertTrue(fila.waitForExistence(timeout: 5), "el hilo interrumpido no sale en Chats")
+        XCTAssertFalse(fila.label.contains("No terminó"),
+                       "la lista da por fallido el hilo interrumpido: «\(fila.label)»")
         foto("23-interrumpido-lista")
     }
 
@@ -226,33 +263,30 @@ final class RecorridoUITests: XCTestCase {
     }
 
     func testRecorrido() {
-        XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10), "la app no arrancó en la demo")
-        foto("01-chat")
+        XCTAssertTrue(app.buttons["nueva-conversacion-lista"].waitForExistence(timeout: 10), "la app no arrancó en la demo")
+        foto("01-chats")
 
-        // 1. Nueva conversación desde la cabecera: tiene que dejarte en un hilo vacío.
+        // 1. Nueva conversación desde la cabecera del hilo: tiene que dejarte en uno vacío.
+        abrirChat("El informe")
         app.buttons["nueva-conversacion-cabecera"].tap()
-        // El vacío del diseño nuevo: «¿Qué le encargamos hoy?» con sus sugerencias.
-        XCTAssertTrue(app.staticTexts["¿Qué le encargamos hoy?"].waitForExistence(timeout: 3),
-                      "el chip de nueva conversación no abrió un hilo vacío")
+        // El vacío del diseño nuevo: «¿Qué trabajo me encargas hoy?» con sus sugerencias.
+        XCTAssertTrue(app.staticTexts["¿Qué trabajo me encargas hoy?"].waitForExistence(timeout: 3),
+                      "el lápiz de la cabecera no abrió un hilo vacío")
         foto("02-nueva-desde-cabecera")
 
-        // 2. La hoja del agente y sus paneles.
-        app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Ghosty' OR label CONTAINS 'Nube'"))
-            .firstMatch.tap()
+        // 2. La hoja del agente y sus paneles: se abre tocando su nombre en la cabecera.
+        app.buttons["cabecera-agente"].tap()
+        let cerrarHoja = app.buttons["cerrar-hoja"].firstMatch
+        XCTAssertTrue(cerrarHoja.waitForExistence(timeout: 3), "tocar el agente no abrió su hoja")
         foto("03-hoja")
+        cerrarHoja.tap()
+        XCTAssertTrue(cerrarHoja.waitForNonExistence(timeout: 3), "la hoja del agente no cerró")
 
-        app.buttons["cerrar-hoja"].firstMatch.tap()
-
-        // 3. La pestaña de conversaciones: la lista de verdad. Tocar una tiene que
-        //    llevarme a ella — es el toque que antes no funcionaba.
-        abrirHistorial()
-        foto("04-conversaciones")
-
-        // La del informe (larga): la primera fila ahora es la vacía que se acaba de crear.
-        let fila = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'El informe'")).firstMatch
-        XCTAssertTrue(fila.waitForExistence(timeout: 3), "no se pintó la lista de conversaciones")
-        fila.tap()
+        // 3. «Chats»: la lista de verdad. Tocar una tiene que llevarme a ella — es el toque
+        //    que antes no funcionaba.
+        volverAChats()
+        foto("04-chats")
+        abrirChat("El informe")
         XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
                       "tocar una conversación no llevó al chat")
         foto("05-tras-tocar-conversacion")
@@ -291,51 +325,51 @@ final class RecorridoUITests: XCTestCase {
                       "la barra de fuentes no abrió la hoja")
         foto("07a-fuentes")
         app.buttons["Cerrar"].firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["causo.io"].waitForNonExistence(timeout: 3), "la hoja de fuentes no cerró")
 
         // 4b. La conversación con foto: imagen de markdown y tarjeta de entrega. Aquí es
         //     donde se ve si una imagen grande respeta el ancho de la burbuja.
-        // Se llega por la lista (la barra de chips ya no existe).
-        abrirHistorial()
-        let conFoto = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
-        XCTAssertTrue(conFoto.waitForExistence(timeout: 3), "no está la conversación con foto")
-        if conFoto.exists {
-            conFoto.tap()
-            XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3))
-            foto("07b-conversacion-con-imagen")
+        volverAChats()
+        abrirChat("solo me interesa la foto")
+        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3))
+        foto("07b-conversacion-con-imagen")
 
-            // Tocar una imagen de la respuesta tiene que abrirla a pantalla completa.
-            // La imagen grande de la respuesta: la más alta de la pantalla.
-            // Con el hilo ya asentado: al abrirlo se re-ancla abajo mientras las tarjetas
-            // se miden, y un toque en ese instante cae donde la imagen ESTABA.
-            Thread.sleep(forTimeInterval: 1.0)
-            let todas = app.images
-            let imagen = (0..<todas.count).map { todas.element(boundBy: $0) }
-                .filter { $0.frame.height > 100 }
-                .max { $0.frame.height < $1.frame.height }
-            if let imagen, imagen.exists, imagen.isHittable {
-                imagen.tap()
-                // Con la presentación terminada: tocar ✕ a media animación se pierde.
-                XCTAssertTrue(app.buttons["cerrar-visor"].waitForExistence(timeout: 3))
-                Thread.sleep(forTimeInterval: 0.8)
-                foto("07c-imagen-abierta")
-                app.buttons["cerrar-visor"].firstMatch.tap()
-                XCTAssertTrue(app.buttons["cerrar-visor"].waitForNonExistence(timeout: 3), "el visor no cerró")
-            }
-            // La nota de voz (` ```eb-audio `) sale como reproductor y play la baja y la
-            // reproduce: antes era JSON crudo, y un mp3 por URL decía «No tengo el audio».
-            // Con el visor ya cerrado del todo: tocar mientras se va aterrizaba en la
-            // tarjeta de la imagen y volvía a abrirlo.
+        // Tocar una imagen de la respuesta tiene que abrirla a pantalla completa.
+        // La imagen grande de la respuesta: la más alta de la pantalla.
+        // Con el hilo ya asentado: al abrirlo se re-ancla abajo mientras las tarjetas
+        // se miden, y un toque en ese instante cae donde la imagen ESTABA.
+        Thread.sleep(forTimeInterval: 1.0)
+        let todas = app.images
+        let imagen = (0..<todas.count).map { todas.element(boundBy: $0) }
+            .filter { $0.frame.height > 100 }
+            .max { $0.frame.height < $1.frame.height }
+        if let imagen, imagen.exists, imagen.isHittable {
+            imagen.tap()
+            // Con la presentación terminada: tocar ✕ a media animación se pierde.
+            XCTAssertTrue(app.buttons["cerrar-visor"].waitForExistence(timeout: 3))
             Thread.sleep(forTimeInterval: 0.8)
-            let play = app.buttons["reproducir-audio"].firstMatch
-            XCTAssertTrue(play.waitForExistence(timeout: 3), "la nota de voz no salió como reproductor")
-            play.tap()
-            Thread.sleep(forTimeInterval: 1.0)
-            foto("07d-nota-de-voz")
-            XCTAssertEqual(play.label, "Pausar", "play no puso a sonar la nota de voz")
-            XCTAssertFalse(app.staticTexts["Ese enlace ya no sirve."].exists, "la nota de voz no se pudo bajar")
-            XCTAssertFalse(app.staticTexts["No pude reproducirlo."].exists, "la nota de voz no sonó")
+            foto("07c-imagen-abierta")
+            app.buttons["cerrar-visor"].firstMatch.tap()
+            XCTAssertTrue(app.buttons["cerrar-visor"].waitForNonExistence(timeout: 3), "el visor no cerró")
         }
+        // La nota de voz (` ```eb-audio `) sale como la MISMA burbuja de voz que las tuyas
+        // y play la baja y la reproduce: antes era JSON crudo, y un mp3 por URL decía «No
+        // tengo el audio». La del agente es la segunda de 0:04 (la primera es la tuya).
+        // Con el visor ya cerrado del todo: tocar mientras se va aterrizaba en la
+        // tarjeta de la imagen y volvía a abrirlo.
+        Thread.sleep(forTimeInterval: 0.8)
+        let notas = app.otherElements.matching(NSPredicate(format: "label == 'Nota de voz de 0:04'"))
+        XCTAssertTrue(notas.element(boundBy: 1).waitForExistence(timeout: 3),
+                      "la nota de voz del agente no salió como reproductor")
+        let play = notas.element(boundBy: 1).buttons["voz-play"]
+        for _ in 0..<4 where play.exists && !play.isHittable { app.swipeDown() }
+        play.tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        foto("07d-nota-de-voz")
+        XCTAssertEqual(play.label, "Pausar", "play no puso a sonar la nota de voz")
+        XCTAssertFalse(app.staticTexts["Esa nota ya no está."].exists, "la nota de voz no se pudo bajar")
+        XCTAssertFalse(app.staticTexts["No pude bajarlo."].exists, "la nota de voz no se pudo bajar")
+        XCTAssertFalse(app.staticTexts["No pude reproducirlo."].exists, "la nota de voz no sonó")
 
         // 5. El adjuntador de tres tarjetas.
         let mas = app.buttons["adjuntar"]
@@ -351,117 +385,104 @@ final class RecorridoUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
         XCTAssertTrue(camara.waitForNonExistence(timeout: 3), "tocar el velo no cerró la hoja de agregar")
 
-        // 6. Empezar una conversación desde la lista: tiene que LLEVARTE al chat.
-        abrirHistorial()
-        // El lápiz de la lista (el de la cabecera del chat queda tapado por la hoja).
+        // 6. Empezar una conversación desde Chats (el +): eliges agente y te LLEVA al chat.
+        volverAChats()
         let nueva = app.buttons["nueva-conversacion-lista"].firstMatch
         XCTAssertTrue(nueva.waitForExistence(timeout: 3), "no salió el botón de nueva conversación")
         nueva.tap()
-        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
+        let conGhosty = app.buttons["nueva-con-demo-1"].firstMatch
+        XCTAssertTrue(conGhosty.waitForExistence(timeout: 3), "el + no ofreció a qué agente")
+        conGhosty.tap()
+        XCTAssertTrue(app.buttons["volver-a-chats"].waitForExistence(timeout: 3)
+                        && app.buttons["adjuntar"].waitForExistence(timeout: 3),
                       "nueva conversación no llevó al chat")
         foto("09-nueva-conversacion")
+        volverAChats()
 
-        abrirHistorial()
-        // Sin teclado: si queda abierto empuja el popover y tapa media pantalla.
-        if app.keyboards.count > 0 { app.swipeDown() }
+        // 6a. Deslizar una conversación a la izquierda: asoma «Archivar» y pide
+        // confirmación. Se cancela, para que el archivado de verdad (6b) vaya por la
+        // selección y queden cubiertos los dos caminos.
+        let paraDeslizar = filaDeChat("solo me interesa la foto")
+        XCTAssertTrue(paraDeslizar.waitForExistence(timeout: 3), "no está la conversación con foto en Chats")
+        paraDeslizar.swipeLeft()
+        let archivarDeslizado = app.buttons["Archivar"].firstMatch
+        XCTAssertTrue(archivarDeslizado.waitForExistence(timeout: 3), "deslizar no descubrió el botón de archivar")
+        foto("11a-deslizado")
+        archivarDeslizado.tap()
+        XCTAssertTrue(app.staticTexts["Se quita de tus chats y de tu agente."].waitForExistence(timeout: 3),
+                      "archivar al deslizar no pidió confirmación")
+        foto("11b-deslizado-confirmar")
+        // El «Cancelar» de un confirmationDialog no siempre entra en la jerarquía de
+        // accesibilidad: tocar fuera lo cierra igual.
+        let cancelarArchivo = app.buttons["Cancelar"].firstMatch
+        if cancelarArchivo.exists { cancelarArchivo.tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap() }
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertTrue(paraDeslizar.exists, "cancelar archivó la conversación igual")
 
-        // 6a. Deslizar una conversación: asoma «Borrar» y pide confirmación. Se cancela,
-        // para que el borrado de verdad (6b) siga yendo por el toque largo y queden
-        // cubiertos los dos caminos.
-        // Por nombre, no por posición: el recorrido ya creó conversaciones nuevas (sin
-        // sesión) y ésas van primero.
-        let paraDeslizar = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
-        if paraDeslizar.exists {
-            paraDeslizar.swipeLeft()
-            let rojo = app.buttons["borrar-deslizado"].firstMatch
-            XCTAssertTrue(rojo.waitForExistence(timeout: 3), "deslizar no descubrió el botón de borrar")
-            foto("11a-deslizado")
-            rojo.tap()
-            XCTAssertTrue(app.staticTexts["Se borra también de tu agente. No se puede deshacer."]
-                            .waitForExistence(timeout: 3), "el botón rojo no pidió confirmación")
-            foto("11b-deslizado-confirmar")
-            // El «Cancelar» de un confirmationDialog no siempre entra en la jerarquía de
-            // accesibilidad: tocar fuera lo cierra igual.
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
-            Thread.sleep(forTimeInterval: 0.8)
-        }
+        // 6a2. Toque largo → modo selección → «Cambiar nombre»: el campo, guardar, y el
+        // nombre nuevo en la fila. Una de Nube: el nombre se guarda en el teléfono y las
+        // demás pruebas buscan las de Ghosty por su título.
+        let paraNombrar = filaDeChat("Cotización de marzo", agente: "demo-2")
+        XCTAssertTrue(paraNombrar.waitForExistence(timeout: 3), "no está «Cotización de marzo» de Nube")
+        paraNombrar.press(forDuration: 0.6)
+        let renombrar = app.buttons["Cambiar nombre"].firstMatch
+        XCTAssertTrue(renombrar.waitForExistence(timeout: 3), "el toque largo no ofreció cambiar el nombre")
+        renombrar.tap()
+        let campo = app.alerts.textFields.firstMatch
+        XCTAssertTrue(campo.waitForExistence(timeout: 3), "cambiar el nombre no abrió el campo")
+        campo.tap()
+        // Viene con el nombre actual: se borra tecleando retrocesos.
+        let actual = (campo.value as? String) ?? ""
+        campo.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: actual.count))
+        campo.typeText("Lista del súper")
+        foto("11c-renombrar")
+        app.alerts.buttons["Guardar"].firstMatch.tap()
+        XCTAssertTrue(filaDeChat("Lista del súper", agente: "demo-2").waitForExistence(timeout: 3),
+                      "el nombre nuevo no apareció en la lista")
+        foto("11d-renombrada")
 
-        // 6a2. Toque largo → «Renombrar»: el campo, guardar, y el nombre nuevo en la fila.
-        let paraNombrar = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'El informe'")).firstMatch
-        if paraNombrar.exists {
-            paraNombrar.press(forDuration: 1.1)
-            let renombrar = app.buttons["Renombrar"].firstMatch
-            XCTAssertTrue(renombrar.waitForExistence(timeout: 3), "el toque largo no ofreció renombrar")
-            renombrar.tap()
-            // El del ALERTA: la lista ahora tiene buscador y detrás queda el compositor,
-            // así que «el primer campo» ya no es el de renombrar.
-            let campo = app.alerts.textFields.firstMatch
-            XCTAssertTrue(campo.waitForExistence(timeout: 3), "renombrar no abrió el campo")
-            campo.tap()
-            // Viene con el nombre actual: se borra tecleando retrocesos.
-            let actual = (campo.value as? String) ?? ""
-            campo.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: actual.count))
-            campo.typeText("Lista del súper")
-            foto("11c-renombrar")
-            app.buttons["Guardar"].firstMatch.tap()
-            XCTAssertTrue(app.staticTexts["Lista del súper"].waitForExistence(timeout: 3),
-                          "el nombre nuevo no apareció en la lista")
-            foto("11d-renombrada")
-        }
+        // 6b. Toque largo → selección → «Archivar»: se va de verdad de la lista.
+        // Se comprueba que baje el número de filas: sin esto el test pasaba con la fila
+        // intacta, que fue justo lo que ocultó que se borraba el canal equivocado.
+        let paraArchivar = filaDeChat("solo me interesa la foto")
+        let antes = filasDeChats.count
+        paraArchivar.press(forDuration: 0.6)
+        XCTAssertTrue(app.buttons["seleccion-cerrar"].waitForExistence(timeout: 3), "el toque largo no entró a la selección")
+        foto("11-seleccion")
+        // El de la barra de selección: la fila también tiene un «Archivar» (el de deslizar).
+        let archivar = app.buttons.matching(NSPredicate(format: "label == 'Archivar'"))
+            .allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(archivar, "la selección no ofrece archivar")
+        archivar?.tap()
+        foto("13-archivando")
+        XCTAssertTrue(paraArchivar.waitForNonExistence(timeout: 3), "la conversación no se archivó")
+        XCTAssertLessThan(filasDeChats.count, antes, "la lista no tiene una fila menos")
+        foto("14-archivado")
 
-        // 6b. Toque largo sobre una conversación: menú y confirmación de borrado.
-        let paraBorrar = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
-        let antes = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).count
-        if paraBorrar.exists {
-            paraBorrar.press(forDuration: 1.1)
-            foto("11-menu-borrar")
-            let borrar = app.buttons["Borrar"].firstMatch
-            XCTAssertTrue(borrar.waitForExistence(timeout: 3), "el toque largo no ofreció borrar")
-            borrar.tap()
-            foto("12-confirmar-borrado")
-            // Y se borra de verdad: la captura inmediata tiene que pillar la fila A MEDIO
-            // IRSE. Si sale entera o ya no sale, es que no hay animación — que es
-            // justamente lo que faltaba.
-            app.buttons.matching(NSPredicate(format: "label == 'Borrar'")).firstMatch.tap()
-            foto("13-borrando")
-            // Y de verdad tiene que haberse ido: sin esto el test pasaba con la fila
-            // intacta, que fue justo lo que ocultó que se borraba el canal equivocado.
-            // Se comprueba que baje el número de filas, no un texto concreto: el paso
-            // anterior crea una conversación nueva y habría dos con el mismo nombre.
-            let quedan = app.descendants(matching: .any).matching(
-                NSPredicate(format: "identifier BEGINSWITH 'conversacion-'")).count
-            XCTAssertLessThan(quedan, antes, "la conversación no se borró")
-            foto("14-borrado")
-        }
-
-        // 7. Lo guardado en el agente (sin abrir en el teléfono) ya no va en un plegable:
-        //    entra en la misma lista por fecha. Tiene que estar Y abrirse al tocarlo.
-        if app.keyboards.count > 0 { app.swipeDown() }
-        abrirHistorial()
-        let guardada = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'guardada-' AND label CONTAINS 'Cotización de marzo'")).firstMatch
+        // 7. Lo guardado en el agente (sin abrir en el teléfono) va en la misma lista por
+        //    fecha. Tiene que estar Y abrirse al tocarlo.
+        let guardada = app.buttons["s-demo-1-s-vieja"]
         XCTAssertTrue(guardada.waitForExistence(timeout: 3), "lo guardado en el agente no sale en la lista")
+        XCTAssertTrue(guardada.label.hasPrefix("Cotización de marzo"), "la guardada no se llama como en la caja")
         foto("10-guardadas")
         guardada.tap()
-        XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3),
+        XCTAssertTrue(app.buttons["volver-a-chats"].waitForExistence(timeout: 3)
+                        && app.buttons["adjuntar"].waitForExistence(timeout: 3),
                       "tocar una conversación guardada no llevó al chat")
-        abrirHistorial()
+        volverAChats()
 
-        // 8. Borrar la cuenta EXISTE y pide confirmación (Apple 5.1.1). Se cancela: en demo
-        //    no hay red y no hay cuenta que borrar.
-        let cuenta = app.buttons["cuenta"].firstMatch
-        XCTAssertTrue(cuenta.waitForExistence(timeout: 3), "no está el botón de cuenta")
-        cuenta.tap()
+        // 8. Borrar la cuenta EXISTE y pide confirmación (Apple 5.1.1). Vive en Perfil. Se
+        //    cancela: en demo no hay red y no hay cuenta que borrar.
+        app.buttons["tab-perfil"].tap()
         let borrarCuenta = app.buttons["borrar-cuenta"].firstMatch
-        XCTAssertTrue(borrarCuenta.waitForExistence(timeout: 3), "no está «Borrar mi cuenta» en Ajustes")
-        app.swipeUp()
+        XCTAssertTrue(borrarCuenta.waitForExistence(timeout: 3), "no está «Borrar mi cuenta» en Perfil")
+        for _ in 0..<4 where !borrarCuenta.isHittable { app.swipeUp() }
         borrarCuenta.tap()
         // El botón rojo de confirmar es la prueba de que se pidió confirmación. Se cierra
         // sin tocarlo: con «Cancelar» si el diálogo lo trae (hoja) o tocando fuera (popover).
+        XCTAssertTrue(app.staticTexts["¿Borrar tu cuenta?"].waitForExistence(timeout: 3),
+                      "borrar la cuenta no pidió confirmación")
         let confirmar = app.buttons.matching(NSPredicate(format: "label == 'Borrar mi cuenta'")).allElementsBoundByIndex
         XCTAssertTrue(confirmar.count >= 2 || app.buttons["Cancelar"].exists, "borrar la cuenta no pidió confirmación")
         foto("15-borrar-cuenta")
@@ -481,32 +502,41 @@ extension RecorridoUITests {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO"] = "1"
         app.launchEnvironment["GHOSTY_DEMO_REMOTO"] = "1"
-        app.launchEnvironment["GHOSTY_TAB"] = "conversations"
         app.launch()
 
         // 1. La cabecera del agente lo dice, aunque el turno no lo abrimos aquí.
         // ⚠️ El permiso GANA sobre el trabajo: es lo único detenido esperándote, y ahora
         // también cuenta el que se pidió desde otra superficie.
-        let estado = app.staticTexts["estado-demo-1"]
-        XCTAssertTrue(estado.waitForExistence(timeout: 5), "no se pintó el estado del agente")
-        XCTAssertTrue(estado.label.contains("visto bueno"),
-                      "un permiso pedido desde otro lado no sale en la lista: «\(estado.label)»")
+        abrirChat("El informe")
+        let estado = app.buttons["cabecera-agente"]
+        XCTAssertTrue(estado.waitForExistence(timeout: 5), "no se pintó la cabecera del agente")
+        let dice = (estado.value as? String) ?? ""
+        XCTAssertTrue(dice.contains("visto bueno"),
+                      "un permiso pedido desde otro lado no sale en la cabecera: «\(dice)»")
         foto("20-estado-remoto")
+        volverAChats()
 
         // 2. Las guardadas: la que corre dice «Trabajando…» y la que lleva tres horas
         //    muda NO — si no, la lista miente toda la tarde.
-        // Ya no hay plegable que abrir: van en la lista por fecha, y cada fila es UN
-        // elemento de accesibilidad (título + subtítulo), así que se busca en su label.
-        func guardada(_ texto: String) -> XCUIElement {
-            app.descendants(matching: .any).matching(NSPredicate(
-                format: "identifier BEGINSWITH 'guardada-' AND label CONTAINS %@", texto)).firstMatch
+        // Cada fila es UN elemento de accesibilidad (título + subtítulo), así que se mira
+        // su label. Sólo las de Ghosty, para que quepan sin hacer scroll.
+        app.buttons["chip-demo-1"].tap()
+        func guardada(_ titulo: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH 's-demo-1-' AND label BEGINSWITH %@", titulo)).firstMatch
         }
-        XCTAssertTrue(guardada("Trabajando…").waitForExistence(timeout: 3),
-                      "la conversación que sí corre no dice que trabaja")
-        XCTAssertTrue(guardada("Sin noticias").exists,
-                      "el turno mudo de hace tres horas sigue diciendo que trabaja")
-        XCTAssertTrue(guardada("Espera tu visto bueno").exists,
-                      "la conversación detenida por un permiso no lo dice")
+        let corre = guardada("Migración de la base")
+        XCTAssertTrue(corre.waitForExistence(timeout: 3), "no sale la conversación que corre en otro lado")
+        XCTAssertTrue(corre.label.contains("Trabajando…"),
+                      "la conversación que sí corre no dice que trabaja: «\(corre.label)»")
+        let muda = guardada("Turno mudo")
+        XCTAssertTrue(muda.exists, "no sale el turno mudo")
+        XCTAssertFalse(muda.label.contains("Trabajando"),
+                       "el turno mudo de hace tres horas sigue diciendo que trabaja: «\(muda.label)»")
+        let permiso = guardada("Publicar el recorte")
+        XCTAssertTrue(permiso.exists, "no sale la conversación detenida por un permiso")
+        XCTAssertTrue(permiso.label.contains("Espera tu permiso"),
+                      "la conversación detenida por un permiso no lo dice: «\(permiso.label)»")
         foto("21-guardadas-remotas")
     }
 
@@ -522,14 +552,18 @@ extension RecorridoUITests {
         app.launchEnvironment["GHOSTY_DEMO_HERRAMIENTAS"] = "1"
         app.launch()
 
+        abrirChat("El informe")
         let pensando = app.descendants(matching: .any).matching(identifier: "pensando").firstMatch
         XCTAssertTrue(pensando.waitForExistence(timeout: 5),
                       "sin herramienta corriendo no queda ningún indicador de carga")
         foto("24-entre-herramientas")
 
-        // Y al volver de otra pestaña: el indicador sigue y la pregunta sigue arriba.
+        // Y al volver de otra pestaña: el indicador sigue. Dentro del hilo no hay barra,
+        // así que se sale a Chats, se va a Archivos y se vuelve a entrar.
+        volverAChats()
         app.buttons["tab-artifacts"].tap()
         app.buttons["tab-chat"].tap()
+        abrirChat("El informe")
         XCTAssertTrue(pensando.waitForExistence(timeout: 5),
                       "al volver al chat se perdió el indicador de carga")
         foto("25-de-vuelta-al-chat")
@@ -542,6 +576,7 @@ extension RecorridoUITests {
         app.launchEnvironment["GHOSTY_DEMO_STEER"] = "acp"
         app.launch()
 
+        abrirChat("El informe")
         let campo = app.textViews["campo-mensaje"].firstMatch
         XCTAssertTrue(campo.waitForExistence(timeout: 5), "no hay compositor")
         // Con el campo VACÍO y el agente trabajando, el control es detener.
@@ -568,6 +603,8 @@ extension RecorridoUITests {
         app.launchEnvironment["GHOSTY_DEMO_STEER"] = "nativo"
         app.launch()
 
+        abrirChat("El informe")
+
         let campo = app.textViews["campo-mensaje"].firstMatch
         XCTAssertTrue(campo.waitForExistence(timeout: 5), "no hay compositor")
         campo.tap()
@@ -587,11 +624,7 @@ extension RecorridoUITests {
     }
 
     func testVisorCierra() {
-        XCTAssertTrue(app.staticTexts["Ghosty"].waitForExistence(timeout: 10))
-        abrirHistorial()
-        let fila = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'conversacion-' AND label CONTAINS 'solo me interesa'")).firstMatch
-        XCTAssertTrue(fila.waitForExistence(timeout: 3)); fila.tap()
+        abrirChat("solo me interesa la foto")
         XCTAssertTrue(app.buttons["adjuntar"].waitForExistence(timeout: 3))
         Thread.sleep(forTimeInterval: 1.0)
         let todas = app.images
