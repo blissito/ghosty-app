@@ -154,7 +154,8 @@ struct BurbujaDeVoz: View {
 
     /// El texto del reloj: vacío si todavía no se sabe cuánto dura (nunca «0:00»).
     private var textoDelReloj: String {
-        let t = sonando || arrastrando != nil || avance > 0 ? posicion : duracion
+        // Un efecto de sonido de 0.3 s dura algo: «0:01», como WhatsApp, nunca «0:00».
+        let t = sonando || arrastrando != nil || avance > 0 ? posicion : max(1, duracion)
         return duracion > 0 ? NotaDeVoz.reloj(t) : ""
     }
 
@@ -224,7 +225,7 @@ struct BurbujaDeVoz: View {
             if (n.object as? String) != id, sonando { parar() }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Nota de voz de \(NotaDeVoz.reloj(duracion))")
+        .accessibilityLabel(duracion > 0 ? "Nota de voz de \(NotaDeVoz.reloj(max(1, duracion)))" : "Nota de voz")
     }
 
     // MARK: - Piezas

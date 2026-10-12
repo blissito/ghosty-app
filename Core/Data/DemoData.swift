@@ -87,10 +87,18 @@ enum DemoData {
         return url
     }
 
+    /// Un MP3 mínimo pero REAL: empieza por `ID3`, que es justo el caso que se guardaba como
+    /// `.txt` y salía como un muro de basura en el visor del sistema. ⚠️ Antes eran 200 ceros
+    /// tras la cabecera: AVAudioPlayer no lo abría y la burbuja salía muda y en 0:00. Ahora son
+    /// 80 cuadros MPEG-1 Layer III en silencio (44.1 kHz, 128 kbps): dura 2 s y suena.
+    static let mp3: Data = {
+        let frame: [UInt8] = [0xFF, 0xFB, 0x90, 0x64] + [UInt8](repeating: 0, count: 413)
+        return Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+                    + (0..<80).flatMap { _ in frame })
+    }()
+
     /// Las entregas de la demo, para que Artefactos tenga qué enseñar y qué filtrar.
     static func conFotoEntregas() -> [Entrega] {
-        let mp3 = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A]
-                       + [UInt8](repeating: 0, count: 200))
         return [
             Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto", forma: .archivo,
                     titulo: "recorte.png", recibida: Date(), contenido: nil, datos: png),
@@ -111,10 +119,6 @@ enum DemoData {
         if let ruta = Gancho.valor("GHOSTY_DEMO_GIF"), let gif = try? Data(contentsOf: URL(fileURLWithPath: ruta)) {
             foto = Adjunto(nombre: "demo.gif", mime: "image/gif", datos: gif)
         }
-        // Un MP3 mínimo pero REAL: empieza por `ID3`, que es justo el caso que se
-        // guardaba como `.txt` y salía como un muro de basura en el visor del sistema.
-        let mp3 = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A]
-                       + [UInt8](repeating: 0, count: 200))
         let sonido = Entrega(id: "demo-audio", agentID: "demo-1", sesionID: "s-foto",
                              forma: .archivo, titulo: "SFX cómic 08", recibida: Date(),
                              contenido: nil, datos: mp3)
