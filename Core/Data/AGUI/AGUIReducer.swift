@@ -13,7 +13,7 @@ struct AGUIState: Equatable {
         var id: String
         /// `toolCallName`: el nombre técnico de la herramienta.
         var name: String?
-        /// Cómo la nombra gs para personas («Leyendo tus archivos»), si lo dijo (`ghosty.step`).
+        /// Cómo la nombra gs para personas («Leyendo tus archivos»), si lo dijo (`ghosty.tool`).
         var title: String?
         var kind: String?
         var detail: String?
@@ -51,8 +51,17 @@ struct AGUIState: Equatable {
         var tool: String?
         var toolCallId: String?
         var reason: String?
+        /// Las opciones que ofrece el agente (`metadata.options` de gs): `{optionId, name, kind}`.
+        var options: [Option] = []
         /// Vencimiento en el reloj de ESTE teléfono: `expiresAt − hora del servidor + hora local`.
         var deadline: Date?
+    }
+
+    struct Option: Sendable, Equatable {
+        var id: String
+        var name: String
+        /// `allow_once` | `allow_always` | `reject_once` | `reject_always`.
+        var kind: String
     }
 
     enum Outcome: Sendable, Equatable {
@@ -148,7 +157,7 @@ enum AGUIReducer {
             guard let name = e.string("name") else { return s }
             let value = e["value"] as? [String: Any] ?? [:]
             if name == "ghosty.title", let t = value["title"] as? String { s.title = t }
-            if name == "ghosty.step", let id = value["toolCallId"] as? String {
+            if name == "ghosty.tool", let id = value["toolCallId"] as? String {
                 // Cómo nombra gs el paso para personas: no cambia su estado, sólo cómo se lee.
                 upsertTool(&s, id, create: false) { t in
                     t.title = value["title"] as? String ?? t.title
@@ -378,9 +387,19 @@ enum AGUIReducer {
         let toolName = (meta["tool"] as? String)
             ?? turns.flatMap(\.tools).first(where: { $0.id == toolCallId }).flatMap { $0.title ?? $0.name }
         let deadline = expiry(i["expiresAt"]).map { $0.addingTimeInterval(offset) }
+        var options = (meta["options"] as? [[String: Any]] ?? []).compactMap { o -> AGUIState.Option? in
+            guard let id = o["optionId"] as? String else { return nil }
+            return .init(id: id, name: o["name"] as? String ?? id, kind: o["kind"] as? String ?? "")
+        }
+        // Sin opciones del agente (un servidor AG-UI cualquiera): sí o no, lo que pide `responseSchema`.
+        if options.isEmpty {
+            options = [.init(id: "reject", name: "Rechazar", kind: "reject_once"),
+                       .init(id: "approve", name: "Aprobar", kind: "allow_once")]
+        }
         return .init(id: i["id"] as? String ?? "",
                      title: (i["message"] as? String) ?? toolName ?? (i["reason"] as? String ?? "una acción"),
-                     tool: toolName, toolCallId: toolCallId, reason: i["reason"] as? String, deadline: deadline)
+                     tool: toolName, toolCallId: toolCallId, reason: i["reason"] as? String,
+                     options: options, deadline: deadline)
     }
 
     /// `expiresAt` (ISO o epoch ms) → fecha.

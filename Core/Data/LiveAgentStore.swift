@@ -877,6 +877,10 @@ final class LiveAgentStore: AgentStoring {
                let list = try? await client.listsForAgents([e.agentID])[e.agentID] {
                 self.applyList(list, to: canal)
             }
+            // Un subagente pudo avanzar después del run: su lista es `state` de AG-UI y se repide.
+            #if os(iOS)
+            SubagentsLayer.shared.poke(agent: e.agentID, session: e.sessionID)
+            #endif
             // Y lo nuevo de esa conversación: en memoria, por delta; si no, su cola para
             // el renglón de Chats.
             if let hilo = canal.hilo(sesion: e.sessionID) {

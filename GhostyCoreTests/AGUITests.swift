@@ -125,7 +125,7 @@ final class AGUIReducerTests: XCTestCase {
     func testCustomStepNamesTheToolForPeople() {
         let s = AGUIReducer.reduce(AGUIState(), [
             AGUIEvent(type: "TOOL_CALL_START", ["toolCallId": "t1", "toolCallName": "Read"]),
-            AGUIEvent(type: "CUSTOM", ["name": "ghosty.step", "value": ["toolCallId": "t1", "title": "Leyendo notas.md", "kind": "read"]]),
+            AGUIEvent(type: "CUSTOM", ["name": "ghosty.tool", "value": ["toolCallId": "t1", "title": "Leyendo notas.md", "kind": "read"]]),
             AGUIEvent(type: "CUSTOM", ["name": "ghosty.title", "value": ["title": "Notas"]]),
         ], now: now)
         XCTAssertEqual(s.turns.last?.tools.first?.title, "Leyendo notas.md")

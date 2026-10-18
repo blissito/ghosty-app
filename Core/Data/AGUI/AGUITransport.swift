@@ -36,6 +36,8 @@ struct AGUITransport: Sendable {
             var interruptId: String
             /// `nil` = `cancelled` (venció o se escribió otra cosa): el servidor NO corre la acción.
             var approved: Bool?
+            /// La opción elegida (gs: gana sobre `approved`, para «siempre»).
+            var optionId: String? = nil
         }
 
         /// Una parte de contenido AG-UI que no es texto.
@@ -62,7 +64,9 @@ struct AGUITransport: Sendable {
             if !resume.isEmpty {
                 o["resume"] = resume.map { r -> [String: Any] in
                     guard let ok = r.approved else { return ["interruptId": r.interruptId, "status": "cancelled"] }
-                    return ["interruptId": r.interruptId, "status": "resolved", "payload": ["approved": ok]]
+                    var payload: [String: Any] = ["approved": ok]
+                    if let o = r.optionId { payload["optionId"] = o }
+                    return ["interruptId": r.interruptId, "status": "resolved", "payload": payload]
                 }
             }
             return o

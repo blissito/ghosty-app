@@ -119,7 +119,7 @@ final class ClienteGSAGUITests: XCTestCase {
         XCTAssertFalse(fasesAntes.contains("reposo"), "esperando aprobación no es reposo")
 
         // Aprobar: sale el resume y su stream sigue en la MISMA burbuja.
-        try await cliente.responderPermiso(permisos[0].id, opcion: ClienteGS.aprobar)
+        try await cliente.responderPermiso(permisos[0].id, opcion: permisos[0].opciones.first { $0.tipo.hasPrefix("allow") }!.id)
         try await Task.sleep(for: .seconds(1))
         let resume = StubAGUI.cuerpos[1]
         XCTAssertEqual((resume["messages"] as? [Any])?.count, 0)
@@ -186,6 +186,94 @@ final class ClienteGSAGUITests: XCTestCase {
         _ = await leer(cliente.prompt(sessionID: "th7", texto: "mejor otra cosa", adjuntos: [], turnId: "turno-7"), hasta: 0.8)
         let r = (StubAGUI.cuerpos[1]["resume"] as? [[String: Any]])?.first
         XCTAssertEqual(r?["status"] as? String, "cancelled")
+    }
+}
+
+/// Lo propio de gs («gs-agui 1», `agui-adopcion.md` §0) en un stream armado a mano.
+extension ClienteGSAGUITests {
+    static func sse(_ events: [[String: Any]]) -> String {
+        events.map { "data: " + String(data: try! JSONSerialization.data(withJSONObject: $0), encoding: .utf8)! + "\n\n" }.joined()
+    }
+
+    func testGsCustomsReachTheThread() async throws {
+        let caps = Caps()
+        await cliente.alConocerCapacidades { s in Task { await caps.set(s) } }
+        StubAGUI.preparar([(200, Self.sse([
+            ["type": "RUN_STARTED", "threadId": "th8", "runId": "turno-8", "timestamp": 1],
+            ["type": "STATE_SNAPSHOT", "snapshot": ["caps": ["steer": true, "image": true]]],
+            ["type": "STEP_STARTED", "stepName": "waking"],
+            ["type": "STEP_FINISHED", "stepName": "waking"],
+            ["type": "TOOL_CALL_START", "toolCallId": "tc1", "toolCallName": "Read"],
+            ["type": "CUSTOM", "name": "ghosty.tool", "value": ["toolCallId": "tc1", "title": "Leyendo notas.md", "kind": "read", "detail": "notas.md"]],
+            ["type": "TOOL_CALL_END", "toolCallId": "tc1"],
+            ["type": "TOOL_CALL_RESULT", "toolCallId": "tc1", "messageId": "m", "content": "ok"],
+            ["type": "TEXT_MESSAGE_START", "messageId": "turno-8:a0", "role": "assistant"],
+            ["type": "TEXT_MESSAGE_CONTENT", "messageId": "turno-8:a0", "delta": "Listo."],
+            ["type": "TEXT_MESSAGE_END", "messageId": "turno-8:a0"],
+            ["type": "CUSTOM", "name": "ghosty.delivery", "value": ["id": "d1", "messageId": "turno-8:a0", "tipo": "archivo", "nombre": "reporte.pdf",
+                                                                      "fileId": "f9", "mime": "application/pdf", "size": 1234, "url": "https://x.test/f9"]],
+            ["type": "RUN_FINISHED", "threadId": "th8", "runId": "turno-8", "outcome": ["type": "success"],
+             "usage": [["model": "m", "inputTokens": 10, "outputTokens": 5]]],
+        ]))])
+        let r = await leer(cliente.prompt(sessionID: "th8", texto: "hola", adjuntos: [], turnId: "turno-8"), hasta: 0.8)
+        XCTAssertTrue(r.cerrado)
+        let tools = r.eventos.compactMap { if case .tool(let h) = $0 { return h } else { return nil } }
+        XCTAssertEqual(tools.last?.titulo, "Leyendo notas.md")
+        XCTAssertEqual(tools.last?.clase, .read)
+        XCTAssertEqual(tools.last?.estado, .hecha)
+        let entregas = r.eventos.compactMap { if case .entrega(let e) = $0 { return e } else { return nil } }
+        XCTAssertEqual(entregas.first?.id, "f-f9")
+        XCTAssertEqual(entregas.first?.url, "https://x.test/f9")
+        XCTAssertEqual(entregas.first?.bytesRemotos, 1234)
+        XCTAssertTrue(r.eventos.contains { if case .usage(10, 5) = $0 { return true } else { return false } })
+        let fases = await senales.fases
+        XCTAssertEqual(fases.first, "waking")
+        XCTAssertEqual(fases.last, "reposo")
+        let steer = await caps.steer
+        XCTAssertEqual(steer, true)
+    }
+
+    actor Caps { var steer: Bool?; func set(_ s: Bool) { steer = s } }
+
+    /// Reconectar a mitad de run (grabado de LangGraph): la burbuja se llama como el run VIVO.
+    func testReconnectToLiveRunNamesBubbleByLiveRun() async throws {
+        StubAGUI.preparar([(200, Fixture.text("android/06-reconnect-live"))])
+        let r = await leer(cliente.seguir(sessionID: "th9")!, hasta: 0.8)
+        if case .turno(let id) = r.eventos.first { XCTAssertEqual(id, "run-a-6") } else { XCTFail("sin .turno: \(r.eventos)") }
+        XCTAssertFalse(texto(r.eventos).isEmpty)
+        XCTAssertFalse(r.cerrado)
+    }
+
+    func testSteerTakesOverTheLiveStream() async throws {
+        StubAGUI.preparar([
+            (200, Fixture.text("agui-turn-interrupt")),
+            (409, #"{"error":"run_active","message":"no"}"#),
+            (200, Self.sse([
+                ["type": "RUN_STARTED", "threadId": "th10", "runId": "turno-10"],
+                ["type": "CUSTOM", "name": "ghosty.injected", "value": ["messageId": "x:u"]],
+                ["type": "TEXT_MESSAGE_CONTENT", "messageId": "turno-10:a9", "delta": " y además esto."],
+                ["type": "RUN_FINISHED", "threadId": "th10", "runId": "turno-10", "outcome": ["type": "success"]],
+            ])),
+        ])
+        let flujo = cliente.prompt(sessionID: "th10", texto: "hola", adjuntos: [], turnId: "turno-10")
+        let box = Caja()
+        let lector = Task { do { for try await r in flujo { await box.add(r) }; await box.cerrar(nil) } catch { await box.cerrar(error) } }
+        try await Task.sleep(for: .seconds(0.8))
+        let no = try await cliente.mandarMas(sessionID: "th10", texto: "otra", turnId: "s1")
+        XCTAssertFalse(no)
+        let sigueAbierto = await box.cerrado
+        XCTAssertFalse(sigueAbierto, "un steer rechazado no toca el flujo")
+        let si = try await cliente.mandarMas(sessionID: "th10", texto: "y además", turnId: "s2")
+        XCTAssertTrue(si)
+        let body = StubAGUI.cuerpos[2]
+        XCTAssertEqual((body["forwardedProps"] as? [String: Any])?["steer"] as? String, "turno-10")
+        XCTAssertEqual(body["runId"] as? String, "s2")
+        try await Task.sleep(for: .seconds(0.5))
+        let ev = await box.eventos
+        XCTAssertTrue(texto(ev).hasSuffix(" y además esto."))
+        let cerrado = await box.cerrado
+        XCTAssertTrue(cerrado)
+        lector.cancel()
     }
 }
 

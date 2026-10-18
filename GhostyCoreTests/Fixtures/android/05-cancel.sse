@@ -1,0 +1,4 @@
+data: {"type":"RUN_STARTED","threadId":"145624fe-4f03-4e1b-9335-98b35a41e085","runId":"run-stop-5"}
+
+data: {"type":"RUN_FINISHED","threadId":"145624fe-4f03-4e1b-9335-98b35a41e085","runId":"run-stop-5","outcome":{"type":"cancelled"}}
+

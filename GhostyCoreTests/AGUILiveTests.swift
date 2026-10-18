@@ -36,7 +36,7 @@ final class AGUILiveTests: XCTestCase {
         let cerradoAntes = await caja.cerrado
         XCTAssertFalse(cerradoAntes, "esperando aprobación el flujo sigue abierto")
 
-        try await cliente.responderPermiso(permisos[0].id, opcion: ClienteGS.aprobar)
+        try await cliente.responderPermiso(permisos[0].id, opcion: permisos[0].opciones.first { $0.tipo.hasPrefix("allow") }!.id)
         for _ in 0..<60 { if await caja.cerrado { break }; try await Task.sleep(for: .milliseconds(500)) }
         let cerrado = await caja.cerrado
         let error = await caja.error

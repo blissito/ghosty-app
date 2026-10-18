@@ -5,15 +5,10 @@ import UIKit
 // POC de subagentes nativos (2026-10-07) DENTRO del chat oficial: una barra encima del
 // compositor («3 agentes trabajando · 1:20») que abre la lista viva, el detalle de cada uno y
 // Detener. El chat es el de siempre —suspensión, reenganche, steer, clavar arriba—; esto sólo
-// MIRA la lista que manda la caja por gs (`…/conversations/:id/subagents`, staff) y le habla al
-// subagente con el `send` normal del hilo. Sólo en Debug y sólo con los agentes cuya caja trae
-// el POC. Ficha: ghosty-studio/docs/claude/subagentes-tipo-claude-code.md §9.
-
-/// Lo que el vigilante de silencio mira del lector del stream.
-@MainActor private final class StreamWatch {
-    var lastData = Date()
-    var ended = false
-}
+// MIRA la lista y le habla al subagente con el `send` normal del hilo.
+// Desde AG-UI (gs-agui 1, §0.5) la lista es `state.subagents.tasks` del stream del chat
+// (STATE_SNAPSHOT/STATE_DELTA); fuera de un run se pide reconectando, y detener uno es
+// `forwardedProps.stopSubagent`. Ficha: ghosty-studio/docs/claude/subagentes-tipo-claude-code.md §9.
 
 struct LiveSubagent: Identifiable, Equatable {
     let id: String
@@ -70,7 +65,13 @@ final class SubagentsLayer {
     /// Una para toda la app, creada una vez (ver el aviso de `SubagentesLab`: un `init` con
     /// efectos dentro de un `@State` re-evaluado trabó la app el 7-oct).
     static let shared = SubagentsLayer()
-    private init() {}
+    private init() {
+        // Todo `state` que traigan los streams del chat pasa por aquí; sólo cuenta el del hilo mirado.
+        ClienteGS.alCambiarState = { agent, session, state in
+            nonisolated(unsafe) let state = state
+            Task { @MainActor in SubagentsLayer.shared.applyState(agent: agent, session: session, state) }
+        }
+    }
 
     private(set) var tasks: [String: LiveSubagent] = [:]
     private(set) var steps: [String: [SubagentStep]] = [:]
@@ -91,31 +92,27 @@ final class SubagentsLayer {
     var running: [LiveSubagent] { sorted.filter(\.isLive) }
     var finished: [LiveSubagent] { sorted.filter { !$0.isLive } }
 
-    /// Mirar ESTA conversación. Cambiar de hilo vacía la lista y reengancha.
+    /// Mirar ESTA conversación. Cambiar de hilo vacía la lista y pide su estado.
     func watch(agent: String, session: String?) {
         let key = session.map { "\(agent)/\($0)" }
         guard key != watching else { return }
         watching = key
         listener?.cancel()
         tasks = [:]; steps = [:]; connected = false; snapshotReceived = false; dismissed = []; unavailable = false
-        guard let session, Self.hasSubagents(agent) else { return }
-        listener = Task { [weak self] in await self?.listen(agent: agent, session: session) }
+        guard session != nil, Self.hasSubagents(agent) else { return }
+        refresh()
     }
 
-    /// Volver del fondo: la conexión murió con la suspensión, se reabre (el snapshot del
-    /// servidor pone la lista al día; nada se reconstruye a mano).
-    func reconnect() {
-        guard let m = watching else { return }
-        let parts = m.split(separator: "/", maxSplits: 1).map(String.init)
-        watching = nil
-        // Lo que se ve se queda hasta que llegue el snapshot, que lo REEMPLAZA entero.
-        let previous = (tasks, steps)
-        watch(agent: parts[0], session: parts[1])
-        (tasks, steps) = previous
+    /// Volver del fondo (o `/me/events` avisó que la conversación cambió): se pide el estado otra
+    /// vez. Lo que se ve se queda hasta que llegue, que lo REEMPLAZA entero.
+    func reconnect() { refresh() }
+
+    /// `/me/events` avisó de esa conversación: un subagente pudo avanzar después del run (§0.5).
+    func poke(agent: String, session: String) {
+        if watching == "\(agent)/\(session)" { refresh() }
     }
 
-    /// Salir del chat (o de este agente): se deja de escuchar. Antes la conexión seguía viva y
-    /// reintentando cada 1.5 s para siempre aunque ya nadie mirara (auditoría 7-oct, punto 8).
+    /// Salir del chat (o de este agente): se deja de mirar.
     func release() {
         listener?.cancel()
         listener = nil
@@ -123,103 +120,59 @@ final class SubagentsLayer {
         connected = false
     }
 
-    private static let httpSession: URLSession = {
-        let c = URLSessionConfiguration.ephemeral
-        c.timeoutIntervalForRequest = 600
-        c.timeoutIntervalForResource = 24 * 3600
-        c.httpAdditionalHeaders = ["Accept-Encoding": "identity"]
-        return URLSession(configuration: c)
-    }()
-
-    private func request(_ agent: String, _ session: String, _ suffix: String, method: String = "GET") async throws -> URLRequest {
-        var r = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/agents/\(agent)/conversations/\(session)/subagents\(suffix)"))
-        r.httpMethod = method
-        r.setValue("Bearer \(try await Session.accessToken())", forHTTPHeaderField: "Authorization")
-        r.assumesHTTP3Capable = false
-        return r
+    /// Reconectar (POST sin mensaje) y leer hasta el `STATE_SNAPSHOT`. Cortar después no detiene
+    /// nada; lo que siga en vivo llega por el stream del chat (`STATE_DELTA`).
+    private func refresh() {
+        guard let m = watching else { return }
+        let parts = m.split(separator: "/", maxSplits: 1).map(String.init)
+        listener?.cancel()
+        listener = Task { [weak self] in
+            do {
+                guard let state = try await ClienteGS(agentID: parts[0]).estado(de: parts[1]) else { return }
+                nonisolated(unsafe) let s = state
+                guard !Task.isCancelled else { return }
+                self?.applyState(agent: parts[0], session: parts[1], s)
+            } catch {
+                // 403/404 no se arreglan reintentando (no es tu conversación, o no existe).
+                if case ACPClient.Fallo.remoto = error { self?.unavailable = true }
+                self?.connected = false
+            }
+        }
     }
 
     /// Quien mira el chat engancha aquí la recarga del hilo: el remate del agente lo guarda gs
     /// como un mensaje más y hay que traerlo.
     @ObservationIgnored var onThreadGrew: (() -> Void)?
 
-    /// La lista como la da Claude Code: al conectarse, el SNAPSHOT completo desde gs (que la
-    /// guarda; reemplaza lo que hubiera) y después los EVENTOS en vivo. Se reabre al volver del
-    /// fondo (`reconnect`) y con espera creciente si se cae. Antes era la memoria de la caja y
-    /// cada suspensión, reconexión o reinicio la dejaba tarde, vacía o «trabajando» para siempre.
-    private func listen(agent: String, session: String) async {
-        var delay = 1.0
-        while !Task.isCancelled {
-            do {
-                let (bytes, resp) = try await Self.httpSession.bytes(for: try await request(agent, session, ""))
-                let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                // 401/403/404 no se arreglan reintentando (no eres staff, no es tu conversación).
-                if [401, 403, 404].contains(status) { connected = false; unavailable = true; return }
-                if status == 200 {
-                    connected = true
-                    delay = 1.0
-                    // ⚠️ Vigilante de silencio. Al volver de la suspensión la conexión puede quedar
-                    // medio muerta: sin error y sin datos, y la lista se congelaba hasta reabrir la
-                    // app (7-oct). gs manda un latido cada 15 s; 45 s sin nada = muerta, se reabre
-                    // y el snapshot pone todo al día.
-                    let watch = StreamWatch()
-                    let reader = Task { @MainActor in
-                        defer { watch.ended = true }
-                        for try await line in bytes.lines {
-                            watch.lastData = Date()
-                            guard line.hasPrefix("data: "),
-                                  let d = line.dropFirst(6).data(using: .utf8),
-                                  let ev = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
-                            apply(ev)
-                        }
-                    }
-                    // Termina si el lector acabó (el servidor cerró) o si se quedó mudo.
-                    while !Task.isCancelled, !watch.ended, Date().timeIntervalSince(watch.lastData) < 45 {
-                        try? await Task.sleep(for: .seconds(5))
-                    }
-                    reader.cancel()
-                }
-            } catch {}
-            connected = false
-            try? await Task.sleep(for: .seconds(delay))
-            delay = min(delay * 2, 30)
-        }
-    }
-
-    private func apply(_ ev: [String: Any]) {
-        switch ev["type"] as? String {
-        case "snapshot":
-            applyList((ev["tasks"] as? [[String: Any]]) ?? [])
-            snapshotReceived = true
-            #if DEBUG
-            // Gancho del simulador: abre la hoja de subagentes en cuanto llega la lista.
-            if ProcessInfo.processInfo.environment["GHOSTY_SUBAGENTES"] == "1", !tasks.isEmpty { isSheetOpen = true }
-            #endif
-        case "task":
-            guard let t = ev["task"] as? [String: Any] else { return }
-            upsert(t)
-        case "thread": onThreadGrew?()
-        default: break
-        }
-    }
-
-    /// Un subagente cambió: se actualiza ése y nada más.
-    private func upsert(_ t: [String: Any]) {
-        guard let task = Self.task(t) else { return }
-        let before = tasks[task.id]?.status
+    /// `state.subagents.tasks` (§0.5) de la conversación mirada: la lista ENTERA, que reemplaza a
+    /// la que hay. Un subagente que termina suena como antes.
+    func applyState(agent: String, session: String, _ state: [String: Any]) {
+        guard watching == "\(agent)/\(session)" else { return }
+        connected = true
+        guard let sub = state["subagents"] as? [String: Any] else { return }
+        let list = sub["tasks"] as? [[String: Any]] ?? []
+        let before = tasks
+        let hadSnapshot = snapshotReceived
+        applyList(list)
+        snapshotReceived = true
         #if canImport(UIKit)
-        if before == "running" && task.status != "running" {
-            UINotificationFeedbackGenerator().notificationOccurred(task.status == "completed" ? .success : .warning)
-        } else if before == nil {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if hadSnapshot {
+            for t in tasks.values {
+                let was = before[t.id]?.status
+                if was == "running" && t.status != "running" {
+                    UINotificationFeedbackGenerator().notificationOccurred(t.status == "completed" ? .success : .warning)
+                } else if was == nil {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+            }
         }
         #endif
-        tasks[task.id] = task
-        let fromServer = ((t["steps"] as? [[String: Any]]) ?? []).map {
-            SubagentStep(kind: $0["kind"] as? String ?? "tool", text: $0["text"] as? String ?? "",
-                         toolClass: $0["class"] as? String)
-        }
-        steps[task.id] = fromServer + (steps[task.id] ?? []).filter { $0.kind == "yo" }
+        // El remate del padre llega como mensaje nuevo cuando un subagente termina.
+        if before.values.contains(where: \.isLive), !tasks.values.contains(where: \.isLive) { onThreadGrew?() }
+        #if DEBUG
+        // Gancho del simulador: abre la hoja de subagentes en cuanto llega la lista.
+        if ProcessInfo.processInfo.environment["GHOSTY_SUBAGENTES"] == "1", !tasks.isEmpty { isSheetOpen = true }
+        #endif
     }
 
     /// La lista de gs REEMPLAZA a la que hay: es la verdad. Lo único local que se conserva es
@@ -260,10 +213,7 @@ final class SubagentsLayer {
         #endif
         guard let m = watching else { return }
         let parts = m.split(separator: "/", maxSplits: 1).map(String.init)
-        Task {
-            guard let r = try? await request(parts[0], parts[1], "/\(t.id)/stop", method: "POST") else { return }
-            _ = try? await Self.httpSession.data(for: r)
-        }
+        Task { await ClienteGS(agentID: parts[0]).detenerSubagente(t.id, en: parts[1]) }
     }
 
     func dismiss(_ ids: [String]) { dismissed.formUnion(ids) }

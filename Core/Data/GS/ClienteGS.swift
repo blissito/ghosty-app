@@ -162,7 +162,7 @@ actor ClienteGS: TransporteDeAgente {
     /// No hay nada que cerrar: cada llamada es su propia conexión. El turno sigue en gs,
     /// que es justo el punto de todo esto.
     func cerrar() {
-        escuchas.values.forEach { $0.cancel() }
+        escuchas.values.forEach { $0.task.cancel() }
         escuchas.removeAll()
     }
 
@@ -371,7 +371,8 @@ actor ClienteGS: TransporteDeAgente {
     // MARK: - El turno (AG-UI)
 
     /// El endpoint AG-UI del agente: un `POST` con `RunAgentInput` para TODO lo del turno —mandar,
-    /// reconectar, aprobar, detener—. Contrato: `~/ghostykit/docs/protocol.md`.
+    /// reconectar, aprobar, detener, steer—. Contrato estándar: `~/ghostykit/docs/protocol.md`; lo
+    /// propio de gs («gs-agui 1»): `~/ghosty-studio/docs/claude/agui-adopcion.md` §0.
     static var runPath = "/agui"
     /// Otro servidor AG-UI para TODO agente (pruebas y desarrollo: `GHOSTY_AGUI_URL`).
     nonisolated(unsafe) static var runURL: URL? = {
@@ -394,7 +395,11 @@ actor ClienteGS: TransporteDeAgente {
         req.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Timezone")
     }
 
-    /// Quién pinta cada conversación ahora mismo: el flujo del turno propio o el vigilante.
+    /// El `state` compartido de una conversación cambió (capacidades, modelo, subagentes). Lo mira
+    /// la barra de subagentes: `(agentID, sessionID, state)`.
+    nonisolated(unsafe) static var alCambiarState: (@Sendable (String, String, [String: Any]) -> Void)?
+
+    /// Quién pinta cada conversación: el flujo del turno propio o el vigilante.
     private struct Oyente {
         let id = UUID()
         let cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation
@@ -402,16 +407,22 @@ actor ClienteGS: TransporteDeAgente {
         let vigilante: Bool
     }
 
-    /// Las escuchas vivas, por conversación (una a la vez: la nueva reemplaza a la vieja).
-    private var escuchas: [String: Task<Void, Never>] = [:]
+    /// La lectura viva de cada conversación (una a la vez). `token` dice cuál es la vigente: un steer
+    /// la reemplaza SIN cerrar el flujo de quien pinta.
+    private struct Escucha {
+        let token: UUID
+        let task: Task<Void, Never>
+    }
+
+    private var escuchas: [String: Escucha] = [:]
     private var oyentes: [String: Oyente] = [:]
-    /// El run que trabaja en cada conversación: el que se manda en `forwardedProps.cancel` y el que
-    /// nombra la burbuja (`turno-<runId>`) cuando una aprobación lo continúa.
+    /// El run que trabaja en cada conversación: va en `forwardedProps.cancel`/`steer` y nombra la
+    /// burbuja (`turno-<runId>`).
     private var runVivo: [String: String] = [:]
-    /// Aprobaciones abiertas por conversación y lo ya contestado de ellas. El contrato pide contestar
-    /// TODAS las de un run en un solo `resume`.
+    /// Aprobaciones abiertas por conversación y lo ya contestado. El contrato pide contestar TODAS
+    /// las de un run en un solo `resume`.
     private var abiertas: [String: [AGUIState.Permission]] = [:]
-    private var contestadas: [String: [String: Bool]] = [:]
+    private var contestadas: [String: [String: AGUIState.Option]] = [:]
     var turnosVivos: Int { escuchas.count }
 
     private var permisoPendiente: (@Sendable (ACPClient.Permiso) -> Void)?
@@ -425,9 +436,8 @@ actor ClienteGS: TransporteDeAgente {
         alCambiarEstado = handler
     }
 
-    /// Aviso de que este turno está haciendo cola detrás de otros.
-    private var alEsperar: (@Sendable (Int) -> Void)?
-    func alHacerCola(_ handler: @escaping @Sendable (Int) -> Void) { alEsperar = handler }
+    /// gs ya no tiene cola (gs-agui 1): esto no vuelve a sonar. Queda por el protocolo del store.
+    func alHacerCola(_ handler: @escaping @Sendable (Int) -> Void) {}
 
     private var permisoResuelto: (@Sendable (String) -> Void)?
     func alResolverPermiso(_ handler: @escaping @Sendable (String) -> Void) {
@@ -437,7 +447,7 @@ actor ClienteGS: TransporteDeAgente {
     private var alCaerse: (@Sendable () -> Void)?
     func alPerderse(_ handler: @escaping @Sendable () -> Void) { alCaerse = handler }
 
-    /// Lo que este agente SABE hacer, según el servidor (`ghosty.caps`).
+    /// Lo que este agente SABE hacer, según el servidor (`state.caps.steer`).
     private var alSaberCapacidades: (@Sendable (Bool) -> Void)?
     func alConocerCapacidades(_ handler: @escaping @Sendable (Bool) -> Void) {
         alSaberCapacidades = handler
@@ -472,23 +482,24 @@ actor ClienteGS: TransporteDeAgente {
             // después de mandar. Se suelta en cuanto el servidor acepta el run (`RUN_STARTED`).
             let token = await BackgroundTime.begin("encargar turno")
             self.runVivo[sesion] = turnId
-            return try await self.correr(input, sesion: sesion, runPropio: turnId, oyente: me,
+            return try await self.correr(input, sesion: sesion, run: turnId, oyente: me,
                                          reintentarAntesDeEmpezar: true, tiempoPrestado: token)
         }
     }
 
     /// Engancharse a lo que ya esté pasando en esa conversación: un `POST` sin mensaje nuevo.
     ///
-    /// El servidor contesta `MESSAGES_SNAPSHOT` y luego el run vivo (si lo hay), las aprobaciones
-    /// abiertas o nada. Después la escucha se queda QUIETA hasta que la reemplacen: gs puede abrir un
-    /// turno solo (agenda, entrega), y eso lo avisa `/me/events`, que vuelve a llamar aquí.
+    /// gs contesta `MESSAGES_SNAPSHOT` + `STATE_SNAPSHOT` y luego el run vivo (abre con SU runId), las
+    /// aprobaciones abiertas o nada. Después la escucha se queda QUIETA hasta que la reemplacen: gs
+    /// puede abrir un turno solo (agenda, entrega) y eso lo avisa `/me/events`, que vuelve a llamar.
+    /// El hilo NO sale del snapshot: lo trae el REST de siempre (`messages?after|before`, base local).
     nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<ACPClient.Replay, Error>? {
         AsyncThrowingStream { cont in
             let oyente = Oyente(cont: cont, vigilante: true)
             Task {
                 await self.escuchar(sessionID, oyente) { me in
                     let input = AGUITransport.Input(threadId: sessionID, runId: UUID().uuidString.lowercased())
-                    return try await self.correr(input, sesion: sessionID, runPropio: nil, oyente: me)
+                    return try await self.correr(input, sesion: sessionID, run: nil, oyente: me)
                 }
             }
             cont.onTermination = { _ in
@@ -498,55 +509,64 @@ actor ClienteGS: TransporteDeAgente {
         }
     }
 
-    /// Pone `oyente` a pintar esa conversación y corre `trabajo`. Un run que se detiene en una
-    /// aprobación deja el flujo abierto; el vigilante se queda quieto al terminar.
+    /// Pone `oyente` a pintar esa conversación y corre `trabajo` como la escucha vigente.
     private func escuchar(_ sesion: String, _ oyente: Oyente,
                           _ trabajo: @escaping (Oyente) async throws -> AGUIState.Outcome) {
-        escuchas[sesion]?.cancel()
+        escuchas[sesion]?.task.cancel()
         oyentes[sesion] = oyente
-        escuchas[sesion] = Task { [weak self] in
+        let token = UUID()
+        let task = Task { [weak self] in
             guard let self else { return }
-            do {
-                let fin = try await trabajo(oyente)
-                if case .interrupt = fin { return }  // espera la respuesta a la tarjeta
-                if oyente.vigilante {
-                    try await Task.sleep(for: .seconds(24 * 3600))
-                }
-                oyente.cont.finish()
-            } catch is CancellationError {
-                oyente.cont.finish()
-            } catch {
-                oyente.cont.finish(throwing: await self.fallo(error))
-            }
-            await self.soltar(sesion, oyente)
+            await self.vivir(sesion, oyente, token: token) { try await trabajo(oyente) }
+        }
+        escuchas[sesion] = Escucha(token: token, task: task)
+    }
+
+    /// El ciclo de una escucha: corre, y al acabar cierra el flujo si le toca. Un run detenido en una
+    /// aprobación deja el flujo abierto; el vigilante se queda quieto.
+    private func vivir(_ sesion: String, _ oyente: Oyente, token: UUID,
+                       _ trabajo: () async throws -> AGUIState.Outcome) async {
+        var error: Error?
+        do {
+            let fin = try await trabajo()
+            if case .interrupt = fin { return }  // espera la respuesta a la tarjeta
+            if oyente.vigilante { try await Task.sleep(for: .seconds(24 * 3600)) }
+        } catch is CancellationError {
+        } catch let e {
+            error = await fallo(e)
+        }
+        // Un steer tomó la lectura con el MISMO oyente: su flujo sigue, no se cierra aquí.
+        if escuchas[sesion]?.token != token, oyentes[sesion]?.id == oyente.id { return }
+        if let error { oyente.cont.finish(throwing: error) } else { oyente.cont.finish() }
+        if escuchas[sesion]?.token == token {
+            escuchas[sesion] = nil
+            oyentes[sesion] = nil
         }
     }
 
     private func dejarDeEscuchar(_ sesion: String, si id: UUID) {
         // Sólo si sigue siendo el suyo: una escucha nueva ya pudo reemplazarlo.
         guard let o = oyentes[sesion], o.id == id else { return }
-        escuchas[sesion]?.cancel()
-        escuchas[sesion] = nil
-        oyentes[sesion] = nil
-    }
-
-    private func soltar(_ sesion: String, _ oyente: Oyente) {
-        guard let o = oyentes[sesion], o.id == oyente.id else { return }
+        escuchas[sesion]?.task.cancel()
         escuchas[sesion] = nil
         oyentes[sesion] = nil
     }
 
     /// Corre un run y reparte lo que llega. Devuelve cómo terminó.
     ///
-    /// `runPropio`: el run es un turno de este teléfono (su `turnId`), y su burbuja se llama así.
+    /// `run`: el run que ya sabemos que es el de esta respuesta (el `turnId` propio, o el vivo en un
+    /// resume/steer); `nil` al reconectar, donde lo dice `RUN_STARTED`.
     /// `reintentarAntesDeEmpezar`: red caída o 5xx ANTES de `RUN_STARTED` se reintenta con el MISMO
     /// run (el `runId` es la clave de idempotencia; gs no arranca dos veces el mismo).
-    private func correr(_ input: AGUITransport.Input, sesion: String, runPropio: String?, oyente: Oyente,
-                        reintentarAntesDeEmpezar: Bool = false,
-                        tiempoPrestado: Int? = nil) async throws -> AGUIState.Outcome {
+    /// `alInyectar`: steer. Hasta `ghosty.injected` no se reparte nada (el stream viejo sigue
+    /// pintando); al llegar, se avisa y desde ahí pinta éste.
+    private func correr(_ input: AGUITransport.Input, sesion: String, run: String?, oyente: Oyente,
+                        reintentarAntesDeEmpezar: Bool = false, tiempoPrestado: Int? = nil,
+                        alInyectar: (() async -> Void)? = nil) async throws -> AGUIState.Outcome {
         var prestado = tiempoPrestado
         defer { if let t = prestado { Task { await BackgroundTime.end(t) } } }
-        var bridge = AGUIBridge(agentID: agentID, sessionID: sesion, runId: runPropio)
+        var bridge = AGUIBridge(agentID: agentID, sessionID: sesion, requestRunId: input.runId, knownRunId: run)
+        var callado = alInyectar != nil
         var espera: UInt64 = 1
         var intento = 0
         while true {
@@ -558,7 +578,15 @@ actor ClienteGS: TransporteDeAgente {
                         empezo = true
                         if let t = prestado { prestado = nil; await BackgroundTime.end(t) }
                     }
-                    for o in bridge.apply(e) { await repartir(o, sesion: sesion, oyente: oyente, bridge: bridge) }
+                    for o in bridge.apply(e) {
+                        if callado {
+                            guard case .injected = o else { continue }
+                            callado = false
+                            await alInyectar?()
+                            continue
+                        }
+                        await repartir(o, sesion: sesion, oyente: oyente, bridge: bridge)
+                    }
                     if e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { break }
                 }
             } catch let e where !empezo && reintentarAntesDeEmpezar && intento < 4 && Self.reintentable(e) {
@@ -569,6 +597,7 @@ actor ClienteGS: TransporteDeAgente {
                 espera *= 2
                 continue
             }
+            if callado { return bridge.state.outcome ?? .success }  // steer que no entró
             if let id = bridge.liveRunId { runVivo[sesion] = id }
             let fin = bridge.state.outcome ?? .success
             switch fin {
@@ -576,7 +605,7 @@ actor ClienteGS: TransporteDeAgente {
                 break
             case .error(let m, let code):
                 runVivo[sesion] = nil
-                throw code == "limit" || code == "payment_required" ? ACPClient.Fallo.limit(m) : ACPClient.Fallo.remoto(m)
+                throw code == "quota_exceeded" ? ACPClient.Fallo.limit(m) : ACPClient.Fallo.remoto(m)
             default:
                 runVivo[sesion] = nil
                 // Un vigilante que vio trabajo en vivo lo cierra como turno; sigue escuchando.
@@ -594,13 +623,19 @@ actor ClienteGS: TransporteDeAgente {
         case .phase(let p):
             // Esperando tu aprobación el turno NO está en reposo: está detenido por ti.
             if p == "reposo", bridge.state.outcome == .interrupt { return }
+            // Sin run vivo detrás (reconectar a un hilo quieto) no hay fase que anunciar.
+            if p != "reposo", !bridge.sawLive { return }
             alCambiarEstado?(sesion, p)
-        case .queue(let n):
-            if n > 0 { alEsperar?(n) }
         case .caps(let steer):
             alSaberCapacidades?(steer)
+        case .state(let s):
+            Self.alCambiarState?(agentID, sesion, s)
         case .title(let t):
             EasyBitsClient.diag("[agui] título de \(sesion): \(t)")
+        case .notice(let m):
+            EasyBitsClient.diag("[agui] \(sesion): \(m)")
+        case .injected:
+            break
         case .interrupts(let ps):
             abrir(ps, en: sesion)
         case .finished(let fin):
@@ -610,7 +645,7 @@ actor ClienteGS: TransporteDeAgente {
     }
 
     /// Las aprobaciones abiertas de una conversación pasan a ser `ps`: las nuevas se piden, las que
-    /// ya no están se retiran.
+    /// ya no están se retiran (gs ya no manda `permission-resolved`: lo dice su ausencia).
     private func abrir(_ ps: [AGUIState.Permission], en sesion: String) {
         let antes = abiertas[sesion] ?? []
         abiertas[sesion] = ps.isEmpty ? nil : ps
@@ -623,18 +658,17 @@ actor ClienteGS: TransporteDeAgente {
         for p in ps where !antes.contains(where: { $0.id == p.id }) {
             permisoPendiente?(ACPClient.Permiso(
                 id: p.id, sessionID: sesion, titulo: p.title, herramienta: p.tool ?? "",
-                opciones: [(Self.rechazar, "Rechazar", "reject_once"), (Self.aprobar, "Aprobar", "allow_once")]))
+                opciones: p.options.map { ($0.id, $0.name, $0.kind) }))
         }
     }
 
-    static let aprobar = "approve"
-    static let rechazar = "reject"
-
     /// Contesta una tarjeta. Cuando están contestadas TODAS las del run, sale el `resume` y su stream
-    /// sigue en la burbuja del turno que se detuvo.
+    /// sigue en la burbuja del turno que se detuvo (gs lo abre con el runId vivo).
     func responderPermiso(_ id: String, opcion: String) async throws {
-        guard let sesion = abiertas.first(where: { $0.value.contains { $0.id == id } })?.key else { return }
-        contestadas[sesion, default: [:]][id] = opcion == Self.aprobar || opcion.hasPrefix("allow")
+        guard let sesion = abiertas.first(where: { $0.value.contains { $0.id == id } })?.key,
+              let p = abiertas[sesion]?.first(where: { $0.id == id }) else { return }
+        contestadas[sesion, default: [:]][id] = p.options.first { $0.id == opcion }
+            ?? .init(id: opcion, name: opcion, kind: opcion.hasPrefix("allow") || opcion == "approve" ? "allow_once" : "reject_once")
         let todas = abiertas[sesion] ?? []
         let respuestas = contestadas[sesion] ?? [:]
         guard todas.allSatisfy({ respuestas[$0.id] != nil }) else { return }
@@ -642,35 +676,61 @@ actor ClienteGS: TransporteDeAgente {
         contestadas[sesion] = nil
         todas.forEach { permisoResuelto?($0.id) }
         var input = AGUITransport.Input(threadId: sesion, runId: UUID().uuidString.lowercased())
-        input.resume = todas.map { .init(interruptId: $0.id, approved: respuestas[$0.id]) }
-        let turno = runVivo[sesion]
-        // Sigue en quien estaba pintando; si nadie (la app volvió del fondo sin hilo abierto), el
-        // stream se lee igual para que el run arranque, y lo demás lo trae el hilo al abrirlo.
+        input.resume = todas.map { p in
+            let o = respuestas[p.id]!
+            return .init(interruptId: p.id, approved: o.kind.hasPrefix("allow"), optionId: o.id)
+        }
+        // Sigue en quien estaba pintando; si nadie (se contestó sin el hilo abierto), el stream se lee
+        // igual y lo demás lo trae el hilo al abrirlo.
         let oyente = oyentes[sesion] ?? Oyente(cont: AsyncThrowingStream<ACPClient.Replay, Error>.makeStream().continuation,
                                                vigilante: false)
+        let vivo = runVivo[sesion]
         escuchar(sesion, oyente) { me in
-            try await self.correr(input, sesion: sesion, runPropio: turno, oyente: me)
+            try await self.correr(input, sesion: sesion, run: vivo, oyente: me)
         }
     }
 
-    /// Un mensaje MÁS para el turno que ya corre («steer»): `forwardedProps.steer` con el run vivo.
-    /// Devuelve si entró. ⚠️ No abre escucha nueva: lo trae el stream del run en vuelo.
+    /// Un mensaje MÁS para el turno que ya corre («steer», §0.6): `POST` con el mensaje, `runId`
+    /// nuevo y `forwardedProps.steer` = el run vivo. Si entra (`ghosty.injected`), este stream
+    /// sigue pintando el run y el viejo se suelta; si no, `409 run_active` y no pasa nada.
     func mandarMas(sessionID: String, texto: String, turnId: String) async throws -> Bool {
-        guard let vivo = runVivo[sessionID] else { return false }
+        guard let vivo = runVivo[sessionID], let oyente = oyentes[sessionID] else { return false }
         var input = try await entrada(sessionID, texto: texto, adjuntos: [], runId: turnId)
         input.forwarded["steer"] = vivo
-        var entro = false
-        do {
-            for try await e in transporte.run(input) {
-                if e.type == "CUSTOM", e.string("name") == "ghosty.steer" {
-                    entro = (e["value"] as? [String: Any])?["accepted"] as? Bool == true
+        let decision = Decision()
+        let token = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.vivir(sessionID, oyente, token: token) {
+                do {
+                    let fin = try await self.correr(input, sesion: sessionID, run: vivo, oyente: oyente) {
+                        await self.tomarLectura(sessionID, token: token)
+                        await decision.dar(true)
+                    }
+                    await decision.dar(false)
+                    return fin
+                } catch {
+                    await decision.dar(false)
+                    // No entró: no es asunto de quien pinta (sigue la lectura vieja).
+                    if await self.escuchas[sessionID]?.token != token { throw CancellationError() }
+                    throw error
                 }
-                if e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { break }
             }
-        } catch let e as AGUITransport.HTTPError where e.status == 409 {
-            return false
         }
+        pendiente[sessionID] = task
+        let entro = await decision.esperar()
+        if !entro { task.cancel(); pendiente[sessionID] = nil }
         return entro
+    }
+
+    /// La lectura de un steer mientras se sabe si entró.
+    private var pendiente: [String: Task<Void, Never>] = [:]
+
+    /// El steer entró: desde aquí su lectura es la vigente y la vieja se va SIN cerrar el flujo.
+    private func tomarLectura(_ sesion: String, token: UUID) {
+        let vieja = escuchas[sesion]
+        if let t = pendiente.removeValue(forKey: sesion) { escuchas[sesion] = Escucha(token: token, task: t) }
+        vieja?.task.cancel()
     }
 
     /// Encarga un turno SIN pintar su respuesta (la extensión «Enviar a Ghosty»): el mismo `POST`,
@@ -696,11 +756,41 @@ actor ClienteGS: TransporteDeAgente {
             ps.forEach { permisoResuelto?($0.id) }
         }
         runVivo[sessionID] = nil
+        await soloLeer(input, "detener")
+    }
+
+    /// Detener UN subagente (`forwardedProps.stopSubagent`, sustituye `POST …/subagents/:id/stop`).
+    func detenerSubagente(_ taskId: String, en sessionID: String) async {
+        var input = AGUITransport.Input(threadId: sessionID, runId: UUID().uuidString.lowercased())
+        input.forwarded["stopSubagent"] = taskId
+        await soloLeer(input, "detener subagente")
+    }
+
+    /// Lee un run que nadie pinta hasta que cierra (detener, subagentes).
+    private func soloLeer(_ input: AGUITransport.Input, _ que: String) async {
         do {
-            for try await e in transporte.run(input) where e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { break }
+            for try await e in transporte.run(input) {
+                if e.type == "STATE_SNAPSHOT", let s = e["snapshot"] as? [String: Any] {
+                    Self.alCambiarState?(agentID, input.threadId, s)
+                }
+                if e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { break }
+            }
         } catch {
-            EasyBitsClient.diag("[agui] detener \(sessionID): \(error)")
+            EasyBitsClient.diag("[agui] \(que) \(input.threadId): \(error)")
         }
+    }
+
+    /// El `state` de una conversación sin pintar nada: reconectar y leer hasta su `STATE_SNAPSHOT`.
+    /// Cortar después no detiene nada (§6 del contrato).
+    func estado(de sessionID: String) async throws -> [String: Any]? {
+        let input = AGUITransport.Input(threadId: sessionID, runId: UUID().uuidString.lowercased())
+        do {
+            for try await e in transporte.run(input) {
+                if e.type == "STATE_SNAPSHOT" { return e["snapshot"] as? [String: Any] ?? [:] }
+                if e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { return nil }
+            }
+        } catch { throw await fallo(error) }
+        return nil
     }
 
     /// El `RunAgentInput` de un mensaje nuevo. Si había tarjetas abiertas, escribir otra cosa las
@@ -719,19 +809,20 @@ actor ClienteGS: TransporteDeAgente {
         return input
     }
 
-    /// Un adjunto como parte de contenido AG-UI. gs decide qué entra inline y qué se le entrega al
-    /// agente como URL (`attachments.server.ts`).
+    /// Un adjunto como parte de contenido AG-UI. Lo preferido por gs (§0.2) es la URL del archivo ya
+    /// subido (`GhostyAPI.subir` lo hace antes de mandar); si no hay, va en base64 (≤ 10 MB).
     static func parte(_ a: Adjunto) async throws -> [String: Any] {
         let tipo = a.mime.hasPrefix("image/") ? "image" : a.mime.hasPrefix("audio/") ? "audio" : "document"
         var p: [String: Any] = ["type": tipo, "mimeType": a.mime, "filename": a.nombre]
-        // De «Mis archivos»: por id y sin base64; gs resuelve nombre, tipo y liga.
+        // De «Mis archivos»: por id, con su liga fresca.
         if a.esDeBiblioteca, let id = a.remoto?.id {
             p["metadata"] = ["fileId": id]
-            if let url = try? await GhostyAPI.urlDe(id) { p["source"] = ["type": "url", "value": url, "mimeType": a.mime] }
-            else { p["source"] = ["type": "url", "value": "", "mimeType": a.mime] }
+            let url = (try? await GhostyAPI.urlDe(id)) ?? ""
+            p["source"] = ["type": "url", "value": url, "mimeType": a.mime]
             return p
         }
         if let url = a.remoto?.url, !url.isEmpty {
+            if let id = a.remoto?.id { p["metadata"] = ["fileId": id] }
             p["source"] = ["type": "url", "value": url, "mimeType": a.mime]
         } else {
             p["source"] = ["type": "data", "value": a.datos.base64EncodedString(), "mimeType": a.mime]
@@ -781,6 +872,11 @@ actor ClienteGS: TransporteDeAgente {
         case 402: return ACPClient.Fallo.limit(h.message)
         case 502, 503, 504: return ACPClient.Fallo.transitorio(h.status)
         case 403: return ACPClient.Fallo.remoto("Hay que volver a entrar a tu cuenta.")
+        // Un mensaje con un run vivo que no admite steer (§0.6): no hay cola, se dice.
+        case 409 where h.code == "run_active":
+            return ACPClient.Fallo.remoto("Tu agente sigue con lo anterior. Espera a que termine o detenlo.")
+        case 409 where h.code == "interrupt_pending":
+            return ACPClient.Fallo.remoto("Tu agente espera tu visto bueno antes de seguir.")
         case 404: return ACPClient.Fallo.remoto("Ese agente o esa conversación ya no existe.")
         case 429: return ACPClient.Fallo.remoto(h.message.isEmpty ? "Se acabó el cupo de turnos por ahora." : h.message)
         default: return ACPClient.Fallo.remoto(h.message)
@@ -906,3 +1002,21 @@ extension ClienteGS {
     }
 }
 
+
+/// Una respuesta de un solo uso (¿entró el steer?): la primera gana.
+private actor Decision {
+    private var valor: Bool?
+    private var esperando: [CheckedContinuation<Bool, Never>] = []
+
+    func dar(_ v: Bool) {
+        guard valor == nil else { return }
+        valor = v
+        esperando.forEach { $0.resume(returning: v) }
+        esperando = []
+    }
+
+    func esperar() async -> Bool {
+        if let valor { return valor }
+        return await withCheckedContinuation { esperando.append($0) }
+    }
+}
