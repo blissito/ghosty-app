@@ -1,3 +1,2 @@
-• Al volver a una conversación, cada respuesta conserva la lista de pasos que seguí para llegar a ella: qué busqué, qué leí y qué te entregué.
-• También la ves si la conversación empezó en la web o en otro dispositivo.
+• Los videos y archivos que te entrego mientras la app está cerrada ya aparecen en la conversación al volver a abrirla.
 • Mejoras de estabilidad.
