@@ -2444,6 +2444,22 @@ final class LiveAgentStore: AgentStoring {
             caughtUpWithShown = true
             return true
         }
+        // ⚠️ Un ` ```eb-file ` deja de ser texto y pasa a ser tarjeta. Ver `BloqueEbFile`: es un
+        // puente hasta que el relé mande `ghosty/artifact` para todo lo que produce. Sin esto salía
+        // el JSON crudo en mitad de la respuesta y el archivo no llegaba a Artefactos.
+        func sacarBloquesEb() {
+            for hallado in BloqueEbFile.buscar(acumulado, agentID: canal.cuenta.id,
+                                               sesionID: sid).reversed() {
+                acumulado.removeSubrange(hallado.rango)
+                entregas.registrar(hallado.entrega)
+                let idEntrega = "entrega-\(hallado.entrega.id)"
+                if !hilo.mensajes.contains(where: { $0.id == idEntrega }) {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        hilo.mensajes.append(Message(id: idEntrega, kind: .entrega(hallado.entrega)))
+                    }
+                }
+            }
+        }
 
         do {
             for try await evento in flujo {
@@ -2525,22 +2541,7 @@ final class LiveAgentStore: AgentStoring {
                         if !acumulado.isEmpty { acumulado += "\n\n" }
                     }
                     acumulado += t
-                    // ⚠️ Un ` ```eb-file ` deja de ser texto y pasa a ser tarjeta. Ver
-                    // `BloqueEbFile`: es un puente hasta que el relé mande
-                    // `ghosty/artifact` para todo lo que produce. Sin esto salía el JSON
-                    // crudo en mitad de la respuesta y el archivo no llegaba a Artefactos.
-                    for hallado in BloqueEbFile.buscar(acumulado, agentID: canal.cuenta.id,
-                                                       sesionID: sid).reversed() {
-                        acumulado.removeSubrange(hallado.rango)
-                        entregas.registrar(hallado.entrega)
-                        let idEntrega = "entrega-\(hallado.entrega.id)"
-                        if !hilo.mensajes.contains(where: { $0.id == idEntrega }) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                                hilo.mensajes.append(Message(id: idEntrega,
-                                                             kind: .entrega(hallado.entrega)))
-                            }
-                        }
-                    }
+                    sacarBloquesEb()
                     if canRepaint() {
                         pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas,
                                         narrationCuts: narrationCuts)
@@ -2548,8 +2549,11 @@ final class LiveAgentStore: AgentStoring {
                 case .reemplazo(let t):
                     // gs corrigió el texto al cerrar (página, tarjeta): manda el suyo entero, y la
                     // narración que quedaba más allá del texto nuevo ya no existe.
+                    // ⚠️ El texto de gs trae los mismos ` ```eb-file ` que el vivo: sin sacarlos, el
+                    // PDF salía como código crudo en la burbuja (Notch, cuenta del revisor, 18-oct).
                     acumulado = t
-                    narrationCuts = narrationCuts.filter { $0 <= t.count }
+                    sacarBloquesEb()
+                    narrationCuts = narrationCuts.filter { $0 <= acumulado.count }
                     caughtUpWithShown = true
                     pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas,
                                     narrationCuts: narrationCuts)
