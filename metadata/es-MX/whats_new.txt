@@ -1,2 +1,3 @@
 • Los videos y archivos que te entrego mientras la app está cerrada ya aparecen en la conversación al volver a abrirla.
+• La conversación con tu agente sigue sin cortes al salir y volver a la app, y las aprobaciones llegan con las opciones que él te propone.
 • Mejoras de estabilidad.
