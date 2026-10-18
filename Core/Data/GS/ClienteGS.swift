@@ -368,28 +368,50 @@ actor ClienteGS: TransporteDeAgente {
         // El modo no se fija por conversación: el permiso se pide turno a turno.
     }
 
-    func cancelar(_ sessionID: String) async {
-        _ = try? await pedir(base("/conversations/\(sessionID)/cancel"), metodo: "POST", cuerpo: [:])
+    // MARK: - El turno (AG-UI)
+
+    /// El endpoint AG-UI del agente: un `POST` con `RunAgentInput` para TODO lo del turno —mandar,
+    /// reconectar, aprobar, detener—. Contrato: `~/ghostykit/docs/protocol.md`.
+    static var runPath = "/agui"
+    /// Otro servidor AG-UI para TODO agente (pruebas y desarrollo: `GHOSTY_AGUI_URL`).
+    nonisolated(unsafe) static var runURL: URL? = {
+        #if DEBUG
+        return Gancho.valor("GHOSTY_AGUI_URL").flatMap(URL.init(string:))
+        #else
+        return nil
+        #endif
+    }()
+
+    private var transporte: AGUITransport {
+        AGUITransport(url: Self.runURL ?? base(Self.runPath), authorize: Self.autorizar)
     }
 
-    func responderPermiso(_ id: String, opcion: String) async throws {
-        _ = try await pedir(base("/conversations/\(sessionID(dePermiso: id))/permission"),
-                            metodo: "POST", cuerpo: ["id": id, "optionId": opcion])
+    /// Cómo se firma cada `POST` del turno. Se puede cambiar en pruebas.
+    nonisolated(unsafe) static var autorizar: @Sendable (inout URLRequest, String?) async throws -> Void = { req, rejected in
+        // ⚠️ El token se pide en CADA llamada: `Session.accessToken()` lo refresca si caducó.
+        req.setValue("Bearer \(try await Session.accessToken(rejected: rejected))", forHTTPHeaderField: "Authorization")
+        // La zona del teléfono viaja en cada petición: gs le da al agente la hora de la persona.
+        req.setValue(TimeZone.current.identifier, forHTTPHeaderField: "X-Timezone")
     }
 
-    /// En qué conversación se pidió cada permiso, para saber a qué ruta contestar.
-    private var conversacionDelPermiso: [String: String] = [:]
-    private func sessionID(dePermiso id: String) -> String {
-        conversacionDelPermiso[id] ?? ""
+    /// Quién pinta cada conversación ahora mismo: el flujo del turno propio o el vigilante.
+    private struct Oyente {
+        let id = UUID()
+        let cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation
+        /// El vigilante se queda quieto al terminar el run; el del turno cierra su flujo.
+        let vigilante: Bool
     }
 
-    // MARK: - El turno
-
-    /// Las escuchas SSE vivas, por conversación.
+    /// Las escuchas vivas, por conversación (una a la vez: la nueva reemplaza a la vieja).
     private var escuchas: [String: Task<Void, Never>] = [:]
-    /// Sync v2: último `id:` visto por conversación y si se manda al reconectar.
-    fileprivate var lastEventIDs: [String: String] = [:]
-    fileprivate var resumeFromLastEvent = false
+    private var oyentes: [String: Oyente] = [:]
+    /// El run que trabaja en cada conversación: el que se manda en `forwardedProps.cancel` y el que
+    /// nombra la burbuja (`turno-<runId>`) cuando una aprobación lo continúa.
+    private var runVivo: [String: String] = [:]
+    /// Aprobaciones abiertas por conversación y lo ya contestado de ellas. El contrato pide contestar
+    /// TODAS las de un run en un solo `resume`.
+    private var abiertas: [String: [AGUIState.Permission]] = [:]
+    private var contestadas: [String: [String: Bool]] = [:]
     var turnosVivos: Int { escuchas.count }
 
     private var permisoPendiente: (@Sendable (ACPClient.Permiso) -> Void)?
@@ -412,110 +434,323 @@ actor ClienteGS: TransporteDeAgente {
         permisoResuelto = handler
     }
 
-    /// Permisos ya avisados, para no pedir dos veces lo mismo.
-    ///
-    /// ⚠️ El SSE reenvía los permisos ABIERTOS cada vez que alguien se suscribe —es lo que
-    /// hace que reconectar te devuelva el agente detenido y no una pantalla muda— así que
-    /// sin esta memoria, cada reenganche pintaba otra tarjeta del mismo pedido.
-    private var permisosAvisados: Set<String> = []
-
     private var alCaerse: (@Sendable () -> Void)?
     func alPerderse(_ handler: @escaping @Sendable () -> Void) { alCaerse = handler }
 
-    /// Lo que este agente SABE hacer, según el servidor. Llega por el SSE al suscribirse.
+    /// Lo que este agente SABE hacer, según el servidor (`ghosty.caps`).
     private var alSaberCapacidades: (@Sendable (Bool) -> Void)?
     func alConocerCapacidades(_ handler: @escaping @Sendable (Bool) -> Void) {
         alSaberCapacidades = handler
     }
 
-    /// Manda el turno y escucha lo que gs vaya emitiendo.
+    /// Manda el turno y pinta lo que vaya pasando. En AG-UI es UNA petición: el `POST` con el mensaje
+    /// contesta el stream del run, así que ya no hay ventana entre encargar y escuchar.
     ///
-    /// ⚠️ Se escucha ANTES de encargar, y así no hay ninguna ventana en la que el turno
-    /// esté corriendo sin nadie mirando.
-    ///
-    /// Ese orden —el natural— fallaba: quien se suscribe a una conversación en reposo
-    /// recibe un `done` de entrada, que es lo que un cliente recién llegado necesita
-    /// saber, y me cerraba el flujo antes de empezar; todos los turnos salían «cerró sin
-    /// texto». Se arregló en el servidor: ese `done` ahora viene con `reposo: true` y se
-    /// distingue del que cierra un turno de verdad. Mientras no existía, esto iba al revés
-    /// —encargar y luego escuchar— apoyándose en que el backlog tapara el hueco.
+    /// ⚠️ Si el run se detiene a pedir aprobación, el flujo NO termina: la respuesta a la tarjeta es
+    /// otro `POST` (`resume`) cuyo stream sigue en esta misma burbuja, como cuando el turno esperaba.
     nonisolated func prompt(sessionID: String, texto: String, adjuntos: [Adjunto],
                             turnId: String) -> AsyncThrowingStream<ACPClient.Replay, Error> {
         AsyncThrowingStream { cont in
-            let tarea = Task {
-                do {
-                    try await self.escuchar(sessionID, cont, esperandoTurno: true)
-                    let encargo = try await self.encargar(sessionID, texto: texto, adjuntos: adjuntos, turnId: turnId)
-                    // La burbuja se llama como el turno desde el primer momento.
-                    cont.yield(.turno(encargo.turnId))
-                } catch {
-                    cont.finish(throwing: error)
+            let oyente = Oyente(cont: cont, vigilante: false)
+            Task { await self.arrancarTurno(sessionID, texto: texto, adjuntos: adjuntos, turnId: turnId, oyente) }
+            cont.onTermination = { _ in
+                // ⚠️ Dejar de escuchar y NADA MÁS: soltar el flujo pasa al reenganchar, al cambiar de
+                // pantalla o al suspenderse la app, y nada de eso para el trabajo. Detener lo pide
+                // una persona (`cancelar`).
+                Task { await self.dejarDeEscuchar(sessionID, si: oyente.id) }
+            }
+        }
+    }
+
+    private func arrancarTurno(_ sesion: String, texto: String, adjuntos: [Adjunto], turnId: String,
+                               _ oyente: Oyente) async {
+        let input: AGUITransport.Input
+        do { input = try await entrada(sesion, texto: texto, adjuntos: adjuntos, runId: turnId) }
+        catch { oyente.cont.finish(throwing: error); return }
+        escuchar(sesion, oyente) { me in
+            // ⚠️ Tiempo prestado por iOS para que el POST llegue aunque apagues el teléfono justo
+            // después de mandar. Se suelta en cuanto el servidor acepta el run (`RUN_STARTED`).
+            let token = await BackgroundTime.begin("encargar turno")
+            self.runVivo[sesion] = turnId
+            return try await self.correr(input, sesion: sesion, runPropio: turnId, oyente: me,
+                                         reintentarAntesDeEmpezar: true, tiempoPrestado: token)
+        }
+    }
+
+    /// Engancharse a lo que ya esté pasando en esa conversación: un `POST` sin mensaje nuevo.
+    ///
+    /// El servidor contesta `MESSAGES_SNAPSHOT` y luego el run vivo (si lo hay), las aprobaciones
+    /// abiertas o nada. Después la escucha se queda QUIETA hasta que la reemplacen: gs puede abrir un
+    /// turno solo (agenda, entrega), y eso lo avisa `/me/events`, que vuelve a llamar aquí.
+    nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<ACPClient.Replay, Error>? {
+        AsyncThrowingStream { cont in
+            let oyente = Oyente(cont: cont, vigilante: true)
+            Task {
+                await self.escuchar(sessionID, oyente) { me in
+                    let input = AGUITransport.Input(threadId: sessionID, runId: UUID().uuidString.lowercased())
+                    return try await self.correr(input, sesion: sessionID, runPropio: nil, oyente: me)
                 }
             }
             cont.onTermination = { _ in
-                tarea.cancel()
-                // ⚠️ Dejar de escuchar y NADA MÁS. Aquí antes se cancelaba el turno cuando
-                // el flujo terminaba «cancelado», copiando lo que hace falta en el
-                // WebSocket. Con gs eso es justo lo contrario de lo que se busca: soltar
-                // el flujo pasa al reenganchar, al cambiar de pantalla o al suspenderse la
-                // app, y ninguna de esas cosas debe parar el trabajo. Detener lo pide una
-                // persona, y para eso está `cancelar(_:)`, que llama quien pulsa el botón.
-                Task { await self.dejarDeEscuchar(sessionID) }
+                // ⚠️ Irse de una conversación NO cancela su turno. Sólo se deja de escuchar.
+                Task { await self.dejarDeEscuchar(sessionID, si: oyente.id) }
             }
         }
     }
 
-    /// Engancharse a lo que ya esté pasando en esa conversación.
-    ///
-    /// Si no hay turno vivo, gs manda `done` de entrada y el flujo se cierra solo: quien
-    /// llama no tiene que preguntar primero si hay algo. Si lo hay, llega el backlog
-    /// —todo lo que el turno emitió mientras no mirábamos— y después el directo.
-    nonisolated func seguir(sessionID: String) -> AsyncThrowingStream<ACPClient.Replay, Error>? {
-        AsyncThrowingStream { cont in
-            let tarea = Task {
-                do { try await self.escuchar(sessionID, cont) }
-                catch { cont.finish(throwing: error) }
+    /// Pone `oyente` a pintar esa conversación y corre `trabajo`. Un run que se detiene en una
+    /// aprobación deja el flujo abierto; el vigilante se queda quieto al terminar.
+    private func escuchar(_ sesion: String, _ oyente: Oyente,
+                          _ trabajo: @escaping (Oyente) async throws -> AGUIState.Outcome) {
+        escuchas[sesion]?.cancel()
+        oyentes[sesion] = oyente
+        escuchas[sesion] = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let fin = try await trabajo(oyente)
+                if case .interrupt = fin { return }  // espera la respuesta a la tarjeta
+                if oyente.vigilante {
+                    try await Task.sleep(for: .seconds(24 * 3600))
+                }
+                oyente.cont.finish()
+            } catch is CancellationError {
+                oyente.cont.finish()
+            } catch {
+                oyente.cont.finish(throwing: await self.fallo(error))
             }
-            cont.onTermination = { _ in
-                tarea.cancel()
-                // ⚠️ Irse de una conversación NO cancela su turno: eso es justo lo que se
-                // gana con este transporte. Sólo se deja de escuchar.
-                Task { await self.dejarDeEscuchar(sessionID) }
-            }
+            await self.soltar(sesion, oyente)
         }
     }
 
-    #if DEBUG
-    nonisolated(unsafe) private static var yaCorto = false
-    #endif
-
-    private func dejarDeEscuchar(_ sesion: String) {
+    private func dejarDeEscuchar(_ sesion: String, si id: UUID) {
+        // Sólo si sigue siendo el suyo: una escucha nueva ya pudo reemplazarlo.
+        guard let o = oyentes[sesion], o.id == id else { return }
         escuchas[sesion]?.cancel()
         escuchas[sesion] = nil
+        oyentes[sesion] = nil
     }
 
-    /// Reintenta ante red caída o 502/503/504 (gs reiniciándose por un deploy): 1, 2, 4,
-    /// 8 s. Un 4xx no se reintenta: eso es un «no», no un «ahora no». Es seguro porque el
-    /// cuerpo lleva `turnId` y el servidor no arranca dos veces el mismo.
+    private func soltar(_ sesion: String, _ oyente: Oyente) {
+        guard let o = oyentes[sesion], o.id == oyente.id else { return }
+        escuchas[sesion] = nil
+        oyentes[sesion] = nil
+    }
+
+    /// Corre un run y reparte lo que llega. Devuelve cómo terminó.
+    ///
+    /// `runPropio`: el run es un turno de este teléfono (su `turnId`), y su burbuja se llama así.
+    /// `reintentarAntesDeEmpezar`: red caída o 5xx ANTES de `RUN_STARTED` se reintenta con el MISMO
+    /// run (el `runId` es la clave de idempotencia; gs no arranca dos veces el mismo).
+    private func correr(_ input: AGUITransport.Input, sesion: String, runPropio: String?, oyente: Oyente,
+                        reintentarAntesDeEmpezar: Bool = false,
+                        tiempoPrestado: Int? = nil) async throws -> AGUIState.Outcome {
+        var prestado = tiempoPrestado
+        defer { if let t = prestado { Task { await BackgroundTime.end(t) } } }
+        var bridge = AGUIBridge(agentID: agentID, sessionID: sesion, runId: runPropio)
+        var espera: UInt64 = 1
+        var intento = 0
+        while true {
+            var empezo = false
+            do {
+                for try await e in transporte.run(input) {
+                    try Task.checkCancellation()
+                    if e.type == "RUN_STARTED" {
+                        empezo = true
+                        if let t = prestado { prestado = nil; await BackgroundTime.end(t) }
+                    }
+                    for o in bridge.apply(e) { await repartir(o, sesion: sesion, oyente: oyente, bridge: bridge) }
+                    if e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { break }
+                }
+            } catch let e where !empezo && reintentarAntesDeEmpezar && intento < 4 && Self.reintentable(e) {
+                intento += 1
+                EasyBitsClient.diag("[agui] encargar: reintento \(intento) en \(espera) s (\(e))")
+                Self.alReintentar?("El servidor no responde. Reintento \(intento) de 4…")
+                try await Task.sleep(for: .seconds(espera))
+                espera *= 2
+                continue
+            }
+            if let id = bridge.liveRunId { runVivo[sesion] = id }
+            let fin = bridge.state.outcome ?? .success
+            switch fin {
+            case .interrupt:
+                break
+            case .error(let m, let code):
+                runVivo[sesion] = nil
+                throw code == "limit" || code == "payment_required" ? ACPClient.Fallo.limit(m) : ACPClient.Fallo.remoto(m)
+            default:
+                runVivo[sesion] = nil
+                // Un vigilante que vio trabajo en vivo lo cierra como turno; sigue escuchando.
+                if oyente.vigilante, bridge.sawLive { oyente.cont.yield(.cerrado(bridge.liveRunId ?? "")) }
+            }
+            return fin
+        }
+    }
+
+    /// Una salida del puente al flujo o a quien escucha la señal.
+    private func repartir(_ o: AGUIBridge.Output, sesion: String, oyente: Oyente, bridge: AGUIBridge) async {
+        switch o {
+        case .replay(let r):
+            oyente.cont.yield(r)
+        case .phase(let p):
+            // Esperando tu aprobación el turno NO está en reposo: está detenido por ti.
+            if p == "reposo", bridge.state.outcome == .interrupt { return }
+            alCambiarEstado?(sesion, p)
+        case .queue(let n):
+            if n > 0 { alEsperar?(n) }
+        case .caps(let steer):
+            alSaberCapacidades?(steer)
+        case .title(let t):
+            EasyBitsClient.diag("[agui] título de \(sesion): \(t)")
+        case .interrupts(let ps):
+            abrir(ps, en: sesion)
+        case .finished(let fin):
+            // Lo que estaba abierto y ya no viene: alguien lo contestó en otra superficie.
+            if fin != .interrupt { abrir([], en: sesion) }
+        }
+    }
+
+    /// Las aprobaciones abiertas de una conversación pasan a ser `ps`: las nuevas se piden, las que
+    /// ya no están se retiran.
+    private func abrir(_ ps: [AGUIState.Permission], en sesion: String) {
+        let antes = abiertas[sesion] ?? []
+        abiertas[sesion] = ps.isEmpty ? nil : ps
+        for viejo in antes where !ps.contains(where: { $0.id == viejo.id }) {
+            contestadas[sesion]?[viejo.id] = nil
+            permisoResuelto?(viejo.id)
+        }
+        // ⚠️ Las tarjetas abiertas vuelven en CADA reconexión: sin esta memoria, cada reenganche
+        // pintaba otra tarjeta del mismo pedido.
+        for p in ps where !antes.contains(where: { $0.id == p.id }) {
+            permisoPendiente?(ACPClient.Permiso(
+                id: p.id, sessionID: sesion, titulo: p.title, herramienta: p.tool ?? "",
+                opciones: [(Self.rechazar, "Rechazar", "reject_once"), (Self.aprobar, "Aprobar", "allow_once")]))
+        }
+    }
+
+    static let aprobar = "approve"
+    static let rechazar = "reject"
+
+    /// Contesta una tarjeta. Cuando están contestadas TODAS las del run, sale el `resume` y su stream
+    /// sigue en la burbuja del turno que se detuvo.
+    func responderPermiso(_ id: String, opcion: String) async throws {
+        guard let sesion = abiertas.first(where: { $0.value.contains { $0.id == id } })?.key else { return }
+        contestadas[sesion, default: [:]][id] = opcion == Self.aprobar || opcion.hasPrefix("allow")
+        let todas = abiertas[sesion] ?? []
+        let respuestas = contestadas[sesion] ?? [:]
+        guard todas.allSatisfy({ respuestas[$0.id] != nil }) else { return }
+        abiertas[sesion] = nil
+        contestadas[sesion] = nil
+        todas.forEach { permisoResuelto?($0.id) }
+        var input = AGUITransport.Input(threadId: sesion, runId: UUID().uuidString.lowercased())
+        input.resume = todas.map { .init(interruptId: $0.id, approved: respuestas[$0.id]) }
+        let turno = runVivo[sesion]
+        // Sigue en quien estaba pintando; si nadie (la app volvió del fondo sin hilo abierto), el
+        // stream se lee igual para que el run arranque, y lo demás lo trae el hilo al abrirlo.
+        let oyente = oyentes[sesion] ?? Oyente(cont: AsyncThrowingStream<ACPClient.Replay, Error>.makeStream().continuation,
+                                               vigilante: false)
+        escuchar(sesion, oyente) { me in
+            try await self.correr(input, sesion: sesion, runPropio: turno, oyente: me)
+        }
+    }
+
+    /// Un mensaje MÁS para el turno que ya corre («steer»): `forwardedProps.steer` con el run vivo.
+    /// Devuelve si entró. ⚠️ No abre escucha nueva: lo trae el stream del run en vuelo.
+    func mandarMas(sessionID: String, texto: String, turnId: String) async throws -> Bool {
+        guard let vivo = runVivo[sessionID] else { return false }
+        var input = try await entrada(sessionID, texto: texto, adjuntos: [], runId: turnId)
+        input.forwarded["steer"] = vivo
+        var entro = false
+        do {
+            for try await e in transporte.run(input) {
+                if e.type == "CUSTOM", e.string("name") == "ghosty.steer" {
+                    entro = (e["value"] as? [String: Any])?["accepted"] as? Bool == true
+                }
+                if e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { break }
+            }
+        } catch let e as AGUITransport.HTTPError where e.status == 409 {
+            return false
+        }
+        return entro
+    }
+
+    /// Encarga un turno SIN pintar su respuesta (la extensión «Enviar a Ghosty»): el mismo `POST`,
+    /// leído hasta que el servidor lo acepta. El turno es del servidor; soltar no lo detiene.
+    func encargarSinEscuchar(sessionID: String, texto: String, adjuntos: [Adjunto]) async throws -> String {
+        let turnId = UUID().uuidString.lowercased()
+        let input = try await entrada(sessionID, texto: texto, adjuntos: adjuntos, runId: turnId)
+        do {
+            for try await e in transporte.run(input) where e.type == "RUN_STARTED" { break }
+        } catch { throw await fallo(error) }
+        return turnId
+    }
+
+    /// Detener: un `POST` sin mensaje con el run en `forwardedProps.cancel`. Si la conversación
+    /// esperaba aprobaciones, se contestan `cancelled` (= no) en la misma petición.
+    func cancelar(_ sessionID: String) async {
+        var input = AGUITransport.Input(threadId: sessionID, runId: UUID().uuidString.lowercased())
+        input.cancel = runVivo[sessionID] ?? ""
+        if let ps = abiertas[sessionID] {
+            input.resume = ps.map { .init(interruptId: $0.id, approved: nil) }
+            abiertas[sessionID] = nil
+            contestadas[sessionID] = nil
+            ps.forEach { permisoResuelto?($0.id) }
+        }
+        runVivo[sessionID] = nil
+        do {
+            for try await e in transporte.run(input) where e.type == "RUN_FINISHED" || e.type == "RUN_ERROR" { break }
+        } catch {
+            EasyBitsClient.diag("[agui] detener \(sessionID): \(error)")
+        }
+    }
+
+    /// El `RunAgentInput` de un mensaje nuevo. Si había tarjetas abiertas, escribir otra cosa las
+    /// contesta `cancelled` (§4 del contrato): el agente no corre esa acción.
+    private func entrada(_ sesion: String, texto: String, adjuntos: [Adjunto], runId: String) async throws -> AGUITransport.Input {
+        var input = AGUITransport.Input(threadId: sesion, runId: runId, text: texto)
+        for a in adjuntos {
+            input.attachments.append(.init(json: try await Self.parte(a)))
+        }
+        if let ps = abiertas[sesion] {
+            input.resume = ps.map { .init(interruptId: $0.id, approved: nil) }
+            abiertas[sesion] = nil
+            contestadas[sesion] = nil
+            ps.forEach { permisoResuelto?($0.id) }
+        }
+        return input
+    }
+
+    /// Un adjunto como parte de contenido AG-UI. gs decide qué entra inline y qué se le entrega al
+    /// agente como URL (`attachments.server.ts`).
+    static func parte(_ a: Adjunto) async throws -> [String: Any] {
+        let tipo = a.mime.hasPrefix("image/") ? "image" : a.mime.hasPrefix("audio/") ? "audio" : "document"
+        var p: [String: Any] = ["type": tipo, "mimeType": a.mime, "filename": a.nombre]
+        // De «Mis archivos»: por id y sin base64; gs resuelve nombre, tipo y liga.
+        if a.esDeBiblioteca, let id = a.remoto?.id {
+            p["metadata"] = ["fileId": id]
+            if let url = try? await GhostyAPI.urlDe(id) { p["source"] = ["type": "url", "value": url, "mimeType": a.mime] }
+            else { p["source"] = ["type": "url", "value": "", "mimeType": a.mime] }
+            return p
+        }
+        if let url = a.remoto?.url, !url.isEmpty {
+            p["source"] = ["type": "url", "value": url, "mimeType": a.mime]
+        } else {
+            p["source"] = ["type": "data", "value": a.datos.base64EncodedString(), "mimeType": a.mime]
+        }
+        return p
+    }
+
+    /// Reintenta ante red caída o 502/503/504 (gs reiniciándose por un deploy): 1, 2, 4, 8 s. Un 4xx
+    /// no se reintenta: eso es un «no», no un «ahora no».
     private func conReintentos(_ op: () async throws -> [String: Any]) async throws -> [String: Any] {
         var espera: UInt64 = 1
         for intento in 1...5 {
             do { return try await op() }
             catch let e as ACPClient.Fallo {
                 guard case .transitorio = e, intento < 5 else { throw e }
-            } catch let e as URLError {
-                guard [.networkConnectionLost, .timedOut, .cannotConnectToHost, .notConnectedToInternet,
-                       .cannotFindHost, .dnsLookupFailed].contains(e.code), intento < 5 else { throw e }
-            } catch let e as NSError where e.domain == NSPOSIXErrorDomain && [53, 54, 57].contains(e.code) {
-                // ⚠️ Lo que deja iOS al apagar la pantalla con el POST en el aire: el socket
-                // muere con un error POSIX («Software caused connection abort», 53; reset 54;
-                // not connected 57), no con un `URLError`. No se reintentaba y la app decía
-                // «No llegó a tu agente» de un turno que gs SÍ había corrido (7-oct, el
-                // turno dc917a74 terminó en 24 s). Reintentar es seguro: el `turnId` es la
-                // clave de idempotencia y gs contesta `repetido` en vez de arrancar otro.
-                guard intento < 5 else { throw e }
+            } catch {
+                guard Self.reintentable(error), intento < 5 else { throw error }
             }
-            EasyBitsClient.diag("[gs] encargar: reintento \(intento) en \(espera) s")
+            EasyBitsClient.diag("[gs] reintento \(intento) en \(espera) s")
             Self.alReintentar?("El servidor no responde. Reintento \(intento) de 4…")
             try await Task.sleep(for: .seconds(espera))
             espera *= 2
@@ -523,280 +758,33 @@ actor ClienteGS: TransporteDeAgente {
         throw ACPClient.Fallo.noConectado
     }
 
-    /// Lo que contesta gs al encargar un turno.
-    struct Encargo: Sendable {
-        let turnId: String
-        /// El mensaje entró en el turno que ya corría: no hay turno nuevo, y el stream
-        /// abierto sigue siendo el bueno.
-        let inyectado: Bool
-        let enCola: Int
-    }
-
-    private func encargar(_ sesion: String, texto: String, adjuntos: [Adjunto],
-                          turnId: String = UUID().uuidString.lowercased()) async throws -> Encargo {
-        // ⚠️ Los adjuntos van en base64 y gs decide qué entra inline y qué se le entrega
-        // al agente como URL con su comando (`attachments.server.ts`). Es lo mismo que
-        // hacía `BloqueDeAdjuntos` en el teléfono, pero del lado que conoce a la caja.
-        var archivos: [[String: Any]] = []
-        for a in adjuntos {
-            // De «Mis archivos»: por id y sin base64; gs resuelve nombre, tipo y liga. La liga
-            // fresca va también como `uri` para un servidor que aún no conozca `fileId`.
-            if a.esDeBiblioteca, let id = a.remoto?.id {
-                var d: [String: Any] = ["name": a.nombre, "mimeType": a.mime, "data": "", "fileId": id]
-                if let url = try? await GhostyAPI.urlDe(id) { d["uri"] = url }
-                archivos.append(d)
-                continue
-            }
-            var d: [String: Any] = ["name": a.nombre, "mimeType": a.mime,
-                                    "data": a.datos.base64EncodedString()]
-            if let url = a.remoto?.url, !url.isEmpty { d["uri"] = url }
-            archivos.append(d)
+    private static func reintentable(_ e: Error) -> Bool {
+        if let h = e as? AGUITransport.HTTPError { return [502, 503, 504].contains(h.status) }
+        if let u = e as? URLError {
+            return [.networkConnectionLost, .timedOut, .cannotConnectToHost, .notConnectedToInternet,
+                    .cannotFindHost, .dnsLookupFailed].contains(u.code)
         }
-        var cuerpo: [String: Any] = ["content": texto]
-        if !archivos.isEmpty { cuerpo["images"] = archivos }
-        // Clave de idempotencia: la pone el TELÉFONO. Un POST que se corta después de
-        // llegar se reintenta con el mismo id y gs devuelve el turno que ya corre en vez
-        // de arrancar otro. Sin esto, «reintentar» duplicaba el turno.
-        cuerpo["turnId"] = turnId
-        // ⚠️ NO se pide `preguntar`. Detenía el turno por CADA herramienta esperando una
-        // tarjeta que la app pinta a medias, y un permiso que caía en otro hilo dejaba la
-        // conversación «trabajando» sin fin. Los chats grandes no preguntan por
-        // herramienta; gs decide en su modo por defecto (auto). La tarjeta sigue existiendo
-        // por si un día el servidor pregunta por su cuenta.
-        // ⚠️ Tiempo prestado por iOS para que el POST termine aunque apagues el teléfono justo
-        // después de mandar. Sin esto la app se congelaba con la petición en el aire y, al
-        // volver, la daba por perdida. iOS da ~30 s, de sobra para un POST.
-        let backgroundToken = await BackgroundTime.begin("encargar turno")
-        defer { Task { await BackgroundTime.end(backgroundToken) } }
-        let r = try await conReintentos {
-            try await self.pedir(self.base("/conversations/\(sesion)/messages"), metodo: "POST", cuerpo: cuerpo)
+        // ⚠️ Lo que deja iOS al apagar la pantalla con el POST en el aire: un error POSIX (53, 54,
+        // 57), no un `URLError`. Reintentar es seguro: el `runId` es la clave de idempotencia.
+        let n = e as NSError
+        return n.domain == NSPOSIXErrorDomain && [53, 54, 57].contains(n.code)
+    }
+
+    /// Lo que se le enseña a la app cuando el servidor dijo que no antes de empezar.
+    private func fallo(_ error: Error) async -> Error {
+        guard let h = error as? AGUITransport.HTTPError else { return error }
+        switch h.status {
+        case 401:
+            await Self.sessionDead()
+            return Session.Fallo.caducada
+        // 402 = un límite del plan: no es un fallo de red; la frase ya viene redactada por gs.
+        case 402: return ACPClient.Fallo.limit(h.message)
+        case 502, 503, 504: return ACPClient.Fallo.transitorio(h.status)
+        case 403: return ACPClient.Fallo.remoto("Hay que volver a entrar a tu cuenta.")
+        case 404: return ACPClient.Fallo.remoto("Ese agente o esa conversación ya no existe.")
+        case 429: return ACPClient.Fallo.remoto(h.message.isEmpty ? "Se acabó el cupo de turnos por ahora." : h.message)
+        default: return ACPClient.Fallo.remoto(h.message)
         }
-        let enCola = r["enCola"] as? Int ?? 0
-        EasyBitsClient.diag("[gs] turno encargado \(sesion): \(r["turnId"] as? String ?? "?") estado=\(r["estado"] as? String ?? "?") enCola=\(enCola)")
-        // ⚠️ Un agente atiende un número limitado de conversaciones a la vez. Si las
-        // ranuras están ocupadas, el turno espera — y un reloj corriendo sin decir a qué
-        // espera se lee como «se colgó». Medido en la caja de alguien: cinco turnos en
-        // cola detrás de dos que se quedaron atascados, y la app enseñando «Trabajando…».
-        if enCola > 0 { alEsperar?(enCola) }
-        return Encargo(turnId: (r["turnId"] as? String) ?? turnId,
-                       inyectado: r["inyectado"] as? Bool == true, enCola: enCola)
-    }
-
-    /// Un mensaje MÁS para el turno que ya corre («steer»).
-    ///
-    /// ⚠️ No abre SSE: el que escucha el turno en vuelo ya está abierto y es el que va a
-    /// traer la respuesta. Abrir otro duplicaría el texto en la misma burbuja.
-    nonisolated func mandarMas(sessionID: String, texto: String, turnId: String) async throws -> Bool {
-        try await encargar(sessionID, texto: texto, adjuntos: [], turnId: turnId).inyectado
-    }
-
-    /// Encarga un turno SIN escuchar su respuesta: el mismo POST que `prompt`, para quien
-    /// no va a pintar nada (la extensión «Enviar a Ghosty»). El turno es del servidor y la
-    /// respuesta se lee al abrir la conversación. Devuelve el `turnId`.
-    func encargarSinEscuchar(sessionID: String, texto: String, adjuntos: [Adjunto]) async throws -> String {
-        try await encargar(sessionID, texto: texto, adjuntos: adjuntos).turnId
-    }
-
-    /// Abre el SSE y traduce lo que llega.
-    private func escuchar(_ sesion: String,
-                          _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation,
-                          esperandoTurno: Bool = false) async throws {
-        dejarDeEscuchar(sesion)
-        // ⚠️ El SSE se abre ANTES de encargar el turno, así que un 401 aquí era lo primero
-        // que veía la persona («El servidor contestó 401 al escuchar») y nadie refrescaba.
-        // Ahora: un intento con token nuevo; si tampoco entra, sesión muerta → login.
-        var req = try await peticion(base("/conversations/\(sesion)/events"), sse: true)
-        // Sync v2: con el último id visto, gs repite sólo lo que falta del turno vivo.
-        let resumeID = resumeFromLastEvent ? lastEventIDs[sesion] : nil
-        if let resumeID { req = Self.resuming(req, from: resumeID) }
-        var (bytes, resp) = try await Self.sesion.bytes(for: req)
-        if (resp as? HTTPURLResponse)?.statusCode == 401, let used = Self.bearerToken(req) {
-            req = try await peticion(base("/conversations/\(sesion)/events"), sse: true, rejected: used)
-            if let resumeID { req = Self.resuming(req, from: resumeID) }
-            (bytes, resp) = try await Self.sesion.bytes(for: req)
-            if (resp as? HTTPURLResponse)?.statusCode == 401 {
-                await Self.sessionDead()
-                throw Session.Fallo.caducada
-            }
-        }
-        let opened = (bytes, resp)
-        let listo = Semaforo()
-        escuchas[sesion] = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let (bytes, resp) = opened
-                let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
-                guard codigo == 200 else {
-                    await listo.abrir()
-                    cont.finish(throwing: ACPClient.Fallo.remoto("El servidor contestó \(codigo) al escuchar."))
-                    return
-                }
-                await listo.abrir()
-                // Gancho de desarrollo: `GHOSTY_CORTAR=8` tira la PRIMERA escucha a los
-                // 8 s, como hace iOS al suspender la app. Es lo que deja probar el
-                // reenganche sin bloquear un teléfono.
-                #if DEBUG
-                if let s = Gancho.valor("GHOSTY_CORTAR"), let seg = Int(s),
-                   !Self.yaCorto {
-                    Self.yaCorto = true
-                    Task {
-                        try? await Task.sleep(for: .seconds(seg))
-                        EasyBitsClient.diag("[gs] CORTAR: tiro la escucha de \(sesion) (gancho de dev)")
-                        cont.finish(throwing: URLError(.networkConnectionLost))
-                        await self.dejarDeEscuchar(sesion)
-                    }
-                }
-                #endif
-                var evento = ""
-                for try await linea in bytes.lines {
-                    if Task.isCancelled { break }
-                    if linea.hasPrefix("event: ") { evento = String(linea.dropFirst(7)); continue }
-                    if linea.hasPrefix("id: ") {
-                        await self.noteEventID(String(linea.dropFirst(4)), sesion: sesion)
-                        continue
-                    }
-                    guard linea.hasPrefix("data: ") else { continue }
-                    let crudo = String(linea.dropFirst(6))
-                    if await self.traducir(evento, crudo, sesion: sesion, cont,
-                                           esperandoTurno: esperandoTurno) { break }
-                }
-                cont.finish()
-                await self.soltar(sesion)
-            } catch {
-                await listo.abrir()
-                cont.finish(throwing: error)
-                await self.soltar(sesion)
-            }
-        }
-        // No se vuelve hasta que el SSE está de verdad abierto, para que quien llame sepa
-        // que ya hay quien escuche.
-        await listo.esperar()
-    }
-
-    private func soltar(_ sesion: String) { escuchas[sesion] = nil }
-
-    /// Traduce un evento de gs. Devuelve `true` si el turno terminó.
-    private func traducir(_ evento: String, _ crudo: String, sesion: String,
-                          _ cont: AsyncThrowingStream<ACPClient.Replay, Error>.Continuation,
-                          esperandoTurno: Bool = false) -> Bool {
-        let p = (try? JSONSerialization.jsonObject(with: Data(crudo.utf8))) as? [String: Any] ?? [:]
-        switch evento {
-        case "chunk":
-            if let id = p["turnId"] as? String { cont.yield(.turno(id)) }
-            if let t = p["text"] as? String, !t.isEmpty { cont.yield(.agent(t)) }
-        case "thought":
-            if let t = p["text"] as? String, !t.isEmpty { cont.yield(.thought(t)) }
-        case "tool":
-            if let id = p["id"] as? String {
-                cont.yield(.tool(ACPClient.herramienta([
-                    "title": p["title"] as Any, "kind": p["kind"] as Any,
-                    "status": p["status"] as Any, "locations": p["path"].map { [["path": $0]] } as Any,
-                    "detalle": p["detalle"] as Any,
-                ], id: id)))
-            }
-        case "artifact":
-            // ⚠️ El payload viene TAL CUAL lo emite el relé, sin normalizar: si gs lo
-            // tradujera habría que tocarlo cada vez que el MCP aprenda una forma nueva, y
-            // mientras tanto la entrega se perdería en silencio. `entregaDesde` ya es
-            // tolerante, que es justo lo que hace falta aquí.
-            if let e = ACPClient.entregaDesde(p, agentID: agentID) {
-                var entrega = e
-                entrega.sesionID = p["sessionId"] as? String ?? sesion
-                cont.yield(.entrega(entrega))
-            }
-        case "usage":
-            // ⚠️ SÓLO si vienen los de entrada/salida. `used`/`size` son el acumulado de
-            // la sesión contra el límite del modelo, y tras una compactación `used` puede
-            // pasarse de `size`: pintarlo como si fueran tokens del turno es lo que puso
-            // «14xxk» en pantalla. Si la caja no los sabe, gs los OMITE — así que aquí se
-            // distingue «cero» de «no lo sé», y ante «no lo sé» no se pinta nada.
-            if let i = p["input"] as? Int, let o = p["output"] as? Int {
-                cont.yield(.usage(input: i, output: o))
-            }
-        case "permission":
-            if let id = p["id"] as? String, !permisosAvisados.contains(id) {
-                permisosAvisados.insert(id)
-                conversacionDelPermiso[id] = sesion
-                let opciones = (p["options"] as? [[String: Any]] ?? []).compactMap { o -> (String, String, String)? in
-                    guard let oid = o["optionId"] as? String else { return nil }
-                    return (oid, o["name"] as? String ?? oid, o["kind"] as? String ?? "")
-                }
-                permisoPendiente?(ACPClient.Permiso(
-                    id: id, sessionID: sesion,
-                    titulo: p["title"] as? String ?? "una herramienta",
-                    herramienta: p["tool"] as? String ?? "",
-                    opciones: opciones))
-            }
-        case "permission-resolved":
-            if let id = p["id"] as? String {
-                conversacionDelPermiso[id] = nil
-                permisosAvisados.remove(id)
-                permisoResuelto?(id)
-            }
-        case "status":
-            // ⚠️ Lo dice el SERVIDOR, que es el dueño del turno. La app llevaba toda la
-            // noche INFIRIENDO si había trabajo en marcha —por si quedaba un turno local,
-            // por si el hilo estaba marcado como interrumpido— y por eso enseñaba
-            // «Sigue trabajando…» encima de una conversación en reposo. Este evento
-            // existe justo para no adivinar.
-            alCambiarEstado?(sesion, p["phase"] as? String ?? "session")
-        case "error":
-            cont.finish(throwing: ACPClient.Fallo.remoto(p["message"] as? String ?? "Falló el turno."))
-            return true
-        case "done":
-            let reposo = p["reposo"] as? Bool == true
-            if esperandoTurno {
-                if let id = p["turnId"] as? String { cont.yield(.turno(id)) }
-                // ⚠️ `reposo: true` es «aquí no está pasando nada», no «tu turno acabó». Se
-                // manda a quien se suscribe a una conversación quieta, y si se confunde con
-                // el otro, el turno que estás a punto de encargar muere antes de nacer.
-                return !reposo
-            }
-            // Vigilando (`seguir`): la escucha es PERMANENTE. gs no cierra el SSE en reposo
-            // y puede abrir un turno solo en este hilo (entrega de un video que terminó de
-            // bajar, agenda): «reposo» sólo apaga el estado; un turno que termina se avisa
-            // con `.cerrado` y se sigue escuchando el siguiente. Antes aquí se cerraba el
-            // flujo y una entrega de la plataforma no se veía hasta recargar.
-            if reposo { alCambiarEstado?(sesion, "reposo"); return false }
-            if let id = p["turnId"] as? String { cont.yield(.turno(id)) }
-            cont.yield(.cerrado(p["turnId"] as? String ?? ""))
-            alCambiarEstado?(sesion, "reposo")
-            return false
-        case "caps":
-            // ⚠️ `steer` es el que importa aquí: dice si un mensaje mandado con el turno en
-            // vuelo ENTRA en él o lo CORTA. Sin saberlo no se puede avisar antes, sólo
-            // después — cuando el trabajo ya se tiró.
-            alSaberCapacidades?(p["steer"] as? Bool == true)
-        case "started":
-            // Sync v2: con `resume`, gs sigue desde nuestro cursor en vez de repetir el turno
-            // desde el principio. Se dice ANTES de pintar nada.
-            if let cursor = p["resume"] as? String, let turn = cursor.split(separator: ":").first {
-                cont.yield(.resumed(String(turn)))
-            }
-        default:
-            // `title`, `status`, `models`… todavía no se usan. No se tiran a la basura en
-            // silencio: que aparezca uno nuevo tiene que poder verse.
-            EasyBitsClient.diag("[gs] evento sin usar: \(evento)")
-        }
-        return false
-    }
-}
-
-/// Una espera de un solo uso. Sirve para no encargar el turno antes de estar escuchando.
-private actor Semaforo {
-    private var abierto = false
-    private var esperando: [CheckedContinuation<Void, Never>] = []
-
-    func abrir() {
-        guard !abierto else { return }
-        abierto = true
-        esperando.forEach { $0.resume() }
-        esperando = []
-    }
-
-    func esperar() async {
-        if abierto { return }
-        await withCheckedContinuation { esperando.append($0) }
     }
 }
 
@@ -877,28 +865,6 @@ extension ClienteGS {
             largo: r["largo"] as? Bool ?? false, continuesFrom: r["continuesFrom"] as? String,
             files: files)
     }
-
-    /// El último `id:` de evento visto en cada conversación (`<turnId>:<n>`).
-    func noteEventID(_ id: String, sesion: String) {
-        lastEventIDs[sesion] = id
-    }
-
-    func lastEventID(of sesion: String) -> String? { lastEventIDs[sesion] }
-
-    /// ⚠️ gs sólo hace caso al header con `?resume=1`: el EventSource de la web lo manda solo
-    /// al reconectar y le comía el principio de la respuesta (desviación 1 del contrato).
-    static func resuming(_ request: URLRequest, from cursor: String) -> URLRequest {
-        var r = request
-        r.setValue(cursor, forHTTPHeaderField: "Last-Event-ID")
-        if let url = r.url, var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            c.queryItems = (c.queryItems ?? []) + [URLQueryItem(name: "resume", value: "1")]
-            r.url = c.url
-        }
-        return r
-    }
-
-    /// Prende la reanudación por `Last-Event-ID` (bandera `syncV2`).
-    func setResumeFromLastEvent(_ on: Bool) { resumeFromLastEvent = on }
 }
 
 // MARK: - Sync v2: la cuenta entera (`/me/sync`)

@@ -1,14 +1,6 @@
 import XCTest
 @testable import GhostyCore
 
-final class ResumeTests: XCTestCase {
-    func testResumingAddsHeaderAndQuery() {
-        let r = ClienteGS.resuming(URLRequest(url: URL(string: "https://x.test/events")!), from: "t1:7")
-        XCTAssertEqual(r.value(forHTTPHeaderField: "Last-Event-ID"), "t1:7")
-        XCTAssertEqual(r.url?.query, "resume=1")
-    }
-}
-
 final class HelpersHeaderTests: XCTestCase {
     func testSplitsWakeHeader() {
         let text = "---\n*Terminó «Ríos de México», «Lagos» · 8:12 a. m.*\n\nAquí va el resumen."

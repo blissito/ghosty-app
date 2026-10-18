@@ -1663,7 +1663,6 @@ final class LiveAgentStore: AgentStoring {
         // un rescate por `/revive` para despertar cajas dormidas. Todo eso era del camino
         // viejo: gs aprovisiona y despierta la caja él mismo.
         let gs = ClienteGS(agentID: cuenta.id)
-        await gs.setResumeFromLastEvent(syncV2)
         let c: any TransporteDeAgente = gs
         canal.infoDeLaCaja = try await c.conectar()
         canal.acp = c
@@ -2602,20 +2601,6 @@ final class LiveAgentStore: AgentStoring {
                             hilo.mensajes.append(Message(id: idEntrega, kind: .entrega(e)))
                         }
                     }
-                case .resumed(let t):
-                    // gs sigue donde íbamos: lo que llegue se suma a lo que ya enseña la
-                    // burbuja de ese turno, sin esperar una repetición que no va a venir.
-                    turnoDelFlujo = t
-                    respuesta = "turno-\(t)"
-                    hilo.respuestaEnCursoID = respuesta
-                    if let m = hilo.mensajes.first(where: { $0.id == respuesta }),
-                       case .agent(let shown, let tools, _) = m.kind {
-                        acumulado = shown
-                        herramientas = tools?.herramientas ?? []
-                        narrationCuts = tools?.narrationCuts ?? []
-                    }
-                    caughtUpWithShown = true
-                    EasyBitsClient.diag("[sync] \(sid): el SSE retomó el turno \(t.prefix(8)) donde iba")
                 case .cerrado:
                     // Un turno ajeno terminó y seguimos vigilando: se cierra como si fuera
                     // nuestro (reloj, palomita, aviso) y se recarga el hilo un respiro
