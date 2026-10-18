@@ -13,7 +13,28 @@ soltar la conexión cancela el futuro del `session/prompt`. **Un turno era su so
 En gs el turno vive en su propia tarea, fuera del request. Medido: matar la app a los 8 s y
 volver a los 40 → la respuesta está entera.
 
-## El contrato que usa la app
+## El contrato que usa la app: AG-UI (desde 2026-10-18)
+
+El turno habla **AG-UI** (`~/ghostykit/docs/protocol.md`); lo propio de gs es «gs-agui 1»
+(`~/ghosty-studio/docs/claude/agui-adopcion.md` §0). Código: `Core/Data/AGUI/` (parser, reductor,
+transporte, puente al hilo) y la parte «El turno (AG-UI)» de `ClienteGS`.
+
+| Operación | Cómo |
+|---|---|
+| Todo el turno | `POST …/agents/:id/agui` con `RunAgentInput`; `threadId` = conversación, `runId` = `turnId` del teléfono (idempotente) |
+| Mandar | `messages:[{role:user, content}]` (adjuntos como content parts); contesta el stream del run |
+| Reconectar | `messages:[]` → `MESSAGES_SNAPSHOT` + `STATE_SNAPSHOT` + run vivo (abre con SU runId) / interrupt / success |
+| Aprobar | `resume:[{interruptId, status, payload:{approved, optionId}}]`; el stream sigue en la burbuja del turno |
+| Detener | `forwardedProps.cancel = <runId vivo>` (desconectar NUNCA detiene) |
+| Steer | `forwardedProps.steer = <runId vivo>` → `ghosty.injected`; si no se puede, 409 `run_active` |
+| Subagentes | `state.subagents.tasks`; detener uno = `forwardedProps.stopSubagent` |
+| Hilo, listas, sync | REST de siempre (`…/messages?after|before`, `/me/sync`, `/me/events`): se quedan |
+
+Ya no existen: `GET …/events`, `POST …/messages|cancel|permission`, `…/subagents`, `Last-Event-ID`,
+la cola (`enCola`), `permission-resolved` (una tarjeta resuelta en otra superficie desaparece del
+siguiente interrupt), el `done` de bienvenida.
+
+## El contrato VIEJO (SSE propio de gs, hasta 2026-10-18; sólo historia)
 
 | Operación | Ruta |
 |---|---|
@@ -22,7 +43,6 @@ volver a los 40 → la respuesta está entera.
 | El hilo | `GET …/conversations/:sid?tail=N` → `{messages, saltados}` |
 | Permiso | `POST …/conversations/:sid/permission` `{id, optionId}` |
 | Detener | `POST …/conversations/:sid/cancel` |
-| Conversaciones | `GET`/`POST …/conversations`, `DELETE …/:sid` — cada fila y el hilo llevan `ultimoTurno {turnId, state, error, startedAt, endedAt}` (persistido en `TurnRecord`) y `permisoPendiente {id, title}` o `null` (de MEMORIA, ver abajo) |
 
 Eventos: `chunk`, `thought`, `tool`, `artifact`, `usage`, `permission`,
 `permission-resolved`, `status`, `caps`, `title`, `done`, `error`.

@@ -104,7 +104,9 @@ navegación, login, ajustes, listas e icono.
 
 ## El turno es del SERVIDOR, no del teléfono
 
-La app habla HTTP+SSE con gs (`ClienteGS`), no WebSocket con la caja. Eso no es un detalle
+La app habla HTTP+SSE con gs (`ClienteGS`), no WebSocket con la caja. Desde el 18-oct el turno es
+**AG-UI** (un `POST …/agui` por todo; ver `NOTAS-DEL-RELE.md` y `Core/Data/AGUI/`); probar contra
+otro servidor AG-UI con `GHOSTY_AGUI_URL` y las pruebas en vivo con `TEST_RUNNER_AGUI_LIVE=<url>`. Eso no es un detalle
 de tuberías: **el teléfono se duerme**, y con el socket directo el turno moría con él
 (medido: cero caracteres al volver). En gs el turno sobrevive, el SSE es re-suscribible, y
 al volver sólo hay que preguntar qué pasó.
