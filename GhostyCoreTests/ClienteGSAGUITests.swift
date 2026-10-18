@@ -169,8 +169,18 @@ final class ClienteGSAGUITests: XCTestCase {
         await cliente.cancelar("th5")
         let c = StubAGUI.cuerpos[1]
         XCTAssertEqual((c["forwardedProps"] as? [String: Any])?["cancel"] as? String, "turno-5")
-        // Detener con una tarjeta abierta la contesta «no».
-        XCTAssertEqual((c["resume"] as? [[String: Any]])?.first?["status"] as? String, "cancelled")
+        // Con una tarjeta abierta basta el cancel: gs la rechaza.
+        XCTAssertNil(c["resume"])
+    }
+
+    func testSendOverLiveRunWithoutSteerStopsItAndRetries() async throws {
+        StubAGUI.preparar([(409, #"{"error":"run_active","message":"no"}"#), (200, Fixture.text("agui-cancel")),
+                           (200, Fixture.text("agui-open-done"))])
+        let r = await leer(cliente.prompt(sessionID: "th11", texto: "otra cosa", adjuntos: [], turnId: "turno-11"), hasta: 1)
+        XCTAssertNil(r.error)
+        XCTAssertEqual(StubAGUI.cuerpos.count, 3)
+        XCTAssertNotNil((StubAGUI.cuerpos[1]["forwardedProps"] as? [String: Any])?["cancel"])
+        XCTAssertEqual(StubAGUI.cuerpos[2]["runId"] as? String, "turno-11")
     }
 
     func testRunErrorAndPaymentRequired() async throws {

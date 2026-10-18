@@ -481,9 +481,20 @@ actor ClienteGS: TransporteDeAgente {
             // ⚠️ Tiempo prestado por iOS para que el POST llegue aunque apagues el teléfono justo
             // después de mandar. Se suelta en cuanto el servidor acepta el run (`RUN_STARTED`).
             let token = await BackgroundTime.begin("encargar turno")
+            let anterior = self.runVivo[sesion]
             self.runVivo[sesion] = turnId
-            return try await self.correr(input, sesion: sesion, run: turnId, oyente: me,
-                                         reintentarAntesDeEmpezar: true, tiempoPrestado: token)
+            do {
+                return try await self.correr(input, sesion: sesion, run: turnId, oyente: me,
+                                             reintentarAntesDeEmpezar: true, tiempoPrestado: token)
+            } catch let e as AGUITransport.HTTPError where e.status == 409 && e.code == "run_active" {
+                // Mandar con un turno vivo que no admite steer era «córtalo y empieza con esto»
+                // (el compositor lo pregunta antes). En AG-UI no hay cola: se detiene y se reintenta.
+                self.runVivo[sesion] = anterior
+                await self.cancelar(sesion)
+                self.runVivo[sesion] = turnId
+                return try await self.correr(input, sesion: sesion, run: turnId, oyente: me,
+                                             reintentarAntesDeEmpezar: true)
+            }
         }
     }
 
@@ -749,8 +760,8 @@ actor ClienteGS: TransporteDeAgente {
     func cancelar(_ sessionID: String) async {
         var input = AGUITransport.Input(threadId: sessionID, runId: UUID().uuidString.lowercased())
         input.cancel = runVivo[sessionID] ?? ""
+        // Con aprobaciones abiertas basta el cancel: gs las rechaza (§0.7b). Aquí sólo se retiran.
         if let ps = abiertas[sessionID] {
-            input.resume = ps.map { .init(interruptId: $0.id, approved: nil) }
             abiertas[sessionID] = nil
             contestadas[sessionID] = nil
             ps.forEach { permisoResuelto?($0.id) }

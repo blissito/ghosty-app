@@ -2831,16 +2831,17 @@ final class LiveAgentStore: AgentStoring {
             let cliente = try await asegurarSocket(canal)
             let entro = try await cliente.mandarMas(sessionID: sid, texto: texto, turnId: turnId)
             guard !entro else { return }
-            // gs no pudo inyectarlo y cortó el turno para empezar otro. Se dice: el
-            // trabajo anterior se perdió y callarlo es lo que hace que parezca que el
-            // agente «se reinició solo».
+            // AG-UI: gs no pudo inyectarlo (409 `run_active`) y el turno vivo SIGUE intacto; el
+            // mensaje no llegó. Se guarda y sale como turno normal en cuanto ése termine
+            // (`agui-adopcion.md` §0.7b). Mientras, queda en su lugar sin la marca de steer.
             marcarSinSteer(mensaje.id, en: hilo, despuesDe: respuestaOriginal)
-            hilo.mensajes.append(Message(id: UUID().uuidString,
-                                         kind: .sistema("Empezó de nuevo con lo que acabas de mandar")))
-            // El turno vivo cambió de id: hay que volver a engancharse o el stream viejo
-            // ya no trae nada.
-            hilo.enVuelo?.cancel(); hilo.enVuelo = nil
-            engancharse(hilo, de: canal)
+            Task { [weak self] in
+                // Hasta 20 min: lo que tarda en cortarse por silencio un turno colgado.
+                for _ in 0..<2400 where hilo.turno != nil { try? await Task.sleep(for: .milliseconds(500)) }
+                guard let self, hilo.turno == nil else { return }
+                hilo.mensajes.removeAll { $0.id == mensaje.id }
+                await self.send(texto, adjuntos: [], a: canal.cuenta.id)
+            }
         } catch {
             marcarSinSteer(mensaje.id, en: hilo, despuesDe: respuestaOriginal)
             hilo.envioFallo = true
