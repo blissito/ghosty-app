@@ -226,6 +226,20 @@ final class RecorridoUITests: XCTestCase {
         foto("23-interrumpido-lista")
     }
 
+    /// El servidor cortó la respuesta (deploy): la franja con la razón y «Continuar», que la quita.
+    func testCortadoContinuar() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_CORTADO"] = "1"
+        app.launchEnvironment["GHOSTY_EN_HILO"] = "1"
+        app.launch()
+        let boton = app.buttons["continuar-cortado"]
+        XCTAssertTrue(boton.waitForExistence(timeout: 10), "no salió «Continuar» del run cortado")
+        XCTAssertTrue(app.staticTexts["Se reinició el servidor mientras trabajaba."].exists)
+        foto("24-cortado")
+        boton.tap()
+        XCTAssertTrue(boton.waitForNonExistence(timeout: 5), "«Continuar» no hizo nada")
+    }
+
     /// El filtro por tipo de Artefactos.
     ///
     /// ⚠️ Esta pantalla se dio por hecha dos veces —el filtro se escribió, se perdió en un

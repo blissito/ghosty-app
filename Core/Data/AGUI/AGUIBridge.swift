@@ -41,6 +41,9 @@ struct AGUIBridge {
         case notice(String)
         /// El run terminó (cualquier `outcome`).
         case finished(AGUIState.Outcome)
+        /// Cómo quedó el último run al cerrar: cortado del lado del servidor (`metadata.interrupted`,
+        /// §0.7d: deploy, caja caída; `reason` ya en palabras de persona) o `nil` = nada que continuar.
+        case cut(runId: String?, reason: String?)
     }
 
     let agentID: String
@@ -107,6 +110,9 @@ struct AGUIBridge {
             if !state.permissions.isEmpty { out.append(.interrupts(state.permissions)) }
             out.append(.phase("reposo"))
             out.append(.finished(state.outcome ?? .success))
+            let cut = (e["metadata"] as? [String: Any])?["interrupted"] as? [String: Any]
+            let reason = (cut?["reason"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            out.append(.cut(runId: cut?["runId"] as? String, reason: reason))
         case "CUSTOM":
             let v = e["value"] as? [String: Any] ?? [:]
             switch e.string("name") {

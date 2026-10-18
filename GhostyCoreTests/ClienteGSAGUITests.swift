@@ -76,7 +76,10 @@ final class ClienteGSAGUITests: XCTestCase {
                 await box.cerrar(nil)
             } catch { await box.cerrar(error) }
         }
-        try? await Task.sleep(for: .seconds(hasta))
+        // Hasta que cierre, con margen: bajo carga (otra compilación en la Mac) un tope fijo corto
+        // daba fallas falsas. Un vigilante no cierra nunca y espera el tope entero.
+        let fin = Date().addingTimeInterval(hasta * 3)
+        while Date() < fin, !(await box.cerrado) { try? await Task.sleep(for: .milliseconds(100)) }
         t.cancel()
         return (await box.eventos, await box.cerrado, await box.error)
     }
@@ -286,6 +289,44 @@ extension ClienteGSAGUITests {
         let cerrado = await box.cerrado
         XCTAssertTrue(cerrado)
         lector.cancel()
+    }
+}
+
+/// §0.7d: run cortado por el servidor y «Continuar».
+extension ClienteGSAGUITests {
+    actor Cortes { var v: [(String, String?, String?)] = []; func add(_ x: (String, String?, String?)) { v.append(x) } }
+
+    func testCutRunIsOfferedAndContinued() async throws {
+        let cortes = Cortes()
+        await cliente.alCortarseRun { s, r, m in Task { await cortes.add((s, r, m)) } }
+        StubAGUI.preparar([
+            (200, Self.sse([
+                ["type": "RUN_STARTED", "threadId": "th12", "runId": "rec-1"],
+                ["type": "MESSAGES_SNAPSHOT", "messages": []],
+                ["type": "RUN_FINISHED", "threadId": "th12", "runId": "rec-1", "outcome": ["type": "success"],
+                 "metadata": ["interrupted": ["runId": "turno-12", "reason": "Se reinició el servidor."]]],
+            ])),
+            (200, Self.sse([
+                ["type": "RUN_STARTED", "threadId": "th12", "runId": "c-1"],
+                ["type": "TEXT_MESSAGE_CONTENT", "messageId": "c-1:a0", "delta": "Sigo donde iba."],
+                ["type": "RUN_FINISHED", "threadId": "th12", "runId": "c-1", "outcome": ["type": "success"]],
+            ])),
+            (409, #"{"error":"nothing_to_continue","message":"nada"}"#),
+        ])
+        _ = await leer(cliente.seguir(sessionID: "th12")!, hasta: 0.6)
+        var v = await cortes.v
+        XCTAssertEqual(v.last?.1, "turno-12")
+        XCTAssertEqual(v.last?.2, "Se reinició el servidor.")
+        let r = await leer(cliente.continuar(sessionID: "th12", runId: "turno-12"), hasta: 0.8)
+        XCTAssertEqual((StubAGUI.cuerpos[1]["forwardedProps"] as? [String: Any])?["continueRun"] as? String, "turno-12")
+        XCTAssertEqual((StubAGUI.cuerpos[1]["messages"] as? [Any])?.count, 0)
+        XCTAssertEqual(texto(r.eventos), "Sigo donde iba.")
+        XCTAssertTrue(r.cerrado); XCTAssertNil(r.error)
+        v = await cortes.v
+        XCTAssertNil(v.last?.1, "al terminar la continuación ya no hay nada que continuar")
+        // Otro aparato ya continuó: 409 nothing_to_continue cierra limpio y quita la franja.
+        let r2 = await leer(cliente.continuar(sessionID: "th12", runId: "turno-12"), hasta: 0.6)
+        XCTAssertTrue(r2.cerrado); XCTAssertNil(r2.error)
     }
 }
 

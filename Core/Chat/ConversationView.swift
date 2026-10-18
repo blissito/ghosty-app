@@ -167,6 +167,25 @@ struct ConversationView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
+            // El servidor cortó la respuesta (deploy, caja caída): la persona decide si sigue (§0.7d).
+            if let hilo = store.hiloActivo, let cut = hilo.cortado, hilo.turno == nil, !hilo.interrumpido {
+                HStack(spacing: 10) {
+                    Text(cut.razon ?? "La respuesta se cortó antes de terminar.")
+                        .gMeta().foregroundStyle(Color.gInk2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Continuar") { store.continuarCortado() }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Color.gPrimary, in: Capsule())
+                        .accessibilityIdentifier("continuar-cortado")
+                }
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .background(Color.gCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 16).padding(.bottom, 6)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             // Lo que el agente hará solo, si hay algo: es lo que convierte «trabaja en
             // esto por días» en algo que se ve sin abrir ninguna hoja.
             if let p = store.threadPermission {

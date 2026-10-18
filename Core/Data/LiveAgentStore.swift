@@ -1725,6 +1725,14 @@ final class LiveAgentStore: AgentStoring {
                     : "Esperando turno · \(cuantas) por delante"
             }
         }
+        if let gs = c as? ClienteGS {
+            await gs.alCortarseRun { [weak canal] sesion, run, razon in
+                Task { @MainActor in
+                    guard let hilo = canal?.hilo(sesion: sesion) else { return }
+                    hilo.cortado = run.map { ($0, razon) }
+                }
+            }
+        }
         await c.alConocerCapacidades { [weak canal] steer in
             Task { @MainActor in canal?.puedeSteer = steer }
         }
@@ -2070,6 +2078,8 @@ final class LiveAgentStore: AgentStoring {
         }
         // Un turno nuevo borra el fallo del anterior: lo que importa es cómo va ÉSTE.
         hilo.fallo = nil
+        // Y la franja de «Continuar»: escribir otra cosa es seguir adelante.
+        hilo.cortado = nil
         // Y manda sobre la recogida de lo anterior: si le vuelves a escribir, lo que sea
         // que estuviéramos rescatando ya no es lo que estás esperando.
         hilo.interrumpido = false
@@ -2727,6 +2737,24 @@ final class LiveAgentStore: AgentStoring {
             if enganchado && Task.isCancelled && acumulado.isEmpty && herramientas.isEmpty { return }
         }
         cerrarTurno(canal, hilo)
+    }
+
+    /// «Continuar» el run que el servidor cortó: su continuación se pinta como un turno, en una
+    /// burbuja nueva, y al acabar se vuelve a vigilar el hilo.
+    func continuarCortado() {
+        guard let canal = canalActivo, let hilo = canal.hilo, let sid = hilo.sesionID,
+              let cut = hilo.cortado, hilo.turno == nil else { return }
+        hilo.cortado = nil
+        guard !DemoData.encendido else { return }
+        arrancarCronometro(hilo, titulo: hilo.prompt.isEmpty ? "lo de antes" : hilo.prompt)
+        refrescarEstado(canal)
+        hilo.enVuelo?.cancel()
+        hilo.enVuelo = Task { [weak self] in
+            guard let self, let gs = try? await self.asegurarSocket(canal) as? ClienteGS else { return }
+            await self.consumir(gs.continuar(sessionID: sid, runId: cut.runId), canal, hilo, sid: sid,
+                                texto: "", respuesta: "resp-\(UUID().uuidString.prefix(8))", enganchado: true)
+            if !Task.isCancelled { self.engancharse(hilo, de: canal) }
+        }
     }
 
     func stopTurn() async {

@@ -320,6 +320,12 @@ extension LiveAgentStore {
         // `GHOSTY_DEMO_INTERRUMPIDO=1`: el hilo que dejaste trabajando y iOS suspendió.
         // Es el estado que hay que poder MIRAR — el cartel de «sigue con esto» y la fila
         // gris de la lista— sin tener que bloquear un teléfono de verdad.
+        // `GHOSTY_DEMO_CORTADO=1`: el run que el servidor cortó (deploy) con su «Continuar».
+        if Gancho.valor("GHOSTY_DEMO_CORTADO") == "1" {
+            larga.fallo = nil
+            larga.turno = nil
+            larga.cortado = ("demo", "Se reinició el servidor mientras trabajaba.")
+        }
         if Gancho.valor("GHOSTY_DEMO_INTERRUMPIDO") == "1" {
             larga.fallo = nil
             larga.turno = nil

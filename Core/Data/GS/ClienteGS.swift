@@ -447,6 +447,36 @@ actor ClienteGS: TransporteDeAgente {
     private var alCaerse: (@Sendable () -> Void)?
     func alPerderse(_ handler: @escaping @Sendable () -> Void) { alCaerse = handler }
 
+    /// El último run de una conversación se cortó del lado del servidor y se puede continuar
+    /// (`(sesion, runId, razón)`; `runId` nil = ya no hay nada que continuar).
+    var alCortarse: (@Sendable (String, String?, String?) -> Void)?
+    func alCortarseRun(_ handler: @escaping @Sendable (String, String?, String?) -> Void) { alCortarse = handler }
+
+    /// «Continuar» (§0.7d): un `POST` sin mensaje con `forwardedProps.continueRun` = el run cortado. gs
+    /// arma la continuación y su stream se pinta como un turno. `409 nothing_to_continue` (otro
+    /// aparato ya lo hizo, o el hilo siguió) no es un error: la franja se va y el flujo cierra limpio.
+    nonisolated func continuar(sessionID: String, runId cortado: String) -> AsyncThrowingStream<ACPClient.Replay, Error> {
+        AsyncThrowingStream { cont in
+            let oyente = Oyente(cont: cont, vigilante: false)
+            Task {
+                await self.escuchar(sessionID, oyente) { me in
+                    var input = AGUITransport.Input(threadId: sessionID, runId: UUID().uuidString.lowercased())
+                    input.forwarded["continueRun"] = cortado
+                    await self.marcarVivo(sessionID, input.runId)
+                    do {
+                        return try await self.correr(input, sesion: sessionID, run: input.runId, oyente: me)
+                    } catch let e as AGUITransport.HTTPError where e.status == 409 && e.code == "nothing_to_continue" {
+                        await self.alCortarse?(sessionID, nil, nil)
+                        return .success
+                    }
+                }
+            }
+            cont.onTermination = { _ in Task { await self.dejarDeEscuchar(sessionID, si: oyente.id) } }
+        }
+    }
+
+    private func marcarVivo(_ sesion: String, _ run: String) { runVivo[sesion] = run }
+
     /// Lo que este agente SABE hacer, según el servidor (`state.caps.steer`).
     private var alSaberCapacidades: (@Sendable (Bool) -> Void)?
     func alConocerCapacidades(_ handler: @escaping @Sendable (Bool) -> Void) {
@@ -652,6 +682,8 @@ actor ClienteGS: TransporteDeAgente {
         case .finished(let fin):
             // Lo que estaba abierto y ya no viene: alguien lo contestó en otra superficie.
             if fin != .interrupt { abrir([], en: sesion) }
+        case .cut(let run, let reason):
+            alCortarse?(sesion, run, reason)
         }
     }
 

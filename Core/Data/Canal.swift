@@ -137,6 +137,9 @@ final class Hilo {
     /// ⚠️ No es un fallo y ya no hay nada que «recuperar»: el turno vive en el servidor.
     /// Se apaga solo en cuanto volvemos a escuchar.
     var interrumpido = false
+    /// El último run se cortó del lado del SERVIDOR (deploy, caja caída) y se puede continuar con
+    /// «Continuar» (§0.7d). Distinto de `interrumpido`: aquí el trabajo de allá sí se detuvo.
+    var cortado: (runId: String, razon: String?)?
     /// Estamos preguntando qué pasó mientras no mirábamos.
     var poniendoseAlDia = false
     /// Cuántas veces seguidas se ha caído la escucha sin que llegara nada. Marca la
