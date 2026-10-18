@@ -63,6 +63,18 @@ enum ThreadMerge {
             // 4. Nuevo: en su sitio por `seq`.
             result.insert(incoming, at: insertionIndex(for: seq, in: result))
         }
+        // 6. Las entregas de la página (no tienen `seq`): detrás del mensaje que las precede en
+        //    ella. ⚠️ Antes se tiraban, y sólo volvía lo que este teléfono vio en vivo: el video
+        //    que entregó un turno despertado por la plataforma con la app cerrada no salía nunca
+        //    (18-oct).
+        var anchorSeq: Int?
+        for incoming in page {
+            if let seq = incoming.seq { anchorSeq = seq; continue }
+            guard case .entrega = incoming.kind, !result.contains(where: { $0.id == incoming.id }) else { continue }
+            var i = anchorSeq.flatMap { s in result.firstIndex { $0.seq == s }.map { $0 + 1 } } ?? 0
+            while i < result.count, result[i].seq == nil, result[i].turnId == nil { i += 1 }
+            result.insert(incoming, at: i)
+        }
         return result
     }
 

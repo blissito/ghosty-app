@@ -3353,7 +3353,12 @@ extension LiveAgentStore {
         hilo.loadError = nil
         let sendsAtStart = hilo.sendCount
         let meta = cache.meta(agent, session: sid)
-        let knownSeq = meta?.epoch == nil ? nil : hilo.mensajes.compactMap(\.seq).max()
+        // ⚠️ Una vez por hilo, la página entera aunque ya esté guardado: lo guardado antes del
+        // 18-oct perdió las tarjetas de entrega al fundirse (`ThreadMerge` regla 6) y un delta
+        // vacío no trae archivos, así que nunca volvían.
+        let repairKey = "threadDeliveriesRepair1.\(agent).\(sid)"
+        let needsRepair = !UserDefaults.standard.bool(forKey: repairKey)
+        let knownSeq = meta?.epoch == nil || needsRepair ? nil : hilo.mensajes.compactMap(\.seq).max()
         // Un hilo recortado en la caché (sus últimos 20) tiene más arriba: sin esto se quedaba
         // sin centinela y no había cómo subir.
         if meta?.hasMoreBefore == true { hilo.hasMoreBefore = true }
@@ -3423,6 +3428,7 @@ extension LiveAgentStore {
             let seqs = merged.compactMap(\.seq)
             cache.saveMeta(ThreadMeta(epoch: page.epoch, lastSeq: seqs.max(), oldestSeq: seqs.min(),
                                       hasMoreBefore: hilo.hasMoreBefore), agent, session: sid)
+            if !delta { UserDefaults.standard.set(true, forKey: repairKey) }
             if let primero = merged.first(where: \.esDeUsuario), case .user(let t, _, _) = primero.kind {
                 titulos.anotarSiFalta(agent, sid, desde: t)
             }

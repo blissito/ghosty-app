@@ -81,6 +81,18 @@ final class ThreadMergeTests: XCTestCase {
         XCTAssertEqual(t, "parcial completo")
         XCTAssertNotNil(tools)
     }
+
+    /// El video de un turno que despertó la plataforma: la tarjeta sólo viene en la página.
+    func testPageDeliveryWithoutSeqIsKept() {
+        let local = [user("s1", "baja esto", seq: 1), agent("s2", "ya voy", seq: 2)]
+        let card = Message(id: "entrega-eb1", kind: .entrega(Entrega(id: "eb1", agentID: "", forma: .archivo,
+                                                                     titulo: "video.mp4", recibida: Date())))
+        let page = [user("s1", "baja esto", seq: 1), agent("s2", "ya voy", seq: 2),
+                    agent("s4", "aquí está", seq: 4), card, user("s5", "gracias", seq: 5)]
+        let merged = ThreadMerge.merge(local, with: page)
+        XCTAssertEqual(merged.map(\.id), ["s1", "s2", "s4", "entrega-eb1", "s5"])
+        XCTAssertEqual(ThreadMerge.merge(merged, with: page), merged)
+    }
 }
 
 final class ThreadMergePendingTests: XCTestCase {
@@ -106,5 +118,5 @@ final class ThreadMergeSteerTests: XCTestCase {
         XCTAssertEqual(merged.map(\.id), ["u1", "steer"])
         XCTAssertEqual(merged[1].seq, 2)
     }
-}
 
+}
