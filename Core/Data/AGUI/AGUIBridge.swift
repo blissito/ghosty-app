@@ -17,6 +17,8 @@ struct AGUIBridge {
         /// `{messageId}`: el steer entró en el run vivo.
         static let injected = "ghosty.injected"
         static let title = "ghosty.title"
+        /// `{messageId?, content}`: el texto final de la respuesta cambió al cerrar.
+        static let replace = "ghosty.replace"
         /// `{names, message}`: adjuntos que no llegaron al agente.
         static let attachmentsFailed = "ghosty.attachments_failed"
     }
@@ -114,6 +116,10 @@ struct AGUIBridge {
                 // Una entrega que llega al reconectar sin run vivo es HISTORIA: la trae el hilo (REST).
                 guard sawLive, let entrega = Self.entrega(v, agentID: agentID, sessionID: sessionID) else { break }
                 out.append(.replay(.entrega(entrega)))
+            case Custom.replace:
+                // Fuera de un run vivo es historia: el texto bueno ya lo trae el hilo (REST).
+                guard sawLive, let t = v["content"] as? String else { break }
+                out.append(.replay(.reemplazo(t)))
             case Custom.injected:
                 out.append(.injected)
             case Custom.title:

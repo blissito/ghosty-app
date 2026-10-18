@@ -806,8 +806,13 @@ actor ClienteGS: TransporteDeAgente {
 
     /// El `RunAgentInput` de un mensaje nuevo. Si había tarjetas abiertas, escribir otra cosa las
     /// contesta `cancelled` (§4 del contrato): el agente no corre esa acción.
+    /// `forwardedProps.permissions` (`ask` | `auto`). La app no lo pide (gs decide, `auto`); existe
+    /// para las pruebas de aprobaciones contra gs.
+    nonisolated(unsafe) static var modoPermisos: String?
+
     private func entrada(_ sesion: String, texto: String, adjuntos: [Adjunto], runId: String) async throws -> AGUITransport.Input {
         var input = AGUITransport.Input(threadId: sesion, runId: runId, text: texto)
+        if let m = Self.modoPermisos { input.forwarded["permissions"] = m }
         for a in adjuntos {
             input.attachments.append(.init(json: try await Self.parte(a)))
         }

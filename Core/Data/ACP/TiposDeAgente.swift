@@ -107,6 +107,9 @@ enum ACPClient {
         /// aparte del texto (`ConversationMessage.attachments`). Van después de su `.user`.
         case userAttachments([String])
         case agent(String)
+        /// El texto de la respuesta del turno cambió al cerrar (gs `ghosty.replace`): reemplaza
+        /// TODO lo escrito, no se suma.
+        case reemplazo(String)
         case thought(String)
         /// Una herramienta que empieza o que cambia. Llega varias veces por la misma:
         /// ACP manda `tool_call` al crearla y `tool_call_update` cada vez que avanza.

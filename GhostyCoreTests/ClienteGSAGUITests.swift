@@ -222,6 +222,7 @@ extension ClienteGSAGUITests {
             ["type": "TEXT_MESSAGE_END", "messageId": "turno-8:a0"],
             ["type": "CUSTOM", "name": "ghosty.delivery", "value": ["id": "d1", "messageId": "turno-8:a0", "tipo": "archivo", "nombre": "reporte.pdf",
                                                                       "fileId": "f9", "mime": "application/pdf", "size": 1234, "url": "https://x.test/f9"]],
+            ["type": "CUSTOM", "name": "ghosty.replace", "value": ["messageId": "turno-8:a0", "content": "Listo, corregido."]],
             ["type": "RUN_FINISHED", "threadId": "th8", "runId": "turno-8", "outcome": ["type": "success"],
              "usage": [["model": "m", "inputTokens": 10, "outputTokens": 5]]],
         ]))])
@@ -236,6 +237,7 @@ extension ClienteGSAGUITests {
         XCTAssertEqual(entregas.first?.url, "https://x.test/f9")
         XCTAssertEqual(entregas.first?.bytesRemotos, 1234)
         XCTAssertTrue(r.eventos.contains { if case .usage(10, 5) = $0 { return true } else { return false } })
+        XCTAssertTrue(r.eventos.contains { if case .reemplazo("Listo, corregido.") = $0 { return true } else { return false } })
         let fases = await senales.fases
         XCTAssertEqual(fases.first, "waking")
         XCTAssertEqual(fases.last, "reposo")

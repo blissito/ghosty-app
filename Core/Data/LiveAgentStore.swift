@@ -2535,6 +2535,14 @@ final class LiveAgentStore: AgentStoring {
                         pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas,
                                         narrationCuts: narrationCuts)
                     }
+                case .reemplazo(let t):
+                    // gs corrigió el texto al cerrar (página, tarjeta): manda el suyo entero, y la
+                    // narración que quedaba más allá del texto nuevo ya no existe.
+                    acumulado = t
+                    narrationCuts = narrationCuts.filter { $0 <= t.count }
+                    caughtUpWithShown = true
+                    pintarRespuesta(hilo, id: respuesta, texto: acumulado, herramientas: herramientas,
+                                    narrationCuts: narrationCuts)
                 case .tool(let h):
                     if !acumulado.isEmpty { separarTrasHerramienta = true }
                     // ACP manda la MISMA herramienta varias veces conforme avanza: se

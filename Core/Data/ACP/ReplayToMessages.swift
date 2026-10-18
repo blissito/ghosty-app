@@ -149,7 +149,7 @@ enum ReplayToMessages {
                 // La copia de gs numera sus mensajes («m<i>»); el replay de ACP no.
                 mensajeDelServidor = t.hasPrefix("m") ? Int(t.dropFirst()) : nil
 
-            case .cerrado:
+            case .cerrado, .reemplazo:
                 cerrar(); quien = nil
 
             case .thought:
