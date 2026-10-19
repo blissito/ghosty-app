@@ -227,10 +227,17 @@ struct ChatsView: View {
         }
         .sheet(isPresented: $showActivity) {
             ActivitySheet(store: store) { item in
-                guard let session = item.sessionID else { return }
+                if let route = item.factoryRoute {
+                    // Un pedido de la Fábrica: a su pestaña, con el pedido ya abierto.
+                    showActivity = false
+                    FactoryStore.shared.pendingRoute = route
+                    store.requestedTab = .fabrica
+                    return
+                }
+                guard let session = item.sessionID, let agent = item.agent else { return }
                 showActivity = false
                 // Lo mismo que tocar un aviso: cambia de agente, marca leído y entra al hilo.
-                store.open(agent: item.agent.id, session: session)
+                store.open(agent: agent.id, session: session)
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)

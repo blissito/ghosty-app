@@ -585,6 +585,25 @@ extension RecorridoUITests {
                       "tocar el permiso no abrió su conversación")
         XCTAssertFalse(app.otherElements["hoja-actividad"].exists, "la hoja se quedó abierta encima del hilo")
         foto("71-actividad-abre")
+
+        // Un pedido de la Fábrica que te toca decidir también te espera: tocarlo lleva a la
+        // pestaña Fábrica con el pedido abierto (demo: #42 con el plan v2 por firmar).
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_REMOTO"] = nil
+        app.launch()
+        XCTAssertTrue(bell.waitForExistence(timeout: 8))
+        XCTAssertTrue(bell.label.contains("nuevo"), "con pedidos por decidir, la campanita no avisa: «\(bell.label)»")
+        bell.tap()
+        let run = item("f-demo-42", "Firma el plan v2")
+        XCTAssertTrue(run.waitForExistence(timeout: 5), "no sale el pedido de la Fábrica que espera tu firma")
+        XCTAssertTrue(item("f-demo-39", "Mergea el PR #87").exists, "no sale el PR por mergear")
+        foto("72-actividad-fabrica")
+        run.tap()
+        XCTAssertTrue(app.staticTexts["pedido-titulo"].waitForExistence(timeout: 5),
+                      "tocar el pedido no abrió su detalle en la Fábrica")
+        XCTAssertTrue(app.buttons["firmar-plan"].exists, "el pedido abrió sin el botón de firmar")
+        XCTAssertFalse(app.otherElements["hoja-actividad"].exists, "la hoja se quedó abierta encima del pedido")
+        foto("73-actividad-abre-pedido")
     }
 
     /// El indicador entre una herramienta y la siguiente, y al volver de otra pestaña.

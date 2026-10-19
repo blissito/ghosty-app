@@ -2,16 +2,19 @@ import SwiftUI
 
 /// Una línea de «Actividad»: algo que pasó mientras no mirabas.
 struct ActivityItem: Identifiable {
-    enum Kind { case permission, reply, delivery }
+    enum Kind { case permission, reply, delivery, factory }
     let id: String
     let kind: Kind
-    let agent: Agent
+    /// `nil` sólo en los pedidos de la Fábrica: son del espacio, no de un agente.
+    let agent: Agent?
     let sessionID: String?
     let title: String
     let detail: String
     let date: Date
     /// El icono de la entrega (SF Symbol); las demás llevan la cara del agente.
     var symbol: String?
+    /// El pedido de la Fábrica que espera tu decisión (firmar, decidir, mergear).
+    var factoryRoute: FactoryRoute?
 }
 
 /// Lo que va en «Actividad», sacado del estado que YA tiene el teléfono.
@@ -47,6 +50,15 @@ enum ActivityFeed {
                                               sessionID: row.session, title: row.title, detail: text, date: row.date))
             }
         }
+        // Los pedidos de la Fábrica que te toca decidir también te esperan.
+        for space in FactoryStore.shared.spaces {
+            for run in space.runs where run.stage.needsYou {
+                s.waiting.append(ActivityItem(id: "f-\(space.slug)-\(run.id)", kind: .factory, agent: nil,
+                                              sessionID: nil, title: run.title, detail: factoryAsk(run),
+                                              date: run.updated ?? .distantPast,
+                                              factoryRoute: FactoryRoute(slug: space.slug, id: run.id)))
+            }
+        }
         s.waiting.sort { $0.date > $1.date }
         s.replies.sort { $0.date > $1.date }
 
@@ -67,6 +79,16 @@ enum ActivityFeed {
                                              symbol: d.icon))
         }
         return s
+    }
+
+    /// Lo que el pedido te pide, en una línea.
+    static func factoryAsk(_ run: FactoryRun) -> String {
+        switch run.stage {
+        case .planReview: "Firma el plan v\(run.planVersion)"
+        case .escalated: "Decide: otra vuelta o replanear"
+        case .prReview: run.prNumber.map { "Mergea el PR \($0)" } ?? "Mergea el PR"
+        default: run.stage.label
+        }
     }
 
     private static func permission(_ row: ChatsView.ChatRow) -> String? {
@@ -156,7 +178,7 @@ struct ActivitySheet: View {
                 ForEach(items) { item in
                     Button { onOpen(item) } label: { row(item) }
                         .buttonStyle(.plain)
-                        .disabled(item.sessionID == nil)
+                        .disabled(item.sessionID == nil && item.factoryRoute == nil)
                         .accessibilityIdentifier("actividad-\(item.id)")
                 }
             }
@@ -174,7 +196,8 @@ struct ActivitySheet: View {
                     .lineLimit(1)
                 Text(item.detail)
                     .font(.system(size: 14))
-                    .foregroundStyle(item.kind == .permission ? Color.gDangerInk : Color.gInk3)
+                    .foregroundStyle(item.kind == .permission ? Color.gDangerInk
+                                     : item.kind == .factory ? Color.gAmberInk : Color.gInk3)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,8 +221,13 @@ struct ActivitySheet: View {
                 .foregroundStyle(Color.gPrimary)
                 .frame(width: 36, height: 36)
                 .background(Color.gPrimaryRing, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        } else {
-            GhostyMascot(tone: item.agent.tone, height: 36)
+        } else if item.kind == .factory {
+            // El ícono de la pestaña Fábrica, en el ámbar de «te toca».
+            GhostyIcons.fabrica.dibujo(.gAmberInk, size: 20)
+                .frame(width: 36, height: 36)
+                .background(Color.gAmberTint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        } else if let agent = item.agent {
+            GhostyMascot(tone: agent.tone, height: 36)
                 .overlay(alignment: .bottomTrailing) {
                     if item.kind == .permission {
                         Image(systemName: "hand.raised.fill")

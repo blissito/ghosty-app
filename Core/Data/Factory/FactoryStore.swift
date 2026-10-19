@@ -12,6 +12,8 @@ final class FactoryStore {
     private(set) var loaded = false
     private(set) var loading = false
     private(set) var error: String?
+    /// Un pedido que alguien pidió abrir desde fuera (Actividad): la pestaña lo empuja y lo limpia.
+    var pendingRoute: FactoryRoute?
     private var loadedAt: Date?
 
     /// La entrada «Fábrica» se enseña sólo si algún espacio tuyo tiene pedidos.

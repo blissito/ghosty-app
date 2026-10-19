@@ -46,6 +46,13 @@ struct FactoryHomeView: View {
         }
         .tint(.gInk)
         .onChange(of: path) { _, p in withAnimation(.easeOut(duration: 0.2)) { inRun = !p.isEmpty } }
+        // Abrir un pedido pedido desde fuera (Actividad): su espacio y su detalle por push.
+        .onChange(of: store.pendingRoute, initial: true) { _, route in
+            guard let route else { return }
+            selected = route.slug
+            path = [route]
+            store.pendingRoute = nil
+        }
         .task {
             await store.refresh(force: !store.loaded)
             if let openRoute, path.isEmpty {
