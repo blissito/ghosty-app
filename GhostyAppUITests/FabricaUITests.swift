@@ -25,7 +25,9 @@ final class FabricaUITests: XCTestCase {
         add(a)
     }
 
-    private func recorrer(pedido: String, pausa: Double, accion: String, confirmarYCancelar: Bool = false) {
+    /// `accion` nil = el pedido real puede estar en cualquier etapa: sólo se exige su detalle
+    /// (el botón depende del estado que tenga hoy, y la prueba en vivo no lo controla).
+    private func recorrer(pedido: String, pausa: Double, accion: String?, confirmarYCancelar: Bool = false) {
         let pestana = app.buttons["tab-fabrica"]
         // La pestaña nace cuando gs contesta que hay pedidos.
         XCTAssertTrue(pestana.waitForExistence(timeout: 20), "no apareció la pestaña «Fábrica»")
@@ -40,11 +42,15 @@ final class FabricaUITests: XCTestCase {
         fila.tap()
 
         XCTAssertTrue(app.staticTexts["pedido-titulo"].waitForExistence(timeout: 5), "tocar el pedido no abrió su detalle")
-        XCTAssertTrue(app.buttons[accion].waitForExistence(timeout: 15), "no salió el botón «\(accion)»")
+        if let accion {
+            XCTAssertTrue(app.buttons[accion].waitForExistence(timeout: 15), "no salió el botón «\(accion)»")
+        } else {
+            XCTAssertTrue(app.buttons["plan-encabezado"].waitForExistence(timeout: 15), "el detalle no trae el plan")
+        }
         XCTAssertFalse(pestana.exists, "la barra sigue encima del pedido")
         Thread.sleep(forTimeInterval: pausa + 0.8)
         foto("f3-pedido")
-        if confirmarYCancelar {
+        if confirmarYCancelar, let accion {
             app.buttons[accion].tap()
             XCTAssertTrue(app.buttons["confirmar-cancelar"].waitForExistence(timeout: 3), "«\(accion)» no pidió confirmar")
             foto("f3b-confirmar")
@@ -82,6 +88,7 @@ final class FabricaUITests: XCTestCase {
         }
         app.launchEnvironment["GHOSTY_TOKEN"] = token
         app.launch()
-        recorrer(pedido: env["FABRICA_PEDIDO"] ?? "114", pausa: 1.6, accion: "otra-vuelta")
+        // La acción sólo se exige si quien corre la prueba dice en qué etapa está su pedido.
+        recorrer(pedido: env["FABRICA_PEDIDO"] ?? "114", pausa: 1.6, accion: env["FABRICA_ACCION"])
     }
 }

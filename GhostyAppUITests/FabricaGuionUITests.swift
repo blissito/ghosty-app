@@ -51,8 +51,9 @@ final class FabricaGuionUITests: XCTestCase {
         // (b) El pedido: barra de pasos y quién trabaja.
         fila.tap()
         XCTAssertTrue(app.staticTexts["pedido-titulo"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'construyendo'")).firstMatch
-            .waitForExistence(timeout: 15), "no dice quién está construyendo")
+        // Quien tenga la estafeta hoy (@build construye, @check revisa, @plan planea).
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'construyendo' OR label CONTAINS 'revisando' OR label CONTAINS 'escribiendo'")).firstMatch
+            .waitForExistence(timeout: 15), "no dice quién trabaja en el pedido")
         hold(2.0)
 
         // (c) Se abre el plan y UN scroll exacto lo deja arriba (medido, no a ciegas: si ya
