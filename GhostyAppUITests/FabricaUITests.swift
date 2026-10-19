@@ -81,6 +81,31 @@ final class FabricaUITests: XCTestCase {
         recorrer(pedido: "41", pausa: 0.3, accion: "otra-vuelta", confirmarYCancelar: true)
     }
 
+    /// Escalado → «¿Qué hago?» → la recomendación con la nota editable → «Aplicar» decide.
+    func testQueHagoDemo() {
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launch()
+        let pestana = app.buttons["tab-fabrica"]
+        XCTAssertTrue(pestana.waitForExistence(timeout: 20), "no apareció la pestaña «Fábrica»")
+        pestana.tap()
+        let fila = app.buttons["pedido-41"]
+        XCTAssertTrue(fila.waitForExistence(timeout: 15), "la lista no enseña el pedido escalado")
+        fila.tap()
+
+        let queHago = app.buttons["que-hago"]
+        if !queHago.waitForExistence(timeout: 5) || !queHago.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(queHago.waitForExistence(timeout: 5), "el escalado no trae «¿Qué hago?»")
+        queHago.tap()
+        XCTAssertTrue(app.staticTexts["recomendacion"].waitForExistence(timeout: 5), "«¿Qué hago?» no enseñó la recomendación")
+        XCTAssertTrue(app.textViews["nota-recomendada"].exists, "la nota no se puede editar")
+        foto("q1-recomendacion")
+        app.buttons["aplicar"].tap()
+        XCTAssertTrue(app.staticTexts["recomendacion"].waitForNonExistence(timeout: 3), "«Aplicar» no cerró la hoja")
+        XCTAssertTrue(app.otherElements["aviso-pedido"].waitForExistence(timeout: 3) || app.staticTexts["Listo (demo)"].exists,
+                      "«Aplicar» no decidió nada")
+        foto("q2-aplicado")
+    }
+
     func testFabricaEnVivo() throws {
         let env = ProcessInfo.processInfo.environment
         guard let token = env["GHOSTY_TOKEN"], !token.isEmpty else {

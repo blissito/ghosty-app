@@ -120,6 +120,18 @@ final class FactoryStore {
         ])]
     }
 
+    /// La recomendación de la demo para el pedido escalado (#41).
+    static let demoAdvice = FactoryAdvice(
+        decision: "fix",
+        why: "Los dos errores caben en la subida: son ajustes de tipos y de lint que pide la versión nueva, no un cambio de plan.",
+        buildNote: [
+            .init(point: "En `app/routes/dash.tsx:636`, convertir la etiqueta con `String(label)`.", cites: "typecheck: `labelFormatter` ahora recibe `ReactNode`"),
+            .init(point: "En `scripts/verify.mjs:24`, dar cuerpo con llaves al callback.", cites: "biome: `useIterableCallbackReturn`"),
+        ],
+        checkScope: "Sólo esos dos arreglos y que el CI quede verde.",
+        confidence: "high",
+        note: "1. En `app/routes/dash.tsx:636`, convertir la etiqueta con `String(label)`.\n2. En `scripts/verify.mjs:24`, dar cuerpo con llaves al callback.")
+
     static func demoDetail(_ id: Int) -> FactoryRunDetail? {
         guard let r = demo.first?.runs.first(where: { $0.id == id }) else { return nil }
         let plan = r.stage == .escalated ? nil : FactoryRunDetail.Plan(version: r.planVersion, decision: r.stage == .planReview ? nil : "approve", markdown: demoDetailMarkdown)

@@ -85,7 +85,7 @@ enum ActivityFeed {
     static func factoryAsk(_ run: FactoryRun) -> String {
         switch run.stage {
         case .planReview: "Firma el plan v\(run.planVersion)"
-        case .escalated: "Decide: otra vuelta o replanear"
+        case .escalated: "@check frenó: toca decidir (¿Qué hago?)"
         case .prReview: run.prNumber.map { "Mergea el PR \($0)" } ?? "Mergea el PR"
         default: run.stage.label
         }

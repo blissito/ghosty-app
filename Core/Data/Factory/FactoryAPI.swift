@@ -1,7 +1,7 @@
 import Foundation
 
 // La Software Factory de un espacio, vista desde el teléfono: los pedidos (`runs`), su plan y
-// las decisiones que le tocan a una persona (firmar el plan, otra vuelta, merge).
+// las decisiones que le tocan a una persona (firmar el plan, decidir un escalado, merge).
 //
 // Contrato de gs (19-oct, el mismo que usa `ghosty factory`):
 //   GET  /api/v2/workspaces                                   → tus espacios
@@ -166,6 +166,24 @@ struct FactoryRunDetail: Decodable {
     }
 }
 
+/// «¿Qué hago?» con un pedido escalado (gs `…/advise`): arreglar o rehacer el plan, la nota para
+/// @build punto por punto y lo único que @check revisa después. Sólo recomienda: decidir es `act`.
+struct FactoryAdvice: Decodable, Hashable {
+    struct Point: Decodable, Hashable {
+        let point: String
+        let cites: String
+    }
+    let decision: String
+    let why: String
+    let buildNote: [Point]
+    let checkScope: String
+    let confidence: String
+    /// La nota lista para mandarla con la decisión: un renglón por punto.
+    let note: String
+
+    var fix: Bool { decision == "fix" }
+}
+
 struct FactorySpace: Identifiable, Hashable {
     let slug: String
     let role: String?
@@ -261,14 +279,23 @@ enum FactoryAPI {
 
     /// Decide un pedido. `approve` en `plan_review` exige la versión del plan que la persona leyó.
     static func act(_ slug: String, _ id: Int, _ action: Action, version: Int? = nil, note: String? = nil,
-                    skipPreview: Bool = false) async throws -> ActResult {
+                    checkScope: String? = nil, skipPreview: Bool = false) async throws -> ActResult {
         var body: [String: Any] = ["action": action.rawValue]
         if let version { body["version"] = version }
         if let note, !note.isEmpty { body["note"] = note }
+        // Lo único que @check revisa en la siguiente vuelta (lo propone `advise`).
+        if let checkScope, !checkScope.isEmpty { body["checkScope"] = checkScope }
         if skipPreview { body["skipPreview"] = true }
         let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/act", method: "POST", body: body)
         let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
         return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false)
+    }
+
+    /// La recomendación para un pedido escalado. 409 si ya no está escalado; 503 si el modelo no contestó.
+    static func advise(_ slug: String, _ id: Int) async throws -> FactoryAdvice {
+        struct R: Decodable { let advice: FactoryAdvice }
+        let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/advise", method: "POST", body: [:])
+        return try JSONDecoder().decode(R.self, from: d).advice
     }
 
     /// Pedido nuevo: publica «@plan <texto>» en el room (o en el room conectado al repo).

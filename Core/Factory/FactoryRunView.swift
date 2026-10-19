@@ -19,6 +19,8 @@ struct FactoryRunView: View {
     @State private var mergeError: String?
     /// Ráfaga de confeti tras un merge (cambia el id para repetirla).
     @State private var confetti: UUID?
+    /// «¿Qué hago?» abierto (la hoja pide la recomendación al aparecer).
+    @State private var advising = false
 
     private enum Pending: Identifiable {
         case approve(Int), anotherLoop, merge
@@ -98,6 +100,11 @@ struct FactoryRunView: View {
         .sheet(item: $asking) { kind in
             FactoryNoteSheet(kind: kind) { note in
                 Task { await act(.changes, note: note) }
+            }
+        }
+        .sheet(isPresented: $advising) {
+            FactoryAdviceSheet(slug: slug, id: id) { advice, note, scope in
+                Task { await act(advice.fix ? .approve : .changes, note: note, checkScope: advice.fix ? scope : nil) }
             }
         }
     }
@@ -192,8 +199,8 @@ struct FactoryRunView: View {
                 Text("Lo que encontró @check").gCardTitle()
             }
             Text((detail?.loops ?? 0) >= 3
-                 ? "\(detail?.loops ?? 0) vueltas sin cerrar: ¿otra vuelta o replanear?"
-                 : "@build no puede resolverlo con sus herramientas: ¿otra vuelta o replanear?")
+                 ? "@check frenó \(detail?.loops ?? 0) veces. Si los puntos caben en el plan, que @build los arregle."
+                 : "Falta algo que @build no puede resolver con sus herramientas: dalo tú, o rehaz el plan.")
                 .gMeta()
                 .fixedSize(horizontal: false, vertical: true)
             if let findings = detail?.findings {
@@ -201,6 +208,16 @@ struct FactoryRunView: View {
                     .padding(.top, 2)
                     .accessibilityIdentifier("hallazgos")
             }
+            Button { advising = true } label: {
+                Label("¿Qué hago?", systemImage: "sparkles")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.gPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.gPressPrimary)
+            .disabled(busy || detail == nil)
+            .accessibilityIdentifier("que-hago")
         }
         .padding(16)
         .background(Color.gAmberTint.opacity(0.55), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
@@ -359,8 +376,8 @@ struct FactoryRunView: View {
                 barButton("Pedir cambios", primary: false, id: "pedir-cambios") { asking = .changes }
                 barButton("Firmar plan v\(version)", primary: true, id: "firmar-plan") { confirm = .approve(version) }
             case .escalated:
-                barButton("Replanear", primary: false, id: "replanear") { asking = .replan }
-                barButton("Otra vuelta", primary: true, id: "otra-vuelta") { confirm = .anotherLoop }
+                barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
+                barButton("Que @build lo arregle", primary: true, id: "otra-vuelta") { confirm = .anotherLoop }
             case .prReview:
                 barButton("Merge", primary: true, id: "merge", icon: "arrow.triangle.merge") { confirm = .merge }
             default:
@@ -395,7 +412,7 @@ struct FactoryRunView: View {
     private func confirmTitle(_ p: Pending) -> String {
         switch p {
         case .approve(let v): "¿Firmar el plan v\(v)?"
-        case .anotherLoop: "¿Otra vuelta?"
+        case .anotherLoop: "¿Que @build lo arregle?"
         case .merge: "¿Mergear el PR?"
         }
     }
@@ -411,7 +428,7 @@ struct FactoryRunView: View {
     private func confirmAction(_ p: Pending) -> String {
         switch p {
         case .approve(let v): "Firmar plan v\(v)"
-        case .anotherLoop: "Otra vuelta"
+        case .anotherLoop: "Que @build lo arregle"
         case .merge: "Merge"
         }
     }
@@ -429,7 +446,8 @@ struct FactoryRunView: View {
         }
     }
 
-    private func act(_ action: FactoryAPI.Action, version: Int? = nil, note: String? = nil, skipPreview: Bool = false) async {
+    private func act(_ action: FactoryAPI.Action, version: Int? = nil, note: String? = nil, checkScope: String? = nil,
+                     skipPreview: Bool = false) async {
         busy = true
         defer { busy = false }
         if DemoData.encendido {
@@ -438,10 +456,11 @@ struct FactoryRunView: View {
             return
         }
         do {
-            let r = try await FactoryAPI.act(slug, id, action, version: version, note: note, skipPreview: skipPreview)
+            let r = try await FactoryAPI.act(slug, id, action, version: version, note: note, checkScope: checkScope,
+                                             skipPreview: skipPreview)
             let msg: String = switch action {
-            case .approve: stage == .escalated ? "Otra vuelta: @build ya lo retoma." : "Firmado: @build empieza a construir."
-            case .changes: stage == .escalated ? "Replanear: @plan ya lo está leyendo." : "Cambios pedidos: @plan prepara otra versión."
+            case .approve: stage == .escalated ? "@build ya lo está arreglando." : "Firmado: @build empieza a construir."
+            case .changes: stage == .escalated ? "@plan ya está rehaciendo el plan." : "Cambios pedidos: @plan prepara otra versión."
             case .merge: r.queued ? "Merge en cola: entra en cuanto pase el CI." : "Mergeado."
             case .card: "Tarjeta enviada al hilo."
             }
@@ -474,7 +493,123 @@ struct FactoryRunView: View {
     }
 }
 
-/// «Pedir cambios» / «Replanear»: lo que la persona quiere distinto, para @plan.
+/// «¿Qué hago?»: la recomendación para un pedido escalado, con la nota para @build y el alcance de
+/// @check editables. «Aplicar» decide con ellos; nunca se aplica sola.
+struct FactoryAdviceSheet: View {
+    let slug: String
+    let id: Int
+    var onApply: (FactoryAdvice, String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var advice: FactoryAdvice?
+    @State private var error: String?
+    @State private var note = ""
+    @State private var scope = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("¿Qué hago?").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
+                    Spacer()
+                    Button { dismiss() } label: { TintedIcon(systemName: "xmark", tint: .gInk, background: .gFill, size: 32) }
+                        .buttonStyle(.gPressIcon)
+                }
+                if let advice {
+                    content(advice)
+                } else if let error {
+                    Text(error).font(.system(size: 15)).foregroundStyle(Color.gDangerInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Intentar otra vez") { Task { await load() } }
+                        .font(.system(size: 15, weight: .semibold))
+                } else {
+                    HStack(spacing: 10) {
+                        GhostySpinner(size: 16)
+                        Text("Comparando lo que encontró @check con el plan firmado…").gMeta()
+                    }
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier("analizando")
+                }
+            }
+            .padding(Theme.Space.screenH)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(Theme.Radius.sheet)
+        .presentationBackground(Color.gBg)
+        .task { await load() }
+    }
+
+    @ViewBuilder
+    private func content(_ a: FactoryAdvice) -> some View {
+        Text(a.fix ? "Que @build lo arregle" : "Rehacer el plan")
+            .font(.system(size: 17, weight: .bold))
+            .foregroundStyle(a.fix ? Color.gGreenInk : Color.gAmberInk)
+            .accessibilityIdentifier("recomendacion")
+        Text(a.why).font(.system(size: 15)).foregroundStyle(Color.gInk).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(a.buildNote.enumerated()), id: \.offset) { i, p in
+                VStack(alignment: .leading, spacing: 2) {
+                    // `LocalizedStringKey`: el `código` de la nota sale como código, no con sus comillas.
+                    Text(LocalizedStringKey("\(i + 1). \(p.point)")).font(.system(size: 14)).foregroundStyle(Color.gInk)
+                    Text(LocalizedStringKey(p.cites)).gCaption()
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        Text(a.fix ? "Nota para @build" : "Qué cambiar en el plan").gSectionCaps().padding(.top, 4)
+        TextEditor(text: $note)
+            .font(.system(size: 15))
+            .scrollContentBackground(.hidden)
+            .padding(10)
+            .frame(minHeight: 120)
+            .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .accessibilityIdentifier("nota-recomendada")
+        if a.fix {
+            Text("@check revisa sólo").gSectionCaps()
+            TextField("Alcance de la siguiente revisión", text: $scope, axis: .vertical)
+                .font(.system(size: 15))
+                .padding(10)
+                .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .accessibilityIdentifier("alcance-check")
+        }
+        Button {
+            onApply(a, note.trimmingCharacters(in: .whitespacesAndNewlines), scope.trimmingCharacters(in: .whitespacesAndNewlines))
+            dismiss()
+        } label: {
+            Text("Aplicar").gButtonLabel().foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+        }
+        .buttonStyle(.gPressPrimary)
+        .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .accessibilityIdentifier("aplicar")
+        Text("No se aplica sola: revisa la nota antes.").gCaption()
+    }
+
+    private func load() async {
+        error = nil
+        if DemoData.encendido {
+            show(FactoryStore.demoAdvice)
+            return
+        }
+        do {
+            show(try await FactoryAPI.advise(slug, id))
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func show(_ a: FactoryAdvice) {
+        withAnimation(.snappy(duration: 0.3)) {
+            advice = a
+            note = a.note
+            scope = a.checkScope
+        }
+    }
+}
+
+/// «Pedir cambios» / «Rehacer el plan»: lo que la persona quiere distinto, para @plan.
 struct FactoryNoteSheet: View {
     let kind: FactoryRunView.AskKind
     var onSend: (String) -> Void
@@ -485,7 +620,7 @@ struct FactoryNoteSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(kind == .changes ? "Pedir cambios" : "Replanear").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
+                Text(kind == .changes ? "Pedir cambios" : "Rehacer el plan").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
                 Spacer()
                 Button { dismiss() } label: { TintedIcon(systemName: "xmark", tint: .gInk, background: .gFill, size: 32) }
                     .buttonStyle(.gPressIcon)
