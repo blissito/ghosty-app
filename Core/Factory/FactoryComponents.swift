@@ -208,6 +208,29 @@ enum FactoryFormat {
         guard let a, !a.isEmpty else { return nil }
         return ["plan", "build", "check", "dependabot"].contains(a) ? "@\(a)" : "Tú"
     }
+
+    /// Lo que hiciste TÚ, conjugado contigo: «Firmaste tú», no «Tú firmó» (bliss, 19-oct).
+    static func ownEvent(_ type: String) -> String? {
+        [
+            "approve": "Firmaste",
+            "changes": "Pediste cambios",
+            "close": "Cerraste",
+            "cancel": "Cancelaste",
+            "merge_queued": "Dejaste el merge en cola",
+            "deployed": "Desplegaste a producción",
+            "git_push": "Subiste commits",
+            "ci_requested": "Pediste correr el CI",
+            "stopped": "Detuviste el turno",
+            "resumed": "Pediste retomar",
+        ][type]
+    }
+
+    /// El renglón de la bitácora: «@plan entregó el plan» o «Firmaste tú».
+    static func logLine(actor a: String?, type: String) -> Text {
+        let who = actor(a)
+        if who == "Tú", let verb = ownEvent(type) { return Text("\(verb) ") + Text("tú").bold() }
+        return Text(who.map { "\($0) " } ?? "").bold() + Text(event(type))
+    }
 }
 
 /// Una fila de la lista: número, título, etapa, repo y lo que costó.
@@ -271,5 +294,58 @@ struct FactoryMetaLabelStyle: LabelStyle {
             configuration.title.font(.system(size: 12, weight: .medium))
         }
         .foregroundStyle(Color.gInk2)
+    }
+}
+
+/// Confeti de una sola ráfaga (≈2.4 s) al mergear: cae y se va, nunca en bucle. Con «reducir
+/// movimiento» no se pinta.
+struct ConfettiBurst: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date()
+    private static let colors: [Color] = [.gPrimary, .gAmber, .gGreen, .gSky, .gSalmon, .gBird]
+    private static let pieces: [(x: Double, delay: Double, speed: Double, spin: Double, size: Double, drift: Double)] =
+        (0..<70).map { i in
+            var g = SplitMix(seed: UInt64(i) &* 0x9E3779B97F4A7C15)
+            return (g.next(), g.next() * 0.35, 0.75 + g.next() * 0.6, g.next() * 8 - 4, 6 + g.next() * 6, g.next() * 0.16 - 0.08)
+        }
+    private let duration = 2.4
+
+    var body: some View {
+        if !reduceMotion {
+            TimelineView(.animation) { ctx in
+                let t = ctx.date.timeIntervalSince(start)
+                Canvas { gc, size in
+                    guard t < duration + 0.4 else { return }
+                    for (i, p) in Self.pieces.enumerated() {
+                        let lt = max(0, t - p.delay)
+                        let y = -20 + lt * p.speed * size.height * 0.55 + lt * lt * 120
+                        let x = (p.x + p.drift * lt) * size.width
+                        let fade = max(0, 1 - max(0, t - duration + 0.6) / 0.6)
+                        var c = gc
+                        c.translateBy(x: x, y: y)
+                        c.rotate(by: .radians(lt * p.spin))
+                        c.opacity = fade
+                        let r = CGRect(x: -p.size / 2, y: -p.size / 4, width: p.size, height: p.size / 2)
+                        c.fill(Path(roundedRect: r, cornerRadius: 1.5), with: .color(Self.colors[i % Self.colors.count]))
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+/// Aleatorio con semilla: el confeti sale igual en cada toma.
+private struct SplitMix {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> Double {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return Double((z ^ (z >> 31)) >> 11) / Double(1 << 53)
     }
 }

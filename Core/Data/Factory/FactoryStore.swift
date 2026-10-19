@@ -40,7 +40,8 @@ final class FactoryStore {
             let found = await withTaskGroup(of: (Int, FactorySpace?).self) { group in
                 for (i, s) in mine.enumerated() {
                     group.addTask {
-                        guard let runs = try? await FactoryAPI.runs(s.slug), !runs.isEmpty else { return (i, nil) }
+                        guard let runs = try? await FactoryAPI.runs(s.slug).filter({ !Self.hidden(s.slug, $0.id) }),
+                              !runs.isEmpty else { return (i, nil) }
                         return (i, FactorySpace(slug: s.slug, role: s.role, runs: runs))
                     }
                 }
@@ -60,9 +61,16 @@ final class FactoryStore {
     /// Refresca un solo espacio (la lista abierta y su sondeo de 10 s).
     func refresh(space slug: String) async {
         if DemoData.encendido { return }
-        guard let runs = try? await FactoryAPI.runs(slug),
+        guard let runs = try? await FactoryAPI.runs(slug).filter({ !Self.hidden(slug, $0.id) }),
               let i = spaces.firstIndex(where: { $0.slug == slug }) else { return }
         spaces[i].runs = runs
+    }
+
+    /// Gancho de desarrollo `GHOSTY_FABRICA_OCULTAR=business/114,…`: esos pedidos no salen en la
+    /// lista (para grabar una toma limpia sin un pedido ajeno a la historia). En Release no existe.
+    nonisolated static func hidden(_ slug: String, _ id: Int) -> Bool {
+        guard let v = Gancho.valor("GHOSTY_FABRICA_OCULTAR") else { return false }
+        return v.split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == "\(slug)/\(id)" }
     }
 
     /// Lo que se sabe de un pedido ya, sin red (para pintar el detalle al instante).

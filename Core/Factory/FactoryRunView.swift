@@ -17,6 +17,8 @@ struct FactoryRunView: View {
     @State private var asking: AskKind?
     @State private var mergeWithoutPreview = false
     @State private var mergeError: String?
+    /// Ráfaga de confeti tras un merge (cambia el id para repetirla).
+    @State private var confetti: UUID?
 
     private enum Pending: Identifiable {
         case approve(Int), anotherLoop, merge
@@ -59,6 +61,7 @@ struct FactoryRunView: View {
         .background(Color.gBg.ignoresSafeArea())
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom) { if stage.needsYou { actionBar } }
+        .overlay { if let confetti { ConfettiBurst().id(confetti) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.gBg, for: .navigationBar)
         .toolbar {
@@ -304,7 +307,7 @@ struct FactoryRunView: View {
                         if i < events.count - 1 { Rectangle().fill(Color.gHairline).frame(width: 1.5).frame(maxHeight: .infinity) }
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        (Text(FactoryFormat.actor(e.actor).map { "\($0) " } ?? "").bold() + Text(FactoryFormat.event(e.type)))
+                        FactoryFormat.logLine(actor: e.actor, type: e.type)
                             .font(.system(size: 14))
                             .foregroundStyle(Color.gInk)
                             .fixedSize(horizontal: false, vertical: true)
@@ -330,6 +333,8 @@ struct FactoryRunView: View {
         }
         .padding(12)
         .background(Color.gGreenTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("aviso-pedido")
         .transition(.gIn)
     }
 
@@ -428,7 +433,8 @@ struct FactoryRunView: View {
         busy = true
         defer { busy = false }
         if DemoData.encendido {
-            withAnimation { notice = "Listo (demo)" }
+            withAnimation { notice = action == .merge ? "Mergeado." : "Listo (demo)" }
+            if action == .merge { confetti = UUID() }
             return
         }
         do {
@@ -440,6 +446,7 @@ struct FactoryRunView: View {
             case .card: "Tarjeta enviada al hilo."
             }
             withAnimation(.snappy) { notice = msg; error = nil }
+            if action == .merge { confetti = UUID() }
             await load()
             await FactoryStore.shared.refresh(space: slug)
         } catch let e as FactoryAPI.Failure where action == .merge && !skipPreview && e.message.localizedCaseInsensitiveContains("preview") {
