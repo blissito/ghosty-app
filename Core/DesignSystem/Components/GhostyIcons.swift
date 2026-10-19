@@ -88,6 +88,21 @@ enum GhostyIcons {
         p.addCurve(to: CGPoint(x: 18, y: 18.5), control1: CGPoint(x: 14.4, y: 13.5), control2: CGPoint(x: 17.2, y: 15.3))
     }
 
+    /// Fábrica (una caja en perspectiva): `M11 3.5l7 3.75v7.5L11 18.5l-7-3.75v-7.5zM4 7.25L11 11l7-3.75M11 11v7.5`
+    static let fabrica = GhostyStrokeIcon(viewBox: 22) { p in
+        p.move(to: CGPoint(x: 11, y: 3.5))
+        p.addLine(to: CGPoint(x: 18, y: 7.25))
+        p.addLine(to: CGPoint(x: 18, y: 14.75))
+        p.addLine(to: CGPoint(x: 11, y: 18.5))
+        p.addLine(to: CGPoint(x: 4, y: 14.75))
+        p.addLine(to: CGPoint(x: 4, y: 7.25))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 4, y: 7.25))
+        p.addLine(to: CGPoint(x: 11, y: 11))
+        p.addLine(to: CGPoint(x: 18, y: 7.25))
+        p.move(to: CGPoint(x: 11, y: 11)); p.addLine(to: CGPoint(x: 11, y: 18.5))
+    }
+
     /// Historial (tres renglones, el último corto): `M3 6h14M3 10h14M3 14h9`, viewBox 20.
     static let historial = GhostyStrokeIcon(viewBox: 20) { p in
         p.move(to: CGPoint(x: 3, y: 6)); p.addLine(to: CGPoint(x: 17, y: 6))

@@ -5,7 +5,8 @@ enum GhostyTab: String, CaseIterable, Identifiable {
     // botón de la cabecera del chat. Su `rawValue` viejo (`conversations`) lo sigue
     // entendiendo el gancho `GHOSTY_TAB`, que abre la hoja del historial.
     // Integraciones dejó de ser pestaña (2026-10-01): vive en Perfil y su lugar es Memorias.
-    case chat, artifacts, memorias, perfil
+    // Fábrica (19-oct): sólo aparece si algún espacio tuyo tiene pedidos (`RootView.pestanas`).
+    case chat, artifacts, memorias, perfil, fabrica
     var id: String { rawValue }
 
     var label: String {
@@ -14,6 +15,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
         case .artifacts:  return "Archivos"
         case .memorias:   return "Memorias"
         case .perfil:     return "Perfil"
+        case .fabrica:    return "Fábrica"
         }
     }
 
@@ -23,6 +25,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
         case .artifacts:  return GhostyIcons.archivos
         case .memorias:   return GhostyIcons.memorias
         case .perfil:     return GhostyIcons.perfil
+        case .fabrica:    return GhostyIcons.fabrica
         }
     }
 }
@@ -42,6 +45,8 @@ struct GhostyTabBar: View {
     var tabs: [GhostyTab] = GhostyTab.allCases
     /// Pestañas con algo que no has visto. Un punto, no un número.
     var puntos: Set<GhostyTab> = []
+    /// Pestañas con algo que TE TOCA (la fábrica): número en ámbar, no un punto.
+    var conteos: [GhostyTab: Int] = [:]
     /// El agente actual: su avatar es el primer botón de la barra.
     var agente: Agent?
     /// La hoja del agente está abierta: el avatar se resalta.
@@ -103,7 +108,8 @@ struct GhostyTabBar: View {
             HStack(spacing: 6) {
                 tab.icon.dibujo(color, size: 22)
                     .overlay(alignment: .topTrailing) {
-                        if puntos.contains(tab) { punto.offset(x: 3, y: -1) }
+                        if let n = conteos[tab], n > 0 { conteo(n).offset(x: 9, y: -6) }
+                        else if puntos.contains(tab) { punto.offset(x: 3, y: -1) }
                     }
                 if activa {
                     Text(tab.label)
@@ -133,6 +139,18 @@ struct GhostyTabBar: View {
         .accessibilityLabel(tab.label)
         .accessibilityAddTraits(activa ? .isSelected : [])
         .accessibilityIdentifier("tab-\(tab.rawValue)")
+    }
+
+    /// El número ámbar de «te toca» (mismo ámbar que la fábrica).
+    private func conteo(_ n: Int) -> some View {
+        Text(n > 9 ? "9+" : "\(n)")
+            .font(.system(size: 10, weight: .bold).monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Color.gAmber, in: Capsule())
+            .overlay(Capsule().stroke(Color.gDark, lineWidth: 1.5))
+            .accessibilityLabel("\(n) te toca")
     }
 
     /// El aro del color de la barra lo despega del trazo del icono.

@@ -1,0 +1,671 @@
+import SwiftUI
+
+/// Un pedido de la fábrica: la versión nativa de la tarjeta de Teams. Etapa y barra de pasos,
+/// quién trabaja, el plan (para firmarlo), lo que encontró @check si escaló, la bitácora y las
+/// decisiones que te tocan. Nada se decide sin confirmar.
+struct FactoryRunView: View {
+    let slug: String
+    let id: Int
+
+    @Environment(\.openURL) private var openURL
+    @State private var detail: FactoryRunDetail?
+    @State private var error: String?
+    @State private var busy = false
+    @State private var notice: String?
+    @State private var planOpen = false
+    @State private var confirm: Pending?
+    @State private var asking: AskKind?
+    @State private var mergeWithoutPreview = false
+    @State private var mergeError: String?
+
+    private enum Pending: Identifiable {
+        case approve(Int), anotherLoop, merge
+        var id: String {
+            switch self {
+            case .approve(let v): "approve-\(v)"
+            case .anotherLoop: "loop"
+            case .merge: "merge"
+            }
+        }
+    }
+
+    enum AskKind: String, Identifiable {
+        case changes, replan
+        var id: String { rawValue }
+    }
+
+    private var cached: FactoryRun? { FactoryStore.shared.cached(slug, id) }
+    private var stage: FactoryStage { detail?.stage ?? cached?.stage ?? .unknown }
+    private var working: Bool { stage.working || !(detail?.running.isEmpty ?? true) }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                titleBlock
+                statusCard
+                if let notice { noticeBanner(notice) }
+                if let error { errorBanner(error) }
+                if stage == .escalated { escalationCard }
+                if let plan = detail?.plan { planCard(plan) }
+                linksRow
+                if let events = detail?.events, !events.isEmpty { logCard(events) }
+            }
+            .padding(.horizontal, Theme.Space.screenH)
+            .padding(.top, 6)
+            .padding(.bottom, 28)
+            .animation(.snappy(duration: 0.3), value: detail?.status)
+        }
+        .scrollIndicators(.hidden)
+        .background(Color.gBg.ignoresSafeArea())
+        .refreshable { await load() }
+        .safeAreaInset(edge: .bottom) { if stage.needsYou { actionBar } }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.gBg, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Pedido #\(id)").font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk)
+            }
+            ToolbarItem(placement: .topBarTrailing) { moreMenu }
+        }
+        .task { await load() }
+        // Mientras alguien trabaja, se repregunta cada 10 s (la etapa cambia sola).
+        .task(id: working) {
+            guard working else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                if !Task.isCancelled { await load() }
+            }
+        }
+        .sheet(item: $confirm) { p in
+            FactoryConfirmSheet(title: confirmTitle(p), message: confirmMessage(p), action: confirmAction(p),
+                                identifier: "confirmar-\(p.id)") {
+                Task {
+                    switch p {
+                    case .approve(let v): await act(.approve, version: v)
+                    case .anotherLoop: await act(.approve)
+                    case .merge: await act(.merge)
+                    }
+                }
+            }
+        }
+        .alert("No se pudo mergear", isPresented: $mergeWithoutPreview) {
+            Button("Mergear sin preview") { Task { await act(.merge, skipPreview: true) } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { Text(mergeError ?? "") }
+        .sheet(item: $asking) { kind in
+            FactoryNoteSheet(kind: kind) { note in
+                Task { await act(.changes, note: note) }
+            }
+        }
+    }
+
+    // MARK: - Bloques
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if let repo = detail?.repo ?? cached?.repo {
+                    Label(repo, systemImage: "chevron.left.forwardslash.chevron.right")
+                        .labelStyle(FactoryMetaLabelStyle())
+                }
+                if (detail?.kind ?? cached?.kind) == "dependabot" {
+                    Text("Dependabot").gChip().foregroundStyle(Color.gInk2)
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(Color.gFill, in: Capsule())
+                }
+            }
+            Text(detail?.title ?? cached?.title ?? "Pedido #\(id)")
+                .font(.system(size: 26, weight: .heavy))
+                .tracking(-0.5)
+                .foregroundStyle(Color.gInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("pedido-titulo")
+        }
+    }
+
+    private var statusLine: String {
+        switch stage {
+        case .planReview: "Te toca firmar el plan v\(detail?.planVersion ?? cached?.planVersion ?? 1)"
+        case .escalated: "Te toca decidir"
+        case .prReview: "Te toca revisar el PR"
+        case .planning, .building, .checking:
+            FactoryFormat.working(detail?.running.first?.role ?? ["planning": "plan", "building": "build", "checking": "check"][stage.rawValue])
+        case .done: "Terminado: PR mergeado"
+        case .cancelled: "Cancelado"
+        case .unknown: "Cargando…"
+        }
+    }
+
+    private var statusExtra: String? {
+        let loops = detail?.loops ?? cached?.loops ?? 0
+        let parts = [
+            loops > 0 ? "Vueltas de check: \(loops)" : nil,
+            detail?.room.map { "#\($0)" },
+            FactoryFormat.ago(FactoryAPI.date(detail?.updatedAt ?? cached?.updatedAt)).map { "movido \($0)" },
+        ].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var statusCard: some View {
+        let tone = FactoryTone.of(stage)
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 14) {
+                FactoryProgressRing(stage: stage)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(statusLine)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(tone.ink)
+                        .contentTransition(.opacity)
+                    if let statusExtra { Text(statusExtra).gMeta() }
+                }
+                Spacer(minLength: 0)
+            }
+            FactoryStepBar(stage: stage, dependabot: (detail?.kind ?? cached?.kind) == "dependabot")
+            if let running = detail?.running, !running.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(running, id: \.self) { r in
+                        HStack(spacing: 10) {
+                            GhostySpinner(size: 16)
+                            Text(FactoryFormat.working(r.role)).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk)
+                            Spacer()
+                            if let since = FactoryAPI.date(r.since) {
+                                Text(since, style: .timer).gMono(size: 12).foregroundStyle(Color.gInk3)
+                            }
+                        }
+                    }
+                }
+                .padding(12)
+                .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .padding(16)
+        .ghostyCard()
+    }
+
+    private var escalationCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(Color.gAmber)
+                Text("Lo que encontró @check").gCardTitle()
+            }
+            Text((detail?.loops ?? 0) >= 3
+                 ? "\(detail?.loops ?? 0) vueltas sin cerrar: ¿otra vuelta o replanear?"
+                 : "@build no puede resolverlo con sus herramientas: ¿otra vuelta o replanear?")
+                .gMeta()
+                .fixedSize(horizontal: false, vertical: true)
+            if let findings = detail?.findings {
+                GhostyMarkdown(markdown: findings)
+                    .padding(.top, 2)
+                    .accessibilityIdentifier("hallazgos")
+            }
+        }
+        .padding(16)
+        .background(Color.gAmberTint.opacity(0.55), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Color.gAmber.opacity(0.35), lineWidth: 1))
+    }
+
+    private func planCard(_ plan: FactoryRunDetail.Plan) -> some View {
+        let open = planOpen || stage == .planReview
+        return VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.snappy(duration: 0.3)) { planOpen.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.text").foregroundStyle(Color.gInk2)
+                    Text("Plan v\(plan.version)").gCardTitle()
+                    decisionChip(plan.decision)
+                    Spacer()
+                    if stage != .planReview {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.gChevron)
+                            .rotationEffect(.degrees(open ? 180 : 0))
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(stage == .planReview)
+            .accessibilityIdentifier("plan-encabezado")
+            if open {
+                Rectangle().fill(Color.gHairline).frame(height: 1)
+                GhostyMarkdown(markdown: plan.markdown)
+                    .accessibilityIdentifier("plan-texto")
+                    .transition(.opacity)
+                if let plans = detail?.plans, plans.count > 1 {
+                    Text(plans.map { "v\($0.version) \(decisionText($0.decision) ?? "por firmar")" }.joined(separator: " · "))
+                        .gCaption()
+                }
+            }
+        }
+        .padding(16)
+        .ghostyCard()
+    }
+
+    private func decisionText(_ d: String?) -> String? {
+        switch d {
+        case "approve": "firmado"
+        case "changes": "con cambios"
+        default: nil
+        }
+    }
+
+    @ViewBuilder
+    private func decisionChip(_ d: String?) -> some View {
+        let (text, ink, bg): (String, Color, Color) = switch d {
+        case "approve": ("Firmado", .gGreenInk, .gGreenTint)
+        case "changes": ("Con cambios", .gInk2, .gFill)
+        default: ("Por firmar", .gAmberInk, .gAmberTint)
+        }
+        Text(text).gChip().foregroundStyle(ink)
+            .padding(.horizontal, 8).padding(.vertical, 2)
+            .background(bg, in: Capsule())
+    }
+
+    @ViewBuilder
+    private var linksRow: some View {
+        let pr = (detail?.pr ?? cached?.pr).flatMap(URL.init(string:))
+        let preview = (detail?.preview ?? cached?.preview).flatMap(URL.init(string:))
+        let teams = FactoryAPI.teamsURL(slug, room: detail?.room ?? cached?.room, thread: detail?.thread ?? cached?.thread)
+        if pr != nil || preview != nil || teams != nil {
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    if let pr { linkPill("Ver PR \(cached?.prNumber ?? "")", "arrow.triangle.pull", pr) }
+                    if let preview { linkPill("Ver preview", "eye", preview) }
+                    if let teams { linkPill("Abrir el hilo", "bubble.left.and.bubble.right", teams) }
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func linkPill(_ title: String, _ icon: String, _ url: URL) -> some View {
+        Button { openURL(url) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+                Text(title.trimmingCharacters(in: .whitespaces)).font(.system(size: 14, weight: .semibold))
+                Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.gInk3)
+            }
+            .foregroundStyle(Color.gInk)
+            .padding(.horizontal, 14).frame(height: 36)
+            .background(Color.gFill, in: Capsule())
+        }
+        .buttonStyle(.gPressPill)
+    }
+
+    private func logCard(_ events: [FactoryRunDetail.Event]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Bitácora").gSectionCaps().padding(.bottom, 10)
+            ForEach(Array(events.enumerated()), id: \.offset) { i, e in
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(spacing: 0) {
+                        Circle().fill(i == 0 ? FactoryTone.of(stage).accent : Color.gFillStrong).frame(width: 9, height: 9)
+                            .padding(.top, 5)
+                        if i < events.count - 1 { Rectangle().fill(Color.gHairline).frame(width: 1.5).frame(maxHeight: .infinity) }
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        (Text(FactoryFormat.actor(e.actor).map { "\($0) " } ?? "").bold() + Text(FactoryFormat.event(e.type)))
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.gInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let d = FactoryAPI.date(e.at) {
+                            Text(d.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(Locale(identifier: "es_MX"))))
+                                .gCaption()
+                        }
+                    }
+                    .padding(.bottom, 12)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(16)
+        .ghostyCard()
+    }
+
+    private func noticeBanner(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.gGreen)
+            Text(text).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color.gGreenTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .transition(.gIn)
+    }
+
+    private func errorBanner(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.gDanger)
+            Text(text).font(.system(size: 14)).foregroundStyle(Color.gDangerInk)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color.gDangerTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    // MARK: - Decisiones
+
+    private var actionBar: some View {
+        let version = detail?.planVersion ?? cached?.planVersion ?? 1
+        return HStack(spacing: 10) {
+            switch stage {
+            case .planReview:
+                barButton("Pedir cambios", primary: false, id: "pedir-cambios") { asking = .changes }
+                barButton("Firmar plan v\(version)", primary: true, id: "firmar-plan") { confirm = .approve(version) }
+            case .escalated:
+                barButton("Replanear", primary: false, id: "replanear") { asking = .replan }
+                barButton("Otra vuelta", primary: true, id: "otra-vuelta") { confirm = .anotherLoop }
+            case .prReview:
+                barButton("Merge", primary: true, id: "merge", icon: "arrow.triangle.merge") { confirm = .merge }
+            default:
+                EmptyView()
+            }
+        }
+        .disabled(busy || detail == nil)
+        .padding(.horizontal, Theme.Space.screenH)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(Color.gBg.overlay(alignment: .top) { Rectangle().fill(Color.gHairline).frame(height: 1) }.ignoresSafeArea())
+    }
+
+    private func barButton(_ title: String, primary: Bool, id: String, icon: String? = nil,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if busy && primary { ProgressView().tint(.white) }
+                else if let icon { Image(systemName: icon).font(.system(size: 14, weight: .bold)) }
+                Text(title).gButtonLabel()
+            }
+            .foregroundStyle(primary ? Color.white : Color.gInk)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(primary ? Color.gPrimary : Color.gFill,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .shadow(color: primary ? Color.gPrimary.opacity(0.3) : .clear, radius: 8, y: 4)
+        }
+        .buttonStyle(.gPressPrimary)
+        .accessibilityIdentifier(id)
+    }
+
+    private func confirmTitle(_ p: Pending) -> String {
+        switch p {
+        case .approve(let v): "¿Firmar el plan v\(v)?"
+        case .anotherLoop: "¿Otra vuelta?"
+        case .merge: "¿Mergear el PR?"
+        }
+    }
+
+    private func confirmMessage(_ p: Pending) -> String {
+        switch p {
+        case .approve: "Pedido #\(id). @build empieza a construir en cuanto firmes."
+        case .anotherLoop: "Pedido #\(id). @build vuelve a intentarlo con lo que encontró @check."
+        case .merge: "Pedido #\(id). " + (detail?.pr.map { "Se mergea \($0.replacingOccurrences(of: "https://github.com/", with: ""))." } ?? "Se mergea el PR.")
+        }
+    }
+
+    private func confirmAction(_ p: Pending) -> String {
+        switch p {
+        case .approve(let v): "Firmar plan v\(v)"
+        case .anotherLoop: "Otra vuelta"
+        case .merge: "Merge"
+        }
+    }
+
+    private func load() async {
+        if DemoData.encendido {
+            detail = FactoryStore.demoDetail(id)
+            return
+        }
+        do {
+            let d = try await FactoryAPI.run(slug, id)
+            withAnimation(.snappy(duration: 0.3)) { detail = d; error = nil }
+        } catch {
+            if detail == nil { self.error = error.localizedDescription }
+        }
+    }
+
+    private func act(_ action: FactoryAPI.Action, version: Int? = nil, note: String? = nil, skipPreview: Bool = false) async {
+        busy = true
+        defer { busy = false }
+        if DemoData.encendido {
+            withAnimation { notice = "Listo (demo)" }
+            return
+        }
+        do {
+            let r = try await FactoryAPI.act(slug, id, action, version: version, note: note, skipPreview: skipPreview)
+            let msg: String = switch action {
+            case .approve: stage == .escalated ? "Otra vuelta: @build ya lo retoma." : "Firmado: @build empieza a construir."
+            case .changes: stage == .escalated ? "Replanear: @plan ya lo está leyendo." : "Cambios pedidos: @plan prepara otra versión."
+            case .merge: r.queued ? "Merge en cola: entra en cuanto pase el CI." : "Mergeado."
+            case .card: "Tarjeta enviada al hilo."
+            }
+            withAnimation(.snappy) { notice = msg; error = nil }
+            await load()
+            await FactoryStore.shared.refresh(space: slug)
+        } catch let e as FactoryAPI.Failure where action == .merge && !skipPreview && e.message.localizedCaseInsensitiveContains("preview") {
+            mergeError = e.message
+            mergeWithoutPreview = true
+        } catch {
+            withAnimation(.snappy) { self.error = error.localizedDescription; notice = nil }
+        }
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            if let pr = (detail?.pr ?? cached?.pr).flatMap(URL.init(string:)) {
+                Button { openURL(pr) } label: { Label("Ver el PR en GitHub", systemImage: "arrow.triangle.pull") }
+            }
+            if let t = FactoryAPI.teamsURL(slug, room: detail?.room ?? cached?.room, thread: detail?.thread ?? cached?.thread) {
+                Button { openURL(t) } label: { Label("Abrir el hilo en Teams", systemImage: "bubble.left.and.bubble.right") }
+            }
+            Button { Task { await act(.card) } } label: { Label("Mandar la tarjeta al hilo", systemImage: "rectangle.portrait.on.rectangle.portrait") }
+            Button { Task { await load() } } label: { Label("Actualizar", systemImage: "arrow.clockwise") }
+        } label: {
+            TintedIcon(systemName: "ellipsis", tint: .gInk, background: .gFill, size: 34)
+        }
+        .accessibilityIdentifier("pedido-mas")
+    }
+}
+
+/// «Pedir cambios» / «Replanear»: lo que la persona quiere distinto, para @plan.
+struct FactoryNoteSheet: View {
+    let kind: FactoryRunView.AskKind
+    var onSend: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var note = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(kind == .changes ? "Pedir cambios" : "Replanear").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
+                Spacer()
+                Button { dismiss() } label: { TintedIcon(systemName: "xmark", tint: .gInk, background: .gFill, size: 32) }
+                    .buttonStyle(.gPressIcon)
+            }
+            Text(kind == .changes ? "Dile a @plan qué quieres distinto en el plan." : "@plan rehace el plan con lo que le digas.")
+                .gMeta()
+            TextEditor(text: $note)
+                .focused($focused)
+                .font(.system(size: 16))
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .frame(minHeight: 140)
+                .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .accessibilityIdentifier("nota-cambios")
+            Button {
+                onSend(note.trimmingCharacters(in: .whitespacesAndNewlines))
+                dismiss()
+            } label: {
+                Text("Mandar a @plan").gButtonLabel().foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.gPressPrimary)
+            .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).count < 3)
+            .opacity(note.trimmingCharacters(in: .whitespacesAndNewlines).count < 3 ? 0.5 : 1)
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Space.screenH)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(Theme.Radius.sheet)
+        .presentationBackground(Color.gBg)
+        .onAppear { focused = true }
+    }
+}
+
+/// «Nuevo pedido»: room (o repo) + qué quieres. Publica «@plan …» en el room del espacio.
+struct FactoryNewRunSheet: View {
+    let space: FactorySpace
+    var onCreated: (FactoryAPI.NewRun) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var room: String?
+    @State private var text = ""
+    @State private var sending = false
+    @State private var error: String?
+    @State private var done: FactoryAPI.NewRun?
+
+    /// Los rooms donde ya hay pedidos, con su repo.
+    private var rooms: [(room: String, repo: String?)] {
+        var seen = Set<String>()
+        return space.runs.compactMap { r in
+            guard let room = r.room, seen.insert(room).inserted else { return nil }
+            return (room, r.repo)
+        }
+    }
+
+    private var valid: Bool { room != nil && text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 15 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Nuevo pedido").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
+                Spacer()
+                Button { dismiss() } label: { TintedIcon(systemName: "xmark", tint: .gInk, background: .gFill, size: 32) }
+                    .buttonStyle(.gPressIcon)
+            }
+            if let done {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Listo: @plan ya lo está leyendo en #\(done.room).", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 15, weight: .medium)).foregroundStyle(Color.gGreenInk)
+                    Text("En unos minutos aparece aquí para que firmes el plan.").gMeta()
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.gGreenTint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                Text("¿En qué room?").gSectionCaps()
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(rooms, id: \.room) { r in
+                            let on = room == r.room
+                            Button { room = r.room } label: {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text("#\(r.room)").font(.system(size: 14, weight: .semibold))
+                                    if let repo = r.repo { Text(repo).font(.system(size: 11)).opacity(0.75) }
+                                }
+                                .foregroundStyle(on ? Color.white : Color.gInk)
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(on ? Color.gDark : Color.gFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.gPressPill)
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+                Text("¿Qué quieres?").gSectionCaps()
+                TextEditor(text: $text)
+                    .font(.system(size: 16))
+                    .scrollContentBackground(.hidden)
+                    .padding(10)
+                    .frame(minHeight: 130)
+                    .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                    .overlay(alignment: .topLeading) {
+                        if text.isEmpty {
+                            Text("Qué quieres, por qué y cómo se sabe que quedó.")
+                                .font(.system(size: 16)).foregroundStyle(Color.gInk4)
+                                .padding(.horizontal, 15).padding(.vertical, 18)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                if let error { Text(error).font(.system(size: 13)).foregroundStyle(Color.gDangerInk) }
+                Button { Task { await send() } } label: {
+                    HStack(spacing: 6) {
+                        if sending { ProgressView().tint(.white) }
+                        Text("Mandar a @plan").gButtonLabel()
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.gPressPrimary)
+                .disabled(!valid || sending)
+                .opacity(valid ? 1 : 0.5)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Space.screenH)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(Theme.Radius.sheet)
+        .presentationBackground(Color.gBg)
+        .onAppear { if room == nil { room = rooms.first?.room } }
+    }
+
+    private func send() async {
+        guard let room else { return }
+        sending = true
+        defer { sending = false }
+        do {
+            let r = try await FactoryAPI.create(space.slug, room: room, repo: nil, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
+            withAnimation(.snappy) { done = r; error = nil }
+            onCreated(r)
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+/// Confirmar una decisión (firmar, otra vuelta, merge): hoja corta de fondo sólido, no el action
+/// sheet del sistema. El botón dice exactamente lo que va a pasar.
+struct FactoryConfirmSheet: View {
+    let title: String
+    let message: String
+    let action: String
+    var identifier = "confirmar"
+    var onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(.system(size: 22, weight: .heavy)).foregroundStyle(Color.gInk)
+            Text(message).gBody().foregroundStyle(Color.gInk2).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button {
+                dismiss()
+                onConfirm()
+            } label: {
+                Text(action).gButtonLabel().foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.gPressPrimary)
+            .accessibilityIdentifier(identifier)
+            Button { dismiss() } label: {
+                Text("Cancelar").gButtonLabel().foregroundStyle(Color.gInk)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.gPressRow)
+            .accessibilityIdentifier("confirmar-cancelar")
+        }
+        .padding(.horizontal, Theme.Space.screenH)
+        .padding(.top, 28)
+        .padding(.bottom, 12)
+        .presentationDetents([.height(300)])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(Theme.Radius.sheet)
+        .presentationBackground(Color.gBg)
+    }
+}

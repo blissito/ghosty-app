@@ -1,0 +1,275 @@
+import SwiftUI
+
+// Las piezas de la fábrica que se repiten entre la lista y el detalle: el tono de cada etapa,
+// el punto que late, la pastilla de etapa, la barra de pasos y la fila de un pedido.
+// Mismo lenguaje que la tarjeta de Teams (`RunCard.tsx`): «te toca» en ÁMBAR (es una petición,
+// no un problema), trabajando en el morado de la marca, terminado en verde, rojo sólo si falló.
+
+extension Color {
+    /// Ámbar de «te toca». No está en la paleta general: sólo lo usa la fábrica.
+    static let gAmber     = Color(light: 0xD98E04, dark: 0xF5B83D)
+    static let gAmberInk  = Color(light: 0xA86A00, dark: 0xF7C766)
+    static let gAmberTint = Color(light: 0xFDF3DC, dark: 0x3A2E14)
+}
+
+struct FactoryTone {
+    let ink: Color
+    let accent: Color
+    let tint: Color
+
+    static func of(_ s: FactoryStage) -> FactoryTone {
+        if s.needsYou { return .init(ink: .gAmberInk, accent: .gAmber, tint: .gAmberTint) }
+        if s.working { return .init(ink: .gPrimaryPressed, accent: .gPrimary, tint: .gPrimaryTint) }
+        if s == .done { return .init(ink: .gGreenInk, accent: .gGreen, tint: .gGreenTint) }
+        return .init(ink: .gInk3, accent: .gInk4, tint: .gFill)
+    }
+}
+
+/// Punto de 7 pt; si `active`, late con un halo (alguien está trabajando o te toca).
+struct PulsingDot: View {
+    var color: Color
+    var active: Bool
+    var size: CGFloat = 7
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(paused: !active || reduceMotion)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            let p = active && !reduceMotion ? (t.truncatingRemainder(dividingBy: 1.4)) / 1.4 : 0
+            ZStack {
+                if active {
+                    Circle().fill(color.opacity(0.35 * (1 - p)))
+                        .frame(width: size * (1 + 1.6 * p), height: size * (1 + 1.6 * p))
+                }
+                Circle().fill(color).frame(width: size, height: size)
+            }
+            .frame(width: size * 2.6, height: size * 2.6)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// La pastilla de etapa: punto + nombre, en el tono de la etapa.
+struct StageChip: View {
+    let stage: FactoryStage
+
+    var body: some View {
+        let tone = FactoryTone.of(stage)
+        HStack(spacing: 2) {
+            PulsingDot(color: tone.accent, active: stage.working || stage.needsYou, size: 6)
+                .padding(.leading, -2)
+            Text(stage.label).gChip().foregroundStyle(tone.ink)
+        }
+        .padding(.trailing, 10).padding(.leading, 4).padding(.vertical, 3)
+        .background(tone.tint, in: Capsule())
+        .fixedSize()
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("etapa-\(stage.rawValue)")
+    }
+}
+
+/// Plan → Aprobación → Build → Check → PR. Lo hecho en verde, el paso actual en el tono de la
+/// etapa (latiendo si un agente lo tiene), lo que falta en gris. Dependabot entra directo a
+/// Build: Plan y Aprobación no ocurrieron y se pintan apagados, no como hechos.
+struct FactoryStepBar: View {
+    let stage: FactoryStage
+    var dependabot = false
+
+    private static let labels = ["Plan", "Aprobación", "Build", "Check", "PR"]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let tone = FactoryTone.of(stage)
+        let current = stage.step
+        HStack(alignment: .top, spacing: 5) {
+            ForEach(Array(Self.labels.enumerated()), id: \.offset) { i, label in
+                let skipped = dependabot && i < 2
+                let done = !skipped && (stage == .done || (current >= 0 && i < current))
+                let now = !skipped && stage != .done && i == current
+                VStack(alignment: .leading, spacing: 6) {
+                    TimelineView(.animation(paused: !(now && stage.working) || reduceMotion)) { ctx in
+                        let pulse = now && stage.working && !reduceMotion
+                            ? 0.55 + 0.45 * GhostyDots.pulso(t: ctx.date.timeIntervalSinceReferenceDate, periodo: 1.4) : 1
+                        Capsule()
+                            .fill(done ? Color.gGreen : now ? tone.accent.opacity(pulse) : Color.gFillStrong)
+                            .frame(height: 6)
+                    }
+                    Text(label)
+                        .font(.system(size: 11, weight: now ? .bold : .medium))
+                        .foregroundStyle(now ? tone.ink : done ? Color.gInk2 : Color.gInk4)
+                        .strikethrough(skipped, color: .gInk4)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Etapa: \(stage.label)")
+    }
+}
+
+/// Anillo de avance con «2/5», ✓ o ✕ al centro (el de la tarjeta de Teams).
+struct FactoryProgressRing: View {
+    let stage: FactoryStage
+    var size: CGFloat = 44
+
+    var body: some View {
+        let tone = FactoryTone.of(stage)
+        let step = stage.step
+        let progress = stage == .done ? 1 : step < 0 ? 0 : (Double(step) + (stage.closed ? 1 : 0.5)) / 5
+        ZStack {
+            Circle().stroke(Color.gFillStrong, lineWidth: 4)
+            Circle().trim(from: 0, to: progress)
+                .stroke(tone.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Group {
+                if stage == .done { Image(systemName: "checkmark").font(.system(size: 15, weight: .bold)) }
+                else if stage == .cancelled { Image(systemName: "xmark").font(.system(size: 14, weight: .bold)) }
+                else { Text("\(max(1, min(5, step + 1)))/5").font(.system(size: 12, weight: .bold).monospacedDigit()) }
+            }
+            .foregroundStyle(tone.ink)
+        }
+        .frame(width: size, height: size)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: progress)
+    }
+}
+
+enum FactoryFormat {
+    private static let relative: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.unitsStyle = .short
+        return f
+    }()
+
+    /// «hace 4 min», «ahora».
+    static func ago(_ d: Date?) -> String? {
+        guard let d else { return nil }
+        if Date().timeIntervalSince(d) < 60 { return "ahora" }
+        return relative.localizedString(for: d, relativeTo: Date())
+    }
+
+    /// «83 min» → «1 h 23 min».
+    static func minutes(_ m: Double?) -> String? {
+        guard let m, m > 0 else { return nil }
+        let total = Int(m.rounded())
+        if total < 60 { return "\(max(1, total)) min" }
+        return total % 60 == 0 ? "\(total / 60) h" : "\(total / 60) h \(total % 60) min"
+    }
+
+    static func usd(_ v: Double?) -> String? {
+        guard let v, v > 0 else { return nil }
+        return String(format: "$%.2f", v)
+    }
+
+    /// Quién trabaja, como en Teams.
+    static func working(_ role: String?) -> String {
+        switch role {
+        case "plan":  "@plan está escribiendo el plan…"
+        case "build": "@build está construyendo…"
+        case "check": "@check está revisando el PR…"
+        default:      "\(role.map { "@\($0)" } ?? "Un agente") está trabajando…"
+        }
+    }
+
+    /// Cómo se lee cada renglón de la bitácora (`RunPanel.tsx` de Teams).
+    static func event(_ type: String) -> String {
+        [
+            "plan_submitted": "entregó el plan",
+            "approve": "firmó",
+            "changes": "pidió cambios",
+            "build_done": "abrió el PR",
+            "check_pass": "aprobó la revisión",
+            "check_fail": "regresó hallazgos",
+            "check_blocked": "escaló: falta algo que Build no puede hacer",
+            "close": "cerró",
+            "merged": "merge hecho",
+            "merge_queued": "dejó el merge en cola",
+            "deployed": "desplegó a producción",
+            "git_push": "subió commits",
+            "adopted": "abrió el PR",
+            "conflict": "PR con conflictos: lo pone al día",
+            "rework": "pidieron más sobre el PR: vuelve a construir",
+            "cancel": "canceló",
+            "stale": "sin avanzar 30 min",
+            "auto_resumed": "lo retomó la plataforma",
+            "ci_red": "CI en rojo: se lo regresó a Build",
+            "ci_red_help": "CI sigue en rojo: necesita una persona",
+            "ci_requested": "pidió correr el CI",
+            "waiting_person": "preguntó algo: espera tu respuesta",
+            "head_moved": "el PR cambió durante la revisión",
+            "stopped": "detuvo el turno",
+            "resumed": "pidió retomar",
+        ][type] ?? type.replacingOccurrences(of: "_", with: " ")
+    }
+
+    static func actor(_ a: String?) -> String? {
+        guard let a, !a.isEmpty else { return nil }
+        return ["plan", "build", "check", "dependabot"].contains(a) ? "@\(a)" : "Tú"
+    }
+}
+
+/// Una fila de la lista: número, título, etapa, repo y lo que costó.
+struct FactoryRunRow: View {
+    let run: FactoryRun
+
+    var body: some View {
+        let stage = run.stage
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("#\(run.id)").gMono(size: 13, weight: .bold).foregroundStyle(Color.gInk3)
+                Text(run.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.gChevron)
+            }
+            HStack(spacing: 8) {
+                StageChip(stage: stage)
+                if let repo = run.repo {
+                    Label {
+                        Text(repo.split(separator: "/").last.map(String.init) ?? repo).lineLimit(1)
+                    } icon: {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    }
+                    .labelStyle(FactoryMetaLabelStyle())
+                }
+                if let pr = run.prNumber {
+                    Label { Text(pr) } icon: { Image(systemName: "arrow.triangle.pull") }
+                        .labelStyle(FactoryMetaLabelStyle())
+                }
+                Spacer(minLength: 0)
+            }
+            let meta = [FactoryFormat.ago(run.updated), FactoryFormat.minutes(run.durationMin), FactoryFormat.usd(run.usd)]
+                .compactMap { $0 }.joined(separator: " · ")
+            if !meta.isEmpty {
+                Text(meta).gMono(size: 12, weight: .regular).foregroundStyle(Color.gInk3)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .ghostyCard(radius: Theme.Radius.list)
+        .overlay(alignment: .leading) {
+            // Lo que te toca lleva una franja ámbar: se encuentra de un vistazo.
+            if stage.needsYou {
+                UnevenRoundedRectangle(topLeadingRadius: Theme.Radius.list, bottomLeadingRadius: Theme.Radius.list)
+                    .fill(Color.gAmber).frame(width: 4)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.list))
+    }
+}
+
+struct FactoryMetaLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon.font(.system(size: 10, weight: .semibold))
+            configuration.title.font(.system(size: 12, weight: .medium))
+        }
+        .foregroundStyle(Color.gInk2)
+    }
+}

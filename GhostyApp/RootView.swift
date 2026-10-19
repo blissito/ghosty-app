@@ -12,6 +12,10 @@ struct RootView: View {
         Gancho.valor("GHOSTY_TAB") == "connectors" ? .perfil
             : GhostyTab(rawValue: Gancho.valor("GHOSTY_TAB") ?? "") ?? .chat
     @State private var hoja: Agent?
+    /// La fábrica: decide si su pestaña existe y cuántos «te toca» lleva.
+    @State private var fabrica = FactoryStore.shared
+    /// Dentro de un pedido la barra se va (como dentro de un hilo): abajo van sus botones.
+    @State private var fabricaEnPedido = false
     /// Perfil como hoja: sólo desde el fallo de conexión (la barra no está ahí).
     @State private var ajustes = false
     /// El detalle del uso dentro de Perfil (`DetalleDeUso`). Lo abre la tarjeta del plan
@@ -80,9 +84,10 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if case .lista = store.conexion, !(tab == .chat && inThread) {
+            if case .lista = store.conexion, !(tab == .chat && inThread), !(tab == .fabrica && fabricaEnPedido) {
                 GhostyTabBar(selection: $tab, tabs: pestanas,
                              puntos: store.unreadChats > 0 ? [.chat] : [],
+                             conteos: [.fabrica: fabrica.needsYouCount],
                              agente: store.selectedAgent,
                              agenteAbierto: showAgentPicker,
                              onAgente: { showAgentPicker = true })
@@ -199,6 +204,11 @@ struct RootView: View {
             guard let enlace = EnlaceDeGhosty(url: url) else { return }
             store.abrir(enlace)
         }
+        // ¿Hay fábrica? Al volver al frente y al cambiar de cuenta (cuántos agentes ve).
+        // Best-effort: sin sesión falla callado y la pestaña simplemente no sale.
+        .task(id: "\(fase)-\(store.agents.count)") {
+            if fase == .active, !store.agents.isEmpty { await fabrica.refresh(force: false) }
+        }
         .task {
             // Lo primero, y barato: tirar las imágenes viejas del caché de disco.
             CacheDeImagenes.purgar()
@@ -305,7 +315,17 @@ struct RootView: View {
         // apagada lo dice (decidido el 2026-09-09). Conversaciones salió de la barra.
         // Rediseño estilo WhatsApp (2026-09-29, igual que Android): Chats al final, pegado
         // al avatar del agente, que va a la derecha.
-        [.perfil, .memorias, .artifacts, .chat]
+        // Fábrica (19-oct): sólo con pedidos en algún espacio tuyo; mientras carga la primera vez se
+        // conserva si ya estás en ella (gancho `GHOSTY_TAB=fabrica`), para no echarte a Chats.
+        let conFabrica = fabrica.available || (!fabrica.loaded && tab == .fabrica)
+        return [.perfil, .memorias, .artifacts] + (conFabrica ? [.fabrica] : []) + [.chat]
+    }
+
+    /// `GHOSTY_FABRICA=<espacio>/<id>` abre ese pedido dentro de la pestaña Fábrica.
+    static var pedidoDelGancho: FactoryRoute? {
+        guard let v = Gancho.valor("GHOSTY_FABRICA"), case let p = v.split(separator: "/"), p.count == 2,
+              let id = Int(p[1]) else { return nil }
+        return FactoryRoute(slug: String(p[0]), id: id)
     }
 
     /// La barra flota a 28 pt del borde de la pantalla; esto es ese margen medido desde
@@ -361,6 +381,9 @@ struct RootView: View {
                 case .perfil:
                     PerfilView(store: store, verUso: $verUso)
                         .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
+                case .fabrica:
+                    FactoryHomeView(openRoute: Self.pedidoDelGancho, inRun: $fabricaEnPedido)
+                        .safeAreaPadding(.bottom, fabricaEnPedido ? 0 : holguraDeLaBarra + 12)
                 case .memorias:
                     MemoriasView(store: store)
                         .safeAreaPadding(.bottom, holguraDeLaBarra + 12)

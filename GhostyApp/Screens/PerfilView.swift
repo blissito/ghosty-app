@@ -74,6 +74,8 @@ struct PerfilView: View {
     @State private var abrirConsentimiento = false
     @State private var webAbierta = false
     @State private var avisos: UNAuthorizationStatus?
+    /// La fábrica de tus espacios: la entrada sólo sale si alguno tiene pedidos.
+    @State private var fabrica = FactoryStore.shared
 
     /// Lo que se abre en el navegador. La sesión la resuelve la web con su propio
     /// handshake, así que la app no tiene que llevar ninguna credencial ahí.
@@ -217,6 +219,15 @@ struct PerfilView: View {
                                 .padding(.leading, 56).padding(.trailing, 16).padding(.bottom, 14)
                         }
                     }
+                }
+                if fabrica.available {
+                    seccion {
+                        // Es un área completa: lleva a SU pestaña, no a una hoja.
+                        Button { store.requestedTab = .fabrica } label: { renglonFabrica }
+                            .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                            .accessibilityIdentifier("ajuste-fabrica")
+                    }
+                    .transition(.opacity)
                 }
                 seccion {
                     // Integraciones dejó de ser pestaña (2026-10-01): vive aquí.
@@ -389,6 +400,41 @@ struct PerfilView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
         .contentShape(Rectangle())
+    }
+
+    /// La entrada de la fábrica: con lo que te toca en ámbar, como en Teams.
+    private var renglonFabrica: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 19))
+                .foregroundStyle(Color.gInk2)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Fábrica").font(.system(size: 16)).foregroundStyle(Color.gInk)
+                Text(resumenDeFabrica).font(.system(size: 13)).foregroundStyle(Color.gInk3).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if fabrica.needsYouCount > 0 {
+                Text("\(fabrica.needsYouCount)")
+                    .font(.system(size: 12, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Color.gAmber, in: Capsule())
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.gChevron)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .contentShape(Rectangle())
+    }
+
+    private var resumenDeFabrica: String {
+        let n = fabrica.needsYouCount
+        if n > 0 { return n == 1 ? "1 pedido espera tu decisión" : "\(n) pedidos esperan tu decisión" }
+        if fabrica.anyWorking { return "Tus agentes están construyendo" }
+        return "Pedidos de tus repos"
     }
 
     /// «2 conectadas» o la invitación a conectar.
