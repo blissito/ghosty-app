@@ -554,6 +554,39 @@ extension RecorridoUITests {
         foto("21-guardadas-remotas")
     }
 
+    /// «Actividad» (la campanita de Chats): lo que pasó mientras no mirabas, en un lugar.
+    ///
+    /// ⚠️ Antes un aviso descartado en la pantalla bloqueada no dejaba rastro dentro de la
+    /// app más que un número. Aquí se comprueba que se vea el permiso pedido desde otra
+    /// superficie, la respuesta sin ver y el PDF entregado, y que tocar abra SU hilo.
+    func testActivity() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launchEnvironment["GHOSTY_DEMO_REMOTO"] = "1"
+        app.launch()
+
+        let bell = app.buttons["chats-actividad"]
+        XCTAssertTrue(bell.waitForExistence(timeout: 8), "no está la campanita en Chats")
+        XCTAssertTrue(bell.label.contains("nuevo"), "con un permiso esperando, la campanita no avisa: «\(bell.label)»")
+        bell.tap()
+
+        func item(_ prefix: String, _ text: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "actividad-\(prefix)", text)).firstMatch
+        }
+        let permission = item("p-", "Publicar en el sitio")
+        XCTAssertTrue(permission.waitForExistence(timeout: 5), "no sale el permiso pedido desde otro lado")
+        XCTAssertTrue(item("r-", "Cotización de abril").exists, "no sale la respuesta sin ver")
+        XCTAssertTrue(item("d-", "Cotizacion_abril.pdf").exists, "no sale el PDF entregado")
+        foto("70-actividad")
+
+        permission.tap()
+        XCTAssertTrue(app.buttons["volver-a-chats"].waitForExistence(timeout: 5),
+                      "tocar el permiso no abrió su conversación")
+        XCTAssertFalse(app.otherElements["hoja-actividad"].exists, "la hoja se quedó abierta encima del hilo")
+        foto("71-actividad-abre")
+    }
+
     /// El indicador entre una herramienta y la siguiente, y al volver de otra pestaña.
     ///
     /// ⚠️ Es el fallo que reportó Héctor: el `.typing` lo borraba la primera herramienta y

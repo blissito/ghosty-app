@@ -1,6 +1,6 @@
 import Foundation
 
-/// Hasta cuándo VISTE cada conversación. Es lo que, comparado con `ultimoTurno.endedAt`
+/// Hasta cuándo VISTE cada conversación. Es lo que, comparado con `lastTurn.endedAt`
 /// del servidor, decide si la lista dice «contestó» (sin ver) o nada.
 ///
 /// Vive aparte de `hilos.json` a propósito: es un mapa pequeño que cambia al tocar una

@@ -25,12 +25,12 @@ final class LiveAgentStore: AgentStoring {
     var ultimoUso: (entrada: Int, salida: Int)?
 
     /// Un canal por agente: su socket, su hilo y su turno. Cambiar de agente cambia
-    /// de canal, no cancela nada. Ver `Canal.swift`.
-    private(set) var canales: [String: Canal] = [:]
+    /// de canal, no cancela nada. Ver `AgentChannel.swift`.
+    private(set) var channels: [String: AgentChannel] = [:]
 
-    /// Puertas para el modo demo. `cuentas` y `canales` son privados a propósito —nadie de
+    /// Puertas para el modo demo. `cuentas` y `channels` son privados a propósito —nadie de
     /// fuera debe montarlos— y la demo vive en otro archivo.
-    func ponerCanalesDeDemo(_ nuevos: [String: Canal]) { canales = nuevos }
+    func ponerCanalesDeDemo(_ nuevos: [String: AgentChannel]) { channels = nuevos }
     func ponerCuentasDeDemo(_ nuevas: [AgentAccount]) { cuentas = nuevas }
     private var cuentas: [AgentAccount] = []
     /// Sync v2: el stream de la cuenta y lo que cada aviso tiene pendiente de pedir.
@@ -42,15 +42,15 @@ final class LiveAgentStore: AgentStoring {
         cuentas.first(where: { $0.id == agentID })?.nativeSubagents
     }
 
-    var canalActivo: Canal? { canales[selectedAgentID] }
+    var canalActivo: AgentChannel? { channels[selectedAgentID] }
     /// La conversación que se está mirando.
-    var hiloActivo: Hilo? { canalActivo?.hilo }
+    var hiloActivo: ChatThread? { canalActivo?.hilo }
 
     /// Todas las conversaciones que están contestando o esperándote, de todos los agentes.
     /// Es lo que pinta la fila de chips y lo que decide el punto de la pestaña.
-    var enCurso: [(canal: Canal, hilo: Hilo)] {
-        agents.compactMap { canales[$0.id] }.flatMap { c in
-            c.hilos.filter { $0.trabajando || $0.permisoPendiente != nil }.map { (c, $0) }
+    var enCurso: [(canal: AgentChannel, hilo: ChatThread)] {
+        agents.compactMap { channels[$0.id] }.flatMap { c in
+            c.threads.filter { $0.trabajando || $0.pendingPermission != nil }.map { (c, $0) }
         }
     }
 
@@ -71,7 +71,7 @@ final class LiveAgentStore: AgentStoring {
 
     /// Los que están trabajando ahora mismo, en el orden de la flota. Es lo que pinta
     /// la barra de "trabajando en segundo plano".
-    var trabajando: [Canal] { agents.compactMap { canales[$0.id] }.filter(\.trabajando) }
+    var trabajando: [AgentChannel] { agents.compactMap { channels[$0.id] }.filter(\.trabajando) }
 
     /// Cuántos turnos puede tener UN agente a la vez.
     ///
@@ -94,7 +94,7 @@ final class LiveAgentStore: AgentStoring {
         get { hiloActivo?.turno }
         set { hiloActivo?.turno = newValue }
     }
-    /// Tu mensaje clavado arriba del hilo que estás mirando. Ver `Hilo.anclaArriba`.
+    /// Tu mensaje clavado arriba del hilo que estás mirando. Ver `ChatThread.anclaArriba`.
     var anclaDelHilo: String? {
         get { hiloActivo?.anclaArriba }
         set { hiloActivo?.anclaArriba = newValue }
@@ -103,16 +103,16 @@ final class LiveAgentStore: AgentStoring {
     /// CUALQUIER hilo de este agente: un turno detenido esperándote no puede quedar
     /// escondido detrás de la conversación que resulte estar abierta.
     var pendingPermission: PermissionRequest? {
-        get { hiloActivo?.permisoPendiente ?? canalActivo?.esperandoPermiso.first?.permisoPendiente }
-        set { hiloActivo?.permisoPendiente = newValue }
+        get { hiloActivo?.pendingPermission ?? canalActivo?.esperandoPermiso.first?.pendingPermission }
+        set { hiloActivo?.pendingPermission = newValue }
     }
     /// El permiso de la conversación ABIERTA y nada más: la tarjeta del chat. Enseñar el de
     /// otra conversación ahí la pegaba en todas; ésas se ven en la lista («Espera tu visto
     /// bueno») y llegan por push.
-    var threadPermission: PermissionRequest? { hiloActivo?.permisoPendiente }
-    var hilosRemotos: [ACPClient.Session] {
-        get { canalActivo?.hilosRemotos ?? [] }
-        set { canalActivo?.hilosRemotos = newValue }
+    var threadPermission: PermissionRequest? { hiloActivo?.pendingPermission }
+    var remoteSessions: [ACPClient.Session] {
+        get { canalActivo?.remoteSessions ?? [] }
+        set { canalActivo?.remoteSessions = newValue }
     }
     var estadoHilos: EstadoHilos {
         get { canalActivo?.estadoHilos ?? .sinPedir }
@@ -138,7 +138,7 @@ final class LiveAgentStore: AgentStoring {
 
     /// Las vistas previas de «Chats» de las conversaciones que NO están abiertas en
     /// memoria, por `agente/sesión`. Las abiertas se leen en vivo de su hilo.
-    private(set) var vistasPrevias: [String: VistaPrevia] = [:]
+    private(set) var vistasPrevias: [String: ChatPreview] = [:]
     /// Conversaciones que se están archivando: se esconden YA (optimista) y vuelven si
     /// gs no pudo. Llave `agente/sesión`.
     private(set) var archivando: Set<String> = []
@@ -153,12 +153,12 @@ final class LiveAgentStore: AgentStoring {
 
     /// «Leer todo» del menú de «Chats»: todo lo que contestó queda como visto.
     func leerTodo() {
-        for (agente, canal) in canales {
-            for h in canal.hilos {
+        for (agente, canal) in channels {
+            for h in canal.threads {
                 h.visto = true
                 if let sid = h.sesionID { VistoHasta.marcar(agente, sid) }
             }
-            for s in canal.hilosRemotos { VistoHasta.marcar(agente, s.id) }
+            for s in canal.remoteSessions { VistoHasta.marcar(agente, s.id) }
         }
         sinVer.removeAll()
         marcasDeLectura += 1
@@ -166,37 +166,37 @@ final class LiveAgentStore: AgentStoring {
 
     /// Cuántas conversaciones de TODOS los agentes contestaron algo que no has visto. Es el
     /// número junto a la flecha de atrás del hilo, como el de WhatsApp.
-    var chatsSinLeer: Int {
+    var unreadChats: Int {
         var n = 0
-        for (agente, canal) in canales {
-            let abiertas = Set(canal.hilos.compactMap(\.sesionID))
-            n += canal.hilos.filter { $0.termino != nil && !$0.visto && $0.clave != hiloActivo?.clave }.count
-            n += canal.hilosRemotos.filter { !abiertas.contains($0.id) && sinLeer($0, agente: agente) }.count
+        for (agente, canal) in channels {
+            let abiertas = Set(canal.threads.compactMap(\.sesionID))
+            n += canal.threads.filter { $0.termino != nil && !$0.visto && $0.clave != hiloActivo?.clave }.count
+            n += canal.remoteSessions.filter { !abiertas.contains($0.id) && isUnread($0, agent: agente) }.count
         }
         return n
     }
 
     /// Lo que se pinta de una conversación en «Chats».
-    func vistaPrevia(_ agente: String, _ sesion: String?) -> VistaPrevia? {
+    func preview(_ agente: String, _ sesion: String?) -> ChatPreview? {
         guard let sesion else { return nil }
-        if let h = canales[agente]?.hilo(sesion: sesion), !h.mensajes.isEmpty { return VistaPrevia.de(h.mensajes) }
+        if let h = channels[agente]?.hilo(sesion: sesion), !h.mensajes.isEmpty { return ChatPreview.de(h.mensajes) }
         return vistasPrevias["\(agente)/\(sesion)"]
     }
 
     /// ¿Contestó algo que no has visto? La misma regla que el punto: su último turno
     /// terminó después de la última vez que la miraste.
-    func sinLeer(_ s: ACPClient.Session, agente: String) -> Bool {
+    func isUnread(_ s: ACPClient.Session, agent agente: String) -> Bool {
         _ = marcasDeLectura
-        guard let u = s.ultimoTurno, !u.sigueVivo, u.estado == "done", let fin = u.terminado else { return false }
+        guard let u = s.lastTurn, !u.isAlive, u.estado == "done", let fin = u.finishedAt else { return false }
         return fin > (VistoHasta.de(agente, s.id) ?? .distantPast)
     }
 
     /// Rehace las vistas previas desde lo guardado en el teléfono. Barato: no toca la red.
     func recalcularVistasPrevias() {
-        var nuevas: [String: VistaPrevia] = [:]
-        for (agente, canal) in canales {
-            for s in canal.hilosRemotos {
-                guard let m = cache.abierto(agente, sesion: s.id), let v = VistaPrevia.de(m) else { continue }
+        var nuevas: [String: ChatPreview] = [:]
+        for (agente, canal) in channels {
+            for s in canal.remoteSessions {
+                guard let m = cache.abierto(agente, sesion: s.id), let v = ChatPreview.de(m) else { continue }
                 nuevas["\(agente)/\(s.id)"] = v
             }
         }
@@ -218,17 +218,17 @@ final class LiveAgentStore: AgentStoring {
         await fleetRound?.value
         recalcularVistasPrevias()
 
-        var todas: [(canal: Canal, sesion: ACPClient.Session, sinLeer: Bool)] = []
-        for canal in canales.values {
-            for s in canal.hilosRemotos {
+        var todas: [(canal: AgentChannel, sesion: ACPClient.Session, isUnread: Bool)] = []
+        for canal in channels.values {
+            for s in canal.remoteSessions {
                 // Lo que está abierto en memoria ya se ve en vivo: no hay que bajarlo.
                 if let h = canal.hilo(sesion: s.id), !h.mensajes.isEmpty { continue }
-                todas.append((canal, s, sinLeer(s, agente: canal.cuenta.id)))
+                todas.append((canal, s, isUnread(s, agent: canal.cuenta.id)))
             }
         }
         todas.sort { ($0.sesion.updatedAt ?? .distantPast) > ($1.sesion.updatedAt ?? .distantPast) }
-        var elegidas = todas.filter(\.sinLeer)
-        for t in todas.prefix(20) where !t.sinLeer && cache.abierto(t.canal.cuenta.id, sesion: t.sesion.id) == nil {
+        var elegidas = todas.filter(\.isUnread)
+        for t in todas.prefix(20) where !t.isUnread && cache.abierto(t.canal.cuenta.id, sesion: t.sesion.id) == nil {
             elegidas.append(t)
         }
         elegidas = Array(elegidas.prefix(24))
@@ -245,7 +245,7 @@ final class LiveAgentStore: AgentStoring {
         }
     }
 
-    private func precargar(_ s: ACPClient.Session, de canal: Canal, force: Bool = false) async {
+    private func precargar(_ s: ACPClient.Session, de canal: AgentChannel, force: Bool = false) async {
         let agente = canal.cuenta.id
         let llave = "\(agente)|\(s.id)"
         guard !trayendo.contains(llave) else { return }
@@ -259,7 +259,7 @@ final class LiveAgentStore: AgentStoring {
             // Si mientras bajaba la abriste, manda el hilo abierto: no se toca.
             if let h = canal.hilo(sesion: s.id), !h.mensajes.isEmpty, !force { return }
             cache.guardarUno(agente, sesion: s.id, mensajes: mensajes)
-            vistasPrevias["\(agente)/\(s.id)"] = VistaPrevia.de(mensajes)
+            vistasPrevias["\(agente)/\(s.id)"] = ChatPreview.de(mensajes)
         } catch {
             EasyBitsClient.diag("[chats] no pude precargar \(s.id): \(error)")
         }
@@ -267,13 +267,13 @@ final class LiveAgentStore: AgentStoring {
 
     /// Abre una conversación desde «Chats» AL INSTANTE: se pinta lo guardado y el hilo
     /// del servidor lo sustituye cuando llegue. Antes se esperaba a la red para navegar.
-    func abrirDesdeChats(agente: String, sesion s: ACPClient.Session) {
+    func openFromChats(agent agente: String, session s: ACPClient.Session) {
         if agente != selectedAgentID { seleccionar(agente) }
-        guard let canal = canales[agente] else { return }
+        guard let canal = channels[agente] else { return }
         VistoHasta.marcar(agente, s.id)
         marcasDeLectura += 1
         if let ya = canal.hilo(sesion: s.id) {
-            mirar(ya, de: agente)
+            focus(ya, agent: agente)
             if ya.trabajando { return }
         } else {
             let h = canal.abrir(s.id)
@@ -286,14 +286,14 @@ final class LiveAgentStore: AgentStoring {
 
     /// Archiva (borra de tu agente) una conversación, optimista: desaparece de la lista
     /// YA y vuelve si gs no pudo. Es el «Archivar» de Android.
-    func archivar(agente: String, sesion: String?, hilo: Hilo? = nil) {
-        guard let canal = canales[agente] else { return }
+    func archivar(agente: String, sesion: String?, hilo: ChatThread? = nil) {
+        guard let canal = channels[agente] else { return }
         let llave = "\(agente)/\(sesion ?? hilo?.clave ?? "")"
         withAnimation(Self.alBorrar) { _ = archivando.insert(llave) }
         Task {
             if let hilo {
                 await borrarConversacion(hilo)
-            } else if let sesion, let s = canal.hilosRemotos.first(where: { $0.id == sesion }) {
+            } else if let sesion, let s = canal.remoteSessions.first(where: { $0.id == sesion }) {
                 await borrarGuardada(s, de: agente)
             }
             // Si sigue en la lista es que no se pudo: vuelve, y `falloAlBorrar` lo dice.
@@ -302,8 +302,8 @@ final class LiveAgentStore: AgentStoring {
         }
     }
 
-    /// Lo que el agente ha entregado por este teléfono. Ver `Entregas.swift`.
-    let entregas = EntregasStore()
+    /// Lo que el agente ha entregado por este teléfono. Ver `Deliveries.swift`.
+    let deliveries = DeliveryStore()
 
     /// ¿Se cayó el último envío ANTES de llegar al agente?
     ///
@@ -431,7 +431,7 @@ final class LiveAgentStore: AgentStoring {
     ///
     /// Arranca con la última lista guardada en disco: Archivos se pinta al instante y
     /// `loadAccountFiles()` la refresca en segundo plano.
-    var accountFiles: [Entrega] = LiveAgentStore.guardadosDeCuenta?.map(Entrega.fromAccountFile) ?? []
+    var accountFiles: [Delivery] = LiveAgentStore.guardadosDeCuenta?.map(Delivery.fromAccountFile) ?? []
     /// `true` cuando gs contestó al menos una vez (lista vacía incluida).
     var accountFilesLoaded = false
     /// Hay una lista de la cuenta que enseñar, aunque sea la de disco: sin ella y sin
@@ -459,12 +459,12 @@ final class LiveAgentStore: AgentStoring {
 
     /// Lo que enseña Artefactos: la biblioteca de la cuenta + lo que llegó en vivo a este
     /// teléfono y todavía no está en ella, sin repetir el mismo archivo dos veces.
-    func artifactsList(for agentID: String?) -> [Entrega] {
-        let local = entregas.de(agentID).filter { e in
-            !accountFiles.contains { $0.id == e.id || ($0.remotoID != nil && $0.remotoID == e.remotoID) }
+    func artifactsList(for agentID: String?) -> [Delivery] {
+        let local = deliveries.de(agentID).filter { e in
+            !accountFiles.contains { $0.id == e.id || ($0.remoteID != nil && $0.remoteID == e.remoteID) }
                 && !Self.isShadowed(e, by: accountFileRecords)
         }
-        return (local + accountFiles).sorted { $0.recibida > $1.recibida }
+        return (local + accountFiles).sorted { $0.receivedAt > $1.receivedAt }
     }
 
     /// Los hilos que viven EN LA CAJA, no en este teléfono. Vienen por WebSocket
@@ -486,7 +486,7 @@ final class LiveAgentStore: AgentStoring {
         ClienteGS.alReintentar = { [weak self] texto in
             Task { @MainActor in
                 guard let self else { return }
-                for c in self.canales.values { for h in c.hilos where h.turno != nil { h.turno?.detail = texto } }
+                for c in self.channels.values { for h in c.threads where h.turno != nil { h.turno?.detail = texto } }
             }
         }
         conexion = .cargando
@@ -496,7 +496,7 @@ final class LiveAgentStore: AgentStoring {
         #if DEBUG
         if let aviso = Gancho.valor("GHOSTY_AVISO"),
            let barra = aviso.firstIndex(of: "/") {
-            irA(agente: String(aviso[..<barra]), sesion: String(aviso[aviso.index(after: barra)...]))
+            open(agent: String(aviso[..<barra]), session: String(aviso[aviso.index(after: barra)...]))
         }
         #endif
 
@@ -592,9 +592,9 @@ final class LiveAgentStore: AgentStoring {
     /// que no está en tu lista: se abría un chat vacío que reintentaba con 404 sin fin
     /// (bliss, 8-oct).
     private func abrirRespaldoSiNoEsTuyo() {
-        guard let (agente, _) = avisoPendiente, let url = respaldoDelAviso,
+        guard let (agente, _) = pendingNotice, let url = respaldoDelAviso,
               !cuentas.contains(where: { $0.id == agente }) else { return }
-        avisoPendiente = nil
+        pendingNotice = nil
         respaldoDelAviso = nil
         EasyBitsClient.diag("[push] \(agente.prefix(9)) no es tuyo; abro \(url.absoluteString)")
         #if canImport(UIKit) && !GHOSTY_EXTENSION
@@ -630,8 +630,8 @@ final class LiveAgentStore: AgentStoring {
         await Session.cerrarSesion()
         cuentas = []
         agents = []
-        for c in canales.values { c.soltar() }
-        canales = [:]
+        for c in channels.values { c.soltar() }
+        channels = [:]
         cache.limpiar()
         accountFiles = []
         accountFileRecords = [:]
@@ -702,7 +702,7 @@ final class LiveAgentStore: AgentStoring {
         cargandoAccountFiles = true
         defer { cargandoAccountFiles = false; accountFilesIntentado = true }
         guard let files = await GhostyAPI.accountFiles() else { return }
-        let nuevas = files.map(Entrega.fromAccountFile)
+        let nuevas = files.map(Delivery.fromAccountFile)
         // Las filas van por id: lo que no cambió se queda quieto y sólo se animan las altas,
         // bajas y reordenamientos.
         withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { accountFiles = nuevas }
@@ -716,11 +716,11 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Si gs no lo borró, NO se quita de la lista: dejar la fila fuera y el objeto dentro
     /// es el huérfano que el borrado viene a evitar.
     @discardableResult
-    func deleteAccountFile(_ e: Entrega) async -> Bool {
-        guard let remoteID = e.remotoID else { borrarEntrega(e.id); return true }
+    func deleteAccountFile(_ e: Delivery) async -> Bool {
+        guard let remoteID = e.remoteID else { borrarEntrega(e.id); return true }
         switch await GhostyAPI.borrarArchivo(remoteID) {
         case .hecho:
-            withAnimation(Self.alBorrar) { accountFiles.removeAll { $0.remotoID == remoteID } }
+            withAnimation(Self.alBorrar) { accountFiles.removeAll { $0.remoteID == remoteID } }
             CacheDeImagenes.olvidar(remoteID)
             borrarEntrega(e.id)
             falloAlBorrar = nil
@@ -742,13 +742,13 @@ final class LiveAgentStore: AgentStoring {
     /// más vieja que la cola que se pidió. Coserla al final es lo que hacía que un archivo de
     /// hace semanas apareciera como recién enviado (testers, 1-oct). Sólo cuando la lista ya
     /// viene ubicada (`despuesDe`): con un gs viejo no se sabe y se conserva.
-    static func leftOutByServer(_ e: Entrega, archivos: [String: GhostyAPI.ArchivoDeSesion]) -> Bool {
-        guard let id = e.remotoID, archivos.values.contains(where: { $0.despuesDe != nil }) else { return false }
+    static func leftOutByServer(_ e: Delivery, archivos: [String: GhostyAPI.ArchivoDeSesion]) -> Bool {
+        guard let id = e.remoteID, archivos.values.contains(where: { $0.despuesDe != nil }) else { return false }
         return !archivos.values.contains { $0.id == id }
     }
 
-    static func isShadowed(_ e: Entrega, by files: [String: GhostyAPI.ArchivoDeSesion]) -> Bool {
-        guard e.remotoID == nil, let url = e.url?.removingPercentEncoding else { return false }
+    static func isShadowed(_ e: Delivery, by files: [String: GhostyAPI.ArchivoDeSesion]) -> Bool {
+        guard e.remoteID == nil, let url = e.url?.removingPercentEncoding else { return false }
         return files.values.contains { f in
             guard let key = f.objectKey, !key.isEmpty else { return false }
             return url.contains("/\(key)")
@@ -773,13 +773,13 @@ final class LiveAgentStore: AgentStoring {
         // El momento con contexto para pedir el permiso de notificaciones: acabas de
         // dejar a alguien trabajando y te vas. Al arrancar no significa nada y se rechaza.
         if canalActivo?.trabajando == true { Avisos.pedirPermisoSiHaceFalta() }
-        if canales[id]?.hilos.isEmpty == true { canales[id]?.abrir() }
-        if canales[id] == nil { canales[id] = Canal(cuenta: cuenta) }
+        if channels[id]?.threads.isEmpty == true { channels[id]?.abrir() }
+        if channels[id] == nil { channels[id] = AgentChannel(cuenta: cuenta) }
         Credentials.activar(id)
         selectedAgentID = id
         sinVer.remove(id)
         // Su hilo ya no se baja en la ronda de la flota: se trae al mirarlo.
-        if let hilo = canales[id]?.hilo, hilo.sesionID != nil, !hilo.trabajando { refresh(hilo) }
+        if let hilo = channels[id]?.hilo, hilo.sesionID != nil, !hilo.trabajando { refresh(hilo) }
     }
 
     /// Empieza de cero con este agente. Suelta el `sessionId`, así que la caja abre
@@ -804,10 +804,10 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// Cambia de conversación DENTRO del mismo agente. No cancela nada.
-    func mirar(_ hilo: Hilo, de agenteID: String? = nil) {
-        let id = agenteID ?? selectedAgentID
+    func focus(_ hilo: ChatThread, agent agentID: String? = nil) {
+        let id = agentID ?? selectedAgentID
         if id != selectedAgentID { seleccionar(id) }
-        canales[id]?.activa = hilo.clave
+        channels[id]?.activa = hilo.clave
         hilo.visto = true
         if let sid = hilo.sesionID { VistoHasta.marcar(id, sid); marcasDeLectura += 1 }
     }
@@ -848,16 +848,16 @@ final class LiveAgentStore: AgentStoring {
         // La primera conexión ya la cubre la ronda de la flota.
         defer { lastReconnectCatchUp = Date() }
         guard lastReconnectCatchUp != nil else { return }
-        let channels = Array(canales.values)
+        let allChannels = Array(channels.values)
         Task { [weak self] in
             if let self, self.syncV2, await self.runAccountSync() {
                 if let canal = self.canalActivo, let hilo = canal.hilo { await self.traerLaConversacion(hilo, de: canal) }
                 return
             }
-            guard let self, let any = channels.first,
+            guard let self, let any = allChannels.first,
                   let client = try? await self.asegurarSocket(any) as? ClienteGS,
-                  let lists = try? await client.listsForAgents(channels.map(\.cuenta.id)) else { return }
-            for channel in channels { if let l = lists[channel.cuenta.id] { self.applyList(l, to: channel) } }
+                  let lists = try? await client.listsForAgents(allChannels.map(\.cuenta.id)) else { return }
+            for channel in allChannels { if let l = lists[channel.cuenta.id] { self.applyList(l, to: channel) } }
             if let canal = self.canalActivo, let hilo = canal.hilo { await self.traerLaConversacion(hilo, de: canal) }
         }
     }
@@ -869,7 +869,7 @@ final class LiveAgentStore: AgentStoring {
         accountRefresh[key]?.cancel()
         accountRefresh[key] = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
-            guard let self, !Task.isCancelled, let canal = self.canales[e.agentID] else { return }
+            guard let self, !Task.isCancelled, let canal = self.channels[e.agentID] else { return }
             self.accountRefresh[key] = nil
             // Orden, título, estado del turno, permiso: el delta de la cuenta (o la lista).
             if !(await self.runAccountSync()),
@@ -885,7 +885,7 @@ final class LiveAgentStore: AgentStoring {
             // el renglón de Chats.
             if let hilo = canal.hilo(sesion: e.sessionID) {
                 await self.traerLaConversacion(hilo, de: canal)
-            } else if let s = canal.hilosRemotos.first(where: { $0.id == e.sessionID }) {
+            } else if let s = canal.remoteSessions.first(where: { $0.id == e.sessionID }) {
                 await self.precargar(s, de: canal, force: true)
             }
         }
@@ -913,7 +913,7 @@ final class LiveAgentStore: AgentStoring {
         // cancelaba a la primera a medio camino (`-999`). Con una ronda de hace segundos basta.
         if let u = ultimoRepaso, Date().timeIntervalSince(u) < 3 { return }
         ultimoRepaso = Date()
-        catchUpFleet(Array(canales.values))
+        catchUpFleet(Array(channels.values))
     }
 
     /// La ronda de la flota en curso. Ver `catchUpFleet`.
@@ -925,9 +925,9 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Todos a la vez eran ~17 GETs + 17 SSE contra gs: ninguno contestaba en 15 s
     /// (-1001), reintentaban, y la conversación de un push esperaba en esa cola —hasta
     /// minutos— porque su propia petición se saltaba con «ya se está trayendo» (8-oct).
-    private func catchUpFleet(_ list: [Canal]) {
+    private func catchUpFleet(_ list: [AgentChannel]) {
         var rest = list
-        let firstID = avisoPendiente?.0 ?? selectedAgentID
+        let firstID = pendingNotice?.0 ?? selectedAgentID
         let first = rest.firstIndex(where: { $0.cuenta.id == firstID }).map { rest.remove(at: $0) }
         fleetRound?.cancel()
         ultimoRepaso = Date()
@@ -941,7 +941,7 @@ final class LiveAgentStore: AgentStoring {
             var lists: [String: [ACPClient.Session]] = [:]
             // Sync v2: lo que cambió desde el cursor, de todos, en una llamada.
             if self.syncV2, await self.runAccountSync() {
-                if let first { await self.catchUp(first, list: first.hilosRemotos) }
+                if let first { await self.catchUp(first, list: first.remoteSessions) }
                 return
             }
             if let anyChannel, let client = try? await self.asegurarSocket(anyChannel) as? ClienteGS {
@@ -970,13 +970,13 @@ final class LiveAgentStore: AgentStoring {
         // montan del caché (sin red) y se abre la conversación del aviso si no estaba;
         // antes este `guard` devolvía `false` y el push silencioso no traía nada justo
         // cuando la app llevaba horas cerrada, que es cuando más hacía falta.
-        if canales.isEmpty {
+        if channels.isEmpty {
             let guardadas = Credentials.accounts
             guard !guardadas.isEmpty else { return false }
             cuentas = guardadas
             montarCanales()
         }
-        guard let canal = canales[agentID] else { return false }
+        guard let canal = channels[agentID] else { return false }
         let hilo = canal.hilo(sesion: sid) ?? canal.abrir(sid)
         let antes = hilo.mensajes.count
         await traerLaConversacion(hilo, de: canal)
@@ -995,16 +995,16 @@ final class LiveAgentStore: AgentStoring {
     /// frío: el aviso se tocaba antes de que la vista se hubiera suscrito, y
     /// `seleccionar` fallaba en silencio si las cuentas no habían cargado. Resultado:
     /// tocar un aviso abría la app en la conversación de siempre, como si fuera de ésa.
-    func irA(agente: String, sesion: String, respaldo: URL? = nil) {
-        avisoPendiente = (agente, sesion)
-        respaldoDelAviso = respaldo
-        aplicarAvisoPendiente()
+    func open(agent: String, session: String, fallback: URL? = nil) {
+        pendingNotice = (agent, session)
+        respaldoDelAviso = fallback
+        applyPendingNotice()
         // ⚠️ Un agente creado DESPUÉS de la última carga (en la web, en otra superficie)
         // no está en `cuentas`: el aviso se quedaba guardado esperando un `montarCanales`
         // que no llega hasta reabrir la app, y tocar el push no hacía nada. Con la app ya
         // lista se vuelve a pedir la flota; la carga en frío lo resuelve sola.
-        if avisoPendiente != nil, case .lista = conexion, !DemoData.encendido {
-            EasyBitsClient.diag("[push] \(agente.prefix(9)) no está en la lista; la vuelvo a pedir")
+        if pendingNotice != nil, case .lista = conexion, !DemoData.encendido {
+            EasyBitsClient.diag("[push] \(agent.prefix(9)) no está en la lista; la vuelvo a pedir")
             Task { await cargar() }
         }
     }
@@ -1015,16 +1015,16 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Se pide ESTA conversación por su id, no «la activa». Pedir la activa justo
     /// después de cambiarla es una carrera que se pierde: el aviso te llevaba al sitio
     /// correcto y el hilo aparecía vacío.
-    func aplicarAvisoPendiente() {
-        guard let (agentID, sesion) = avisoPendiente,
+    func applyPendingNotice() {
+        guard let (agentID, sesion) = pendingNotice,
               cuentas.contains(where: { $0.id == agentID }),
-              let canal = canales[agentID] else { return }
-        avisoPendiente = nil
+              let canal = channels[agentID] else { return }
+        pendingNotice = nil
         respaldoDelAviso = nil
         let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
         EasyBitsClient.diag("[push] abro \(sesion) de \(agentID.prefix(9)) (\(hilo.mensajes.count) mensajes en caché)")
-        mirar(hilo, de: agentID)
-        pestanaPedida = .chat
+        focus(hilo, agent: agentID)
+        requestedTab = .chat
         guard !DemoData.encendido else { return }
         Task { [weak self, weak canal] in
             guard let self, let canal else { return }
@@ -1034,7 +1034,7 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// Vuelve a pedir el hilo que no se pudo traer (botón «Reintentar» de la vista).
-    func retryLoad(_ hilo: Hilo) { refresh(hilo) }
+    func retryLoad(_ hilo: ChatThread) { refresh(hilo) }
 
     /// Trae del servidor lo último de una conversación que ya estaba abierta en memoria.
     ///
@@ -1042,7 +1042,7 @@ final class LiveAgentStore: AgentStoring {
     /// la lista lo decía, y adentro seguía lo viejo hasta que otra cosa la refrescara.
     /// `ponerseAlDia` sólo trae la activa de cada agente; las demás abiertas se quedaban
     /// con su caché.
-    func refresh(_ hilo: Hilo) {
+    func refresh(_ hilo: ChatThread) {
         guard let canal = canalDe(hilo) else { return }
         Task { [weak self, weak canal] in
             guard let self, let canal else { return }
@@ -1064,7 +1064,7 @@ final class LiveAgentStore: AgentStoring {
     func abrir(_ enlace: EnlaceDeGhosty) {
         switch enlace {
         case .conversacion(let agente, let sesion):
-            irA(agente: agente, sesion: sesion)
+            open(agent: agente, session: sesion)
         case .compartido(let id):
             guard let r = BuzonCompartido.tomar(id) else {
                 EasyBitsClient.diag("[compartir] el paquete \(id.prefix(8)) ya no existe")
@@ -1077,17 +1077,17 @@ final class LiveAgentStore: AgentStoring {
 
     /// Conversación NUEVA con el agente elegido en la hoja, y lo compartido al compositor.
     func aplicarCompartido() {
-        guard let r = compartidoPendiente, case .lista = conexion, !canales.isEmpty else { return }
+        guard let r = compartidoPendiente, case .lista = conexion, !channels.isEmpty else { return }
         compartidoPendiente = nil
-        if let a = r.agente, canales[a] != nil { seleccionar(a) }
+        if let a = r.agente, channels[a] != nil { seleccionar(a) }
         nuevaConversacion()
-        pestanaPedida = .chat
+        requestedTab = .chat
         compartidoListo = r
     }
 
     /// «Seguir en un chat nuevo» desde un hilo largo: gs abre uno enlazado y se pasa a él.
     /// Devuelve el fallo a enseñar, o `nil`.
-    func seguirEnChatNuevo(_ hilo: Hilo) async -> String? {
+    func seguirEnChatNuevo(_ hilo: ChatThread) async -> String? {
         guard let sid = hilo.sesionID, let canal = canalDe(hilo) else { return "No encuentro esta conversación." }
         do {
             guard let gs = try await asegurarSocket(canal) as? ClienteGS else { return "Este agente no permite seguir en otro chat." }
@@ -1096,7 +1096,7 @@ final class LiveAgentStore: AgentStoring {
             h.vieneDe = sid
             h.continuadoAqui = true
             h.visto = true
-            mirar(h, de: canal.cuenta.id)
+            focus(h, agent: canal.cuenta.id)
             return nil
         } catch {
             return error.localizedDescription
@@ -1117,11 +1117,11 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
-    private var avisoPendiente: (agente: String, sesion: String)?
+    private var pendingNotice: (agente: String, sesion: String)?
     /// La liga a abrir si el agente del aviso resulta no ser tuyo (avisos de Teams).
     private var respaldoDelAviso: URL?
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
-    var pestanaPedida: GhostyTab?
+    var requestedTab: GhostyTab?
 
     // MARK: - «Enviar a un chat» (desde Archivos)
 
@@ -1134,9 +1134,9 @@ final class LiveAgentStore: AgentStoring {
     /// «Nuevo chat con…» con más de un agente: la raíz pregunta a quién.
     var eligiendoAgenteParaArchivos = false
 
-    func enviarAUnChat(_ e: Entrega) {
-        guard let id = e.remotoID else { return }
-        let f = GhostyAPI.ArchivoDeSesion(id: id, nombre: e.titulo, mime: e.mime ?? "application/octet-stream",
+    func enviarAUnChat(_ e: Delivery) {
+        guard let id = e.remoteID else { return }
+        let f = GhostyAPI.ArchivoDeSesion(id: id, nombre: e.title, mime: e.mime ?? "application/octet-stream",
                                           bytes: e.bytesRemotos ?? 0, segundos: nil, onda: nil)
         archivosParaElChat = [Adjunto(deBiblioteca: f)]
         eligiendoChatParaArchivos = true
@@ -1152,7 +1152,7 @@ final class LiveAgentStore: AgentStoring {
     /// Ya abierto el chat elegido: a la pestaña del chat; el compositor recoge los archivos.
     func archivosListosEnElChat() {
         eligiendoChatParaArchivos = false
-        pestanaPedida = .chat
+        requestedTab = .chat
     }
 
     /// Ya elegido el agente: conversación nueva y al chat; el compositor recoge los archivos.
@@ -1160,23 +1160,23 @@ final class LiveAgentStore: AgentStoring {
         eligiendoAgenteParaArchivos = false
         seleccionar(agente)
         nuevaConversacion()
-        pestanaPedida = .chat
+        requestedTab = .chat
     }
 
     /// Qué conversaciones hay, qué se dijo en la que miras, y volver a escucharla.
-    func ponerseAlDia(_ canal: Canal) {
+    func ponerseAlDia(_ canal: AgentChannel) {
         Task { [weak self, weak canal] in
             guard let self, let canal else { return }
             await self.catchUp(canal)
         }
     }
 
-    private func catchUpListOnly(_ channel: Canal) async {
+    private func catchUpListOnly(_ channel: AgentChannel) async {
         if let list = await sessionsFor(channel, given: nil) { applyList(list, to: channel) }
     }
 
     /// Lo mismo que `ponerseAlDia`, esperando a que termine.
-    private func catchUp(_ channel: Canal, list: [ACPClient.Session]? = nil) async {
+    private func catchUp(_ channel: AgentChannel, list: [ACPClient.Session]? = nil) async {
         guard !DemoData.encendido, Session.haySesion else { return }
         do {
             // La lista la tiene el SERVIDOR. El caché del teléfono es para pintar algo
@@ -1203,7 +1203,7 @@ final class LiveAgentStore: AgentStoring {
         }
     }
 
-    private func sessionsFor(_ channel: Canal, given list: [ACPClient.Session]?) async -> [ACPClient.Session]? {
+    private func sessionsFor(_ channel: AgentChannel, given list: [ACPClient.Session]?) async -> [ACPClient.Session]? {
         if let list { return list }
         guard let client = try? await asegurarSocket(channel) else { return nil }
         return try? await client.sesiones()
@@ -1211,20 +1211,20 @@ final class LiveAgentStore: AgentStoring {
 
     /// Lo que dice el servidor de las conversaciones de un agente: la lista, su último turno
     /// y cuáles ya no existen. NO baja ningún hilo ni abre SSE (salvo un turno corriendo).
-    private func applyList(_ frescas: [ACPClient.Session], to channel: Canal) {
+    private func applyList(_ frescas: [ACPClient.Session], to channel: AgentChannel) {
         do {
             do {
-                channel.hilosRemotos = frescas
+                channel.remoteSessions = frescas
                 channel.estadoHilos = .listo
                 self.cache.guardarLista(frescas, de: channel.cuenta.id)
                 for f in frescas {
-                    if let h = channel.hilo(sesion: f.id) { self.aplicarUltimoTurno(f.ultimoTurno, a: h, de: channel) }
+                    if let h = channel.hilo(sesion: f.id) { self.aplicarUltimoTurno(f.lastTurn, a: h, de: channel) }
                     else { self.marcarSinVerRemota(f, agente: channel.cuenta.id) }
                 }
                 // Y las abiertas que el servidor YA NO tiene (borradas desde otro sitio) se
                 // cierran aquí. Se respeta la que trabaja y la que aún no tiene sesión.
                 let vivas = Set(frescas.map(\.id))
-                for h in channel.hilos where h.turno == nil {
+                for h in channel.threads where h.turno == nil {
                     guard let sid = h.sesionID, !vivas.contains(sid) else { continue }
                     // ⚠️ La que ESTÁS MIRANDO no se cierra aunque no venga en la lista.
                     // La lista de gs excluye las conversaciones sin mensajes todavía
@@ -1247,7 +1247,7 @@ final class LiveAgentStore: AgentStoring {
                 // quien toca la pantalla, nunca una respuesta de red que llega tarde.
                 //
                 // Sólo se abre una si NO hay ninguna, que es el arranque en frío.
-                if channel.hilos.isEmpty {
+                if channel.threads.isEmpty {
                     if let primera = frescas.first { channel.activa = channel.abrir(primera.id).clave }
                     else { channel.abrir() }
                 }
@@ -1261,7 +1261,7 @@ final class LiveAgentStore: AgentStoring {
     /// Es lo que hace de la lista un buzón aunque la respuesta llegara con la app cerrada
     /// —y lo que pinta el cartel rojo cuando gs cortó un turno mudo, que el replay de la
     /// caja (sólo texto) no sabe contar.
-    private func aplicarUltimoTurno(_ u: ACPClient.UltimoTurno?, a hilo: Hilo, de canal: Canal) {
+    private func aplicarUltimoTurno(_ u: ACPClient.LastTurn?, a hilo: ChatThread, de canal: AgentChannel) {
         guard let u, hilo.turno == nil, let sid = hilo.sesionID else { return }
         switch u.estado {
         case "running", "queued":
@@ -1270,16 +1270,16 @@ final class LiveAgentStore: AgentStoring {
         case "error":
             hilo.fallo = u.error ?? "El turno falló."
             hilo.interrumpido = false
-            hilo.termino = u.terminado
+            hilo.termino = u.finishedAt
         case "stopped":
             hilo.fallo = nil
             hilo.interrumpido = false
-            hilo.termino = u.terminado
+            hilo.termino = u.finishedAt
         default: // done
             hilo.fallo = nil
             hilo.interrumpido = false
-            hilo.termino = u.terminado
-            if let fin = u.terminado {
+            hilo.termino = u.finishedAt
+            if let fin = u.finishedAt {
                 hilo.visto = (VistoHasta.de(canal.cuenta.id, sid) ?? .distantPast) >= fin
                 if !hilo.visto { sinVer.insert(canal.cuenta.id) }
             }
@@ -1294,7 +1294,7 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ NO se abre el hilo para averiguarlo: eso cuesta un GET por conversación y llena
     /// la barra de conversaciones que nadie pidió. La fila de la lista ya trae la fecha.
     func marcarSinVerRemota(_ s: ACPClient.Session, agente: String) {
-        guard let u = s.ultimoTurno, !u.sigueVivo, let fin = u.terminado else { return }
+        guard let u = s.lastTurn, !u.isAlive, let fin = u.finishedAt else { return }
         let visto = VistoHasta.de(agente, s.id) ?? .distantPast
         if fin > visto { sinVer.insert(agente) }
     }
@@ -1317,7 +1317,7 @@ final class LiveAgentStore: AgentStoring {
     /// (medido 2026-09-26: Moon y Flicker-test, mismo día, mismo número).
     private var trayendo: Set<String> = []
 
-    private func traerLaConversacion(_ hilo: Hilo, de canal: Canal, legacy: Bool = false) async {
+    private func traerLaConversacion(_ hilo: ChatThread, de canal: AgentChannel, legacy: Bool = false) async {
         if syncV2, !legacy { await pullThread(hilo, de: canal); return }
         guard let sid = hilo.sesionID else { return }
         let llave = "\(canal.cuenta.id)|\(sid)"
@@ -1364,7 +1364,7 @@ final class LiveAgentStore: AgentStoring {
             var mensajes = ReplayToMessages.convertir(replay, archivos: archivos)
             // Las entregas se cosen aquí: el hilo que devuelve el servidor es texto, y la
             // foto que te entregó el agente vive en este teléfono.
-            for e in entregas.deSesion(sid, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) && !Self.leftOutByServer(e, archivos: archivos) {
+            for e in deliveries.forSession(sid, agent: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) && !Self.leftOutByServer(e, archivos: archivos) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // El servidor es la verdad del hilo: se SUSTITUYE, no se compara. Aquí hubo
@@ -1387,7 +1387,7 @@ final class LiveAgentStore: AgentStoring {
             // lo de abajo QUITABA la respuesta de verdad para conservar la burbuja local
             // vacía —y al abrir el push se veía «Sigo con esto» para siempre, con la
             // respuesta sin cargar hasta cerrar la app—. Se cierra el local primero.
-            let ultimo = await cliente.ultimoTurno(de: sid)
+            let ultimo = await cliente.lastTurn(de: sid)
             if stale() { return }
             // ⚠️ Mientras el mensaje sale, el último turno del servidor es el ANTERIOR (ya
             // cerrado), no el nuestro: soltarlo aquí mataba la subida de la nota de voz.
@@ -1447,7 +1447,7 @@ final class LiveAgentStore: AgentStoring {
                 cache.olvidarAbierta(sid, de: canal.cuenta.id)
                 withAnimation(Self.alBorrar) {
                     canal.cerrar(hilo)
-                    if canal.hilos.isEmpty { canal.abrir() }
+                    if canal.threads.isEmpty { canal.abrir() }
                 }
                 guardarHilos(canal)
             }
@@ -1469,14 +1469,14 @@ final class LiveAgentStore: AgentStoring {
         // desaparece de golpe no se lee como "se borró": se lee como un parpadeo, y deja
         // dudando de si el toque hizo lo que pedías. La transición la ponen las vistas.
         withAnimation(Self.alBorrar) {
-            entregas.olvidar(id)
-            for canal in canales.values {
-                for hilo in canal.hilos {
+            deliveries.olvidar(id)
+            for canal in channels.values {
+                for hilo in canal.threads {
                     hilo.mensajes.removeAll { $0.id == "entrega-\(id)" }
                 }
             }
         }
-        for canal in canales.values { guardarHilos(canal) }
+        for canal in channels.values { guardarHilos(canal) }
     }
 
     /// Cómo se va lo que se borra. Un poco más lento que un toque normal: es una acción
@@ -1510,7 +1510,7 @@ final class LiveAgentStore: AgentStoring {
     ///
     /// Si la caja no puede, se cierra en la app igual pero se dice que allá sigue: callarlo
     /// haría creer que se borró de todas partes.
-    func borrarConversacion(_ hilo: Hilo) async {
+    func borrarConversacion(_ hilo: ChatThread) async {
         // ⚠️ El canal DUEÑO de esta conversación, no el que esté seleccionado. Con
         // `canalActivo` bastaba con estar mirando a otro agente para que borrar una fila
         // de la lista no hiciera nada —o peor, tocara el canal equivocado—. La lista
@@ -1528,8 +1528,8 @@ final class LiveAgentStore: AgentStoring {
                 falloAlBorrar = "La cerré aquí, pero sigue guardada en tu agente."
             }
             titulos.olvidar(canal.cuenta.id, sid)
-            withAnimation(Self.alBorrar) { canal.hilosRemotos.removeAll { $0.id == sid } }
-            cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
+            withAnimation(Self.alBorrar) { canal.remoteSessions.removeAll { $0.id == sid } }
+            cache.guardarLista(canal.remoteSessions, de: canal.cuenta.id)
         }
         cerrarHilo(hilo)
     }
@@ -1545,11 +1545,11 @@ final class LiveAgentStore: AgentStoring {
     /// se manda; si gs no puede, se dice y el nombre se queda aquí igual.
     func renombrar(_ sesionID: String, de agenteID: String, a titulo: String) async {
         let t = titulo.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, let canal = canales[agenteID] else { return }
+        guard !t.isEmpty, let canal = channels[agenteID] else { return }
         titulos.anotar(agenteID, sesionID, titulo: t)
-        if let i = canal.hilosRemotos.firstIndex(where: { $0.id == sesionID }) {
-            var s = canal.hilosRemotos[i]; s.title = t; canal.hilosRemotos[i] = s
-            cache.guardarLista(canal.hilosRemotos, de: agenteID)
+        if let i = canal.remoteSessions.firstIndex(where: { $0.id == sesionID }) {
+            var s = canal.remoteSessions[i]; s.title = t; canal.remoteSessions[i] = s
+            cache.guardarLista(canal.remoteSessions, de: agenteID)
         }
         guard !DemoData.encendido else { return }
         do {
@@ -1563,9 +1563,9 @@ final class LiveAgentStore: AgentStoring {
 
     /// Borra una conversación guardada que no está abierta aquí.
     func borrarGuardada(_ sesion: ACPClient.Session, de agenteID: String) async {
-        guard let canal = canales[agenteID] else { return }
+        guard let canal = channels[agenteID] else { return }
         guard !DemoData.encendido else {
-            canal.hilosRemotos.removeAll { $0.id == sesion.id }
+            canal.remoteSessions.removeAll { $0.id == sesion.id }
             return
         }
         do {
@@ -1577,24 +1577,24 @@ final class LiveAgentStore: AgentStoring {
             return
         }
         titulos.olvidar(agenteID, sesion.id)
-        withAnimation(Self.alBorrar) { canal.hilosRemotos.removeAll { $0.id == sesion.id } }
-        cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
+        withAnimation(Self.alBorrar) { canal.remoteSessions.removeAll { $0.id == sesion.id } }
+        cache.guardarLista(canal.remoteSessions, de: canal.cuenta.id)
     }
 
     /// Cierra una conversación de la app. No la borra de la caja.
     /// De qué agente es esta conversación. Ver el aviso de `borrarConversacion`.
-    private func canalDe(_ hilo: Hilo) -> Canal? {
-        canales.values.first { c in c.hilos.contains { $0.clave == hilo.clave } }
+    private func canalDe(_ hilo: ChatThread) -> AgentChannel? {
+        channels.values.first { c in c.threads.contains { $0.clave == hilo.clave } }
     }
 
-    func cerrarHilo(_ hilo: Hilo) {
+    func cerrarHilo(_ hilo: ChatThread) {
         guard let canal = canalDe(hilo) else { return }
         if let sid = hilo.sesionID { Task { await canal.acp?.cancelar(sid) } }
         // Y se olvida del disco: sin esto vuelve sola la próxima vez que se lea el caché.
         if let sid = hilo.sesionID { cache.olvidarAbierta(sid, de: canal.cuenta.id) }
         withAnimation(Self.alBorrar) {
             canal.cerrar(hilo)
-            if canal.hilos.isEmpty { canal.abrir() }
+            if canal.threads.isEmpty { canal.abrir() }
         }
         guardarHilos(canal)
     }
@@ -1615,8 +1615,8 @@ final class LiveAgentStore: AgentStoring {
 
     func quitarAgente(_ id: String) {
         Credentials.quitar(id)
-        canales[id]?.soltar()
-        canales[id] = nil
+        channels[id]?.soltar()
+        channels[id] = nil
         cache.olvidar(id)
         Task { await cargar() }
     }
@@ -1629,7 +1629,7 @@ final class LiveAgentStore: AgentStoring {
     /// Asegura socket abierto. Si la caja está dormida el WebSocket falla, así que se
     /// la despierta con un turno HTTP mínimo —lo único que sabe despertarla— y se
     /// reintenta.
-    private func asegurarSocket(_ canal: Canal) async throws -> any TransporteDeAgente {
+    private func asegurarSocket(_ canal: AgentChannel) async throws -> any TransporteDeAgente {
         if let c = canal.acp, canal.infoDeLaCaja != nil { return c }
         // ⚠️ COALESCIDO. Con varias conversaciones, dos hilos arrancando a la vez entraban
         // aquí a la vez y creaban DOS `ACPClient` para el mismo agente: el segundo pisaba
@@ -1644,7 +1644,7 @@ final class LiveAgentStore: AgentStoring {
 
     /// Por dónde se habla con los agentes: SIEMPRE gs (HTTP+SSE). El WebSocket directo
     /// a la caja ya no se elige nunca; ver CLAUDE.md, «el turno es del servidor».
-    private func abrirSocket(_ canal: Canal) async throws -> any TransporteDeAgente {
+    private func abrirSocket(_ canal: AgentChannel) async throws -> any TransporteDeAgente {
         let cuenta = canal.cuenta
         // El anterior se cierra: reemplazarlo a secas dejaba su socket y su lector vivos.
         //
@@ -1764,7 +1764,7 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Aquí se rehidrataba con un `session/load` ANTES DE CADA TURNO, porque la caja
     /// perdía la sesión al reconectar y el agente empezaba en blanco. La sesión ahora es
     /// del servidor: sobra la ida y vuelta, y con ella el parche.
-    private func asegurarHilo(_ canal: Canal, _ hilo: Hilo) async throws -> String {
+    private func asegurarHilo(_ canal: AgentChannel, _ hilo: ChatThread) async throws -> String {
         if let sid = hilo.sesionID { return sid }
         if let enVuelo = hilo.creando { return try await enVuelo.value }
 
@@ -1785,15 +1785,15 @@ final class LiveAgentStore: AgentStoring {
 
     /// El agente pidió permiso. El turno está detenido hasta que se conteste.
     /// Quita la tarjeta de un permiso que ya no espera respuesta.
-    private func retirarPermiso(_ id: String, en canal: Canal) {
-        for hilo in canal.hilos where hilo.permisoACP?.id == id || hilo.permisoPendiente?.id == id {
+    private func retirarPermiso(_ id: String, en canal: AgentChannel) {
+        for hilo in canal.threads where hilo.permisoACP?.id == id || hilo.pendingPermission?.id == id {
             hilo.permisoACP = nil
-            hilo.permisoPendiente = nil
+            hilo.pendingPermission = nil
         }
         refrescarEstado(canal)
     }
 
-    private func recibirPermiso(_ p: ACPClient.Permiso, en canal: Canal) {
+    private func recibirPermiso(_ p: ACPClient.Permiso, en canal: AgentChannel) {
         // Gancho de desarrollo: contesta solo. El simulador no acepta toques por script,
         // así que sin esto el camino de RESPUESTA del permiso —que es donde el turno se
         // reanuda o se queda detenido diez minutos— no se puede ejercitar sin una persona.
@@ -1836,7 +1836,7 @@ final class LiveAgentStore: AgentStoring {
                           agentID: canal.cuenta.id, sesion: hilo.sesionID, sonido: .gota)
             sinVer.insert(canal.cuenta.id)
         }
-        hilo.permisoPendiente = PermissionRequest(
+        hilo.pendingPermission = PermissionRequest(
             id: "\(p.id)",
             kind: .publish,
             agentName: canal.cuenta.name,
@@ -1861,14 +1861,14 @@ final class LiveAgentStore: AgentStoring {
         // ⚠️ Con lista cacheada NO se enseña el spinner: ya hay algo bueno en pantalla y
         // taparlo con "preguntándole a tu agente…" es empeorarlo a propósito. Se refresca
         // por detrás y se sustituye al llegar.
-        let hayCache = !canal.hilosRemotos.isEmpty
+        let hayCache = !canal.remoteSessions.isEmpty
         if !hayCache { canal.estadoHilos = .cargando }
 
         do {
             let cliente = try await asegurarSocket(canal)
-            canal.hilosRemotos = try await cliente.sesiones()
+            canal.remoteSessions = try await cliente.sesiones()
             canal.estadoHilos = .listo
-            cache.guardarLista(canal.hilosRemotos, de: canal.cuenta.id)
+            cache.guardarLista(canal.remoteSessions, de: canal.cuenta.id)
         } catch {
             // ⚠️ El socket se suelta ANTES de decidir si el fallo se enseña o no. Estaba
             // sólo en la rama sin caché, y por eso con caché el canal se quedaba pegado a
@@ -1926,7 +1926,7 @@ final class LiveAgentStore: AgentStoring {
             // —el relé las empuja en vivo y no las guarda—, así que sin esto la foto que
             // te entregó el agente desaparecía del hilo al reabrirlo: seguía en
             // Artefactos, pero la conversación se quedaba con el texto solo.
-            for e in entregas.deSesion(sesion.id, de: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) && !Self.leftOutByServer(e, archivos: archivos) {
+            for e in deliveries.forSession(sesion.id, agent: canal.cuenta.id) where !mensajes.contains(where: { $0.id == "entrega-\(e.id)" }) && !Self.isShadowed(e, by: archivos) && !Self.leftOutByServer(e, archivos: archivos) {
                 mensajes.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
             }
             // ⚠️⚠️ Tres motivos para NO pisar lo que hay, y los tres pasaron:
@@ -1959,16 +1959,16 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// Vuelca a disco las conversaciones abiertas de un agente.
-    private func guardarHilos(_ canal: Canal) {
+    private func guardarHilos(_ canal: AgentChannel) {
         // Una conversación nueva recibe su `sesionID` después de volverse la activa: aquí
         // ya lo tiene.
         canal.recordarActiva()
         // Lo que miras y lo que trabaja o espera un permiso no se recorta nunca.
-        let protected = Set(canal.hilos.compactMap { h -> String? in
+        let protected = Set(canal.threads.compactMap { h -> String? in
             guard let sid = h.sesionID else { return nil }
-            return h.clave == canal.activa || h.turno != nil || h.permisoPendiente != nil ? sid : nil
+            return h.clave == canal.activa || h.turno != nil || h.pendingPermission != nil ? sid : nil
         })
-        cache.guardarAbiertos(canal.hilos.compactMap { h in
+        cache.guardarAbiertos(canal.threads.compactMap { h in
             guard let sid = h.sesionID, !h.mensajes.isEmpty else { return nil }
             return (sid, h.mensajes)
         }, de: canal.cuenta.id, protected: protected)
@@ -1979,7 +1979,7 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Antes sólo se guardaba al cerrar el turno, así que lo que escribías vivía sólo
     /// en memoria hasta que el agente terminara. Cualquier tropiezo entre medias —y hubo
     /// uno que vaciaba el hilo— se llevaba tu mensaje sin dejar copia.
-    private func guardarYa(_ canal: Canal) { guardarHilos(canal) }
+    private func guardarYa(_ canal: AgentChannel) { guardarHilos(canal) }
 
     /// El estado de un agente, calculado de sus conversaciones.
     ///
@@ -1987,7 +1987,7 @@ final class LiveAgentStore: AgentStoring {
     /// desincroniza: en la demo la mascota decía "En reposo" con un turno corriendo
     /// delante. Lo que no se guarda no puede contradecir a lo que pasa.
     func estado(de agentID: String) -> AgentStatus {
-        guard let canal = canales[agentID] else { return .idle(since: "listo") }
+        guard let canal = channels[agentID] else { return .idle(since: "listo") }
         // Gana sobre cualquier trabajo, aquí o allá: es lo único que está DETENIDO
         // esperándote. Incluye el permiso que se pidió desde otra superficie.
         if !canal.esperandoPermiso.isEmpty || !canal.permisoRemoto.isEmpty { return .awaitingApproval }
@@ -2010,7 +2010,7 @@ final class LiveAgentStore: AgentStoring {
         // justo encima del cartel que dice «tu agente sigue con esto»: dos frases que se
         // contradicen en la misma pantalla, y la de arriba es la que hace pensar que se
         // colgó. El turno local ya no existe —lo mató la suspensión— pero el trabajo sí.
-        if canal.hilos.contains(where: { $0.interrumpido }) {
+        if canal.threads.contains(where: { $0.interrumpido }) {
             return .working(task: "Estoy en ello…")
         }
         return .idle(since: "listo")
@@ -2021,7 +2021,7 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Se asignaba en `marcarTrabajando` y `cerrarTurno`, y con varias conversaciones
     /// eso miente: el primer turno que termina apagaba el estado del agente aunque los
     /// otros dos siguieran corriendo.
-    private func refrescarEstado(_ canal: Canal) {
+    private func refrescarEstado(_ canal: AgentChannel) {
         guard let i = agents.firstIndex(where: { $0.id == canal.cuenta.id }) else { return }
         // ⚠️ Se PREGUNTA a `estado(de:)` en vez de recalcular. Esto era una copia de aquella
         // función y la copia ya se quedó atrás una vez: le faltaba la rama de
@@ -2051,7 +2051,7 @@ final class LiveAgentStore: AgentStoring {
             return
         }
         guard !limpio.isEmpty || !adjuntos.isEmpty,
-              let canal = canales[agenteID ?? selectedAgentID] else { return }
+              let canal = channels[agenteID ?? selectedAgentID] else { return }
         let cuenta = canal.cuenta
         // A qué conversación. Desde la flota se le manda a la que tuviera abierta; si no
         // tiene ninguna, se le abre una.
@@ -2118,7 +2118,7 @@ final class LiveAgentStore: AgentStoring {
         // el nuevo empezara — cancelándolo a él. Es lo que pasaba al mandar dos seguidos
         // sin esperar respuesta: el segundo contestaba «no tengo ningún encargo previo».
         // ⚠️ Un envío que todavía sube no se cancela: se espera a que llegue a gs. Cortarlo
-        // aquí lo perdía entero (ver `Hilo.isSending`); ya allá, soltar su oyente es inocuo.
+        // aquí lo perdía entero (ver `ChatThread.isSending`); ya allá, soltar su oyente es inocuo.
         await waitUntilSent(hilo)
         let anterior = hilo.enVuelo
         anterior?.cancel()
@@ -2146,7 +2146,7 @@ final class LiveAgentStore: AgentStoring {
         hilo.sinHerramientas = true
         EasyBitsClient.diag("[envío] hilo=\(hilo.clave.prefix(8)) sesión=\(hilo.sesionID?.prefix(8) ?? "nueva") "
                             + "activa=\(canal.activa?.prefix(8) ?? "-") mensajes=\(hilo.mensajes.count) "
-                            + "hilos=\(canal.hilos.count)")
+                            + "hilos=\(canal.threads.count)")
         // Lo que acabas de escribir va a disco YA, no al cerrar el turno.
         guardarYa(canal)
 
@@ -2261,8 +2261,8 @@ final class LiveAgentStore: AgentStoring {
         await waitUntilSent(hilo)
     }
 
-    /// Espera a que el mensaje en camino llegue a gs (o falle). Ver `Hilo.isSending`.
-    private func waitUntilSent(_ hilo: Hilo) async {
+    /// Espera a que el mensaje en camino llegue a gs (o falle). Ver `ChatThread.isSending`.
+    private func waitUntilSent(_ hilo: ChatThread) async {
         while hilo.isSending, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(80))
         }
@@ -2323,7 +2323,7 @@ final class LiveAgentStore: AgentStoring {
         return salida
     }
 
-    private func porSocket(_ canal: Canal, _ hilo: Hilo, sid: String,
+    private func porSocket(_ canal: AgentChannel, _ hilo: ChatThread, sid: String,
                            texto: String, adjuntos: [Adjunto] = [], turnId: String,
                            respuesta: String) async {
         // ⚠️ Se PIDE el cliente, no se lee el que hubiera. Antes lo abría la
@@ -2351,7 +2351,7 @@ final class LiveAgentStore: AgentStoring {
     /// volver a la app con trabajo en marcha enseña tu mensaje y ninguna respuesta: el
     /// agente estaba escribiendo y aquí no lo miraba nadie. Con el WebSocket no existía —
     /// allí no había turno al que volver—.
-    func engancharse(_ hilo: Hilo, de canal: Canal, ponerseAlDia: Bool = false) {
+    func engancharse(_ hilo: ChatThread, de canal: AgentChannel, ponerseAlDia: Bool = false) {
         guard let sid = hilo.sesionID else { return }
         // ⚠️ Se engancha AUNQUE el hilo figure como trabajando. Antes no: y ése era el
         // caso que dejaba la conversación colgada para siempre —el flujo se moría al
@@ -2361,7 +2361,7 @@ final class LiveAgentStore: AgentStoring {
         //
         // Es seguro porque soltar el flujo ya NO cancela el turno en el servidor.
         //
-        // ⚠️ Salvo mientras el mensaje SALE (`Hilo.isSending`): ahí `enVuelo` no es un
+        // ⚠️ Salvo mientras el mensaje SALE (`ChatThread.isSending`): ahí `enVuelo` no es un
         // oyente, es el envío, y cancelarlo lo perdía sin que gs lo supiera nunca. No hace
         // falta reengancharse después: el envío se queda escuchando su propio turno.
         guard !hilo.isSending else {
@@ -2399,8 +2399,8 @@ final class LiveAgentStore: AgentStoring {
             let respuesta = enPantalla ?? "resp-\(UUID().uuidString.prefix(8))"
             // El turno que el servidor ya dio por CERRADO. El SSE lo repite desde el
             // principio a quien se suscribe, y esa repetición no es trabajo en curso.
-            let ultimo = await cliente.ultimoTurno(de: sid)
-                ?? canal.hilosRemotos.first(where: { $0.id == sid })?.ultimoTurno
+            let ultimo = await cliente.lastTurn(de: sid)
+                ?? canal.remoteSessions.first(where: { $0.id == sid })?.lastTurn
             let cerrado = ultimo.flatMap { ["running", "queued"].contains($0.estado) ? nil : $0.turnId }
             await self.consumir(flujo, canal, hilo, sid: sid, texto: "", respuesta: respuesta,
                                 enganchado: true, turnoCerrado: cerrado)
@@ -2411,7 +2411,7 @@ final class LiveAgentStore: AgentStoring {
     /// nos acabamos de enganchar. Es el mismo trabajo y por eso es la misma función: dos
     /// copias de esto se separan en cuanto una de las dos cambie.
     private func consumir(_ flujo: AsyncThrowingStream<ACPClient.Replay, Error>,
-                          _ canal: Canal, _ hilo: Hilo, sid: String,
+                          _ canal: AgentChannel, _ hilo: ChatThread, sid: String,
                           texto: String, respuesta: String,
                           enganchado: Bool = false, turnoCerrado: String? = nil) async {
         var respuesta = respuesta
@@ -2451,7 +2451,7 @@ final class LiveAgentStore: AgentStoring {
             for hallado in BloqueEbFile.buscar(acumulado, agentID: canal.cuenta.id,
                                                sesionID: sid).reversed() {
                 acumulado.removeSubrange(hallado.rango)
-                entregas.registrar(hallado.entrega)
+                deliveries.record(hallado.entrega)
                 let idEntrega = "entrega-\(hallado.entrega.id)"
                 if !hilo.mensajes.contains(where: { $0.id == idEntrega }) {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -2601,11 +2601,11 @@ final class LiveAgentStore: AgentStoring {
                 case .entrega(var e):
                     // De QUÉ conversación. Sin esto no se puede devolver al hilo al
                     // recargarlo, porque el replay de la caja no trae entregas.
-                    e.sesionID = sid
+                    e.sessionID = sid
                     // Se guarda ANTES de pintarla: si la app muere entre una cosa y otra,
                     // preferimos una entrega guardada que no se anunció a un anuncio de
                     // algo que ya no está.
-                    entregas.registrar(e)
+                    deliveries.record(e)
                     // Tarjeta propia, no un campo del mensaje: la entrega llega a mitad
                     // del turno y el texto del agente sigue creciendo después. Metida en
                     // la burbuja, cada trozo nuevo la repintaría.
@@ -2780,7 +2780,7 @@ final class LiveAgentStore: AgentStoring {
     ///
     /// ⚠️ Cancelar aquí no bastaba: sin `session/cancel` el agente seguía trabajando —y
     /// cobrando— hasta terminar. Ahora se le dice a la caja. Ver `ACPClient.cancelar`.
-    func detener(_ canal: Canal, _ hilo: Hilo) {
+    func detener(_ canal: AgentChannel, _ hilo: ChatThread) {
         hilo.enVuelo?.cancel()
         if let sid = hilo.sesionID { Task { [acp = canal.acp] in await acp?.cancelar(sid) } }
         cerrarTurno(canal, hilo, avisar: false)
@@ -2788,15 +2788,15 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// Para TODO lo que un agente tenga en marcha.
-    func detenerTodo(_ canal: Canal) {
+    func detenerTodo(_ canal: AgentChannel) {
         for h in canal.enCurso { detener(canal, h) }
     }
 
     func decide(_ request: PermissionRequest, _ decision: PermissionDecision) async {
         // El permiso puede ser de CUALQUIER canal: uno pide permiso mientras miras a
         // otro, y contestarle desde la flota tiene que llegar a su turno detenido.
-        guard let (canal, hilo) = canales.values.compactMap({ c -> (Canal, Hilo)? in
-            guard let h = c.hilos.first(where: { $0.permisoPendiente?.id == request.id })
+        guard let (canal, hilo) = channels.values.compactMap({ c -> (AgentChannel, ChatThread)? in
+            guard let h = c.threads.first(where: { $0.pendingPermission?.id == request.id })
             else { return nil }
             return (c, h)
         }).first else { return }
@@ -2816,7 +2816,7 @@ final class LiveAgentStore: AgentStoring {
             }
             hilo.permisoACP = nil
         }
-        hilo.permisoPendiente = nil
+        hilo.pendingPermission = nil
         refrescarEstado(canal)
         permissionHistory.insert(
             PermissionRecord(id: request.id,
@@ -2832,7 +2832,7 @@ final class LiveAgentStore: AgentStoring {
 
     /// Cierra la bitácora del turno. El tiempo sale del cronómetro que ya corría;
     /// los tokens, del evento `usage` que manda la caja.
-    private func anotar(_ canal: Canal, _ hilo: Hilo, chars: Int, como: TurnRecord.Outcome) {
+    private func anotar(_ canal: AgentChannel, _ hilo: ChatThread, chars: Int, como: TurnRecord.Outcome) {
         let inicio = hilo.inicio ?? Date()
         bitacora.registrar(TurnRecord(
             id: UUID().uuidString,
@@ -2852,7 +2852,7 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Lo que NO hace es tan importante como lo que hace: no cancela `hilo.enVuelo`, no
     /// lo espera, no abre SSE y no crea burbuja de respuesta. Todo eso ya existe y sigue
     /// vivo; duplicarlo escribiría el mismo texto dos veces en la misma burbuja.
-    private func steerear(_ texto: String, hilo: Hilo, canal: Canal, sid: String) async {
+    private func steerear(_ texto: String, hilo: ChatThread, canal: AgentChannel, sid: String) async {
         let turnId = UUID().uuidString.lowercased()
         let mensaje = Message(id: UUID().uuidString, kind: .user(texto, adjuntos: [], steer: true), turnId: turnId)
         let respuestaOriginal = hilo.respuestaEnCursoID
@@ -2890,7 +2890,7 @@ final class LiveAgentStore: AgentStoring {
     }
 
     /// Quita la marca de «añadido a lo que hace» cuando resultó que no entró.
-    private func marcarSinSteer(_ id: String, en hilo: Hilo, despuesDe respuestaID: String?) {
+    private func marcarSinSteer(_ id: String, en hilo: ChatThread, despuesDe respuestaID: String?) {
         guard let i = hilo.mensajes.firstIndex(where: { $0.id == id }),
               case .user(let t, let adj, _) = hilo.mensajes[i].kind else { return }
         let mensaje = Message(id: id, kind: .user(t, adjuntos: adj, steer: false))
@@ -3013,7 +3013,7 @@ final class LiveAgentStore: AgentStoring {
         }
     }
 
-    private func pintarRespuesta(_ hilo: Hilo, id: String, texto: String,
+    private func pintarRespuesta(_ hilo: ChatThread, id: String, texto: String,
                                  herramientas: [Herramienta] = [], narrationCuts: [Int] = []) {
         hilo.mensajes.removeAll { $0.kind == .typing }
         if hilo.turno != nil { hilo.respuestaEnCursoID = id }
@@ -3031,7 +3031,7 @@ final class LiveAgentStore: AgentStoring {
     /// `avisar` es lo que distingue un turno que ACABÓ de uno que paraste tú o que
     /// tiraste al abrir conversación nueva. Sin esta distinción, detener a un agente
     /// desde la flota te mandaba una notificación diciendo que había terminado.
-    private func cerrarTurno(_ canal: Canal, _ hilo: Hilo, avisar: Bool = true) {
+    private func cerrarTurno(_ canal: AgentChannel, _ hilo: ChatThread, avisar: Bool = true) {
         // ⚠️ Un turno que se cortó NO terminó, y esta función corre igual por ese camino:
         // marcaba «contestó», sonaba la burbuja y mandaba un aviso diciendo que el agente
         // había acabado, justo cuando lo que había pasado era que bloqueaste el teléfono.
@@ -3094,7 +3094,7 @@ final class LiveAgentStore: AgentStoring {
         // refresca al cerrar, o un hilo recién creado no se vería nunca.
         Task { [weak canal] in
             guard let canal, let cliente = canal.acp else { return }
-            if let frescos = try? await cliente.sesiones() { canal.hilosRemotos = frescos }
+            if let frescos = try? await cliente.sesiones() { canal.remoteSessions = frescos }
         }
     }
 
@@ -3103,7 +3103,7 @@ final class LiveAgentStore: AgentStoring {
     /// una barra inventada.
     /// Un turno de mentira para el modo demo: tres herramientas y una respuesta que
     /// llega por trozos. Sólo para mirar la UI; no toca nada real.
-    private func turnoDeDemo(_ canal: Canal, _ hilo: Hilo, respuesta: String) async {
+    private func turnoDeDemo(_ canal: AgentChannel, _ hilo: ChatThread, respuesta: String) async {
         // `GHOSTY_DEMO_IMAGEN=1`: el turno crea una imagen (pasos en vivo + la caja
         // «Creando imagen» que se revela), para mirarla sin la caja de verdad.
         if Gancho.valor("GHOSTY_DEMO_IMAGEN") == "1" {
@@ -3143,7 +3143,7 @@ final class LiveAgentStore: AgentStoring {
     /// Dos pasos, la herramienta de imagen (segundos que dura la caja «Creando imagen»),
     /// la entrega de un PNG dibujado aquí y el texto. Los segundos salen de
     /// `GHOSTY_DEMO_IMAGEN_SEG` (8 por defecto).
-    private func turnoDeDemoConImagen(_ canal: Canal, _ hilo: Hilo, respuesta: String) async {
+    private func turnoDeDemoConImagen(_ canal: AgentChannel, _ hilo: ChatThread, respuesta: String) async {
         var herramientas: [Herramienta] = []
         let pasos: [(String, Herramienta.Clase, String)] = [
             ("Leer archivo", .read, "marca/paleta.md"),
@@ -3174,8 +3174,8 @@ final class LiveAgentStore: AgentStoring {
         herramientas[herramientas.count - 1].estado = .hecha
         pintarRespuesta(hilo, id: respuesta, texto: "", herramientas: herramientas)
         try? await Task.sleep(for: .seconds(0.6))
-        var e = Entrega(id: "demo-imagen-\(respuesta)", agentID: canal.cuenta.id, sesionID: hilo.sesionID,
-                        forma: .archivo, titulo: "fantasma.png", recibida: Date())
+        var e = Delivery(id: "demo-imagen-\(respuesta)", agentID: canal.cuenta.id, sessionID: hilo.sesionID,
+                        forma: .archivo, title: "fantasma.png", receivedAt: Date())
         e.mime = "image/png"
         e.datos = Self.imagenDeDemo()
         let idEntrega = "entrega-\(e.id)"
@@ -3235,7 +3235,7 @@ final class LiveAgentStore: AgentStoring {
         return img.pngData()
     }
 
-    private func arrancarCronometro(_ hilo: Hilo, titulo: String) {
+    private func arrancarCronometro(_ hilo: ChatThread, titulo: String) {
         hilo.inicio = Date()
         hilo.turno = TurnActivity(id: UUID().uuidString, title: titulo,
                                   detail: "Pensando…", step: 0, totalSteps: 0, elapsed: "0:00")
@@ -3300,18 +3300,18 @@ final class LiveAgentStore: AgentStoring {
         selectedAgentID = cuentas.contains(where: { $0.id == activo }) ? activo! : (masReciente?.id ?? cuentas[0].id)
         // leerlos sería mutar estado observado durante el pintado, y eso repinta en
         // bucle. Un canal que ya existe conserva su turno vivo entre recargas.
-        var newChannels: [Canal] = []
-        for c in cuentas where canales[c.id] == nil {
-            let canal = Canal(cuenta: c)
+        var newChannels: [AgentChannel] = []
+        for c in cuentas where channels[c.id] == nil {
+            let canal = AgentChannel(cuenta: c)
             // Lo guardado se pinta ANTES de hablar con la caja. Es todo el punto: el
             // historial y el hilo salen al instante y se afinan cuando la caja conteste.
-            let hilos = cache.lista(c.id)
-            if !hilos.isEmpty {
-                canal.hilosRemotos = hilos
+            let threads = cache.lista(c.id)
+            if !threads.isEmpty {
+                canal.remoteSessions = threads
                 canal.estadoHilos = .listo
             }
             // Se lee ANTES de abrir nada: cada `abrir` cambia `activa` y la volvería a anotar.
-            let recordada = UserDefaults.standard.string(forKey: Canal.llaveActiva(c.id))
+            let recordada = UserDefaults.standard.string(forKey: AgentChannel.llaveActiva(c.id))
             for guardado in cache.abiertos(c.id) {
                 let h = canal.abrir(guardado.sesionID)
                 h.mensajes = guardado.mensajes
@@ -3319,14 +3319,14 @@ final class LiveAgentStore: AgentStoring {
             }
             // Siempre hay una conversación donde escribir: si no había ninguna guardada,
             // se abre una vacía. Sin esto el compositor no tendría a qué mandar.
-            if canal.hilos.isEmpty { canal.abrir() }
+            if canal.threads.isEmpty { canal.abrir() }
             // La que se estaba mirando; si no hay, la más reciente según la lista de gs
-            // guardada. ⚠️ `hilos.last` a secas era al azar: `abiertos` sale de un diccionario.
-            let reciente = hilos.filter { canal.hilo(sesion: $0.id) != nil }
+            // guardada. ⚠️ `threads.last` a secas era al azar: `abiertos` sale de un diccionario.
+            let reciente = threads.filter { canal.hilo(sesion: $0.id) != nil }
                 .max { ($0.updatedAt ?? .distantPast) < ($1.updatedAt ?? .distantPast) }
                 .flatMap { canal.hilo(sesion: $0.id) }
-            canal.activa = (recordada.flatMap { canal.hilo(sesion: $0) } ?? reciente ?? canal.hilos.last)?.clave
-            canales[c.id] = canal
+            canal.activa = (recordada.flatMap { canal.hilo(sesion: $0) } ?? reciente ?? canal.threads.last)?.clave
+            channels[c.id] = canal
             newChannels.append(canal)
             // ⚠️ Al ARRANCAR también hay que volver a escuchar. Si el turno siguió
             // mientras la app estaba cerrada —que es justo lo que se compró con este
@@ -3341,11 +3341,11 @@ final class LiveAgentStore: AgentStoring {
         // tarde, después de que ya le habías escrito (bliss, 8-oct).
         if !newChannels.isEmpty { catchUpFleet(newChannels) }
         startAccountEvents()
-        for id in canales.keys where !cuentas.contains(where: { $0.id == id }) {
-            canales[id]?.soltar(); canales[id] = nil
+        for id in channels.keys where !cuentas.contains(where: { $0.id == id }) {
+            channels[id]?.soltar(); channels[id] = nil
         }
         // El aviso que se tocó con la app cerrada, ahora que ya hay dónde llevarlo.
-        aplicarAvisoPendiente()
+        applyPendingNotice()
         aplicarCompartido()
     }
 }
@@ -3363,7 +3363,7 @@ extension LiveAgentStore {
 
     /// Trae lo NUEVO de una conversación (`after=` el último `seq` que hay) y lo funde.
     /// Sin nada con `seq` (primera vez, o caché de antes de v2) baja la última página.
-    func pullThread(_ hilo: Hilo, de canal: Canal) async {
+    func pullThread(_ hilo: ChatThread, de canal: AgentChannel) async {
         guard let sid = hilo.sesionID else { return }
         let key = "\(canal.cuenta.id)|\(sid)"
         if trayendo.contains(key) {
@@ -3378,7 +3378,7 @@ extension LiveAgentStore {
     }
 
     /// `false` = la ruta nueva no existe en este gs.
-    private func pullThreadPage(_ hilo: Hilo, sid: String, de canal: Canal) async -> Bool {
+    private func pullThreadPage(_ hilo: ChatThread, sid: String, de canal: AgentChannel) async -> Bool {
         let agent = canal.cuenta.id
         hilo.loadError = nil
         let sendsAtStart = hilo.sendCount
@@ -3427,7 +3427,7 @@ extension LiveAgentStore {
                         || (hilo.isSending && m.id == hilo.anclaArriba)
                 }
             }
-            // ⚠️ Pedida antes de tu último envío: es una foto vieja (ver `Hilo.sendCount`).
+            // ⚠️ Pedida antes de tu último envío: es una foto vieja (ver `ChatThread.sendCount`).
             guard hilo.sendCount == sendsAtStart else {
                 EasyBitsClient.diag("[sync] \(sid): la página se pidió antes de tu envío; se descarta")
                 return true
@@ -3435,7 +3435,7 @@ extension LiveAgentStore {
             let liveTurn = hilo.turno == nil ? nil
                 : hilo.respuestaEnCursoID.flatMap { $0.hasPrefix("turno-") ? String($0.dropFirst(6)) : nil }
             // El servidor dice que TU turno ya cerró y aquí sigue abierto: la app se durmió.
-            if hilo.turno != nil, !hilo.isSending, let u = page.ultimoTurno, u.turnId == liveTurn,
+            if hilo.turno != nil, !hilo.isSending, let u = page.lastTurn, u.turnId == liveTurn,
                !["running", "queued"].contains(u.estado) {
                 EasyBitsClient.diag("[sync] \(sid): el servidor ya cerró el turno (\(u.estado)); suelto el local")
                 hilo.enVuelo?.cancel(); hilo.enVuelo = nil
@@ -3445,7 +3445,7 @@ extension LiveAgentStore {
             var merged = ThreadMerge.merge(base, with: page.messages,
                                            liveTurnId: hilo.turno == nil ? nil : liveTurn)
             // Las entregas que viven en este teléfono (el hilo de gs es texto).
-            for e in entregas.deSesion(sid, de: agent)
+            for e in deliveries.forSession(sid, agent: agent)
             where !merged.contains(where: { $0.id == "entrega-\(e.id)" })
                 && !Self.isShadowed(e, by: page.files) && !Self.leftOutByServer(e, archivos: page.files) {
                 merged.append(Message(id: "entrega-\(e.id)", kind: .entrega(e)))
@@ -3462,7 +3462,7 @@ extension LiveAgentStore {
             if let primero = merged.first(where: \.esDeUsuario), case .user(let t, _, _) = primero.kind {
                 titulos.anotarSiFalta(agent, sid, desde: t)
             }
-            aplicarUltimoTurno(page.ultimoTurno, a: hilo, de: canal)
+            aplicarUltimoTurno(page.lastTurn, a: hilo, de: canal)
             if merged.isEmpty, hilo.vieneDe == nil, !page.enCurso {
                 hilo.loadError = "Esta conversación está vacía o ya no existe."
             }
@@ -3516,7 +3516,7 @@ extension LiveAgentStore {
     /// `false` = no se pudo (gs viejo, sin red): quien llama usa las listas.
     @discardableResult
     func runAccountSync() async -> Bool {
-        guard syncV2, let any = canalActivo ?? canales.values.first,
+        guard syncV2, let any = canalActivo ?? channels.values.first,
               let client = try? await asegurarSocket(any) as? ClienteGS else { return false }
         var cursor = cache.syncCursor(Self.accountCursorKey)
         let started = Date()
@@ -3530,7 +3530,7 @@ extension LiveAgentStore {
                 // La primera vez la respuesta es la lista COMPLETA de cada agente.
                 let agents = full ? Set(page.agents).union(byAgent.keys) : Set(byAgent.keys)
                 for agent in agents {
-                    guard let canal = canales[agent] else { continue }
+                    guard let canal = channels[agent] else { continue }
                     let items = byAgent[agent] ?? []
                     if full {
                         applyList(items.filter { !$0.archived }.map(\.session), to: canal)
@@ -3567,8 +3567,8 @@ extension LiveAgentStore {
 
     /// Funde un delta en la lista de un agente: lo que cambió se reemplaza, lo nuevo entra y lo
     /// archivado sale. NO es la lista completa: lo que no vino, sigue.
-    private func applySyncDelta(_ items: [ClienteGS.AccountSync.Item], to canal: Canal) {
-        var list = canal.hilosRemotos
+    private func applySyncDelta(_ items: [ClienteGS.AccountSync.Item], to canal: AgentChannel) {
+        var list = canal.remoteSessions
         for item in items {
             if let i = list.firstIndex(where: { $0.id == item.session.id }) { list[i] = item.session }
             else if !item.archived { list.append(item.session) }
@@ -3576,15 +3576,15 @@ extension LiveAgentStore {
         let archived = Set(items.filter(\.archived).map(\.session.id))
         list.removeAll { archived.contains($0.id) }
         list.sort { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
-        canal.hilosRemotos = list
+        canal.remoteSessions = list
         canal.estadoHilos = .listo
         cache.guardarLista(list, de: canal.cuenta.id)
         for item in items where !item.archived {
-            if let h = canal.hilo(sesion: item.session.id) { aplicarUltimoTurno(item.session.ultimoTurno, a: h, de: canal) }
+            if let h = canal.hilo(sesion: item.session.id) { aplicarUltimoTurno(item.session.lastTurn, a: h, de: canal) }
             else { marcarSinVerRemota(item.session, agente: canal.cuenta.id) }
         }
         // Lo archivado en otra superficie se cierra aquí, salvo lo que miras o lo que trabaja.
-        for h in canal.hilos where h.turno == nil {
+        for h in canal.threads where h.turno == nil {
             guard let sid = h.sesionID, archived.contains(sid), h.clave != canal.activa else { continue }
             cache.olvidarAbierta(sid, de: canal.cuenta.id)
             canal.cerrar(h)
@@ -3595,7 +3595,7 @@ extension LiveAgentStore {
     private func prefetchCold(_ item: ClienteGS.AccountSync.Item, client: ClienteGS) async {
         let agent = item.agentID, sid = item.session.id
         let key = "\(agent)|\(sid)"
-        guard !trayendo.contains(key), canales[agent]?.hilo(sesion: sid) == nil else { return }
+        guard !trayendo.contains(key), channels[agent]?.hilo(sesion: sid) == nil else { return }
         trayendo.insert(key)
         defer { trayendo.remove(key) }
         let meta = cache.meta(agent, session: sid)
@@ -3611,22 +3611,22 @@ extension LiveAgentStore {
             base = [] // caché de antes de v2: sin `seq`, la sustituye la página
         }
         let merged = ThreadMerge.merge(base, with: page.messages)
-        guard !merged.isEmpty, canales[agent]?.hilo(sesion: sid) == nil else { return }
+        guard !merged.isEmpty, channels[agent]?.hilo(sesion: sid) == nil else { return }
         cache.guardarUno(agent, sesion: sid, mensajes: merged)
         let seqs = merged.compactMap(\.seq)
         cache.saveMeta(ThreadMeta(epoch: page.epoch, lastSeq: seqs.max(), oldestSeq: seqs.min(),
                                   hasMoreBefore: after == nil ? page.hasMoreBefore : (meta?.hasMoreBefore ?? false)),
                        agent, session: sid)
-        vistasPrevias["\(agent)/\(sid)"] = VistaPrevia.de(merged)
+        vistasPrevias["\(agent)/\(sid)"] = ChatPreview.de(merged)
     }
 
     /// El renglón de Chats sin bajar el hilo: la vista previa que manda gs.
     private func notePreview(_ item: ClienteGS.AccountSync.Item) {
         guard let p = item.preview else { return }
         let key = "\(item.agentID)/\(item.session.id)"
-        let respuestas = p.fromUser ? 0 : (vistasPrevias[key]?.respuestas ?? 1)
-        vistasPrevias[key] = VistaPrevia(texto: VistaPrevia.plano(HelpersHeader.stripped(p.text)), deTi: p.fromUser,
-                                         respuestas: respuestas)
+        let respuestas = p.fromUser ? 0 : (vistasPrevias[key]?.replies ?? 1)
+        vistasPrevias[key] = ChatPreview(text: ChatPreview.plano(HelpersHeader.stripped(p.text)), fromUser: p.fromUser,
+                                         replies: respuestas)
     }
 }
 

@@ -6,13 +6,13 @@ import SwiftUI
 /// quiere saber **si ya contestó**. Con varias a la vez es lo único que deja decidir a
 /// cuál volver, y era justo lo que la lista no decía.
 struct EstadoDelHilo: View {
-    let hilo: Hilo
+    let hilo: ChatThread
     /// El reloj se repinta solo: sin esto, «hace 2 min» se queda congelado en «ahora».
     @State private var tic = Date()
 
     var body: some View {
         Group {
-            if hilo.permisoPendiente != nil {
+            if hilo.pendingPermission != nil {
                 etiqueta("Espera tu visto bueno", .gDangerInk)
             } else {
                 switch hilo.estado {

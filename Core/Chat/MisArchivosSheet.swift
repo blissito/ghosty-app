@@ -151,7 +151,7 @@ private struct MiniaturaDeBiblioteca: View {
         }
         .task(id: archivo.id) {
             if archivo.mime.hasPrefix("video/") {
-                imagen = await CuadroDeVideo.de(id: archivo.id, remotoID: archivo.id, mime: archivo.mime)
+                imagen = await CuadroDeVideo.de(id: archivo.id, remoteID: archivo.id, mime: archivo.mime)
                 return
             }
             guard archivo.mime.hasPrefix("image/") else { return }

@@ -114,7 +114,7 @@ struct ConversationView: View {
                             onHistorial: onHistorial.map { abrir in { escribiendo = false; abrir() } },
                             puntoHistorial: store.hayPendientes,
                             onVolver: onVolver.map { volver in { escribiendo = false; volver() } },
-                            pendientesAtras: onVolver == nil ? 0 : store.chatsSinLeer,
+                            pendientesAtras: onVolver == nil ? 0 : store.unreadChats,
                             favorito: llaveFavorita.map { favoritas.contains($0) },
                             onFavorito: {
                                 guard let k = llaveFavorita else { return }
@@ -393,8 +393,8 @@ struct ConversationView: View {
     }
 
     /// «Viene de un chat anterior»: al inicio de un hilo seguido de otro; lo abre.
-    private func vieneDeOtroChat(_ hilo: Hilo, _ previa: String) -> some View {
-        Button { store.irA(agente: hilo.agenteID, sesion: previa) } label: {
+    private func vieneDeOtroChat(_ hilo: ChatThread, _ previa: String) -> some View {
+        Button { store.open(agent: hilo.agenteID, session: previa) } label: {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.uturn.backward").font(.system(size: 12, weight: .semibold))
                 Text("Viene de un chat anterior").font(.system(size: 13, weight: .medium))
@@ -412,7 +412,7 @@ struct ConversationView: View {
 
     /// Franja sobre el compositor cuando gs dice que el hilo ya es largo: seguir en uno
     /// nuevo (gs le pasa al agente el final de éste) o cerrarla para este hilo.
-    private func avisoDeHiloLargo(_ hilo: Hilo, llave: String) -> some View {
+    private func avisoDeHiloLargo(_ hilo: ChatThread, llave: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "hourglass").font(.system(size: 13)).foregroundStyle(Color.gInk2)
@@ -722,7 +722,7 @@ struct ConversationView: View {
     }
 
     /// El hilo no llegó: se dice y se ofrece otra vez, en vez de girar para siempre.
-    private func loadFailed(_ error: String, _ hilo: Hilo) -> some View {
+    private func loadFailed(_ error: String, _ hilo: ChatThread) -> some View {
         VStack(spacing: 12) {
             Text(error).gMeta()
             Button("Reintentar") { store.retryLoad(hilo) }
@@ -1028,7 +1028,7 @@ struct ConversationView: View {
             // En el margen de la respuesta (ya sin columna de avatar): lo entregó él.
             HStack(spacing: 0) {
                 EntregaCard(entrega: e)
-                    .borrarConToqueLargo("¿Borrar «\(e.titulo)»?",
+                    .borrarConToqueLargo("¿Borrar «\(e.title)»?",
                                          consecuencia: "Se quita de esta conversación y de Archivos. Vive sólo en este teléfono.") {
                         store.borrarEntrega(e.id)
                     }

@@ -10,11 +10,11 @@ struct EnviarAUnChatSheet: View {
     let store: LiveAgentStore
     @State private var busqueda = ""
 
-    private var filas: [ChatsView.Fila] {
+    private var rows: [ChatsView.ChatRow] {
         let q = busqueda.trimmingCharacters(in: .whitespaces)
-        return ChatsView.filas(store)
-            .filter { q.isEmpty || $0.titulo.localizedCaseInsensitiveContains(q) || $0.agente.name.localizedCaseInsensitiveContains(q) }
-            .sorted { $0.fecha > $1.fecha }
+        return ChatsView.rows(store)
+            .filter { q.isEmpty || $0.title.localizedCaseInsensitiveContains(q) || $0.agent.name.localizedCaseInsensitiveContains(q) }
+            .sorted { $0.date > $1.date }
             .prefix(40)
             .map { $0 }
     }
@@ -37,28 +37,28 @@ struct EnviarAUnChatSheet: View {
             } extra: { EmptyView() }
             .accessibilityIdentifier("enviar-nuevo-chat")
 
-            if !filas.isEmpty {
+            if !rows.isEmpty {
                 Text(busqueda.isEmpty ? "Chats recientes" : "Resultados").gSectionCaps().padding(.top, 6)
             }
-            ForEach(filas) { f in
-                GhostySheetRow(title: f.titulo,
-                               subtitle: "\(f.agente.name) · \(ChatsView.hora(f.fecha))",
+            ForEach(rows) { f in
+                GhostySheetRow(title: f.title,
+                               subtitle: "\(f.agent.name) · \(ChatsView.timeLabel(f.date))",
                                action: { elegir(f) }) {
-                    AgentAvatar(tone: f.agente.tone, size: 36)
+                    AgentAvatar(tone: f.agent.tone, size: 36)
                 } extra: { EmptyView() }
                 .accessibilityIdentifier("enviar-chat-\(f.id)")
             }
-            if filas.isEmpty && !busqueda.isEmpty {
+            if rows.isEmpty && !busqueda.isEmpty {
                 Text("No hay chats que coincidan.").gMeta().padding(.vertical, 12)
             }
         }
     }
 
     /// Lo abre como si lo tocaras en Chats; el compositor recoge el archivo al aparecer.
-    private func elegir(_ f: ChatsView.Fila) {
-        switch f.tipo {
-        case .abierta(let h): store.mirar(h, de: f.agente.id)
-        case .guardada(let s): store.abrirDesdeChats(agente: f.agente.id, sesion: s)
+    private func elegir(_ f: ChatsView.ChatRow) {
+        switch f.kind {
+        case .open(let h): store.focus(h, agent: f.agent.id)
+        case .saved(let s): store.openFromChats(agent: f.agent.id, session: s)
         }
         store.archivosListosEnElChat()
     }

@@ -58,8 +58,8 @@ struct Message: Identifiable, Equatable, Sendable {
         case user(String, adjuntos: [Adjunto] = [], steer: Bool = false)
         case agent(text: String, tools: ToolRun?, trailing: String?)
         case prCard(PullRequestCard)
-        /// Algo que el agente hizo llegar: un archivo o un artefacto. Ver `Entregas.swift`.
-        case entrega(Entrega)
+        /// Algo que el agente hizo llegar: un archivo o un artefacto. Ver `Deliveries.swift`.
+        case entrega(Delivery)
         /// Línea de la plataforma (turno programado, entrega de un encargo): sólo la causa,
         /// centrada y chica. Nace de un mensaje de usuario que empieza por «⏰ ».
         case sistema(String)

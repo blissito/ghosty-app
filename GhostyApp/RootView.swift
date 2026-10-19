@@ -23,14 +23,14 @@ struct RootView: View {
     /// ¿Estás DENTRO de una conversación? La pestaña Chats es la lista (inicio, como
     /// WhatsApp); abrir una fila entra al hilo, la barra se oculta y la flecha regresa.
     /// Los ganchos que miran un hilo (`GHOSTY_PROBE`, `GHOSTY_DEMO_CHAT`…) arrancan dentro.
-    @State private var enHilo = Gancho.valor("GHOSTY_EN_HILO") == "1"
+    @State private var inThread = Gancho.valor("GHOSTY_EN_HILO") == "1"
         || Gancho.valor("GHOSTY_PROBE") != nil || Gancho.valor("GHOSTY_DEMO_CHAT") != nil
         || Gancho.valor("GHOSTY_LOAD_THREAD") == "1" || Gancho.valor("GHOSTY_VOZ") == "1"
     /// El filtro de «Chats» (`nil` = Todos). Vive aquí porque lo pone también el avatar de
     /// la barra: elegir un agente te lleva a Chats con SUS conversaciones.
-    @State private var filtroChats: String?
+    @State private var chatFilter: String?
     /// «Cambiar de agente», la `GhostySheet` que abre el avatar de la barra.
-    @State private var cambiarAgente = Gancho.valor("GHOSTY_AGENTES") == "1"
+    @State private var showAgentPicker = Gancho.valor("GHOSTY_AGENTES") == "1"
     /// El toast de la app (`Toaster`), uno para todas las pantallas.
     @State private var toaster = Toaster()
     /// La hoja «Agregar» y el overlay de voz del chat, pintados encima de la barra.
@@ -80,12 +80,12 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if case .lista = store.conexion, !(tab == .chat && enHilo) {
+            if case .lista = store.conexion, !(tab == .chat && inThread) {
                 GhostyTabBar(selection: $tab, tabs: pestanas,
-                             puntos: store.chatsSinLeer > 0 ? [.chat] : [],
+                             puntos: store.unreadChats > 0 ? [.chat] : [],
                              agente: store.selectedAgent,
-                             agenteAbierto: cambiarAgente,
-                             onAgente: { cambiarAgente = true })
+                             agenteAbierto: showAgentPicker,
+                             onAgente: { showAgentPicker = true })
                     // A 28 pt del borde de la PANTALLA (diseño), no del borde seguro: en
                     // un iPhone con indicador de inicio (34 pt) eso es 6 pt por debajo.
                     // Sin indicador, 12 pt del borde.
@@ -120,15 +120,15 @@ struct RootView: View {
             if nuevo < 60 { bordeInferior = nuevo }
         }
         // «Cambiar de agente» y el toast van en la raíz: el velo tapa también la barra.
-        .ghostySheet(isPresented: $cambiarAgente, title: "Cambiar de agente",
+        .ghostySheet(isPresented: $showAgentPicker, title: "Cambiar de agente",
                      identifier: "hoja-agentes") {
             CambiarAgenteSheet(store: store) {
                 // Elegir un agente te lleva a «Chats» con SU filtro puesto (el chip se
                 // desplaza a la vista), no a un hilo.
-                cambiarAgente = false
+                showAgentPicker = false
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
-                    filtroChats = store.selectedAgentID
-                    enHilo = false
+                    chatFilter = store.selectedAgentID
+                    inThread = false
                     tab = .chat
                 }
             }
@@ -185,13 +185,13 @@ struct RootView: View {
         // ⚠️ `initial: true`: en arranque en frío por push la orden llega ANTES de que esta
         // vista escuche. Con Chats como inicio, sin esto el aviso dejaba la lista en vez
         // de abrir su conversación.
-        .onChange(of: store.pestanaPedida, initial: true) { _, pedida in
+        .onChange(of: store.requestedTab, initial: true) { _, pedida in
             guard let pedida else { return }
             tab = pedida
             // Un aviso lleva a SU conversación: dentro del hilo, no a la lista.
-            if pedida == .chat { enHilo = true }
-            cambiarAgente = false
-            store.pestanaPedida = nil
+            if pedida == .chat { inThread = true }
+            showAgentPicker = false
+            store.requestedTab = nil
         }
         // `com.fixtergeek.ghostyapp://conversacion|compartido` (ver `EnlaceDeGhosty`): lo
         // que abre la extensión «Enviar a Ghosty».
@@ -224,7 +224,7 @@ struct RootView: View {
             // poder verificar el replay sin tocar la pantalla.
             if Gancho.valor("GHOSTY_LOAD_THREAD") == "1" {
                 await store.cargarHilos()
-                if let primero = store.hilosRemotos.first {
+                if let primero = store.remoteSessions.first {
                     await store.abrirHilo(primero)
                 }
             }
@@ -368,8 +368,8 @@ struct RootView: View {
                     ArtifactsView(store: store)
                         .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
                 case .chat:
-                    ChatsView(store: store, filtro: $filtroChats,
-                              onAbrir: { withAnimation(.easeOut(duration: 0.25)) { enHilo = true } },
+                    ChatsView(store: store, filtro: $chatFilter,
+                              onAbrir: { withAnimation(.easeOut(duration: 0.25)) { inThread = true } },
                               onPlanYUso: {
                                   withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { tab = .perfil }
                                   DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { verUso = true }
@@ -382,11 +382,11 @@ struct RootView: View {
             }
             .transition(.opacity)
 
-            if tab == .chat && enHilo {
+            if tab == .chat && inThread {
                 // Sin barra: el compositor va pegado abajo, como WhatsApp.
                 ConversationView(store: store, onOpenSheet: abrirHojaDelChat,
                                  onVolver: volverAChats,
-                                 onCambiarAgente: { cambiarAgente = true })
+                                 onCambiarAgente: { showAgentPicker = true })
                     .padding(.bottom, 4)
                     .background(Color.gBg.ignoresSafeArea())
                     // Deslizar a la derecha también regresa. ⚠️ Con `panHorizontal` (UIKit, sólo
@@ -402,7 +402,7 @@ struct RootView: View {
 
     /// La flecha de atrás del hilo (o deslizar desde el borde): de vuelta a «Chats».
     private func volverAChats() {
-        withAnimation(.easeOut(duration: 0.25)) { enHilo = false }
+        withAnimation(.easeOut(duration: 0.25)) { inThread = false }
     }
 
     private func abrirHoja() {

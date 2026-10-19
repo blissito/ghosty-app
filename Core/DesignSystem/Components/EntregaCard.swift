@@ -12,7 +12,7 @@ import SwiftUI
 /// capturas del App Store, no de memoria) y la razón es buena: una fila con nombre y peso
 /// no dice si lo entregado sirve. Con la miniatura se sabe de un vistazo, sin abrir nada.
 struct EntregaCard: View {
-    let entrega: Entrega
+    let entrega: Delivery
     @State private var compartiendo: URL?
     @State private var mirando: UIImage?
     /// Lo bajado, cuando la entrega vino sólo con URL. Ver `BloqueEbFile`.
@@ -34,7 +34,7 @@ struct EntregaCard: View {
     /// en el mismo fotograma, y el cuerpo ya no renderiza la portada en cada pasada.
     private var imagen: UIImage? {
         guard entrega.forma == .archivo else { return nil }
-        let clave = "entrega:" + (entrega.remotoID ?? entrega.id)
+        let clave = "entrega:" + (entrega.remoteID ?? entrega.id)
         if let ya = MiniaturasEnMemoria.imagen(clave) { return ya }
         guard let d = datos else { return nil }
         let img = entrega.tipo == "pdf" ? Self.portada(d) : DecodificadorDeImagen.imagen(d)
@@ -56,21 +56,21 @@ struct EntregaCard: View {
     }
 
     /// La entrega con los bytes que se hayan bajado, para lo que necesite un archivo.
-    private func conBytes() -> Entrega? {
+    private func conBytes() -> Delivery? {
         guard var e = Optional(entrega) else { return nil }
         if e.datos == nil { e.datos = bajados }
         return e
     }
 
     private func bajar(yAbrir: Bool) async {
-        guard !bajando, entrega.url != nil || entrega.remotoID != nil else { return }
+        guard !bajando, entrega.url != nil || entrega.remoteID != nil else { return }
         bajando = true
         defer { bajando = false }
         do {
             // De los archivos de la cuenta, con firma fresca; o de la URL que anunció el
             // agente, que puede haber caducado.
             let d: Data?
-            if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+            if let id = entrega.remoteID { d = try? await GhostyAPI.bajar(id) }
             else if let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
             else { d = nil }
             guard let d else {
@@ -101,8 +101,8 @@ struct EntregaCard: View {
             if let filas = filasDeTabla {
                 // Una tabla entregada (CSV) se LEE en el hilo, con su Excel y su copiar:
                 // abrirla en el visor del sistema para ver cuatro filas era un paso de más.
-                TablaCard(filas: filas, nombre: Self.sinExtension(entrega.titulo),
-                          titulo: entrega.titulo)
+                TablaCard(filas: filas, nombre: Self.sinExtension(entrega.title),
+                          titulo: entrega.title)
                     .frame(maxWidth: 360, alignment: .leading)
             } else if entrega.esAudio {
                 burbujaDeAudio
@@ -122,21 +122,21 @@ struct EntregaCard: View {
             // tarjeta es una fila con un nombre. Se acota por peso —lo que dijo el
             // anuncio— para no traerse un documento enorme sólo por la miniatura.
             // Ya pintada desde memoria: no hace falta ni el disco.
-            if MiniaturasEnMemoria.imagen("entrega:" + (entrega.remotoID ?? entrega.id)) != nil { return }
+            if MiniaturasEnMemoria.imagen("entrega:" + (entrega.remoteID ?? entrega.id)) != nil { return }
             let conVistaPrevia = ["png", "jpg", "jpeg", "heic", "gif", "webp", "pdf", "csv"]
             // El texto chico también: su asomo es la vista previa. Uno grande espera al toque.
             let textoChico = entrega.esTexto && (entrega.bytesRemotos ?? .max) < 200_000
             guard conVistaPrevia.contains(ext) || textoChico else { return }
             if let peso = entrega.bytesRemotos, peso > 8 * 1024 * 1024 { return }
             // Lo que está en el disco sale sin spinner; sólo la red enseña el cargando.
-            if let id = entrega.remotoID, ArchivosEnDisco.hay(id), let d = await ArchivosEnDisco.leer(id) {
+            if let id = entrega.remoteID, ArchivosEnDisco.hay(id), let d = await ArchivosEnDisco.leer(id) {
                 bajados = d
                 return
             }
             await bajar(yAbrir: false)
         }
         .fullScreenCover(item: $mirando) { img in
-            VisorDeImagen(imagen: img, titulo: entrega.titulo, archivo: conBytes()?.aDisco(),
+            VisorDeImagen(imagen: img, titulo: entrega.title, archivo: conBytes()?.aDisco(),
                           onCerrar: { mirando = nil })
         }
     }
@@ -153,7 +153,7 @@ struct EntregaCard: View {
         else if let img = imagen { mirando = img }
         // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
         // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
-        else if datos == nil, entrega.url != nil || entrega.remotoID != nil { Task { await bajar(yAbrir: true) } }
+        else if datos == nil, entrega.url != nil || entrega.remoteID != nil { Task { await bajar(yAbrir: true) } }
         else { compartiendo = conBytes()?.aDisco() }
     }
 
@@ -162,18 +162,18 @@ struct EntregaCard: View {
     /// micrófono, ▶, onda con cursor y la duración. Un archivo de audio lleva su nombre abajo.
     private var burbujaDeAudio: some View {
         VStack(alignment: .leading, spacing: 4) {
-            BurbujaDeVoz(id: entrega.remotoID ?? entrega.id, lado: .agente,
+            BurbujaDeVoz(id: entrega.remoteID ?? entrega.id, lado: .agente,
                          segundos: entrega.segundosDeVoz ?? 0, onda: entrega.onda ?? [],
-                         hora: entrega.recibida) {
+                         hora: entrega.receivedAt) {
                 if let d = entrega.datos ?? bajados { return d }
                 var d: Data?
-                if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+                if let id = entrega.remoteID { d = try? await GhostyAPI.bajar(id) }
                 if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
                 guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
                 return d
             }
             if !entrega.esNotaDeVoz {
-                Text(entrega.titulo)
+                Text(entrega.title)
                     .font(.system(size: 13))
                     .foregroundStyle(Color.gInk3)
                     .lineLimit(1)
@@ -199,18 +199,18 @@ struct EntregaCard: View {
             } else if entrega.esNotaDeVoz {
                 // La nota de voz del agente es la MISMA burbuja que las tuyas, con el
                 // micrófono a la izquierda: un audio de 4 s no es un archivo que abrir.
-                BurbujaDeVoz(id: entrega.remotoID ?? entrega.id, lado: .agente,
+                BurbujaDeVoz(id: entrega.remoteID ?? entrega.id, lado: .agente,
                              segundos: entrega.segundosDeVoz ?? 0, onda: entrega.onda ?? []) {
                     if let d = entrega.datos ?? bajados { return d }
                     var d: Data?
-                    if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+                    if let id = entrega.remoteID { d = try? await GhostyAPI.bajar(id) }
                     if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
                     guard let d else { throw GhostyAPI.Fallo.mensaje("Esa nota ya no está.") }
                     return d
                 }
                 .padding(.horizontal, 8).padding(.vertical, 6)
             } else {
-                vistaPrevia
+                preview
                 if entrega.esAudio {
                     ReproductorDeEntrega(entrega: entrega)
                 } else {
@@ -244,7 +244,7 @@ struct EntregaCard: View {
     // MARK: - Piezas
 
     @ViewBuilder
-    private var vistaPrevia: some View {
+    private var preview: some View {
         if let img = imagen {
             ImagenAnimable(img, modo: .fill)
                 // Un documento se recorta por ABAJO, no por el centro: lo que identifica una
@@ -277,7 +277,7 @@ struct EntregaCard: View {
         HStack(spacing: 12) {
             InsigniaDeTipo(ext: entrega.tipo)
             VStack(alignment: .leading, spacing: 2) {
-                Text(entrega.titulo)
+                Text(entrega.title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.gInk)
                     .lineLimit(1)
@@ -285,7 +285,7 @@ struct EntregaCard: View {
                 if let falloAlBajar {
                     Text(falloAlBajar).font(.system(size: 12)).foregroundStyle(Color.gDangerInk)
                 } else {
-                    Text([entrega.etiqueta, entrega.peso].compactMap { $0 }.joined(separator: " · "))
+                    Text([entrega.label, entrega.peso].compactMap { $0 }.joined(separator: " · "))
                         .font(.system(size: 12))
                         .foregroundStyle(Color.gInk3)
                         .lineLimit(1)
@@ -296,7 +296,7 @@ struct EntregaCard: View {
                 ProgressView().controlSize(.small)
             } else {
                 ShareLink(item: EntregaCompartible(entrega: conBytes() ?? entrega),
-                          preview: SharePreview(entrega.titulo)) {
+                          preview: SharePreview(entrega.title)) {
                     Text("Compartir")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
@@ -314,7 +314,7 @@ struct EntregaCard: View {
     ///
     /// ⚠️ Sólo si es texto DE VERDAD: un binario decodificado como UTF-8 da o basura o
     /// `nil`, y enseñar basura es peor que no enseñar nada.
-    private static func asomo(_ e: Entrega, datos: Data?) -> String? {
+    private static func asomo(_ e: Delivery, datos: Data?) -> String? {
         let crudo: String?
         if let c = e.contenido { crudo = c }
         // ⚠️ `esTexto`, no "decodifica como UTF-8": la cabecera de un PDF decodifica
@@ -377,13 +377,13 @@ struct InsigniaDeTipo: View {
 /// Lo entregado como archivo para la hoja de compartir. Se baja AL COMPARTIR si hace
 /// falta: bajar cada PDF del hilo sólo por si alguien le da a «Compartir» sería caro.
 struct EntregaCompartible: Transferable {
-    let entrega: Entrega
+    let entrega: Delivery
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(exportedContentType: .data) { c in
             var e = c.entrega
             if e.hayQueBajar {
-                if let id = e.remotoID { e.datos = try await GhostyAPI.bajar(id) }
+                if let id = e.remoteID { e.datos = try await GhostyAPI.bajar(id) }
                 else if let s = e.url, let u = URL(string: s) { e.datos = await Descargas.bytes(u) }
             }
             guard let url = e.aDisco() else { throw CocoaError(.fileWriteUnknown) }

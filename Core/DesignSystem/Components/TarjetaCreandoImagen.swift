@@ -6,7 +6,7 @@ enum ImagenDelTurno: Equatable {
     /// La herramienta de imagen corre (o terminó y la entrega todavía no llega).
     case creando(editando: Bool)
     /// Llegó la imagen del turno: se revela EN LA MISMA caja.
-    case lista(Entrega)
+    case lista(Delivery)
     /// La herramienta falló: el error va dentro de la caja, no en otro sitio.
     case fallo(String)
 }
@@ -61,7 +61,7 @@ struct TarjetaCreandoImagen: View {
         return min(columna, columna * 1.25 * aspecto)
     }
 
-    private var entrega: Entrega? {
+    private var entrega: Delivery? {
         if case .lista(let e) = estado { return e }
         return nil
     }
@@ -86,7 +86,7 @@ struct TarjetaCreandoImagen: View {
         .task(id: entrega?.id) { await cargar() }
         .animation(.easeOut(duration: 0.3), value: lista)
         .fullScreenCover(item: $mirando) { img in
-            VisorDeImagen(imagen: img, titulo: entrega?.titulo ?? "Imagen",
+            VisorDeImagen(imagen: img, titulo: entrega?.title ?? "Imagen",
                           archivo: archivoTemporal(), onCerrar: { mirando = nil })
         }
     }
@@ -136,7 +136,7 @@ struct TarjetaCreandoImagen: View {
                     .scaledToFill()
                     .blur(radius: sinMovimiento ? 0 : 20 * (1 - revelado))
                     .mask(MascaraQueBaja(avance: revelado))
-                    .accessibilityLabel(entrega?.titulo ?? "Imagen")
+                    .accessibilityLabel(entrega?.title ?? "Imagen")
                 if !sinMovimiento { DestelloQueBaja(avance: revelado) }
             }
 
@@ -204,7 +204,7 @@ struct TarjetaCreandoImagen: View {
                 if let imagen {
                     // La hoja de compartir trae «Guardar imagen» (a Fotos) y todo lo demás.
                     ShareLink(item: Image(uiImage: imagen),
-                              preview: SharePreview(entrega?.titulo ?? "Imagen", image: Image(uiImage: imagen))) {
+                              preview: SharePreview(entrega?.title ?? "Imagen", image: Image(uiImage: imagen))) {
                         CirculoTranslucido(icono: "square.and.arrow.up")
                     }
                     .buttonStyle(.gPressIcon)
@@ -257,7 +257,7 @@ struct TarjetaCreandoImagen: View {
     private var bytes: Data? { datos ?? imagen?.pngData() }
 
     private var nombre: String {
-        var n = (entrega?.titulo ?? "imagen").replacingOccurrences(of: "/", with: "-")
+        var n = (entrega?.title ?? "imagen").replacingOccurrences(of: "/", with: "-")
         if (n as NSString).pathExtension.isEmpty { n += ".png" }
         return n
     }
@@ -279,10 +279,10 @@ struct TarjetaCreandoImagen: View {
     /// La imagen entregada: los bytes que vinieron dentro, la memoria, el disco o la red.
     private func cargar() async {
         guard let e = entrega, imagen == nil else { return }
-        let clave = "entrega:" + (e.remotoID ?? e.id)
+        let clave = "entrega:" + (e.remoteID ?? e.id)
         var d: Data? = e.datos
-        if d == nil, let id = e.remotoID, ArchivosEnDisco.hay(id) { d = await ArchivosEnDisco.leer(id) }
-        if d == nil, let id = e.remotoID { d = try? await GhostyAPI.bajar(id) }
+        if d == nil, let id = e.remoteID, ArchivosEnDisco.hay(id) { d = await ArchivosEnDisco.leer(id) }
+        if d == nil, let id = e.remoteID { d = try? await GhostyAPI.bajar(id) }
         if d == nil, let s = e.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
         var img = d.flatMap(UIImage.init(data:))
         if img == nil { img = MiniaturasEnMemoria.imagen(clave) }

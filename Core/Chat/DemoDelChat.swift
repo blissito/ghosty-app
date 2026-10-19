@@ -11,8 +11,8 @@ enum DemoDelChat {
                             estado: .hecha, salida: nil, donde: nil, detalle: nil)
             })
         }
-        let pdf = Entrega(id: "demo-cotizacion", agentID: "demo-1", sesionID: nil, forma: .archivo,
-                          titulo: "Cotizacion_0134.pdf", recibida: Date(), datos: cotizacion())
+        let pdf = Delivery(id: "demo-cotizacion", agentID: "demo-1", sessionID: nil, forma: .archivo,
+                          title: "Cotizacion_0134.pdf", receivedAt: Date(), datos: cotizacion())
         return [
             Message(id: "dc-u1", kind: .user("Resume este PDF")),
             Message(id: "dc-a1", kind: .agent(

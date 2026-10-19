@@ -16,8 +16,8 @@ enum CuadroDeVideo {
         return base
     }
 
-    /// `id`: la llave del caché (el id remoto si lo hay). `remotoID`: el archivo de la cuenta.
-    static func de(id: String, remotoID: String? = nil, url: String? = nil,
+    /// `id`: la llave del caché (el id remoto si lo hay). `remoteID`: el archivo de la cuenta.
+    static func de(id: String, remoteID: String? = nil, url: String? = nil,
                    datos: Data? = nil, mime: String? = nil) async -> UIImage? {
         let clave = "cuadro:" + id
         if let ya = MiniaturasEnMemoria.imagen(clave) { return ya }
@@ -36,10 +36,10 @@ enum CuadroDeVideo {
                 try? FileManager.default.removeItem(at: tmp)
             }
         }
-        if img == nil, let rid = remotoID, ArchivosEnDisco.hay(rid) {
+        if img == nil, let rid = remoteID, ArchivosEnDisco.hay(rid) {
             img = await generar(AVURLAsset(url: ArchivosEnDisco.url(rid), options: [AVURLAssetOverrideMIMETypeKey: tipo]))
         }
-        if img == nil, let rid = remotoID {
+        if img == nil, let rid = remoteID {
             for fresca in [false, true] {
                 guard let f = try? await FirmasEnMemoria.firma(rid, fresca: fresca), let u = URL(string: f) else { continue }
                 if let i = await generar(AVURLAsset(url: u)) { img = i; break }

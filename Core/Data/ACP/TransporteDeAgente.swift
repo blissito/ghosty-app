@@ -22,7 +22,7 @@ protocol TransporteDeAgente: Actor {
     func cargar(_ id: String, cwd: String) async throws -> [ACPClient.Replay]?
     /// Cómo acabó el último turno de esa conversación según el servidor, tras `cargar`.
     /// `nil` = el transporte no lo sabe (el WebSocket directo no lo sabe).
-    func ultimoTurno(de sesion: String) async -> ACPClient.UltimoTurno?
+    func lastTurn(de sesion: String) async -> ACPClient.LastTurn?
 
     /// ¿Se quedó sin traer el historial de esa conversación porque había un turno vivo?
     /// Quien llama tiene que volver a pedirlo cuando el turno cierre.

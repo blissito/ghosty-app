@@ -100,8 +100,8 @@ final class CacheDeHilos {
         return list.map(\.sesion)
     }
 
-    func guardarLista(_ hilos: [ACPClient.Session], de agentID: String) {
-        let list = hilos.map(SesionGuardada.init)
+    func guardarLista(_ threads: [ACPClient.Session], de agentID: String) {
+        let list = threads.map(SesionGuardada.init)
         db?.asyncWrite({ db in try Self.writeList(db, agentID, list) }, completion: Self.logFailure)
     }
 
@@ -139,14 +139,14 @@ final class CacheDeHilos {
     /// del tope, por lo menos reciente.
     /// `protected`: sesiones que no se recortan nunca (la que miras, las que trabajan o
     /// esperan un permiso). Los favoritos se protegen solos.
-    func guardarAbiertos(_ hilos: [(sesionID: String, mensajes: [Message])], de agentID: String,
+    func guardarAbiertos(_ threads: [(sesionID: String, mensajes: [Message])], de agentID: String,
                          protected: Set<String> = []) {
         let favorites = Set(ChatsFavoritos.compartido.ids.compactMap { key -> String? in
             let parts = key.split(separator: "/", maxSplits: 1)
             return parts.count == 2 && parts[0] == agentID ? String(parts[1]) : nil
         })
         let keep = protected.union(favorites)
-        let batch = hilos.compactMap { h -> (String, [MensajeGuardado])? in
+        let batch = threads.compactMap { h -> (String, [MensajeGuardado])? in
             let saved = h.mensajes.compactMap(MensajeGuardado.init)
             return saved.isEmpty ? nil : (h.sesionID, saved)
         }

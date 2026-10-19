@@ -23,7 +23,7 @@ enum ReplayToMessages {
         -> (messages: [Message], serverIndex: [String: Int]) {
         var mensajes: [Message] = []
         /// Las tarjetas de `eb-file` que salieron del texto, con dónde van.
-        var entregasDelReplay: [(Int, Entrega)] = []
+        var entregasDelReplay: [(Int, Delivery)] = []
 
         // El turno que se está armando
         var quien: Quien?
@@ -185,7 +185,7 @@ enum ReplayToMessages {
         cerrar()
         // Un ```eb-file``` cuyo objeto gs ya registró en la cuenta: la tarjeta se queda en
         // su sitio y CON SU ID (`eb<hash>`, el mismo que en vivo y en el caché del hilo);
-        // sólo gana `remotoID` para firmar fresco al tocar. Y esa fila de la cuenta ya no
+        // sólo gana `remoteID` para firmar fresco al tocar. Y esa fila de la cuenta ya no
         // se añade al final. ⚠️ Cambiarle el id a `f-…` hacía que SwiftUI quitara y pusiera
         // las tarjetas (reacomodo) y que las entregas locales volvieran al final (2026-09-25).
         var porClave: [String: GhostyAPI.ArchivoDeSesion] = [:]
@@ -202,7 +202,7 @@ enum ReplayToMessages {
             if let url = e.url?.removingPercentEncoding,
                let (k, f) = porClave.first(where: { url.contains("/\($0.key)") }) {
                 usadas.insert(k)
-                e.remotoID = f.id
+                e.remoteID = f.id
                 if e.mime == nil, f.mime != "application/octet-stream" { e.mime = f.mime }
             }
             let id = "entrega-\(e.id)"
@@ -226,7 +226,7 @@ enum ReplayToMessages {
         for f in delServidor {
             let id = "entrega-f-\(f.id)"
             guard !mensajes.contains(where: { $0.id == id }) else { continue }
-            var e = Entrega.fromAccountFile(f)
+            var e = Delivery.fromAccountFile(f)
             e.agentID = ""
             let m = Message(id: id, kind: .entrega(e))
             // gs ya la ubicó por fecha: tras el último mensaje con índice ≤ `despuesDe`

@@ -85,8 +85,8 @@ final class ThreadMergeTests: XCTestCase {
     /// El video de un turno que despertó la plataforma: la tarjeta sólo viene en la página.
     func testPageDeliveryWithoutSeqIsKept() {
         let local = [user("s1", "baja esto", seq: 1), agent("s2", "ya voy", seq: 2)]
-        let card = Message(id: "entrega-eb1", kind: .entrega(Entrega(id: "eb1", agentID: "", forma: .archivo,
-                                                                     titulo: "video.mp4", recibida: Date())))
+        let card = Message(id: "entrega-eb1", kind: .entrega(Delivery(id: "eb1", agentID: "", forma: .archivo,
+                                                                     title: "video.mp4", receivedAt: Date())))
         let page = [user("s1", "baja esto", seq: 1), agent("s2", "ya voy", seq: 2),
                     agent("s4", "aquí está", seq: 4), card, user("s5", "gracias", seq: 5)]
         let merged = ThreadMerge.merge(local, with: page)

@@ -172,9 +172,9 @@ struct AGUIBridge {
     }
 
     /// `ghosty.delivery` como entrega: el payload del relé, ahora con `url` firmada en vez de bytes.
-    static func entrega(_ v: [String: Any], agentID: String, sessionID: String) -> Entrega? {
+    static func entrega(_ v: [String: Any], agentID: String, sessionID: String) -> Delivery? {
         guard var e = ACPClient.entregaDesde(v, agentID: agentID) else { return nil }
-        e.sesionID = (v["sessionId"] as? String) ?? sessionID
+        e.sessionID = (v["sessionId"] as? String) ?? sessionID
         e.url = v["url"] as? String
         e.mime = v["mime"] as? String
         e.bytesRemotos = (v["size"] as? NSNumber)?.intValue

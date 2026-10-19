@@ -6,21 +6,21 @@ import Foundation
 /// Sale de los mensajes que YA están en el teléfono (el hilo abierto o su copia en
 /// `CacheDeHilos`): pedirle a gs una vista previa por fila costaría una llamada por
 /// conversación cada vez que se pinta la lista. Es lo que hace Android (`recomputePreviews`).
-struct VistaPrevia: Equatable, Sendable {
-    var texto: String
+struct ChatPreview: Equatable, Sendable {
+    var text: String
     /// Lo último lo mandaste tú: la fila dice «Tú: …».
-    var deTi: Bool
+    var fromUser: Bool
     /// Mensajes del agente después de tu último mensaje.
-    var respuestas: Int
+    var replies: Int
 
-    static func de(_ mensajes: [Message]) -> VistaPrevia? {
+    static func de(_ mensajes: [Message]) -> ChatPreview? {
         guard let ultimo = mensajes.last(where: { linea(de: $0) != nil }),
               let t = linea(de: ultimo) else { return nil }
         let ultimoTuyo = mensajes.lastIndex { if case .user = $0.kind { return true } else { return false } }
         let despues = ultimoTuyo.map { mensajes[($0 + 1)...] } ?? mensajes[...]
         let respuestas = despues.filter(\.esDelAgente).count
-        if case .user = ultimo.kind { return VistaPrevia(texto: t, deTi: true, respuestas: respuestas) }
-        return VistaPrevia(texto: t, deTi: false, respuestas: respuestas)
+        if case .user = ultimo.kind { return ChatPreview(text: t, fromUser: true, replies: respuestas) }
+        return ChatPreview(text: t, fromUser: false, replies: respuestas)
     }
 
     /// Una línea legible de un mensaje, o `nil` si no dice nada (escribiendo, sistema).
@@ -42,7 +42,7 @@ struct VistaPrevia: Equatable, Sendable {
             return limpio.isEmpty ? nil : limpio
         case .entrega(let e):
             if e.esNotaDeVoz { return "🎤 Nota de voz" + (e.segundosDeVoz.map { $0 > 0 ? " (\(NotaDeVoz.reloj($0)))" : "" } ?? "") }
-            return (e.esImagen ? "📷 " : "📎 ") + e.titulo
+            return (e.esImagen ? "📷 " : "📎 ") + e.title
         case .prCard:
             return "Pull request"
         case .sistema, .typing:

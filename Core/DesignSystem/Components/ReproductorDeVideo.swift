@@ -18,7 +18,7 @@ import Network
 ///
 /// Sin autoplay. El cuadro se RESERVA (16:9 o el aspecto guardado): el hilo no crece tarde.
 struct ReproductorDeVideo: View {
-    let entrega: Entrega
+    let entrega: Delivery
     /// Ancho de la tarjeta; el alto sale del aspecto.
     var ancho: CGFloat = 300
 
@@ -62,10 +62,10 @@ struct ReproductorDeVideo: View {
             HStack(spacing: 10) {
                 TintedIcon(systemName: "film", tint: .gPrimary, background: .gPrimaryTint, size: 32)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(entrega.titulo)
+                    Text(entrega.title)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.gInk).lineLimit(1)
-                    Text([entrega.etiqueta, entrega.peso].compactMap { $0 }.joined(separator: " · ")).gCaption()
+                    Text([entrega.label, entrega.peso].compactMap { $0 }.joined(separator: " · ")).gCaption()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // ⚠️ GUARDAR EN FOTOS, no «compartir». Antes era un icono de 32 pt que
@@ -111,7 +111,7 @@ struct ReproductorDeVideo: View {
     /// Los bytes del video: del archivo de la cuenta (firma fresca) o de la URL anunciada.
     private func bytes() async -> Data? {
         if let d = entrega.datos { return d }
-        if let id = entrega.remotoID, let d = try? await GhostyAPI.bajar(id) { return d }
+        if let id = entrega.remoteID, let d = try? await GhostyAPI.bajar(id) { return d }
         if let s = entrega.url, let u = URL(string: s) { return await Descargas.bytes(u) }
         return nil
     }
@@ -204,7 +204,7 @@ struct ReproductorDeVideo: View {
             if img == nil || datos == nil { await generarPortada() }
         }
         // En Wi-Fi y de peso conocido ≤150 MB: se baja ya, para que el play sea del disco.
-        if let id = entrega.remotoID, let peso = entrega.bytesRemotos,
+        if let id = entrega.remoteID, let peso = entrega.bytesRemotos,
            peso <= ArchivosEnDisco.maximoPorVideo, RedLibre.esWiFi {
             ReproductoresDeVideo.bajarEnSegundoPlano(id)
         }
@@ -235,7 +235,7 @@ struct ReproductorDeVideo: View {
         }
         guard img != nil || datos.segundos != nil else {
             // Una firma guardada que ya no sirve: se olvida para que el play pida otra.
-            if let id = entrega.remotoID { FirmasEnMemoria.olvidar(id) }
+            if let id = entrega.remoteID { FirmasEnMemoria.olvidar(id) }
             return
         }
         PortadasDeVideo.guardar(img, datos: datos, clave: clave)
@@ -246,14 +246,14 @@ struct ReproductorDeVideo: View {
     /// El asset del video: del disco si ya está; si no, por streaming con la firma
     /// guardada (o una fresca).
     private func asset(fresca: Bool) async -> AVURLAsset? {
-        if let id = entrega.remotoID, ArchivosEnDisco.hay(id) {
+        if let id = entrega.remoteID, ArchivosEnDisco.hay(id) {
             let u = ArchivosEnDisco.url(id)
             ArchivosEnDisco.tocar(u)
             // Sin extensión en el nombre, AVFoundation necesita que le digan qué es.
             let mime = entrega.mime ?? entrega.tipo.flatMap { UTType(filenameExtension: $0)?.preferredMIMEType } ?? "video/mp4"
             return AVURLAsset(url: u, options: [AVURLAssetOverrideMIMETypeKey: mime])
         }
-        if let id = entrega.remotoID, let f = try? await FirmasEnMemoria.firma(id, fresca: fresca), let u = URL(string: f) {
+        if let id = entrega.remoteID, let f = try? await FirmasEnMemoria.firma(id, fresca: fresca), let u = URL(string: f) {
             return AVURLAsset(url: u)
         }
         if let s = entrega.url, let u = URL(string: s) { return AVURLAsset(url: u) }
@@ -269,7 +269,7 @@ struct ReproductorDeVideo: View {
         // ⚠️ Si el asset no carga (firma caducada/403, red), NO se monta un reproductor
         // mudo: se reintenta UNA vez con firma fresca y, si tampoco, se dice.
         if let a = asset, (try? await a.load(.isPlayable)) != true {
-            if let id = entrega.remotoID { FirmasEnMemoria.olvidar(id) }
+            if let id = entrega.remoteID { FirmasEnMemoria.olvidar(id) }
             asset = await self.asset(fresca: true)
             if let b = asset, (try? await b.load(.isPlayable)) != true { asset = nil }
         }
@@ -284,7 +284,7 @@ struct ReproductorDeVideo: View {
         player = nuevo
         nuevo.play()
         if portada == nil && memo.0 == nil { Task { await generarPortada() } }
-        if let id = entrega.remotoID, (entrega.bytesRemotos ?? 0) <= ArchivosEnDisco.maximoPorVideo {
+        if let id = entrega.remoteID, (entrega.bytesRemotos ?? 0) <= ArchivosEnDisco.maximoPorVideo {
             ReproductoresDeVideo.bajarEnSegundoPlano(id)
         }
     }
@@ -299,8 +299,8 @@ enum ReproductoresDeVideo {
     private static let tope = 3
     private static var bajando: Set<String> = []
 
-    nonisolated static func clave(_ e: Entrega) -> String {
-        if let id = e.remotoID { return id }
+    nonisolated static func clave(_ e: Delivery) -> String {
+        if let id = e.remoteID { return id }
         let texto = e.url ?? e.id
         var h: UInt64 = 0xcbf29ce484222325
         for b in texto.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }

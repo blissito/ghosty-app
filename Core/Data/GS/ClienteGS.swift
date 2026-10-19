@@ -197,8 +197,8 @@ actor ClienteGS: TransporteDeAgente {
             let permiso = (c["permisoPendiente"] as? [String: Any])?["title"] as? String
             return ACPClient.Session(id: id, title: c["titulo"] as? String ?? "Conversación",
                                      cwd: "/data/work", updatedAt: f, messageCount: nil,
-                                     ultimoTurno: ACPClient.UltimoTurno.desde(c["ultimoTurno"]),
-                                     permisoPendiente: permiso)
+                                     lastTurn: ACPClient.LastTurn.desde(c["ultimoTurno"]),
+                                     pendingPermission: permiso)
         }
     }
 
@@ -229,7 +229,7 @@ actor ClienteGS: TransporteDeAgente {
         if let files = r["files"] as? [[String: Any]], let datos = try? JSONSerialization.data(withJSONObject: ["files": files]) {
             archivosDelHilo[id] = datos
         }
-        ultimos[id] = ACPClient.UltimoTurno.desde(r["ultimoTurno"])
+        ultimos[id] = ACPClient.LastTurn.desde(r["ultimoTurno"])
         largos[id] = (r["largo"] as? Bool ?? false, r["continuesFrom"] as? String)
         // ⚠️ `enCurso: true` NO es «esta conversación está vacía»: es «hay un turno vivo y
         // no te doy el historial», porque pedirlo con un turno en marcha deja mudo al
@@ -319,8 +319,8 @@ actor ClienteGS: TransporteDeAgente {
     }
 
     /// Cómo acabó el último turno de cada conversación, según el último `cargar`.
-    private var ultimos: [String: ACPClient.UltimoTurno] = [:]
-    func ultimoTurno(de sesion: String) async -> ACPClient.UltimoTurno? { ultimos[sesion] }
+    private var ultimos: [String: ACPClient.LastTurn] = [:]
+    func lastTurn(de sesion: String) async -> ACPClient.LastTurn? { ultimos[sesion] }
 
     /// Conversaciones cuyo historial NO se pudo traer porque había un turno vivo. Lo que
     /// falta llega por el SSE, pero lo de ANTES sigue sin pedirse: hay que volver cuando
@@ -425,9 +425,9 @@ actor ClienteGS: TransporteDeAgente {
     private var contestadas: [String: [String: AGUIState.Option]] = [:]
     var turnosVivos: Int { escuchas.count }
 
-    private var permisoPendiente: (@Sendable (ACPClient.Permiso) -> Void)?
+    private var pendingPermission: (@Sendable (ACPClient.Permiso) -> Void)?
     func alPedirPermiso(_ handler: @escaping @Sendable (ACPClient.Permiso) -> Void) {
-        permisoPendiente = handler
+        pendingPermission = handler
     }
 
     /// Qué está pasando de verdad en esa conversación, según el servidor.
@@ -699,7 +699,7 @@ actor ClienteGS: TransporteDeAgente {
         // ⚠️ Las tarjetas abiertas vuelven en CADA reconexión: sin esta memoria, cada reenganche
         // pintaba otra tarjeta del mismo pedido.
         for p in ps where !antes.contains(where: { $0.id == p.id }) {
-            permisoPendiente?(ACPClient.Permiso(
+            pendingPermission?(ACPClient.Permiso(
                 id: p.id, sessionID: sesion, titulo: p.title, herramienta: p.tool ?? "",
                 opciones: p.options.map { ($0.id, $0.name, $0.kind) }))
         }
@@ -956,7 +956,7 @@ extension ClienteGS {
         var hasMoreAfter: Bool
         var lastSeq: Int?
         var enCurso: Bool
-        var ultimoTurno: ACPClient.UltimoTurno?
+        var lastTurn: ACPClient.LastTurn?
         var largo: Bool
         var continuesFrom: String?
         /// Los archivos de la página, por nombre (para entregas y adjuntos).
@@ -1005,7 +1005,7 @@ extension ClienteGS {
             hasMoreBefore: r["hasMoreBefore"] as? Bool ?? false,
             hasMoreAfter: r["hasMoreAfter"] as? Bool ?? false,
             lastSeq: r["lastSeq"] as? Int, enCurso: r["enCurso"] as? Bool ?? false,
-            ultimoTurno: ACPClient.UltimoTurno.desde(r["ultimoTurno"]),
+            lastTurn: ACPClient.LastTurn.desde(r["ultimoTurno"]),
             largo: r["largo"] as? Bool ?? false, continuesFrom: r["continuesFrom"] as? String,
             files: files)
     }

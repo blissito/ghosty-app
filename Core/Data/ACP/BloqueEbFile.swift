@@ -22,7 +22,7 @@ import Foundation
 enum BloqueEbFile {
 
     struct Encontrado {
-        let entrega: Entrega
+        let entrega: Delivery
         /// Lo que hay que quitar del texto visible.
         let rango: Range<String.Index>
     }
@@ -61,7 +61,7 @@ enum BloqueEbFile {
     }
 
     /// Tolerante a propósito: lo único que se exige es la URL.
-    private static func entrega(de cuerpo: String, agentID: String, sesionID: String?, voz: Bool = false) -> Entrega? {
+    private static func entrega(de cuerpo: String, agentID: String, sesionID: String?, voz: Bool = false) -> Delivery? {
         guard let datos = cuerpo.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
               let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
         else { return nil }
@@ -83,8 +83,8 @@ enum BloqueEbFile {
             nombre = "Nota de voz" + (ext.isEmpty ? ".ogg" : ".\(ext)")
         }
 
-        var e = Entrega(id: "eb" + huella(url), agentID: agentID, sesionID: sesionID,
-                        forma: .archivo, titulo: nombre, recibida: Date(),
+        var e = Delivery(id: "eb" + huella(url), agentID: agentID, sessionID: sesionID,
+                        forma: .archivo, title: nombre, receivedAt: Date(),
                         contenido: nil, datos: nil)
         e.url = url
         e.mime = (j["mime"] as? String) ?? (j["mimeType"] as? String) ?? (j["type"] as? String)

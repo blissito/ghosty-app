@@ -11,7 +11,7 @@ import SwiftUI
 /// Reproduce con `AVAudioPlayer`, igual que `NotaDeVoz`, que es el otro sitio de la app
 /// donde suena algo.
 struct ReproductorDeEntrega: View {
-    let entrega: Entrega
+    let entrega: Delivery
 
     @State private var reproductor: AVAudioPlayer?
     @State private var sonando = false
@@ -44,7 +44,7 @@ struct ReproductorDeEntrega: View {
             .accessibilityLabel(sonando ? "Pausar" : "Reproducir")
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(entrega.titulo)
+                Text(entrega.title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.gInk)
                     .lineLimit(1)
@@ -68,7 +68,7 @@ struct ReproductorDeEntrega: View {
             }
 
             // ⚠️ Compartir, que faltaba: un audio se podía oír y no sacar de la app. El
-            // archivo sale con su extensión de verdad (ver `Entrega.aDisco`), que es lo
+            // archivo sale con su extensión de verdad (ver `Delivery.aDisco`), que es lo
             // que hace que el sistema lo ofrezca como audio y no como texto.
             if let archivo = conBytes()?.aDisco() {
                 ShareLink(item: archivo) {
@@ -90,7 +90,7 @@ struct ReproductorDeEntrega: View {
     }
 
     /// La entrega con los bytes que haya, para compartirla con su extensión.
-    private func conBytes() -> Entrega? {
+    private func conBytes() -> Delivery? {
         guard datos != nil else { return nil }
         var e = entrega; if e.datos == nil { e.datos = bajados }; return e
     }
@@ -104,7 +104,7 @@ struct ReproductorDeEntrega: View {
         if let d = datos { return d }
         bajando = true; defer { bajando = false }
         var d: Data?
-        if let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+        if let id = entrega.remoteID { d = try? await GhostyAPI.bajar(id) }
         if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
         bajados = d
         return d

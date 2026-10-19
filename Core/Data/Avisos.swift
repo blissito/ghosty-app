@@ -294,7 +294,7 @@ enum Avisos {
                 ? (info["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
                 : nil
             await MainActor.run {
-                if let sesion { LiveAgentStore.compartido.irA(agente: id, sesion: sesion, respaldo: respaldo) }
+                if let sesion { LiveAgentStore.compartido.open(agent: id, session: sesion, fallback: respaldo) }
                 else { LiveAgentStore.compartido.seleccionar(id) }
             }
         }

@@ -11,18 +11,18 @@ enum EstadoHilos: Equatable { case sinPedir, cargando, listo, fallo(String) }
 /// conversaciones cosidas en pantalla. Y no se podía pedirle dos cosas a la vez al mismo
 /// agente, que era justo lo que se buscaba.
 ///
-/// El socket sigue siendo uno por agente (ver `Canal`): son hilos de una misma caja, no
+/// El socket sigue siendo uno por agente (ver `AgentChannel`): son hilos de una misma caja, no
 /// cajas distintas. Lo que los separa es el `sessionId`, que el protocolo ya mandaba.
 @Observable
 @MainActor
-final class Hilo {
+final class ChatThread {
     /// Identidad LOCAL y estable. Existe desde antes que la de la caja: un hilo nuevo
     /// tiene mensajes en pantalla mientras `session/new` está en vuelo, y sin esto no
     /// habría a qué colgarlos.
     let clave = UUID().uuidString
     /// La de la caja. `nil` = todavía no se ha creado allá.
     var sesionID: String?
-    /// De qué agente es. Lo pone el `Canal` al abrirlo; hace falta para las claves
+    /// De qué agente es. Lo pone el `AgentChannel` al abrirlo; hace falta para las claves
     /// persistidas (título, entregas, visto), que van por agente Y sesión.
     var agenteID = ""
 
@@ -53,7 +53,7 @@ final class Hilo {
 
     var turno: TurnActivity?
     var permisoACP: ACPClient.Permiso?
-    var permisoPendiente: PermissionRequest?
+    var pendingPermission: PermissionRequest?
     var modo = "auto"
 
     var enVuelo: Task<Void, Never>?
@@ -229,13 +229,13 @@ final class Hilo {
 /// `sessionId`, así que no hace falta.
 @Observable
 @MainActor
-final class Canal {
+final class AgentChannel {
     let cuenta: AgentAccount
 
     init(cuenta: AgentAccount) { self.cuenta = cuenta }
 
     /// Las conversaciones abiertas, la más reciente al final.
-    var hilos: [Hilo] = []
+    var threads: [ChatThread] = []
     /// Cuál se está mirando (su `clave`).
     var activa: String? { didSet { recordarActiva() } }
 
@@ -253,10 +253,10 @@ final class Canal {
         UserDefaults.standard.set(sid, forKey: Self.llaveActiva(cuenta.id))
     }
 
-    var hilosRemotos: [ACPClient.Session] = [] {
+    var remoteSessions: [ACPClient.Session] = [] {
         // El título que manda gs pisa el local: es el mismo que ven la web y la Mac.
         didSet {
-            for s in hilosRemotos where !TitleStore.isGeneric(s.title) {
+            for s in remoteSessions where !TitleStore.isGeneric(s.title) {
                 TitleStore.compartido.anotar(cuenta.id, s.id, titulo: s.title)
             }
         }
@@ -282,7 +282,7 @@ final class Canal {
     /// La apertura de socket en vuelo, COMPARTIDA. Sin esto, dos conversaciones
     /// arrancando a la vez abrían dos sockets contra la misma caja.
     var abriendoSocket: Task<any TransporteDeAgente, Error>?
-    /// Cronómetro heredado; el de verdad vive en cada `Hilo`.
+    /// Cronómetro heredado; el de verdad vive en cada `ChatThread`.
     var cronometro: Task<Void, Never>?
 
     /// La conversación que se mira.
@@ -291,9 +291,9 @@ final class Canal {
     /// Devolver `nil` parecía más honesto y era peor: quien preguntaba acababa abriendo
     /// una conversación NUEVA, así que salir a otra pestaña y volver te dejaba con el hilo
     /// en blanco en lugar del que habías cargado.
-    var hilo: Hilo? {
-        if let activa, let h = hilos.first(where: { $0.clave == activa }) { return h }
-        return hilos.last
+    var hilo: ChatThread? {
+        if let activa, let h = threads.first(where: { $0.clave == activa }) { return h }
+        return threads.last
     }
 
     /// Cuántas conversaciones se guardan en memoria. Abiertas cuestan poco, pero no
@@ -302,46 +302,46 @@ final class Canal {
     private static let topeAbiertas = 8
 
     func podar() {
-        guard hilos.count > Self.topeAbiertas else { return }
-        while hilos.count > Self.topeAbiertas,
-              let sobra = hilos.first(where: {
-                  !$0.trabajando && $0.permisoPendiente == nil && $0.clave != activa
+        guard threads.count > Self.topeAbiertas else { return }
+        while threads.count > Self.topeAbiertas,
+              let sobra = threads.first(where: {
+                  !$0.trabajando && $0.pendingPermission == nil && $0.clave != activa
               }) {
             cerrar(sobra)
         }
     }
 
-    func hilo(sesion: String) -> Hilo? { hilos.first { $0.sesionID == sesion } }
+    func hilo(sesion: String) -> ChatThread? { threads.first { $0.sesionID == sesion } }
 
     /// Uno nuevo, vacío, y pasa a ser el que se mira.
     /// Las conversaciones por uso reciente. La lista y la barra las pintan así.
-    var recientes: [Hilo] { hilos.sorted { $0.tocado > $1.tocado } }
+    var recientes: [ChatThread] { threads.sorted { $0.tocado > $1.tocado } }
 
     @discardableResult
-    func abrir(_ sesionID: String? = nil) -> Hilo {
+    func abrir(_ sesionID: String? = nil) -> ChatThread {
         // Traer a la vista una que ya está abierta NO la reordena: eso sólo lo hace
-        // escribirle. Ver el aviso de `Hilo.tocado`.
+        // escribirle. Ver el aviso de `ChatThread.tocado`.
         if let sesionID, let ya = hilo(sesion: sesionID) { activa = ya.clave; return ya }
-        let h = Hilo()
+        let h = ChatThread()
         h.agenteID = cuenta.id
         h.sesionID = sesionID
         if sesionID == nil { h.tocado = Date() }
-        hilos.append(h)
+        threads.append(h)
         activa = h.clave
         return h
     }
 
-    func cerrar(_ h: Hilo) {
+    func cerrar(_ h: ChatThread) {
         h.soltar()
-        hilos.removeAll { $0.clave == h.clave }
-        if activa == h.clave { activa = hilos.last?.clave }
+        threads.removeAll { $0.clave == h.clave }
+        if activa == h.clave { activa = threads.last?.clave }
     }
 
     /// Los que están contestando ahora mismo.
-    var enCurso: [Hilo] { hilos.filter(\.trabajando) }
+    var enCurso: [ChatThread] { threads.filter(\.trabajando) }
     var trabajando: Bool { !enCurso.isEmpty }
     /// Los que te están esperando a ti.
-    var esperandoPermiso: [Hilo] { hilos.filter { $0.permisoPendiente != nil } }
+    var esperandoPermiso: [ChatThread] { threads.filter { $0.pendingPermission != nil } }
 
     /// Las conversaciones que el SERVIDOR dice que están corriendo y que esta app no está
     /// oyendo: el turno salió de la Mac o de la web.
@@ -353,18 +353,18 @@ final class Canal {
     /// Las conversaciones que están DETENIDAS esperando que contestes, según el servidor,
     /// y que no tienes abiertas aquí. Un permiso pedido desde la Mac también te toca a ti.
     var permisoRemoto: [ACPClient.Session] {
-        let abiertas = Set(hilos.compactMap(\.sesionID))
-        return hilosRemotos.filter { $0.permisoPendiente != nil && !abiertas.contains($0.id) }
+        let abiertas = Set(threads.compactMap(\.sesionID))
+        return remoteSessions.filter { $0.pendingPermission != nil && !abiertas.contains($0.id) }
     }
 
     var trabajoRemoto: [ACPClient.Session] {
         let locales = Set(enCurso.compactMap(\.sesionID))
-        return hilosRemotos.filter { ($0.ultimoTurno?.sigueVivo ?? false) && !locales.contains($0.id) }
+        return remoteSessions.filter { ($0.lastTurn?.isAlive ?? false) && !locales.contains($0.id) }
     }
 
     func soltar() {
-        for h in hilos { h.soltar() }
-        hilos = []
+        for h in threads { h.soltar() }
+        threads = []
         activa = nil
         let cliente = acp
         acp = nil

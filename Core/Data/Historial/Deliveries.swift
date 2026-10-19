@@ -12,7 +12,7 @@ import Observation
 /// la manda una vez, en vivo, y no hay endpoint que la vuelva a dar. Un `session/load`
 /// devuelve la llamada a la herramienta, no lo entregado. Si no se persiste en el
 /// teléfono, cerrar la app la pierde.
-struct Entrega: Identifiable, Codable, Equatable, Sendable {
+struct Delivery: Identifiable, Codable, Equatable, Sendable {
     /// Qué se recibió. El relé manda `tipo` y, para un artefacto, `subtipo`.
     enum Forma: String, Codable, Sendable {
         case archivo    // un fichero del disco del agente, en base64
@@ -29,10 +29,10 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// campo nuevo obligatorio no lee el archivo viejo—, pero sin él la tarjeta no puede
     /// volver al hilo: al reabrirlo manda el replay, y el replay **no trae entregas**.
     /// El archivo seguía en Artefactos y la foto desaparecía de la conversación.
-    var sesionID: String?
+    var sessionID: String?
     var forma: Forma
-    var titulo: String
-    var recibida: Date
+    var title: String
+    var receivedAt: Date
     /// El texto del artefacto, o `nil` si lo entregado fue un archivo.
     var contenido: String?
     /// El archivo, ya decodificado. `nil` para un artefacto.
@@ -57,7 +57,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// Su id en los archivos de la CUENTA. Desde que gs guarda las entregas (2026-09-16),
     /// es lo que las hace volver en otro teléfono: se baja con `GhostyAPI.bajar(id)`,
     /// que acuña una URL firmada fresca (las firmadas caducan; por eso no se guarda una).
-    var remotoID: String?
+    var remoteID: String?
     /// Quién lo puso en la cuenta: `"agente"` si lo ENTREGÓ un agente (gs lo marca en
     /// `meta.origen`); `nil` en un archivo de la cuenta = lo subió la persona. Es lo que
     /// separa «Generados» de «Subidos» en Archivos.
@@ -68,20 +68,20 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     var segundosDeVoz: Double?
 
     /// ¿Es una nota de voz (y no un audio cualquiera)? La anuncia el SDK con `eb-audio`.
-    var esNotaDeVoz: Bool { esAudio && (segundosDeVoz != nil || titulo.hasPrefix("Nota de voz")) }
+    var esNotaDeVoz: Bool { esAudio && (segundosDeVoz != nil || title.hasPrefix("Nota de voz")) }
 
-    /// ¿Lo generó un agente? Lo que llegó en vivo por el relé (sin `remotoID`) siempre es
+    /// ¿Lo generó un agente? Lo que llegó en vivo por el relé (sin `remoteID`) siempre es
     /// del agente; lo de la cuenta, según su `origen`.
-    var generada: Bool { remotoID == nil || origen == "agente" }
+    var isGenerated: Bool { remoteID == nil || origen == "agente" }
 
     /// El de siempre. Se escribe a mano porque `init(from:)` propio quita el que Swift
     /// generaba solo.
-    init(id: String, agentID: String, sesionID: String? = nil, forma: Forma, titulo: String,
-         recibida: Date, contenido: String? = nil, datos: Data? = nil,
-         url: String? = nil, bytesRemotos: Int? = nil, remotoID: String? = nil) {
-        self.remotoID = remotoID
-        self.id = id; self.agentID = agentID; self.sesionID = sesionID
-        self.forma = forma; self.titulo = titulo; self.recibida = recibida
+    init(id: String, agentID: String, sessionID: String? = nil, forma: Forma, title: String,
+         receivedAt: Date, contenido: String? = nil, datos: Data? = nil,
+         url: String? = nil, bytesRemotos: Int? = nil, remoteID: String? = nil) {
+        self.remoteID = remoteID
+        self.id = id; self.agentID = agentID; self.sessionID = sessionID
+        self.forma = forma; self.title = title; self.receivedAt = receivedAt
         self.contenido = contenido; self.datos = datos
         self.url = url; self.bytesRemotos = bytesRemotos
     }
@@ -91,7 +91,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// ⚠️ Lleva el `mime` del servidor. Sin él, un archivo sin extensión en el nombre
     /// («Cotización 260923-001», una descarga de video) no tenía tipo hasta bajarlo entero:
     /// caía en «Otros», sin reproductor y sin vista previa.
-    static func fromAccountFile(_ f: GhostyAPI.ArchivoDeSesion) -> Entrega {
+    static func fromAccountFile(_ f: GhostyAPI.ArchivoDeSesion) -> Delivery {
         let forma: Forma
         switch (f.tipo, f.subtipo) {
         case ("artefacto", "doc"?):   forma = .doc
@@ -99,9 +99,9 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         case ("artefacto", _):        forma = .artifact
         default:                      forma = .archivo
         }
-        var e = Entrega(id: "f-\(f.id)", agentID: f.agentID ?? "", sesionID: f.sessionID,
-                        forma: forma, titulo: f.titulo ?? f.nombre, recibida: f.creado ?? Date(),
-                        bytesRemotos: f.bytes, remotoID: f.id)
+        var e = Delivery(id: "f-\(f.id)", agentID: f.agentID ?? "", sessionID: f.sessionID,
+                        forma: forma, title: f.titulo ?? f.nombre, receivedAt: f.creado ?? Date(),
+                        bytesRemotos: f.bytes, remoteID: f.id)
         e.origen = f.origen
         if f.mime != "application/octet-stream" { e.mime = f.mime }
         return e
@@ -130,7 +130,9 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// conversación (`MensajeGuardado.entrega`), y si sólo uno de los dos escribiera los
     /// bytes, la foto volvería a desaparecer al recargar el hilo.
     enum CodingKeys: String, CodingKey {
-        case id, agentID, sesionID, forma, titulo, recibida, contenido, url, bytesRemotos, remotoID, origen
+        case id, agentID, forma, contenido, url, bytesRemotos, origen
+        // Las llaves del JSON guardado no cambian aunque cambie el nombre de la propiedad.
+        case receivedAt = "recibida", remoteID = "remotoID", sessionID = "sesionID", title = "titulo"
         case onda, segundosDeVoz
     }
 
@@ -138,14 +140,14 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         agentID = try c.decode(String.self, forKey: .agentID)
-        sesionID = try c.decodeIfPresent(String.self, forKey: .sesionID)
+        sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
         forma = try c.decode(Forma.self, forKey: .forma)
-        titulo = try c.decode(String.self, forKey: .titulo)
-        recibida = try c.decode(Date.self, forKey: .recibida)
+        title = try c.decode(String.self, forKey: .title)
+        receivedAt = try c.decode(Date.self, forKey: .receivedAt)
         contenido = try c.decodeIfPresent(String.self, forKey: .contenido)
         url = try c.decodeIfPresent(String.self, forKey: .url)
         bytesRemotos = try c.decodeIfPresent(Int.self, forKey: .bytesRemotos)
-        remotoID = try c.decodeIfPresent(String.self, forKey: .remotoID)
+        remoteID = try c.decodeIfPresent(String.self, forKey: .remoteID)
         origen = try c.decodeIfPresent(String.self, forKey: .origen)
         onda = try c.decodeIfPresent([Float].self, forKey: .onda)
         segundosDeVoz = try c.decodeIfPresent(Double.self, forKey: .segundosDeVoz)
@@ -169,20 +171,20 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(agentID, forKey: .agentID)
-        try c.encodeIfPresent(sesionID, forKey: .sesionID)
+        try c.encodeIfPresent(sessionID, forKey: .sessionID)
         try c.encode(forma, forKey: .forma)
-        try c.encode(titulo, forKey: .titulo)
-        try c.encode(recibida, forKey: .recibida)
+        try c.encode(title, forKey: .title)
+        try c.encode(receivedAt, forKey: .receivedAt)
         try c.encodeIfPresent(contenido, forKey: .contenido)
         try c.encodeIfPresent(url, forKey: .url)
         try c.encodeIfPresent(bytesRemotos, forKey: .bytesRemotos)
-        try c.encodeIfPresent(remotoID, forKey: .remotoID)
+        try c.encodeIfPresent(remoteID, forKey: .remoteID)
         try c.encodeIfPresent(origen, forKey: .origen)
         try c.encodeIfPresent(onda, forKey: .onda)
         try c.encodeIfPresent(segundosDeVoz, forKey: .segundosDeVoz)
     }
 
-    var etiqueta: String {
+    var label: String {
         switch forma {
         case .archivo:  "Archivo"
         case .doc:      "Documento"
@@ -219,8 +221,8 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
 
     var tipo: String? {
         if let mime, let ext = Self.extension(porMime: mime) { return ext }
-        if let punto = titulo.lastIndex(of: "."), punto != titulo.startIndex {
-            let ext = String(titulo[titulo.index(after: punto)...]).lowercased()
+        if let punto = title.lastIndex(of: "."), punto != title.startIndex {
+            let ext = String(title[title.index(after: punto)...]).lowercased()
             if !ext.isEmpty, ext.count <= 5 { return ext }
         }
         switch forma {
@@ -276,11 +278,11 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
     /// lo necesitan la tarjeta, el visor de imagen y el reproductor — cuando cada uno se
     /// lo montaba por su cuenta, acertaba o fallaba por su cuenta.
     /// ¿Hay que bajarlo antes de poder hacer nada con él?
-    var hayQueBajar: Bool { datos == nil && contenido == nil && (url != nil || remotoID != nil) }
+    var hayQueBajar: Bool { datos == nil && contenido == nil && (url != nil || remoteID != nil) }
 
     func aDisco() -> URL? {
         let base = FileManager.default.temporaryDirectory
-        let limpio = titulo.replacingOccurrences(of: "/", with: "-")
+        let limpio = title.replacingOccurrences(of: "/", with: "-")
         let ext = tipo ?? ""
         let nombre = ext.isEmpty || limpio.lowercased().hasSuffix(".\(ext)")
             ? limpio : "\(limpio).\(ext)"
@@ -358,7 +360,7 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
         return ["md", "csv", "html", "txt", "json", "yaml", "yml", "log", "xml"].contains(t)
     }
 
-    var icono: String {
+    var icon: String {
         switch forma {
         case .doc:      return "doc.text"
         case .sheet:    return "tablecells"
@@ -393,8 +395,8 @@ struct Entrega: Identifiable, Codable, Equatable, Sendable {
 /// no son secreto, y así sobreviven a que alguien borre la credencial.
 @Observable
 @MainActor
-final class EntregasStore {
-    private(set) var entregas: [Entrega] = []
+final class DeliveryStore {
+    private(set) var deliveries: [Delivery] = []
     /// ⚠️ Era 50 porque cada fila llevaba los bytes dentro del JSON. Ahora los bytes
     /// viven en su propio archivo y el índice pesa lo que pesa una ficha, así que caben
     /// muchos más — pero sigue habiendo tope: lo que se sale se BORRA, y borrar en
@@ -411,57 +413,57 @@ final class EntregasStore {
 
     init() { cargar() }
 
-    func registrar(_ e: Entrega) {
+    func record(_ e: Delivery) {
         // ⚠️ La entrega del relé no dice a qué hilo pertenece, así que con varios turnos
         // vivos llega por todos a la vez. Su id es determinista (ver `entregaDesde`), y
         // aquí es donde eso sirve: la misma entrega registrada N veces es UNA fila.
-        guard !entregas.contains(where: { $0.id == e.id }) else { return }
-        entregas.insert(e, at: 0)
-        if entregas.count > tope {
-            for sobrante in entregas.dropFirst(tope) {
-                try? FileManager.default.removeItem(at: Entrega.bytesEnDisco(sobrante.id))
+        guard !deliveries.contains(where: { $0.id == e.id }) else { return }
+        deliveries.insert(e, at: 0)
+        if deliveries.count > tope {
+            for sobrante in deliveries.dropFirst(tope) {
+                try? FileManager.default.removeItem(at: Delivery.bytesEnDisco(sobrante.id))
             }
-            entregas = Array(entregas.prefix(tope))
+            deliveries = Array(deliveries.prefix(tope))
         }
         guardar()
     }
 
-    func de(_ agentID: String?) -> [Entrega] {
-        guard let agentID else { return entregas }
-        return entregas.filter { $0.agentID == agentID }
+    func de(_ agentID: String?) -> [Delivery] {
+        guard let agentID else { return deliveries }
+        return deliveries.filter { $0.agentID == agentID }
     }
 
     /// Lo entregado EN una conversación, en el orden en que llegó. Es lo que devuelve las
     /// tarjetas al hilo cuando se recarga desde la caja.
     /// ⚠️ Por agente Y sesión: el id de sesión lo pone la caja y se repite entre agentes.
-    func deSesion(_ sesionID: String, de agentID: String) -> [Entrega] {
-        entregas.filter { $0.sesionID == sesionID && $0.agentID == agentID }.sorted { $0.recibida < $1.recibida }
+    func forSession(_ sesionID: String, agent agentID: String) -> [Delivery] {
+        deliveries.filter { $0.sessionID == sesionID && $0.agentID == agentID }.sorted { $0.receivedAt < $1.receivedAt }
     }
 
     /// Borra UNA. Vive sólo en el teléfono, así que esto no puede dejar nada huérfano en
     /// ningún sitio — es el único borrado que hoy se puede hacer sin preguntarle a nadie.
     func olvidar(_ id: String) {
-        entregas.removeAll { $0.id == id }
-        try? FileManager.default.removeItem(at: Entrega.bytesEnDisco(id))
+        deliveries.removeAll { $0.id == id }
+        try? FileManager.default.removeItem(at: Delivery.bytesEnDisco(id))
         guardar()
     }
 
     func limpiar() {
-        entregas = []
+        deliveries = []
         try? FileManager.default.removeItem(at: archivo)
-        try? FileManager.default.removeItem(at: Entrega.almacen)
+        try? FileManager.default.removeItem(at: Delivery.almacen)
     }
 
     // MARK: - Disco
 
     private func cargar() {
         guard let d = try? Data(contentsOf: archivo),
-              let l = try? JSONDecoder().decode([Entrega].self, from: d) else { return }
-        entregas = l
+              let l = try? JSONDecoder().decode([Delivery].self, from: d) else { return }
+        deliveries = l
     }
 
     private func guardar() {
-        guard let d = try? JSONEncoder().encode(entregas) else { return }
+        guard let d = try? JSONEncoder().encode(deliveries) else { return }
         try? d.write(to: archivo, options: .atomic)
     }
 }

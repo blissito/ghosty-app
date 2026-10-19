@@ -235,10 +235,10 @@ extension ClienteGSAGUITests {
         XCTAssertEqual(tools.last?.titulo, "Leyendo notas.md")
         XCTAssertEqual(tools.last?.clase, .read)
         XCTAssertEqual(tools.last?.estado, .hecha)
-        let entregas = r.eventos.compactMap { if case .entrega(let e) = $0 { return e } else { return nil } }
-        XCTAssertEqual(entregas.first?.id, "f-f9")
-        XCTAssertEqual(entregas.first?.url, "https://x.test/f9")
-        XCTAssertEqual(entregas.first?.bytesRemotos, 1234)
+        let deliveries = r.eventos.compactMap { if case .entrega(let e) = $0 { return e } else { return nil } }
+        XCTAssertEqual(deliveries.first?.id, "f-f9")
+        XCTAssertEqual(deliveries.first?.url, "https://x.test/f9")
+        XCTAssertEqual(deliveries.first?.bytesRemotos, 1234)
         XCTAssertTrue(r.eventos.contains { if case .usage(10, 5) = $0 { return true } else { return false } })
         XCTAssertTrue(r.eventos.contains { if case .reemplazo("Listo, corregido.") = $0 { return true } else { return false } })
         let fases = await senales.fases

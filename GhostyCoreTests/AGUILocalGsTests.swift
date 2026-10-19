@@ -65,7 +65,7 @@ final class AGUILocalGsTests: XCTestCase {
         let (c, t) = correr(cl.prompt(sessionID: sids[3], texto: "mándame un archivo", adjuntos: [], turnId: UUID().uuidString.lowercased()))
         await esperar(c); defer { t.cancel() }
         let e = await c.eventos.compactMap { if case .entrega(let e) = $0 { return e } else { return nil } }
-        print("GSL D entregas=\(e.map { "\($0.titulo)/\($0.forma)/\($0.remotoID ?? "-")" })")
+        print("GSL D entregas=\(e.map { "\($0.titulo)/\($0.forma)/\($0.remoteID ?? "-")" })")
         XCTAssertFalse(e.isEmpty)
     }
 

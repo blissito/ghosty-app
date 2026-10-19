@@ -15,24 +15,24 @@ enum ACPClient {
         var messageCount: Int?
         /// Cómo acabó el último turno, según el SERVIDOR. Es lo que hace de la lista un
         /// buzón aunque la respuesta llegara con la app cerrada.
-        var ultimoTurno: UltimoTurno?
+        var lastTurn: LastTurn?
         /// Lo que esta conversación te está pidiendo ahora mismo, si algo.
         ///
         /// ⚠️ Es ESTADO de un turno vivo, no historial: sale de la memoria de gs, no de
         /// `TurnRecord`. Existe para que un permiso pedido desde otra superficie se vea en
         /// la lista; antes sólo salía por el SSE de esa conversación y había que abrir el
         /// hilo para enterarse de que el agente llevaba rato detenido esperándote.
-        var permisoPendiente: String?
+        var pendingPermission: String?
     }
 
-    struct UltimoTurno: Sendable, Equatable {
+    struct LastTurn: Sendable, Equatable {
         let turnId: String
         /// "running" | "queued" | "done" | "stopped" | "error"
         let estado: String
         let error: String?
-        let terminado: Date?
+        let finishedAt: Date?
         /// Cuándo arrancó. Es lo que deja caducar un `running` que nadie confirma.
-        let iniciado: Date?
+        let startedAt: Date?
 
         /// Cuánto le creemos a un turno que dice que sigue.
         ///
@@ -44,14 +44,14 @@ enum ACPClient {
 
         /// El servidor dice que sigue **y** la fecha lo respalda.
         ///
-        /// ⚠️ Sin `iniciado` devuelve `false` a propósito: un servidor que no manda la
+        /// ⚠️ Sin `startedAt` devuelve `false` a propósito: un servidor que no manda la
         /// fecha no nos autoriza a inventar que hay trabajo en curso.
-        var sigueVivo: Bool {
-            guard ["running", "queued"].contains(estado), let i = iniciado else { return false }
+        var isAlive: Bool {
+            guard ["running", "queued"].contains(estado), let i = startedAt else { return false }
             return i > Date().addingTimeInterval(-Self.frescura)
         }
 
-        static func desde(_ d: Any?) -> UltimoTurno? {
+        static func desde(_ d: Any?) -> LastTurn? {
             guard let d = d as? [String: Any], let id = d["turnId"] as? String,
                   let estado = d["state"] as? String else { return nil }
             let iso = ISO8601DateFormatter()
@@ -60,8 +60,8 @@ enum ACPClient {
             func fecha(_ clave: String) -> Date? {
                 (d[clave] as? String).flatMap { iso.date(from: $0) ?? iso2.date(from: $0) }
             }
-            return UltimoTurno(turnId: id, estado: estado, error: d["error"] as? String,
-                               terminado: fecha("endedAt"), iniciado: fecha("startedAt"))
+            return LastTurn(turnId: id, estado: estado, error: d["error"] as? String,
+                               finishedAt: fecha("endedAt"), startedAt: fecha("startedAt"))
         }
     }
 
@@ -115,7 +115,7 @@ enum ACPClient {
         /// ACP manda `tool_call` al crearla y `tool_call_update` cada vez que avanza.
         case tool(Herramienta)
         /// El agente entregó algo: un archivo suyo o un artefacto que escribió.
-        case entrega(Entrega)
+        case entrega(Delivery)
         /// Lo que costó el turno. Llega UNA vez, al cerrar.
         ///
         /// ⚠️ Sale de la RESPUESTA de `session/prompt`, no de una notificación: el agente
@@ -222,7 +222,7 @@ enum ACPClient {
     /// ⚠️ Un `subtipo` que no reconozcamos NO se descarta: entra como página. Tirar una
     /// entrega porque el nombre de su forma es nuevo la haría desaparecer sin dejar
     /// rastro, y el agente ya le dijo al usuario que se la entregó.
-    nonisolated static func entregaDesde(_ p: [String: Any], agentID: String) -> Entrega? {
+    nonisolated static func entregaDesde(_ p: [String: Any], agentID: String) -> Delivery? {
         // ⚠️ El id es DETERMINISTA, no un `UUID()` nuevo. La entrega del relé no trae
         // `sessionId`, así que con varios turnos vivos se reparte a todos los flujos, y
         // cada uno la registraba: la misma entrega tres veces en Artefactos, y en disco.
@@ -234,26 +234,26 @@ enum ACPClient {
             .compactMap { $0 }.joined(separator: "|")
         // Si gs ya la guardó en los archivos de la cuenta, el id es el SUYO: así la que
         // llega en vivo y la que vuelve del servidor al recargar son la misma fila.
-        let remotoID = p["fileId"] as? String
-        let id = remotoID.map { "f-\($0)" } ?? "e" + Self.huellaEstable(huella)
+        let remoteID = p["fileId"] as? String
+        let id = remoteID.map { "f-\($0)" } ?? "e" + Self.huellaEstable(huella)
         switch p["tipo"] as? String {
         case "archivo":
             let nombre = (p["nombre"] as? String) ?? "Archivo"
             let datos = (p["contenidoBase64"] as? String).flatMap { Data(base64Encoded: $0) }
-            return Entrega(id: id, agentID: agentID, forma: .archivo, titulo: nombre,
-                           recibida: Date(), contenido: nil, datos: datos, remotoID: remotoID)
+            return Delivery(id: id, agentID: agentID, forma: .archivo, title: nombre,
+                           receivedAt: Date(), contenido: nil, datos: datos, remoteID: remoteID)
         case "artefacto":
-            let forma: Entrega.Forma
+            let forma: Delivery.Forma
             switch p["subtipo"] as? String {
             case "doc":   forma = .doc
             case "sheet": forma = .sheet
             default:      forma = .artifact
             }
-            return Entrega(id: id, agentID: agentID, forma: forma,
-                           titulo: (p["titulo"] as? String) ?? "Sin título",
-                           recibida: Date(),
+            return Delivery(id: id, agentID: agentID, forma: forma,
+                           title: (p["titulo"] as? String) ?? "Sin título",
+                           receivedAt: Date(),
                            contenido: (p["contenido"] as? String) ?? "", datos: nil,
-                           remotoID: remotoID)
+                           remoteID: remoteID)
         default:
             return nil
         }

@@ -173,7 +173,7 @@ private struct CuadroDeAdjuntoDeVideo: View {
             .clipShape(forma)
             .accessibilityLabel("Video \(adjunto.nombre)")
             .task(id: adjunto.remoto?.id ?? adjunto.id) {
-                cuadro = await CuadroDeVideo.de(id: adjunto.remoto?.id ?? adjunto.id, remotoID: adjunto.remoto?.id,
+                cuadro = await CuadroDeVideo.de(id: adjunto.remoto?.id ?? adjunto.id, remoteID: adjunto.remoto?.id,
                                                 url: adjunto.remoto?.url.isEmpty == false ? adjunto.remoto?.url : nil,
                                                 datos: adjunto.datos, mime: adjunto.mime)
             }

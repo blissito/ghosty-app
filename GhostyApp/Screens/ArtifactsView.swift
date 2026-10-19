@@ -40,7 +40,7 @@ struct ArtifactsView: View {
             case .audio: "Audio"
             }
         }
-        static func de(_ e: Entrega) -> Pestana {
+        static func de(_ e: Delivery) -> Pestana {
             switch e.categoria {
             case .imagen, .video: .multimedia
             case .audio: .audio
@@ -57,7 +57,7 @@ struct ArtifactsView: View {
     /// La fila de documento abierta: enseña su vista previa (`EntregaCard`).
     @State private var abierta: String?
     /// El video que se está mirando (hoja con su reproductor).
-    @State private var mirandoVideo: Entrega?
+    @State private var mirandoVideo: Delivery?
     /// El archivo que se está bajando para «Descargar o compartir» (su id).
     @State private var preparando: String?
     /// Ya bajado y en disco: la hoja de compartir del sistema (Guardar en Archivos/Fotos).
@@ -70,34 +70,34 @@ struct ArtifactsView: View {
     /// Todo lo de la cuenta menos TUS notas de voz: ésas son la conversación, no archivos.
     /// Nota tuya = audio que no entregó un agente y trae duración o se llama «nota-de-voz…»
     /// (las que sube iOS no traen `meta.segundos`). La misma regla que Android.
-    private var archivos: [Entrega] {
+    private var archivos: [Delivery] {
         store.artifactsList(for: store.selectedAgentID).filter { e in
-            guard e.categoria == .audio, !e.generada else { return true }
-            let n = e.titulo.lowercased()
+            guard e.categoria == .audio, !e.isGenerated else { return true }
+            let n = e.title.lowercased()
             return !(e.segundosDeVoz != nil || n.hasPrefix("nota-de-voz") || n.hasPrefix("nota de voz"))
         }
-        .sorted { $0.recibida > $1.recibida }
+        .sorted { $0.receivedAt > $1.receivedAt }
     }
 
     /// De qué agente es: el que dice gs o, si no, el dueño de la conversación donde nació.
-    private func agenteDe(_ e: Entrega) -> String? {
+    private func agenteDe(_ e: Delivery) -> String? {
         if !e.agentID.isEmpty { return e.agentID }
-        guard let sid = e.sesionID else { return nil }
-        return store.canales.first { _, c in
-            c.hilosRemotos.contains { $0.id == sid } || c.hilos.contains { $0.sesionID == sid }
+        guard let sid = e.sessionID else { return nil }
+        return store.channels.first { _, c in
+            c.remoteSessions.contains { $0.id == sid } || c.threads.contains { $0.sesionID == sid }
         }?.key
     }
 
     /// De dónde salió, para nombrarlo: «Ghosty · Cotización de lonas». Sin conversación
     /// conocida, sólo el agente; sin nada, `nil`.
-    private func procedencia(_ e: Entrega) -> String? {
+    private func procedencia(_ e: Delivery) -> String? {
         let agente = agenteDe(e)
         let nombre = agente.flatMap { id in store.agents.first { $0.id == id }?.name }
         var chat: String?
-        if let a = agente, let sid = e.sesionID {
-            let canal = store.canales[a]
+        if let a = agente, let sid = e.sessionID {
+            let canal = store.channels[a]
             if let t = TitleStore.compartido.titulo(a, sid) { chat = t }
-            else if let s = canal?.hilosRemotos.first(where: { $0.id == sid }), !TitleStore.isGeneric(s.title) { chat = s.title }
+            else if let s = canal?.remoteSessions.first(where: { $0.id == sid }), !TitleStore.isGeneric(s.title) { chat = s.title }
             else if let h = canal?.hilo(sesion: sid), h.titulo != "Conversación nueva" { chat = h.titulo }
         }
         let partes = [nombre, chat?.trimmingCharacters(in: .whitespacesAndNewlines)].compactMap { $0 }.filter { !$0.isEmpty }
@@ -105,29 +105,29 @@ struct ArtifactsView: View {
     }
 
     /// «Abrir el chat»: la conversación donde nació, como si tocaras su aviso.
-    private func abrirChat(_ e: Entrega) -> (() -> Void)? {
-        guard let sid = e.sesionID, let a = agenteDe(e), store.canales[a] != nil else { return nil }
-        return { store.irA(agente: a, sesion: sid) }
+    private func abrirChat(_ e: Delivery) -> (() -> Void)? {
+        guard let sid = e.sessionID, let a = agenteDe(e), store.channels[a] != nil else { return nil }
+        return { store.open(agent: a, session: sid) }
     }
 
     /// «Descargar o compartir»: baja los bytes (con firma fresca si es de la cuenta), los
     /// deja en disco con su extensión y abre la hoja del sistema. Con la extensión real, la
     /// hoja ofrece «Guardar imagen/video» además de «Guardar en Archivos».
-    private func compartir(_ e: Entrega) {
+    private func compartir(_ e: Delivery) {
         guard preparando == nil else { return }
         preparando = e.id
         falloAlCompartir = nil
         Task {
             var c = e
             if c.hayQueBajar {
-                if let id = c.remotoID { c.datos = try? await GhostyAPI.bajar(id) }
+                if let id = c.remoteID { c.datos = try? await GhostyAPI.bajar(id) }
                 else if let s = c.url, let u = URL(string: s) { c.datos = await Descargas.bytes(u) }
             }
             preparando = nil
             // ⚠️ Sin bytes, `aDisco` escribiría un archivo VACÍO y la hoja lo compartiría
             // como si nada: se dice que no se pudo.
             guard !c.hayQueBajar, let url = c.aDisco() else {
-                falloAlCompartir = "No pude bajar «\(e.titulo)». Revisa tu conexión e inténtalo otra vez."
+                falloAlCompartir = "No pude bajar «\(e.title)». Revisa tu conexión e inténtalo otra vez."
                 return
             }
             paraCompartir = ArchivoParaCompartir(url: url)
@@ -135,11 +135,11 @@ struct ArtifactsView: View {
     }
 
     /// Mantener pulsado cualquier archivo: abrir su chat, usarlo en otro, bajarlo o borrarlo.
-    private func acciones(_ e: Entrega) -> AccionesDeArchivo {
-        AccionesDeArchivo(titulo: e.titulo,
+    private func acciones(_ e: Delivery) -> AccionesDeArchivo {
+        AccionesDeArchivo(titulo: e.title,
                           consecuencia: Self.consecuencia(e),
                           abrirChat: abrirChat(e),
-                          usarEnChat: e.remotoID != nil ? { store.enviarAUnChat(e) } : nil,
+                          usarEnChat: e.remoteID != nil ? { store.enviarAUnChat(e) } : nil,
                           compartir: { compartir(e) },
                           alBorrar: { Task { await store.deleteAccountFile(e) } })
     }
@@ -288,7 +288,7 @@ struct ArtifactsView: View {
         if let id = preparando {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Bajando «\(archivos.first { $0.id == id }?.titulo ?? "archivo")»…").gMeta()
+                Text("Bajando «\(archivos.first { $0.id == id }?.title ?? "archivo")»…").gMeta()
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 0)
             }
@@ -336,12 +336,12 @@ struct ArtifactsView: View {
         }
     }
 
-    private func porOrigen(_ todo: [Entrega]) -> [Entrega] {
+    private func porOrigen(_ todo: [Delivery]) -> [Delivery] {
         todo.filter { e in
             switch filtro {
             case .todos: true
-            case .generados: e.generada
-            case .subidos: !e.generada
+            case .generados: e.isGenerated
+            case .subidos: !e.isGenerated
             }
         }
     }
@@ -350,7 +350,7 @@ struct ArtifactsView: View {
 
     /// Agrupada por mes («Este mes», «Agosto 2026»), como la galería de WhatsApp.
     @ViewBuilder
-    private func lista(_ visibles: [Entrega], pestana: Pestana, hayAlgo: Bool) -> some View {
+    private func lista(_ visibles: [Delivery], pestana: Pestana, hayAlgo: Bool) -> some View {
         if archivos.isEmpty, store.accountFilesEsperando, !DemoData.encendido {
             // Sólo la primera vez, sin nada en disco: con caché la lista sale al instante.
             ProgressView()
@@ -374,16 +374,16 @@ struct ArtifactsView: View {
                     switch pestana {
                     case .multimedia:
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
-                            ForEach(mes.entregas) { e in cuadro(e) }
+                            ForEach(mes.deliveries) { e in cuadro(e) }
                         }
                     case .documentos:
-                        ForEach(mes.entregas) { e in
-                            filaDeDocumento(e).overlay(alignment: .bottom) { if e.id != mes.entregas.last?.id { divisor } }
+                        ForEach(mes.deliveries) { e in
+                            filaDeDocumento(e).overlay(alignment: .bottom) { if e.id != mes.deliveries.last?.id { divisor } }
                         }
                     case .audio:
-                        ForEach(mes.entregas) { e in
+                        ForEach(mes.deliveries) { e in
                             filaDeAudio(e).overlay(alignment: .bottom) {
-                                if e.id != mes.entregas.last?.id {
+                                if e.id != mes.deliveries.last?.id {
                                     Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 62)
                                 }
                             }
@@ -402,16 +402,16 @@ struct ArtifactsView: View {
         Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 72)
     }
 
-    static func porMes(_ entregas: [Entrega], ahora: Date = Date()) -> [(titulo: String, entregas: [Entrega])] {
+    static func porMes(_ deliveries: [Delivery], ahora: Date = Date()) -> [(titulo: String, deliveries: [Delivery])] {
         let cal = Calendar.current
         let f = DateFormatter()
         f.locale = Locale(identifier: "es_MX")
         f.dateFormat = "MMMM yyyy"
         var orden: [String] = []
-        var grupos: [String: [Entrega]] = [:]
-        for e in entregas {
-            let t = cal.isDate(e.recibida, equalTo: ahora, toGranularity: .month)
-                ? "Este mes" : f.string(from: e.recibida).capitalized(with: Locale(identifier: "es_MX"))
+        var grupos: [String: [Delivery]] = [:]
+        for e in deliveries {
+            let t = cal.isDate(e.receivedAt, equalTo: ahora, toGranularity: .month)
+                ? "Este mes" : f.string(from: e.receivedAt).capitalized(with: Locale(identifier: "es_MX"))
             if grupos[t] == nil { orden.append(t) }
             grupos[t, default: []].append(e)
         }
@@ -421,17 +421,17 @@ struct ArtifactsView: View {
     /// Cuadro de la cuadrícula: la foto recortada (abre el visor) o el video con su ▶, y
     /// abajo una franja sólida con el nombre y de dónde salió (sin degradado: se lee igual
     /// sobre una foto clara que sobre una oscura).
-    private func cuadro(_ e: Entrega) -> some View {
+    private func cuadro(_ e: Delivery) -> some View {
         MiniaturaDeEntrega(entrega: e) { img in
             // Foto: el visor sólo si ya cargó (un toque temprano no hace nada). Video: dentro
             // de la app, a pantalla completa.
             if e.categoria == .video { mirandoVideo = e }
-            else if let img { visor?.abrir(img, titulo: e.titulo) }
+            else if let img { visor?.abrir(img, titulo: e.title) }
         }
         .aspectRatio(1, contentMode: .fit)
         .overlay(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(e.titulo)
+                Text(e.title)
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -456,7 +456,7 @@ struct ArtifactsView: View {
 
     /// Renglón de documento: insignia de color con la sigla, nombre y «Generado · 84 KB · 12 sep».
     /// Tocar abre su vista previa (la tarjeta de siempre: tocarla lo abre en el visor).
-    private func filaDeDocumento(_ e: Entrega) -> some View {
+    private func filaDeDocumento(_ e: Delivery) -> some View {
         let abiertaAhora = abierta == e.id
         return VStack(spacing: 0) {
             Button {
@@ -465,7 +465,7 @@ struct ArtifactsView: View {
                 HStack(spacing: 14) {
                     InsigniaDeGaleria(ext: Self.etiqueta(e))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(e.titulo)
+                        Text(e.title)
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(Color.gInk)
                             .lineLimit(1)
@@ -476,7 +476,7 @@ struct ArtifactsView: View {
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    if e.remotoID != nil { Color.clear.frame(width: 32, height: 1) }
+                    if e.remoteID != nil { Color.clear.frame(width: 32, height: 1) }
                 }
                 .padding(.vertical, 12)
                 .padding(.horizontal, Theme.Space.screenH)
@@ -486,7 +486,7 @@ struct ArtifactsView: View {
             .accessibilityIdentifier("archivo-\(e.id)")
             // «Enviar a un chat»: al compositor del chat que elijas, por id y sin re-subir.
             .overlay(alignment: .trailing) {
-                if e.remotoID != nil {
+                if e.remoteID != nil {
                     Button { store.enviarAUnChat(e) } label: {
                         Image(systemName: "paperplane")
                             .font(.system(size: 17, weight: .medium))
@@ -513,7 +513,7 @@ struct ArtifactsView: View {
 
     /// Renglón de audio como una nota de WhatsApp: [micrófono] [▶] [onda] [duración] y
     /// debajo, alineada con el play, «nombre · Generado · tamaño · fecha».
-    private func filaDeAudio(_ e: Entrega) -> some View {
+    private func filaDeAudio(_ e: Delivery) -> some View {
         FilaDeAudio(entrega: e, detalle: Self.meta(e, de: procedencia(e)))
             .padding(.horizontal, Theme.Space.screenH - 4)
             .padding(.vertical, 8)
@@ -521,8 +521,8 @@ struct ArtifactsView: View {
             .modifier(acciones(e))
     }
 
-    private static func consecuencia(_ e: Entrega) -> String {
-        e.remotoID != nil
+    private static func consecuencia(_ e: Delivery) -> String {
+        e.remoteID != nil
             ? "Se borra de tu cuenta: deja de verse en el teléfono, la Mac y la web."
             : "Se quita de aquí y de la conversación donde te la entregó. Vive sólo en este teléfono."
     }
@@ -620,12 +620,12 @@ struct ArtifactsView: View {
     // MARK: - Formato
 
     /// La insignia: PDF, XLS, IMG o el sufijo del archivo.
-    static func etiqueta(_ e: Entrega) -> String {
+    static func etiqueta(_ e: Delivery) -> String {
         etiqueta(ext: e.tipo ?? "")
     }
 
     static func etiqueta(mime: String?, nombre: String) -> String {
-        if let mime, let ext = Entrega.`extension`(porMime: mime) { return etiqueta(ext: ext) }
+        if let mime, let ext = Delivery.`extension`(porMime: mime) { return etiqueta(ext: ext) }
         if mime?.hasPrefix("image/") == true { return "IMG" }
         let ext = nombre.split(separator: ".").count > 1 ? String(nombre.split(separator: ".").last!) : ""
         return etiqueta(ext: ext)
@@ -642,11 +642,11 @@ struct ArtifactsView: View {
     }
 
     /// «Generado · 84 KB · 12 sep · Ghosty · Cotización», con de dónde salió al final.
-    static func meta(_ e: Entrega, de procedencia: String? = nil) -> String {
-        var partes = [e.generada ? "Generado" : "Subido"]
+    static func meta(_ e: Delivery, de procedencia: String? = nil) -> String {
+        var partes = [e.isGenerated ? "Generado" : "Subido"]
         if let peso = e.peso { partes.append(peso) }
         let es = Locale(identifier: "es_MX")
-        partes.append(e.recibida.formatted(.dateTime.day().month(.abbreviated).locale(es)).replacingOccurrences(of: ".", with: ""))
+        partes.append(e.receivedAt.formatted(.dateTime.day().month(.abbreviated).locale(es)).replacingOccurrences(of: ".", with: ""))
         if let procedencia { partes.append(procedencia) }
         return partes.joined(separator: " · ")
     }
@@ -759,13 +759,13 @@ struct InsigniaDeGaleria: View {
 /// Un cuadro de la cuadrícula de Multimedia: la foto recortada, o el video con su ▶.
 /// Baja los bytes al aparecer y los guarda en `MiniaturasEnMemoria`.
 struct MiniaturaDeEntrega: View {
-    let entrega: Entrega
+    let entrega: Delivery
     /// Tocar: con la imagen si la hay (abre el visor); `nil` si es un video.
     var alTocar: (UIImage?) -> Void
 
     @State private var imagen: UIImage?
 
-    private var clave: String { "entrega:" + (entrega.remotoID ?? entrega.id) }
+    private var clave: String { "entrega:" + (entrega.remoteID ?? entrega.id) }
 
     var body: some View {
         Color.gFill
@@ -799,7 +799,7 @@ struct MiniaturaDeEntrega: View {
         if entrega.categoria == .video { await cargarCuadroDeVideo(); return }
         guard entrega.categoria == .imagen else { return }
         var d = entrega.datos
-        if d == nil, let id = entrega.remotoID { d = try? await GhostyAPI.bajar(id) }
+        if d == nil, let id = entrega.remoteID { d = try? await GhostyAPI.bajar(id) }
         if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
         guard let d, let img = UIImage(data: d) else { return }
         MiniaturasEnMemoria.guardar(img, clave: clave)
@@ -808,7 +808,7 @@ struct MiniaturaDeEntrega: View {
 
     /// El cuadro del video, de `CuadroDeVideo` (lo comparte con «Mis archivos» y el chat).
     private func cargarCuadroDeVideo() async {
-        guard let img = await CuadroDeVideo.de(id: entrega.remotoID ?? entrega.id, remotoID: entrega.remotoID,
+        guard let img = await CuadroDeVideo.de(id: entrega.remoteID ?? entrega.id, remoteID: entrega.remoteID,
                                                url: entrega.url, datos: entrega.datos, mime: entrega.mime) else { return }
         MiniaturasEnMemoria.guardar(img, clave: clave)
         imagen = img
@@ -818,23 +818,23 @@ struct MiniaturaDeEntrega: View {
 /// Un audio de Archivos. La duración no viene en `/me/files`: se lee del archivo UNA vez
 /// (AVURLAsset sobre la URL firmada) y se guarda por id; mientras no se sabe, va vacía.
 struct FilaDeAudio: View {
-    let entrega: Entrega
+    let entrega: Delivery
     let detalle: String
     @State private var segundos: Double = 0
 
-    private var id: String { entrega.remotoID ?? entrega.id }
+    private var id: String { entrega.remoteID ?? entrega.id }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             BurbujaDeVoz(id: id, lado: .agente, segundos: segundos, onda: entrega.onda ?? [], tiempoAlFinal: true) {
                 if let d = entrega.datos { return d }
                 var d: Data?
-                if let rid = entrega.remotoID { d = try? await GhostyAPI.bajar(rid) }
+                if let rid = entrega.remoteID { d = try? await GhostyAPI.bajar(rid) }
                 if d == nil, let s = entrega.url, let u = URL(string: s) { d = await Descargas.bytes(u) }
                 guard let d else { throw GhostyAPI.Fallo.mensaje("Ese audio ya no está.") }
                 return d
             }
-            Text("\(entrega.titulo) · \(detalle)")
+            Text("\(entrega.title) · \(detalle)")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.gInk3)
                 .lineLimit(1)
@@ -849,7 +849,7 @@ struct FilaDeAudio: View {
         if let s = entrega.segundosDeVoz, s > 0 { segundos = s; return }
         if let s = DuracionesDeAudio.de(id) { segundos = s; return }
         var url: URL?
-        if let rid = entrega.remotoID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
+        if let rid = entrega.remoteID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
         if url == nil, let s = entrega.url { url = URL(string: s) }
         guard let url, let d = try? await AVURLAsset(url: url).load(.duration) else { return }
         let s = CMTimeGetSeconds(d)
@@ -876,7 +876,7 @@ enum DuracionesDeAudio {
 /// Un video de Archivos a pantalla completa: fondo negro, el reproductor del sistema y una
 /// X blanca arriba a la izquierda, como Android.
 struct VideoAPantallaCompleta: View {
-    let entrega: Entrega
+    let entrega: Delivery
     @Environment(\.dismiss) private var cerrar
     @State private var player: AVPlayer?
     @State private var fallo: String?
@@ -904,7 +904,7 @@ struct VideoAPantallaCompleta: View {
         }
         .task {
             var url: URL?
-            if let rid = entrega.remotoID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
+            if let rid = entrega.remoteID, let s = try? await GhostyAPI.urlDe(rid) { url = URL(string: s) }
             if url == nil, let s = entrega.url { url = URL(string: s) }
             if let url {
                 try? AVAudioSession.sharedInstance().setCategory(.playback)

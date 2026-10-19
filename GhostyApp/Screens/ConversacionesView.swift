@@ -29,6 +29,8 @@ struct ChatsView: View {
     /// ¿Ya se fue el título grande hacia arriba? Entonces sale el chico en la barra.
     @State private var tituloArriba = false
     @State private var nueva = false
+    /// La hoja «Actividad» (la campanita).
+    @State private var showActivity = false
     /// El ⋯: menú propio (tarjeta blanca, radio 18, borde fino), no el nativo.
     @State private var menuAbierto = false
     /// Modo selección de WhatsApp: mantener presionada una fila o «Seleccionar chats».
@@ -42,7 +44,7 @@ struct ChatsView: View {
     /// Chats fijados arriba (deslizar a la derecha → Fijar), como WhatsApp.
     @State private var fijadas: Set<String> = ChatsFijados.ids
     /// El chat que se va a archivar (confirmación).
-    @State private var porArchivar: Fila?
+    @State private var porArchivar: ChatRow?
     /// Qué conversación se está renombrando (agente, sesión) y el texto del campo.
     @State private var renombrando: (agente: String, sesion: String)?
     @State private var nombreNuevo = ""
@@ -55,32 +57,32 @@ struct ChatsView: View {
 
     /// Una fila: una conversación abierta en el teléfono o una guardada en la caja.
     /// La usa también «Enviar a un chat» (misma fuente que esta lista).
-    struct Fila: Identifiable {
-        enum Tipo { case abierta(Hilo), guardada(ACPClient.Session) }
-        let tipo: Tipo
-        let agente: Agent
-        let titulo: String
-        let fecha: Date
-        let sesion: String?
-        let previa: VistaPrevia?
+    struct ChatRow: Identifiable {
+        enum Kind { case open(ChatThread), saved(ACPClient.Session) }
+        let kind: Kind
+        let agent: Agent
+        let title: String
+        let date: Date
+        let session: String?
+        let preview: ChatPreview?
         /// Respuestas del agente sin ver. 0 = al día.
-        let pendientes: Int
+        let unreadCount: Int
         var id: String {
-            switch tipo {
-            case .abierta(let h): "h-\(agente.id)-\(h.clave)"
-            case .guardada(let s): "s-\(agente.id)-\(s.id)"
+            switch kind {
+            case .open(let h): "h-\(agent.id)-\(h.clave)"
+            case .saved(let s): "s-\(agent.id)-\(s.id)"
             }
         }
         /// `agente/sesión`: la llave con la que el store esconde lo que se está archivando.
-        var llaveArchivo: String { "\(agente.id)/\(sesion ?? claveLocal)" }
+        var archiveKey: String { "\(agent.id)/\(session ?? localKey)" }
         /// La clave local del hilo, para uno que todavía no tiene sesión en la caja.
-        var claveLocal = ""
+        var localKey = ""
     }
 
     /// Los agentes por último uso: su conversación más reciente o su última actividad.
-    private func agentesOrdenados(_ todas: [Fila]) -> [Agent] {
+    private func agentesOrdenados(_ todas: [ChatRow]) -> [Agent] {
         var ultima: [String: Date] = [:]
-        for f in todas where f.fecha > (ultima[f.agente.id] ?? .distantPast) { ultima[f.agente.id] = f.fecha }
+        for f in todas where f.date > (ultima[f.agent.id] ?? .distantPast) { ultima[f.agent.id] = f.date }
         func cuando(_ a: Agent) -> Date { max(ultima[a.id] ?? .distantPast, a.ultimaActividad ?? .distantPast) }
         return store.agents.sorted { a, b in
             let x = cuando(a), y = cuando(b)
@@ -91,58 +93,58 @@ struct ChatsView: View {
 
     /// TODAS las filas de todos los agentes (sin filtro ni búsqueda): los chips cuentan
     /// sus no leídos de aquí.
-    private var todas: [Fila] { Self.filas(store) }
+    private var todas: [ChatRow] { Self.rows(store) }
 
     /// Las conversaciones de todos los agentes, como las pinta Chats.
-    static func filas(_ store: LiveAgentStore) -> [Fila] {
+    static func rows(_ store: LiveAgentStore) -> [ChatRow] {
         func titulo(_ s: ACPClient.Session, de agente: Agent) -> String {
             if !TitleStore.isGeneric(s.title) { return s.title }
             return store.titulos.titulo(agente.id, s.id) ?? "Conversación sin abrir"
         }
-        var filas: [Fila] = []
+        var rows: [ChatRow] = []
         for agente in store.agents {
-            guard let canal = store.canales[agente.id] else { continue }
-            let remotas = Dictionary(canal.hilosRemotos.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            for h in canal.hilos {
+            guard let canal = store.channels[agente.id] else { continue }
+            let remotas = Dictionary(canal.remoteSessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            for h in canal.threads {
                 // Una conversación nueva sin estrenar no es un chat todavía.
                 if h.sesionID == nil && h.mensajes.isEmpty { continue }
                 let fecha = h.sesionID.flatMap { remotas[$0]?.updatedAt }.map { max($0, h.tocado) } ?? h.tocado
-                let previa = h.mensajes.isEmpty ? store.vistaPrevia(agente.id, h.sesionID) : VistaPrevia.de(h.mensajes)
+                let previa = h.mensajes.isEmpty ? store.preview(agente.id, h.sesionID) : ChatPreview.de(h.mensajes)
                 let sinVer = h.termino != nil && !h.visto
-                filas.append(Fila(tipo: .abierta(h), agente: agente, titulo: h.titulo, fecha: fecha,
-                                  sesion: h.sesionID, previa: previa,
-                                  pendientes: sinVer ? max(1, previa?.respuestas ?? 1) : 0,
-                                  claveLocal: h.clave))
+                rows.append(ChatRow(kind: .open(h), agent: agente, title: h.titulo, date: fecha,
+                                  session: h.sesionID, preview: previa,
+                                  unreadCount: sinVer ? max(1, previa?.replies ?? 1) : 0,
+                                  localKey: h.clave))
             }
-            let abiertas = Set(canal.hilos.compactMap(\.sesionID))
-            for s in canal.hilosRemotos where !abiertas.contains(s.id) {
-                let previa = store.vistaPrevia(agente.id, s.id)
-                let sinVer = store.sinLeer(s, agente: agente.id)
-                filas.append(Fila(tipo: .guardada(s), agente: agente, titulo: titulo(s, de: agente),
-                                  fecha: s.updatedAt ?? .distantPast, sesion: s.id, previa: previa,
-                                  pendientes: sinVer ? max(1, previa?.respuestas ?? 1) : 0))
+            let abiertas = Set(canal.threads.compactMap(\.sesionID))
+            for s in canal.remoteSessions where !abiertas.contains(s.id) {
+                let previa = store.preview(agente.id, s.id)
+                let sinVer = store.isUnread(s, agent: agente.id)
+                rows.append(ChatRow(kind: .saved(s), agent: agente, title: titulo(s, de: agente),
+                                  date: s.updatedAt ?? .distantPast, session: s.id, preview: previa,
+                                  unreadCount: sinVer ? max(1, previa?.replies ?? 1) : 0))
             }
         }
-        return filas.filter { !store.archivando.contains($0.llaveArchivo) }
+        return rows.filter { !store.archivando.contains($0.archiveKey) }
     }
 
-    private func visibles(_ todas: [Fila]) -> [Fila] {
-        var filas = todas
-        if let filtro { filas = filas.filter { $0.agente.id == filtro } }
-        if soloFavoritos { filas = filas.filter { favoritas.contains($0.llaveArchivo) } }
+    private func visibles(_ todas: [ChatRow]) -> [ChatRow] {
+        var rows = todas
+        if let filtro { rows = rows.filter { $0.agent.id == filtro } }
+        if soloFavoritos { rows = rows.filter { favoritas.contains($0.archiveKey) } }
         let q = busqueda.trimmingCharacters(in: .whitespaces)
         if !q.isEmpty {
             let opciones: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
-            filas = filas.filter {
-                $0.titulo.range(of: q, options: opciones) != nil
-                    || $0.agente.name.range(of: q, options: opciones) != nil
-                    || ($0.previa?.texto.range(of: q, options: opciones) != nil)
+            rows = rows.filter {
+                $0.title.range(of: q, options: opciones) != nil
+                    || $0.agent.name.range(of: q, options: opciones) != nil
+                    || ($0.preview?.text.range(of: q, options: opciones) != nil)
             }
         }
-        return filas.sorted { a, b in
-            let fa = fijadas.contains(a.llaveArchivo), fb = fijadas.contains(b.llaveArchivo)
+        return rows.sorted { a, b in
+            let fa = fijadas.contains(a.archiveKey), fb = fijadas.contains(b.archiveKey)
             if fa != fb { return fa }
-            return a.fecha > b.fecha
+            return a.date > b.date
         }
     }
 
@@ -152,7 +154,7 @@ struct ChatsView: View {
 
     var body: some View {
         let todas = todas
-        let filas = visibles(todas)
+        let rows = visibles(todas)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 // Grande a la izquierda; al hacer scroll sube a la barra, al centro (WhatsApp).
@@ -171,7 +173,7 @@ struct ChatsView: View {
                     .padding(.bottom, 10)
                 buscador.padding(.bottom, 12)
                 if variosAgentes { chips(todas, orden: agentesOrdenados(todas)).padding(.bottom, 8) }
-                lista(filas)
+                lista(rows)
             }
             .padding(.horizontal, Theme.Space.screenH)
             .padding(.top, 6)
@@ -184,11 +186,11 @@ struct ChatsView: View {
             if arriba != tituloArriba { withAnimation(.easeOut(duration: 0.18)) { tituloArriba = arriba } }
         })
         .safeAreaInset(edge: .top, spacing: 0) {
-            if seleccionando { barraDeSeleccion(todas) } else { barraSuperior }
+            if seleccionando { barraDeSeleccion(todas) } else { topBar }
         }
         .scrollDismissesKeyboard(.immediately)
         .scrollIndicators(.hidden)
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: filas.map(\.id))
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: rows.map(\.id))
         // Entrar ES verlo: el punto del historial se apaga aquí.
         .onAppear { store.vistoTodo() }
         // Lo que hay se pinta YA; la red sólo si pasaron más de 20 s (lo frena el store).
@@ -223,7 +225,19 @@ struct ChatsView: View {
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(Theme.Radius.sheet)
         }
-        .confirmationDialog(porArchivar.map { "¿Archivar «\($0.titulo)»?" } ?? "",
+        .sheet(isPresented: $showActivity) {
+            ActivitySheet(store: store) { item in
+                guard let session = item.sessionID else { return }
+                showActivity = false
+                // Lo mismo que tocar un aviso: cambia de agente, marca leído y entra al hilo.
+                store.open(agent: item.agent.id, session: session)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(Theme.Radius.sheet)
+            .presentationBackground(Color.gBg)
+        }
+        .confirmationDialog(porArchivar.map { "¿Archivar «\($0.title)»?" } ?? "",
                             isPresented: Binding(get: { porArchivar != nil }, set: { if !$0 { porArchivar = nil } }),
                             titleVisibility: .visible) {
             Button("Archivar", role: .destructive) {
@@ -247,8 +261,8 @@ struct ChatsView: View {
         }
     }
 
-    /// ⋯ · «Chats» (cuando el grande ya se fue) · ☆ · +
-    private var barraSuperior: some View {
+    /// ⋯ · «Chats» (cuando el grande ya se fue) · 🔔 · ☆ · +
+    private var topBar: some View {
         HStack(spacing: 2) {
             // Como WhatsApp: icono solo, sin fondo.
             Button {
@@ -266,6 +280,10 @@ struct ChatsView: View {
             .accessibilityIdentifier("chats-mas")
 
             Spacer()
+
+            // Lo que pasó mientras no mirabas: permisos, respuestas y entregas.
+            ActivityBell(store: store, isPresented: $showActivity)
+                .padding(.trailing, 2)
 
             // Donde WhatsApp pone la cámara: la estrella de «sólo favoritos».
             Button {
@@ -319,9 +337,9 @@ struct ChatsView: View {
     }
 
     /// La barra del modo selección: ✕, cuántos, y las acciones sobre los elegidos.
-    private func barraDeSeleccion(_ todas: [Fila]) -> some View {
-        let elegidas = todas.filter { seleccion.contains($0.llaveArchivo) }
-        let todasFavoritas = !elegidas.isEmpty && elegidas.allSatisfy { favoritas.contains($0.llaveArchivo) }
+    private func barraDeSeleccion(_ todas: [ChatRow]) -> some View {
+        let elegidas = todas.filter { seleccion.contains($0.archiveKey) }
+        let todasFavoritas = !elegidas.isEmpty && elegidas.allSatisfy { favoritas.contains($0.archiveKey) }
         return HStack(spacing: 2) {
             Button(action: salirDeSeleccion) {
                 Image(systemName: "xmark")
@@ -340,17 +358,17 @@ struct ChatsView: View {
 
             accion(todasFavoritas ? "star.slash" : "star.fill",
                    todasFavoritas ? "Quitar de favoritos" : "Agregar a favoritos", activa: !elegidas.isEmpty) {
-                for f in elegidas { favoritas.poner(f.llaveArchivo, !todasFavoritas) }
+                for f in elegidas { favoritas.poner(f.archiveKey, !todasFavoritas) }
                 salirDeSeleccion()
             }
             accion("checkmark.message", "Marcar como leídos", activa: !elegidas.isEmpty) {
                 for f in elegidas { marcarLeida(f) }
                 salirDeSeleccion()
             }
-            if elegidas.count == 1, let f = elegidas.first, let sid = f.sesion {
+            if elegidas.count == 1, let f = elegidas.first, let sid = f.session {
                 accion("pencil.line", "Cambiar nombre", activa: true, tamano: 22) {
-                    nombreNuevo = f.titulo == "Conversación sin abrir" || f.titulo == "Conversación nueva" ? "" : f.titulo
-                    renombrando = (f.agente.id, sid)
+                    nombreNuevo = f.title == "Conversación sin abrir" || f.title == "Conversación nueva" ? "" : f.title
+                    renombrando = (f.agent.id, sid)
                     salirDeSeleccion()
                 }
             }
@@ -421,8 +439,8 @@ struct ChatsView: View {
 
     // MARK: - Chips
 
-    private func chips(_ todas: [Fila], orden: [Agent]) -> some View {
-        let sinLeer = Dictionary(grouping: todas.filter { $0.pendientes > 0 }, by: \.agente.id).mapValues(\.count)
+    private func chips(_ todas: [ChatRow], orden: [Agent]) -> some View {
+        let unreadByAgent = Dictionary(grouping: todas.filter { $0.unreadCount > 0 }, by: \.agent.id).mapValues(\.count)
         return ScrollViewReader { lector in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -430,7 +448,7 @@ struct ChatsView: View {
                         filtro = nil
                     } icono: { EmptyView() }
                     ForEach(orden) { a in
-                        chip(titulo: a.name, activo: filtro == a.id, noLeidos: sinLeer[a.id] ?? 0,
+                        chip(titulo: a.name, activo: filtro == a.id, noLeidos: unreadByAgent[a.id] ?? 0,
                              id: "chip-\(a.id)") {
                             filtro = filtro == a.id ? nil : a.id
                         } icono: {
@@ -490,16 +508,16 @@ struct ChatsView: View {
     // MARK: - La lista
 
     @ViewBuilder
-    private func lista(_ filas: [Fila]) -> some View {
-        if filas.isEmpty {
+    private func lista(_ rows: [ChatRow]) -> some View {
+        if rows.isEmpty {
             vacio.padding(.vertical, 36).frame(maxWidth: .infinity)
         } else {
             LazyVStack(spacing: 0) {
-                ForEach(filas) { f in
+                ForEach(rows) { f in
                     fila(f)
                         // Divisor hairline desde donde empieza el texto, menos en la última.
                         .overlay(alignment: .bottom) {
-                            if f.id != filas.last?.id {
+                            if f.id != rows.last?.id {
                                 Rectangle().fill(Color.gHairline).frame(height: 1).padding(.leading, 58)
                             }
                         }
@@ -537,13 +555,13 @@ struct ChatsView: View {
         }
     }
 
-    private func fila(_ f: Fila) -> some View {
-        let elegida = seleccionando && seleccion.contains(f.llaveArchivo)
+    private func fila(_ f: ChatRow) -> some View {
+        let elegida = seleccionando && seleccion.contains(f.archiveKey)
         return HStack(spacing: 10) {
             // Sólo el fantasma, sin aro ni fondo: como la foto de un contacto.
             // El fantasma solo, a su tamaño: dentro del círculo blanco de `AgentAvatar` se
             // dibujaba al 66 % y ese hueco invisible separaba mucho el título.
-            GhostyMascot(tone: f.agente.tone, height: 54)
+            GhostyMascot(tone: f.agent.tone, height: 54)
                 .frame(width: 48, height: 58)
                 // Seleccionada: la palomita verde sobre el avatar, como WhatsApp.
                 .overlay(alignment: .bottomTrailing) {
@@ -559,29 +577,29 @@ struct ChatsView: View {
                 }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(f.titulo)
+                    Text(f.title)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color.gInk)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if f.fecha > .distantPast {
-                        Text(Self.hora(f.fecha))
+                    if f.date > .distantPast {
+                        Text(Self.timeLabel(f.date))
                             .font(.system(size: 13).monospacedDigit())
-                            .foregroundStyle(f.pendientes > 0 ? Self.verde : Color.gInk3)
+                            .foregroundStyle(f.unreadCount > 0 ? Self.verde : Color.gInk3)
                             .fixedSize()
                     }
                 }
                 HStack(spacing: 6) {
                     subtitulo(f)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if fijadas.contains(f.llaveArchivo) {
+                    if fijadas.contains(f.archiveKey) {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 12))
                             .foregroundStyle(Color.gInk3)
                             .rotationEffect(.degrees(45))
                             .accessibilityLabel("Fijado")
                     }
-                    if favoritas.contains(f.llaveArchivo) {
+                    if favoritas.contains(f.archiveKey) {
                         Image(systemName: "star.fill")
                             .font(.system(size: 12))
                             .foregroundStyle(Self.oro)
@@ -616,13 +634,13 @@ struct ChatsView: View {
         .sensoryFeedback(.selection, trigger: seleccion)
         // Deslizar como WhatsApp: izquierda → Archivar; derecha → Leído/No leído y Fijar.
         .modifier(DeslizarChat(
-            fijado: fijadas.contains(f.llaveArchivo),
-            sinLeer: f.pendientes > 0,
+            fijado: fijadas.contains(f.archiveKey),
+            isUnread: f.unreadCount > 0,
             habilitado: !seleccionando,
             alArchivar: { porArchivar = f },
             alLeido: { alternarLeido(f) },
             alFijar: {
-                ChatsFijados.alternar(f.llaveArchivo)
+                ChatsFijados.alternar(f.archiveKey)
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) { fijadas = ChatsFijados.ids }
             }))
         .accessibilityElement(children: .combine)
@@ -634,60 +652,60 @@ struct ChatsView: View {
     /// La línea gris, como Android: «Espera tu permiso» (rojo) manda, luego «Trabajando…»
     /// (morado), lo último que se dijo («Tú: …»), o «No terminó» si falló. Con el filtro en
     /// Todos, empieza por el nombre del agente.
-    private func subtitulo(_ f: Fila) -> some View {
+    private func subtitulo(_ f: ChatRow) -> some View {
         let (texto, color): (String, Color) = {
-            if esperaPermiso(f) { return ("Espera tu permiso", .gDangerInk) }
-            if trabajando(f) { return ("Trabajando…", .gPrimary) }
-            if let p = f.previa { return ((p.deTi ? "Tú: " : "") + p.texto, .gInk3) }
-            if fallo(f) { return ("No terminó", .gDangerInk) }
+            if awaitsPermission(f) { return ("Espera tu permiso", .gDangerInk) }
+            if isWorking(f) { return ("Trabajando…", .gPrimary) }
+            if let p = f.preview { return ((p.fromUser ? "Tú: " : "") + p.text, .gInk3) }
+            if hasFailed(f) { return ("No terminó", .gDangerInk) }
             return ("", .gInk3)
         }()
         let conAgente = filtro == nil && variosAgentes
-        return (Text(conAgente ? f.agente.name + (texto.isEmpty ? "" : " · ") : "").foregroundColor(.gInk3)
+        return (Text(conAgente ? f.agent.name + (texto.isEmpty ? "" : " · ") : "").foregroundColor(.gInk3)
                 + Text(texto).foregroundColor(color))
             .font(.system(size: 14))
             .lineLimit(1)
     }
 
-    private func fallo(_ f: Fila) -> Bool {
-        switch f.tipo {
-        case .abierta(let h): h.fallo != nil
-        case .guardada(let s): s.ultimoTurno?.estado == "error"
+    private func hasFailed(_ f: ChatRow) -> Bool {
+        switch f.kind {
+        case .open(let h): h.fallo != nil
+        case .saved(let s): s.lastTurn?.estado == "error"
         }
     }
 
-    private func esperaPermiso(_ f: Fila) -> Bool {
-        switch f.tipo {
-        case .abierta(let h): h.permisoPendiente != nil
-        case .guardada(let s): s.permisoPendiente != nil
+    private func awaitsPermission(_ f: ChatRow) -> Bool {
+        switch f.kind {
+        case .open(let h): h.pendingPermission != nil
+        case .saved(let s): s.pendingPermission != nil
         }
     }
 
-    private func trabajando(_ f: Fila) -> Bool {
-        switch f.tipo {
-        case .abierta(let h): h.trabajando
-        case .guardada(let s): s.ultimoTurno?.sigueVivo == true
+    private func isWorking(_ f: ChatRow) -> Bool {
+        switch f.kind {
+        case .open(let h): h.trabajando
+        case .saved(let s): s.lastTurn?.isAlive == true
         }
     }
 
     /// Spinner si trabaja; si no, la insignia verde con el número de respuestas sin ver.
     @ViewBuilder
-    private func marca(_ f: Fila) -> some View {
-        if trabajando(f) {
+    private func marca(_ f: ChatRow) -> some View {
+        if isWorking(f) {
             GhostySpinner(size: 14, lineWidth: 1.8)
-        } else if f.pendientes > 0 {
-            Text("\(f.pendientes)")
+        } else if f.unreadCount > 0 {
+            Text("\(f.unreadCount)")
                 .font(.system(size: 12, weight: .bold).monospacedDigit())
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .frame(minWidth: 20, minHeight: 20)
                 .background(Self.verde, in: Capsule())
-                .accessibilityLabel("\(f.pendientes) sin leer")
+                .accessibilityLabel("\(f.unreadCount) sin leer")
         }
     }
 
     /// «6:26 p.m.» hoy, «Ayer», el día de la semana esta semana, y si no «d/M/yy».
-    static func hora(_ d: Date, ahora: Date = Date()) -> String {
+    static func timeLabel(_ d: Date, now ahora: Date = Date()) -> String {
         let cal = Calendar.current
         let f = DateFormatter()
         f.locale = Locale(identifier: "es_MX")
@@ -706,50 +724,50 @@ struct ChatsView: View {
 
     // MARK: - Acciones
 
-    private func abrir(_ f: Fila) {
-        switch f.tipo {
-        case .abierta(let h):
-            store.mirar(h, de: f.agente.id)
+    private func abrir(_ f: ChatRow) {
+        switch f.kind {
+        case .open(let h):
+            store.focus(h, agent: f.agent.id)
             if !h.trabajando { store.refresh(h) }
-        case .guardada(let s):
-            store.abrirDesdeChats(agente: f.agente.id, sesion: s)
+        case .saved(let s):
+            store.openFromChats(agent: f.agent.id, session: s)
         }
         onAbrir()
     }
 
-    private func alternarSeleccion(_ f: Fila) {
-        if seleccion.contains(f.llaveArchivo) { seleccion.remove(f.llaveArchivo) } else { seleccion.insert(f.llaveArchivo) }
+    private func alternarSeleccion(_ f: ChatRow) {
+        if seleccion.contains(f.archiveKey) { seleccion.remove(f.archiveKey) } else { seleccion.insert(f.archiveKey) }
     }
 
     /// Deslizar a la derecha → Leído / No leído.
-    private func alternarLeido(_ f: Fila) {
-        if f.pendientes > 0 { marcarLeida(f); return }
-        switch f.tipo {
-        case .abierta(let h):
+    private func alternarLeido(_ f: ChatRow) {
+        if f.unreadCount > 0 { marcarLeida(f); return }
+        switch f.kind {
+        case .open(let h):
             if h.termino == nil { h.termino = Date() }
             h.visto = false
-            if let sid = h.sesionID { VistoHasta.marcar(f.agente.id, sid, .distantPast) }
-        case .guardada(let s):
-            VistoHasta.marcar(f.agente.id, s.id, .distantPast)
+            if let sid = h.sesionID { VistoHasta.marcar(f.agent.id, sid, .distantPast) }
+        case .saved(let s):
+            VistoHasta.marcar(f.agent.id, s.id, .distantPast)
         }
         store.marcarLeidas()
     }
 
-    private func marcarLeida(_ f: Fila) {
-        switch f.tipo {
-        case .abierta(let h):
+    private func marcarLeida(_ f: ChatRow) {
+        switch f.kind {
+        case .open(let h):
             h.visto = true
-            if let sid = h.sesionID { VistoHasta.marcar(f.agente.id, sid) }
-        case .guardada(let s):
-            VistoHasta.marcar(f.agente.id, s.id)
+            if let sid = h.sesionID { VistoHasta.marcar(f.agent.id, sid) }
+        case .saved(let s):
+            VistoHasta.marcar(f.agent.id, s.id)
         }
         store.marcarLeidas()
     }
 
-    private func archivar(_ f: Fila) {
-        switch f.tipo {
-        case .abierta(let h): store.archivar(agente: f.agente.id, sesion: h.sesionID, hilo: h)
-        case .guardada(let s): store.archivar(agente: f.agente.id, sesion: s.id)
+    private func archivar(_ f: ChatRow) {
+        switch f.kind {
+        case .open(let h): store.archivar(agente: f.agent.id, sesion: h.sesionID, hilo: h)
+        case .saved(let s): store.archivar(agente: f.agent.id, sesion: s.id)
         }
     }
 
@@ -767,9 +785,9 @@ struct ChatsView: View {
     }
 
     private func detalle(_ s: ACPClient.Session, agente: Agent) -> String {
-        if let u = s.ultimoTurno {
+        if let u = s.lastTurn {
             switch u.estado {
-            case "running", "queued": return u.sigueVivo ? "Trabajando…" : "Sin noticias"
+            case "running", "queued": return u.isAlive ? "Trabajando…" : "Sin noticias"
             case "error": return "Falló: \(u.error ?? "el turno se cortó")"
             case "stopped": return "Detenido"
             default: return "Contestó"
@@ -1006,7 +1024,7 @@ enum ChatsFijados {
 /// lista, y la fila gana sobre el pager de pestañas (medido en el simulador).
 private struct DeslizarChat: ViewModifier {
     let fijado: Bool
-    let sinLeer: Bool
+    let isUnread: Bool
     let habilitado: Bool
     var alArchivar: () -> Void
     var alLeido: () -> Void
@@ -1021,8 +1039,8 @@ private struct DeslizarChat: ViewModifier {
         ZStack {
             if lado == 1 || dx > 0 {
                 HStack(spacing: 0) {
-                    accion(sinLeer ? "Leído" : "No leído",
-                           sinLeer ? "checkmark.message.fill" : "message.badge.filled.fill", Color.gPrimary, alLeido)
+                    accion(isUnread ? "Leído" : "No leído",
+                           isUnread ? "checkmark.message.fill" : "message.badge.filled.fill", Color.gPrimary, alLeido)
                     accion(fijado ? "Desfijar" : "Fijar", fijado ? "pin.slash.fill" : "pin.fill", Color.gInk3, alFijar)
                     Spacer(minLength: 0)
                 }
@@ -1060,7 +1078,7 @@ private struct DeslizarChat: ViewModifier {
             }
         })
         .accessibilityAction(named: "Archivar", alArchivar)
-        .accessibilityAction(named: sinLeer ? "Marcar como leído" : "Marcar como no leído", alLeido)
+        .accessibilityAction(named: isUnread ? "Marcar como leído" : "Marcar como no leído", alLeido)
         .accessibilityAction(named: fijado ? "Desfijar" : "Fijar", alFijar)
         .sensoryFeedback(.impact(weight: .light), trigger: lado)
     }

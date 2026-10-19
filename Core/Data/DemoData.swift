@@ -9,7 +9,7 @@ import UIKit
 /// estuviera contento. Sin sesión la app se queda en el login, así que no había forma de
 /// abrirla en el simulador y tocarla.
 ///
-/// ⚠️ Y llena el store REAL, no un mock. Lo que hay que probar es `Canal`, `Hilo`, la
+/// ⚠️ Y llena el store REAL, no un mock. Lo que hay que probar es `AgentChannel`, `ChatThread`, la
 /// fachada y el caché, que es justo donde han estado los fallos; un store de mentira
 /// probaría otro código.
 ///
@@ -98,14 +98,14 @@ enum DemoData {
     }()
 
     /// Las entregas de la demo, para que Artefactos tenga qué enseñar y qué filtrar.
-    static func conFotoEntregas() -> [Entrega] {
+    static func conFotoEntregas() -> [Delivery] {
         return [
-            Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto", forma: .archivo,
-                    titulo: "recorte.png", recibida: Date(), contenido: nil, datos: png),
-            Entrega(id: "demo-audio", agentID: "demo-1", sesionID: "s-foto", forma: .archivo,
-                    titulo: "SFX cómic 08", recibida: Date(), contenido: nil, datos: mp3),
-            Entrega(id: "demo-doc", agentID: "demo-1", sesionID: "s-foto", forma: .doc,
-                    titulo: "Resumen del trimestre", recibida: Date(),
+            Delivery(id: "demo-entrega", agentID: "demo-1", sessionID: "s-foto", forma: .archivo,
+                    title: "recorte.png", receivedAt: Date(), contenido: nil, datos: png),
+            Delivery(id: "demo-audio", agentID: "demo-1", sessionID: "s-foto", forma: .archivo,
+                    title: "SFX cómic 08", receivedAt: Date(), contenido: nil, datos: mp3),
+            Delivery(id: "demo-doc", agentID: "demo-1", sessionID: "s-foto", forma: .doc,
+                    title: "Resumen del trimestre", receivedAt: Date(),
                     contenido: "# Resumen", datos: nil),
         ]
     }
@@ -119,16 +119,16 @@ enum DemoData {
         if let ruta = Gancho.valor("GHOSTY_DEMO_GIF"), let gif = try? Data(contentsOf: URL(fileURLWithPath: ruta)) {
             foto = Adjunto(nombre: "demo.gif", mime: "image/gif", datos: gif)
         }
-        let sonido = Entrega(id: "demo-audio", agentID: "demo-1", sesionID: "s-foto",
-                             forma: .archivo, titulo: "SFX cómic 08", recibida: Date(),
+        let sonido = Delivery(id: "demo-audio", agentID: "demo-1", sessionID: "s-foto",
+                             forma: .archivo, title: "SFX cómic 08", receivedAt: Date(),
                              contenido: nil, datos: mp3)
-        let doc = Entrega(id: "demo-doc", agentID: "demo-1", sesionID: "s-foto",
-                          forma: .doc, titulo: "Resumen del trimestre", recibida: Date(),
+        let doc = Delivery(id: "demo-doc", agentID: "demo-1", sessionID: "s-foto",
+                          forma: .doc, title: "Resumen del trimestre", receivedAt: Date(),
                           contenido: "# Resumen\n\nTres cosas.", datos: nil)
         let gifDemo = Gancho.valor("GHOSTY_DEMO_GIF").flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0)) }
-        let entrega = Entrega(id: "demo-entrega", agentID: "demo-1", sesionID: "s-foto",
-                              forma: .archivo, titulo: gifDemo == nil ? "recorte.png" : "demo.gif",
-                              recibida: Date(), contenido: nil, datos: gifDemo ?? png)
+        let entrega = Delivery(id: "demo-entrega", agentID: "demo-1", sessionID: "s-foto",
+                              forma: .archivo, title: gifDemo == nil ? "recorte.png" : "demo.gif",
+                              receivedAt: Date(), contenido: nil, datos: gifDemo ?? png)
         // El texto pasa por el MISMO puente que en vivo, o la demo probaría otra cosa.
         let crudo = "Ya está, recortada. Te la entrego.\n\n"
             // La nota de voz TAL CUAL la imprime `voice.speak` del SDK: sólo URL, sin bytes.
@@ -191,18 +191,29 @@ enum DemoData {
     }
 
     /// Lo que la persona SUBIÓ a su cuenta (para el filtro «Subidos» de Archivos).
-    static var subidos: [Entrega] {
-        var contrato = Entrega(id: "f-demo-contrato", agentID: "demo-1", forma: .archivo,
-                               titulo: "Contrato_Proveedor.pdf",
-                               recibida: Date().addingTimeInterval(-86_400),
-                               bytesRemotos: 1_260_000, remotoID: "demo-contrato")
+    static var subidos: [Delivery] {
+        var contrato = Delivery(id: "f-demo-contrato", agentID: "demo-1", forma: .archivo,
+                               title: "Contrato_Proveedor.pdf",
+                               receivedAt: Date().addingTimeInterval(-86_400),
+                               bytesRemotos: 1_260_000, remoteID: "demo-contrato")
         contrato.mime = "application/pdf"
-        var catalogo = Entrega(id: "f-demo-catalogo", agentID: "demo-1", forma: .archivo,
-                               titulo: "Catalogo_2026.xlsx",
-                               recibida: Date().addingTimeInterval(-3 * 86_400),
-                               bytesRemotos: 348_000, remotoID: "demo-catalogo")
+        var catalogo = Delivery(id: "f-demo-catalogo", agentID: "demo-1", forma: .archivo,
+                               title: "Catalogo_2026.xlsx",
+                               receivedAt: Date().addingTimeInterval(-3 * 86_400),
+                               bytesRemotos: 348_000, remoteID: "demo-catalogo")
         catalogo.mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return [contrato, catalogo]
+    }
+
+    /// El PDF que el agente entregó en «Cotización de abril» desde otro lado.
+    static var remoteQuote: Delivery {
+        var pdf = Delivery(id: "f-demo-cotizacion-abril", agentID: "demo-1", sessionID: "s-contesto-fuera",
+                           forma: .archivo, title: "Cotizacion_abril.pdf",
+                           receivedAt: Date().addingTimeInterval(-320),
+                           bytesRemotos: 214_000, remoteID: "demo-cotizacion-abril")
+        pdf.mime = "application/pdf"
+        pdf.origen = "agente"
+        return pdf
     }
 
     /// Lo que el agente hace desde OTRO lado: la Mac o la web. gs lo reporta en la lista
@@ -212,32 +223,32 @@ enum DemoData {
     /// turnos vivos cambiaría capturas que ya son contrato.
     static var sesionesRemotas: [ACPClient.Session] {
         func turno(_ id: String, _ estado: String, inicio: TimeInterval, fin: TimeInterval? = nil)
-            -> ACPClient.UltimoTurno {
-            ACPClient.UltimoTurno(turnId: id, estado: estado, error: nil,
-                                  terminado: fin.map { Date().addingTimeInterval($0) },
-                                  iniciado: Date().addingTimeInterval(inicio))
+            -> ACPClient.LastTurn {
+            ACPClient.LastTurn(turnId: id, estado: estado, error: nil,
+                                  finishedAt: fin.map { Date().addingTimeInterval($0) },
+                                  startedAt: Date().addingTimeInterval(inicio))
         }
         return [
             // Corriendo de verdad: enciende «Trabajando en otra conversación…».
             ACPClient.Session(id: "s-remota", title: "Migración de la base", cwd: "/data/work",
                               updatedAt: Date(), messageCount: 3,
-                              ultimoTurno: turno("tr1", "running", inicio: -90)),
+                              lastTurn: turno("tr1", "running", inicio: -90)),
             // Zombi: el servidor lleva tres horas diciendo «running». La caducidad tiene
             // que apagarlo, o la lista miente toda la tarde.
             ACPClient.Session(id: "s-zombi", title: "Turno mudo", cwd: "/data/work",
                               updatedAt: Date().addingTimeInterval(-10_800), messageCount: 2,
-                              ultimoTurno: turno("tr2", "running", inicio: -10_800)),
+                              lastTurn: turno("tr2", "running", inicio: -10_800)),
             // Pidió permiso desde otro lado: está DETENIDA esperándote y la lista tiene
             // que decirlo sin que abras el hilo.
             ACPClient.Session(id: "s-permiso-fuera", title: "Publicar el recorte",
                               cwd: "/data/work", updatedAt: Date(), messageCount: 4,
-                              ultimoTurno: turno("tr4", "running", inicio: -240),
-                              permisoPendiente: "Publicar en el sitio"),
+                              lastTurn: turno("tr4", "running", inicio: -240),
+                              pendingPermission: "Publicar en el sitio"),
             // Contestó desde otro lado y nunca la abriste aquí: enciende el punto.
             ACPClient.Session(id: "s-contesto-fuera", title: "Cotización de abril",
                               cwd: "/data/work", updatedAt: Date().addingTimeInterval(-300),
                               messageCount: 8,
-                              ultimoTurno: turno("tr3", "done", inicio: -600, fin: -300)),
+                              lastTurn: turno("tr3", "done", inicio: -600, fin: -300)),
         ]
     }
 }
@@ -258,11 +269,11 @@ extension LiveAgentStore {
         selectedAgentID = DemoData.cuentas[0].id
 
         // Agente 1: tres conversaciones.
-        let uno = Canal(cuenta: DemoData.cuentas[0])
+        let uno = AgentChannel(cuenta: DemoData.cuentas[0])
         let larga = uno.abrir("s-larga"); larga.mensajes = DemoData.larga()
         let foto = uno.abrir("s-foto"); foto.mensajes = DemoData.conFoto()
         // Ésta espera permiso: es el estado que la app nunca llegaba a pintar.
-        foto.permisoPendiente = PermissionRequest(
+        foto.pendingPermission = PermissionRequest(
             id: "demo-permiso", kind: .email, agentName: "Ghosty",
             question: "¿Le mando el correo a Laura?",
             detail: "Eso ya no se puede deshacer, por eso te pregunto. Me espero a que me digas.", attachment: nil)
@@ -334,7 +345,7 @@ extension LiveAgentStore {
         larga.tocado = Date()
         foto.tocado = Date().addingTimeInterval(-120)
         vacia.tocado = Date().addingTimeInterval(-300)
-        uno.hilosRemotos = DemoData.sesiones
+        uno.remoteSessions = DemoData.sesiones
         // `GHOSTY_DEMO_REMOTO=1`: el agente trabajando desde la Mac. Es lo único que deja
         // MIRAR ese estado sin tener dos aparatos delante.
         if Gancho.valor("GHOSTY_DEMO_REMOTO") == "1" {
@@ -342,15 +353,15 @@ extension LiveAgentStore {
             // ⚠️ Sin el permiso: «espera tu visto bueno» GANA sobre cualquier trabajo, y
             // con razón —está detenido esperándote—, pero entonces tapa justo el estado
             // que este gancho existe para poder mirar.
-            foto.permisoPendiente = nil
-            uno.hilosRemotos = DemoData.sesiones + DemoData.sesionesRemotas
+            foto.pendingPermission = nil
+            uno.remoteSessions = DemoData.sesiones + DemoData.sesionesRemotas
             for s in DemoData.sesionesRemotas { marcarSinVerRemota(s, agente: uno.cuenta.id) }
         }
         uno.estadoHilos = .listo
         uno.infoDeLaCaja = "demo 1.0"
 
         // Agente 2: contestando ahora mismo, para que salgan los chips y el punto.
-        let dos = Canal(cuenta: DemoData.cuentas[1])
+        let dos = AgentChannel(cuenta: DemoData.cuentas[1])
         let vivo = dos.abrir("s-vivo")
         vivo.mensajes = [Message(id: "dv1", kind: .user("resume el trimestre"))]
         vivo.prompt = "resume el trimestre"
@@ -362,14 +373,17 @@ extension LiveAgentStore {
                             Message(id: "dd2", kind: .agent(text: "Ahí va.", tools: nil, trailing: nil))]
         dormida.termino = Date().addingTimeInterval(-7200)
         dos.activa = vivo.clave
-        dos.hilosRemotos = DemoData.sesiones
+        dos.remoteSessions = DemoData.sesiones
         dos.estadoHilos = .listo
 
         // Artefactos lee del almacén, no del hilo: sin esto la pestaña sale vacía.
-        for e in [DemoData.conFotoEntregas()].flatMap({ $0 }) { entregas.registrar(e) }
+        for e in [DemoData.conFotoEntregas()].flatMap({ $0 }) { deliveries.record(e) }
         accountFiles = DemoData.subidos
+        // Con el gancho remoto, el PDF que el agente entregó desde la Mac: es lo que llena
+        // «Entregas» en Actividad (sin tocar las capturas de Archivos de siempre).
+        if Gancho.valor("GHOSTY_DEMO_REMOTO") == "1" { accountFiles.insert(DemoData.remoteQuote, at: 0) }
         ponerCanalesDeDemo([DemoData.cuentas[0].id: uno, DemoData.cuentas[1].id: dos])
         conexion = .lista
-        aplicarAvisoPendiente()
+        applyPendingNotice()
     }
 }

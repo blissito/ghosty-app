@@ -102,7 +102,7 @@ struct MensajeGuardado: Codable {
     var adjuntos: [AdjuntoGuardado]
     var herramientas: [HerramientaGuardada]
     var trailing: String?
-    var entrega: Entrega?
+    var entrega: Delivery?
     var seq: Int?
     var turnId: String?
 
@@ -125,7 +125,7 @@ struct MensajeGuardado: Codable {
             trailing = cola
         case .entrega(let e):
             quien = .entrega
-            texto = e.titulo
+            texto = e.title
             entrega = e
         case .typing, .prCard, .sistema:
             return nil
