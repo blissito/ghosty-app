@@ -23,13 +23,18 @@ struct FactoryRunView: View {
     @State private var advising = false
     /// Lo que hace ahora cada rol (gs `…/live`); nil con una caja vieja o mientras llega.
     @State private var live: FactoryLive?
+    /// La hoja de las variables de la preview (un escalado bloqueado que las pide).
+    @State private var envOpen = false
+    /// Guardadas las variables, al cerrarse su hoja se ofrece que @check revise.
+    @State private var offerRecheck = false
 
     private enum Pending: Identifiable {
-        case approve(Int), anotherLoop, merge
+        case approve(Int), anotherLoop, recheck, merge
         var id: String {
             switch self {
             case .approve(let v): "approve-\(v)"
             case .anotherLoop: "loop"
+            case .recheck: "recheck"
             case .merge: "merge"
             }
         }
@@ -90,6 +95,7 @@ struct FactoryRunView: View {
                     switch p {
                     case .approve(let v): await act(.approve, version: v)
                     case .anotherLoop: await act(.approve)
+                    case .recheck: await act(.recheck)
                     case .merge: await act(.merge)
                     }
                 }
@@ -102,6 +108,13 @@ struct FactoryRunView: View {
         .sheet(item: $asking) { kind in
             FactoryNoteSheet(kind: kind) { note in
                 Task { await act(.changes, note: note) }
+            }
+        }
+        .sheet(isPresented: $envOpen, onDismiss: {
+            if offerRecheck { offerRecheck = false; confirm = .recheck }
+        }) {
+            FactoryEnvSheet(repo: detail?.repo, names: detail?.missingEnv ?? []) { dotenv in
+                await saveEnv(dotenv)
             }
         }
         .sheet(isPresented: $advising) {
@@ -191,7 +204,9 @@ struct FactoryRunView: View {
                 Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(Color.gAmber)
                 Text("Lo que encontró @check").gCardTitle()
             }
-            Text((detail?.loops ?? 0) >= 3
+            Text(detail?.blocked == true
+                 ? "@check no pudo revisar: falta algo que sólo tú puedes dar. Cuando lo resuelvas, que @check vuelva a revisar el mismo PR, sin otra vuelta de @build."
+                 : (detail?.loops ?? 0) >= 3
                  ? "@check frenó \(detail?.loops ?? 0) veces. Si los puntos caben en el plan, que @build los arregle."
                  : "Falta algo que @build no puede resolver con sus herramientas: dalo tú, o rehaz el plan.")
                 .gMeta()
@@ -200,6 +215,18 @@ struct FactoryRunView: View {
                 GhostyMarkdown(markdown: findings)
                     .padding(.top, 2)
                     .accessibilityIdentifier("hallazgos")
+            }
+            if let names = detail?.missingEnv, !names.isEmpty {
+                Button { envOpen = true } label: {
+                    Label(names.count == 1 ? "Dar la variable" : "Dar las \(names.count) variables", systemImage: "key.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.gPressPrimary)
+                .disabled(busy || detail == nil)
+                .accessibilityIdentifier("dar-variables")
             }
             Button { advising = true } label: {
                 Label("¿Qué hago?", systemImage: "sparkles")
@@ -374,6 +401,10 @@ struct FactoryRunView: View {
             case .planReview:
                 barButton("Pedir cambios", primary: false, id: "pedir-cambios") { asking = .changes }
                 barButton("Firmar plan v\(version)", primary: true, id: "firmar-plan") { confirm = .approve(version) }
+            case .escalated where detail?.blocked == true:
+                // @build no puede dar lo que falta: otra vuelta sólo gasta tokens (#125, 20-oct).
+                barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
+                barButton("Que @check revise", primary: true, id: "volver-a-revisar", icon: "checkmark.shield") { confirm = .recheck }
             case .escalated:
                 barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
                 barButton("Que @build lo arregle", primary: true, id: "otra-vuelta") { confirm = .anotherLoop }
@@ -412,6 +443,7 @@ struct FactoryRunView: View {
         switch p {
         case .approve(let v): "¿Firmar el plan v\(v)?"
         case .anotherLoop: "¿Que @build lo arregle?"
+        case .recheck: "¿Que @check revise otra vez?"
         case .merge: "¿Mergear el PR?"
         }
     }
@@ -420,6 +452,7 @@ struct FactoryRunView: View {
         switch p {
         case .approve: "Pedido #\(id). @build empieza a construir en cuanto firmes."
         case .anotherLoop: "Pedido #\(id). @build vuelve a intentarlo con lo que encontró @check."
+        case .recheck: "Pedido #\(id). @check revisa el mismo PR con lo que resolviste; @build no da otra vuelta."
         case .merge: "Pedido #\(id). " + (detail?.pr.map { "Se mergea \($0.replacingOccurrences(of: "https://github.com/", with: ""))." } ?? "Se mergea el PR.")
         }
     }
@@ -428,7 +461,30 @@ struct FactoryRunView: View {
         switch p {
         case .approve(let v): "Firmar plan v\(v)"
         case .anotherLoop: "Que @build lo arregle"
+        case .recheck: "Que @check revise"
         case .merge: "Merge"
+        }
+    }
+
+    /// Guarda las variables de la preview del repo del pedido. Sólo el dueño del espacio (gs
+    /// contesta 403 a los demás). Al guardarlas, ofrece de una que @check vuelva a revisar.
+    private func saveEnv(_ dotenv: String) async -> String? {
+        if DemoData.encendido {
+            withAnimation(.snappy) { notice = "Guardé las variables. La preview se reconstruye con ellas." }
+            offerRecheck = true
+            return nil
+        }
+        do {
+            let r = try await FactoryAPI.act(slug, id, .env, dotenv: dotenv)
+            let n = r.keys.count
+            withAnimation(.snappy) {
+                notice = "Guardé \(n == 1 ? "1 variable" : "\(n) variables"). La preview se reconstruye con ellas."
+                error = nil
+            }
+            offerRecheck = true
+            return nil
+        } catch {
+            return error.localizedDescription
         }
     }
 
@@ -474,6 +530,8 @@ struct FactoryRunView: View {
             let msg: String = switch action {
             case .approve: stage == .escalated ? "@build ya lo está arreglando." : "Firmado: @build empieza a construir."
             case .changes: stage == .escalated ? "@plan ya está rehaciendo el plan." : "Cambios pedidos: @plan prepara otra versión."
+            case .recheck: "@check ya está revisando otra vez."
+            case .env: "Variables guardadas."
             case .merge: r.queued ? "Merge en cola: entra en cuanto pase el CI." : "Mergeado."
             case .card: "Tarjeta enviada al hilo."
             }
@@ -496,6 +554,10 @@ struct FactoryRunView: View {
             }
             if let t = FactoryAPI.teamsURL(slug, room: detail?.room ?? cached?.room, thread: detail?.thread ?? cached?.thread) {
                 Button { openURL(t) } label: { Label("Abrir el hilo en Teams", systemImage: "bubble.left.and.bubble.right") }
+            }
+            if detail?.blocked == true {
+                // La salida de siempre, por si de verdad era de código.
+                Button { confirm = .anotherLoop } label: { Label("Que @build lo intente", systemImage: "hammer") }
             }
             Button { Task { await act(.card) } } label: { Label("Mandar la tarjeta al hilo", systemImage: "rectangle.portrait.on.rectangle.portrait") }
             Button { Task { await load() } } label: { Label("Actualizar", systemImage: "arrow.clockwise") }
@@ -858,5 +920,107 @@ struct FactoryConfirmSheet: View {
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(Theme.Radius.sheet)
         .presentationBackground(Color.gBg)
+    }
+}
+
+/// Las variables que pide la preview, una por renglón con su nombre ya puesto: la persona sólo
+/// pega el valor. Van a la bóveda de gs (`env-set`) y nunca regresan; quien escribe los valores es
+/// la persona, nunca un agente.
+struct FactoryEnvSheet: View {
+    let repo: String?
+    let names: [String]
+    /// Regresa el error para enseñarlo, o nil si se guardó (y la hoja se cierra).
+    var onSave: (String) async -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var values: [String: String] = [:]
+    @State private var reveal = false
+    @State private var saving = false
+    @State private var error: String?
+
+    private var filled: [String] {
+        names.filter { !(values[$0] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text("Variables de la preview").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
+                    Spacer()
+                    Button { dismiss() } label: { TintedIcon(systemName: "xmark", tint: .gInk, background: .gFill, size: 32) }
+                        .buttonStyle(.gPressIcon)
+                }
+                Text("Las pide la preview\(repo.map { " de \($0)" } ?? ""). Se guardan cifradas y nadie las vuelve a ver, ni los agentes en el chat. Sólo el dueño del espacio puede guardarlas.")
+                    .gMeta()
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(spacing: 10) {
+                    ForEach(names, id: \.self) { name in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(name).font(.system(size: 13, weight: .semibold, design: .monospaced)).foregroundStyle(Color.gInk2)
+                            Group {
+                                if reveal {
+                                    TextField("Valor", text: binding(name))
+                                } else {
+                                    SecureField("Valor", text: binding(name))
+                                }
+                            }
+                            .font(.system(size: 15, design: .monospaced))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .privacySensitive()
+                            .padding(10)
+                            .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                            .accessibilityIdentifier("valor-\(name)")
+                        }
+                    }
+                }
+                Toggle("Mostrar los valores", isOn: $reveal).font(.system(size: 15)).tint(Color.gPrimary)
+                if let error {
+                    Text(error).font(.system(size: 14)).foregroundStyle(Color.gDangerInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button {
+                    Task { await save() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if saving { ProgressView().tint(.white) } else { Image(systemName: "lock.fill") }
+                        Text(filled.count == names.count ? "Guardar" : "Guardar \(filled.count) de \(names.count)").gButtonLabel()
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.gPressPrimary)
+                .disabled(filled.isEmpty || saving)
+                .opacity(filled.isEmpty ? 0.5 : 1)
+                .accessibilityIdentifier("guardar-variables")
+            }
+            .padding(Theme.Space.screenH)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(Theme.Radius.sheet)
+        .presentationBackground(Color.gBg)
+    }
+
+    private func binding(_ name: String) -> Binding<String> {
+        Binding(get: { values[name] ?? "" }, set: { values[name] = $0 })
+    }
+
+    private func save() async {
+        saving = true
+        defer { saving = false }
+        // Formato .env de gs (`parseDotenv`): las comillas protegen espacios y `#`, sin escapes.
+        let dotenv = filled.map { name -> String in
+            let v = (values[name] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let q = v.contains("\"") ? "'" : "\""
+            return "\(name)=\(v.contains(where: { " #\"'".contains($0) }) ? q + v + q : v)"
+        }.joined(separator: "\n")
+        if let e = await onSave(dotenv) {
+            withAnimation(.snappy) { error = e }
+        } else {
+            dismiss()
+        }
     }
 }

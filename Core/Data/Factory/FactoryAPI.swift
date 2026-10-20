@@ -151,10 +151,50 @@ struct FactoryRunDetail: Decodable {
 
     var stage: FactoryStage { FactoryStage(status) }
 
-    /// Lo que encontró @check la última vez que escaló o regresó hallazgos.
+    private var findingsEvent: Event? {
+        events.first { ["check_blocked", "check_fail", "ci_red_help"].contains($0.type) }
+    }
+
+    /// Lo que encontró @check la última vez que escaló o regresó hallazgos. Los renglones que Teams
+    /// guardó como JSON crudo (`(preview):0 — {"file":…,"text":…}`, #125) se leen como texto.
     var findings: String? {
-        events.first { ["check_blocked", "check_fail", "ci_red_help"].contains($0.type) }?
-            .data?["findings"]?.string
+        findingsEvent?.data?["findings"]?.string.map(Self.readableFindings)
+    }
+
+    /// @check escaló porque le falta algo que @build no puede dar (variables, un acceso): otra
+    /// vuelta de @build sólo gasta tokens. Lo resuelve la persona y @check revisa otra vez.
+    var blocked: Bool { stage == .escalated && findingsEvent?.type == "check_blocked" }
+
+    /// Las variables de entorno que nombran los hallazgos (`DATABASE_URL`, `SESSION_SECRET`…).
+    var missingEnv: [String] {
+        guard blocked, let f = findings else { return [] }
+        let ns = f as NSString
+        var out: [String] = []
+        for m in Self.envName.matches(in: f, range: NSRange(location: 0, length: ns.length)) {
+            let name = ns.substring(with: m.range)
+            if !out.contains(name) { out.append(name) }
+        }
+        return out
+    }
+
+    private static let envName = try! NSRegularExpression(pattern: "\\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\\b")
+    private static let rawFinding = try! NSRegularExpression(pattern: "^(?:-\\s*)?(.*?)\\s+—\\s+(\\{.*\\})\\s*$", options: [.anchorsMatchLines])
+
+    static func readableFindings(_ s: String) -> String {
+        s.split(separator: "\n", omittingEmptySubsequences: false).map { line -> String in
+            let l = String(line)
+            let ns = l as NSString
+            guard let m = rawFinding.firstMatch(in: l, range: NSRange(location: 0, length: ns.length)),
+                  let o = try? JSONSerialization.jsonObject(with: Data(ns.substring(with: m.range(at: 2)).utf8)) as? [String: Any],
+                  let text = ["text", "issue", "message", "finding", "description", "problem", "detail", "title"]
+                    .lazy.compactMap({ o[$0] as? String }).first
+            else { return l }
+            // Sin ubicación cuando no es un archivo de verdad (`(preview):0`).
+            let file = o["file"] as? String
+            let line = (o["line"] as? Int).map { $0 > 0 ? ":\($0)" : "" } ?? ""
+            let at = file.flatMap { $0.hasPrefix("(") ? nil : "`\($0)\(line)` — " } ?? ""
+            return "- \(at)\(text)"
+        }.joined(separator: "\n")
     }
 
     /// El pedido en la forma corta de la lista (para pintar mientras llega el detalle).
@@ -287,9 +327,9 @@ enum FactoryAPI {
         var errorDescription: String? { message }
     }
 
-    enum Action: String { case approve, changes, merge, card }
+    enum Action: String { case approve, changes, recheck, env, merge, card }
 
-    struct ActResult { let status: String?; let queued: Bool }
+    struct ActResult { let status: String?; let queued: Bool; var keys: [String] = [] }
     struct NewRun { let room: String; let threadId: Int; let url: String? }
 
     private static let session: URLSession = {
@@ -370,16 +410,18 @@ enum FactoryAPI {
 
     /// Decide un pedido. `approve` en `plan_review` exige la versión del plan que la persona leyó.
     static func act(_ slug: String, _ id: Int, _ action: Action, version: Int? = nil, note: String? = nil,
-                    checkScope: String? = nil, skipPreview: Bool = false) async throws -> ActResult {
+                    checkScope: String? = nil, skipPreview: Bool = false, dotenv: String? = nil) async throws -> ActResult {
         var body: [String: Any] = ["action": action.rawValue]
         if let version { body["version"] = version }
         if let note, !note.isEmpty { body["note"] = note }
         // Lo único que @check revisa en la siguiente vuelta (lo propone `advise`).
         if let checkScope, !checkScope.isEmpty { body["checkScope"] = checkScope }
         if skipPreview { body["skipPreview"] = true }
+        // Las variables de la preview: van a la bóveda de gs y nunca regresan.
+        if let dotenv { body["dotenv"] = dotenv }
         let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/act", method: "POST", body: body)
         let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
-        return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false)
+        return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false, keys: j["keys"] as? [String] ?? [])
     }
 
     /// Qué hace ahora cada rol. Una caja de gs sin `/live` contesta 404: quien llama lo ignora.

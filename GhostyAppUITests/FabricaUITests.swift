@@ -242,6 +242,31 @@ final class FabricaUITests: XCTestCase {
         e.tap()
     }
 
+    /// Escalado porque la preview no arranca sin variables (#125): los hallazgos se leen (no JSON
+    /// crudo), la barra NO ofrece «Que @build lo arregle», se dan las variables y @check revisa.
+    func testEscaladoBloqueadoDemo() {
+        abrirFabrica()
+        tocar("pedido-36")
+        let hallazgos = app.descendants(matching: .any)["hallazgos"]
+        XCTAssertTrue(hallazgos.waitForExistence(timeout: 5), "no salen los hallazgos")
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "\"severity\"")).firstMatch.exists,
+                       "los hallazgos salen como JSON crudo")
+        XCTAssertFalse(app.buttons["otra-vuelta"].exists, "un bloqueo no se arregla con otra vuelta de @build")
+        XCTAssertTrue(app.buttons["volver-a-revisar"].exists, "falta «Que @check revise»")
+        foto("b1-bloqueado")
+        tocar("dar-variables")
+        let campo = app.secureTextFields["valor-DATABASE_URL"]
+        XCTAssertTrue(campo.waitForExistence(timeout: 5), "la hoja no trae DATABASE_URL")
+        XCTAssertTrue(app.secureTextFields["valor-SANDBOX_HOST_TOKEN"].exists, "faltan variables en la hoja")
+        campo.tap()
+        campo.typeText("postgres://demo")
+        foto("b2-variables")
+        app.buttons["guardar-variables"].tap()
+        let confirmar = app.descendants(matching: .any)["confirmar-recheck"]
+        XCTAssertTrue(confirmar.waitForExistence(timeout: 5), "al guardar no ofrece que @check revise")
+        foto("b3-revisar")
+    }
+
     /// Mandar un pedido abre su hilo (no un «Listo» que no lleva a nada) y ahí se ve a @plan trabajar.
     func testPedidoNuevoAbreElHiloDemo() {
         abrirFabrica()

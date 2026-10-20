@@ -209,6 +209,7 @@ final class FactoryStore {
         return [FactorySpace(slug: "demo", role: "OWNER", runs: [
             run(42, "Recordatorio por WhatsApp un día antes de la cita", "plan_review", repo: "demo/agenda", pr: nil, ago: 4, min: 6, usd: 0.41, plan: 2),
             run(41, "Bump the minor-and-patch group with 12 updates", "escalated", repo: "demo/agenda", pr: 88, ago: 25, min: 31, usd: 1.12, plan: 0, kind: "dependabot"),
+            run(36, "Panel del espacio: ver, caducar y quitar colaboradores", "escalated", repo: "demo/agenda", pr: 84, ago: 12, min: 48, usd: 1.84),
             run(40, "Exportar la agenda del mes a Excel", "building", repo: "demo/agenda", pr: nil, ago: 1, min: 14, usd: 0.95),
             run(39, "Página de precios con el plan anual", "pr_review", repo: "demo/sitio", pr: 87, ago: 50, min: 42, usd: 2.30),
             run(38, "La lista de clientes busca por teléfono", "done", repo: "demo/agenda", pr: 86, ago: 180, min: 37, usd: 2.05),
@@ -271,8 +272,14 @@ final class FactoryStore {
         var events: [FactoryRunDetail.Event] = [
             .init(at: iso(4), actor: "plan", type: "plan_submitted", data: nil),
         ]
-        if r.stage == .escalated {
-            events = [.init(at: iso(25), actor: "check", type: "check_blocked",
+        if r.id == 36 {
+            // Bloqueado: la preview no arranca sin variables que sólo da la persona (#125). Así lo
+            // guardaba Teams antes de leer `text`: JSON crudo en el renglón.
+            let raw = #"(preview):0 — {"file":"(preview)","line":0,"severity":"high","text":"Bloqueo: la preview que exige el plan no arranca porque faltan 5 variables (DATABASE_URL, SESSION_SECRET, GHOSTY_PARTNER_SECRET, PROVIDER_KEYS_MASTER, SANDBOX_HOST_TOKEN). @build no puede darlas."}"#
+            events = [.init(at: iso(12), actor: "check", type: "check_blocked", data: .object(["findings": .string("@check no pudo revisar en la preview.\n" + raw)])),
+                      .init(at: iso(40), actor: "Brenda", type: "approve", data: nil)]
+        } else if r.stage == .escalated {
+            events = [.init(at: iso(25), actor: "check", type: "check_fail",
                             data: .object(["findings": .string("CI rojo por la subida: falla typecheck.\n- `app/routes/dash.tsx:636` — `labelFormatter` ahora recibe `ReactNode`. Arreglo: `String(label)`.\n- `scripts/verify.mjs:24` — biome marca `useIterableCallbackReturn`. Arreglo: cuerpo con llaves.\nLo que hace falta: meter esos dos arreglos en la rama del PR.")])),
                       .init(at: iso(56), actor: "dependabot", type: "adopted", data: nil)]
         }
