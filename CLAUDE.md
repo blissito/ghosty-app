@@ -283,8 +283,8 @@ desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
 ## 1.0.12 en revisión (20-oct)
 
-**Estado:** build 89 (todo `main` al 45ff036a) enviada a revisión el 20-oct; salida MANUAL. Al aprobarse:
-`asc.py publicar` y subir `suggestBuild` a 89. La 1.0.11 (build 84) está publicada; falta subir `suggestBuild` a 84.
+**Estado:** build 89 (todo `main` al 45ff036a) enviada a revisión el 20-oct; salida AUTOMÁTICA (`AFTER_APPROVAL`, cambiada
+con la versión ya en `WAITING_FOR_REVIEW`: Apple lo acepta). Al salir: subir `suggestBuild` a 89. La 1.0.11 (build 84) está publicada; falta subir `suggestBuild` a 84.
 «Qué hay de nuevo» no acepta ✓ (409 `INVALID_CHARACTERS`), igual que ⭐.
 
 **Qué lleva:**
