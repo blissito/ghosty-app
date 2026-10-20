@@ -7,15 +7,22 @@ import SwiftUI
 /// Arranca EXACTAMENTE en el fotograma del LaunchScreen (`launch-mark`, `LaunchLockup`:
 /// centrado en el área segura) y nada se traslada: sólo escala sobre su propio centro.
 ///
-/// Guion (segundos desde que la app está lista, nunca antes de `Timing.hold`):
-/// - 0.00–0.30  la flama se encoge a 0.8 (toma vuelo, ease-in-out) y el wordmark se apaga
-///              encogiéndose sobre su centro: la flama se queda sola, como el pájaro.
-/// - 0.30–1.00  la flama crece como ventana hasta tapar la pantalla (ease-in). Su cara se
-///              apaga en 0.30–0.45 y por la silueta se ve la app, que a la vez baja de
-///              1.1 a 1 (`RootView`): el mismo «aterrizaje» del original.
+/// Mientras la cuenta carga (por red, en un teléfono de verdad pueden ser segundos) la marca
+/// se queda QUIETA en la pose del LaunchScreen: nunca se funde con otra capa. Antes, a los
+/// 3.2 s se fundía con el `LaunchMark` de la raíz (otro fondo, otra flama que se mece): en
+/// el teléfono eso se veía como «el ghosty y luego un fundido hacia otro, en mal lugar».
+///
+/// Guion de la apertura (segundos desde que la app está lista, nunca antes de `Timing.hold`):
+/// - 0.00–0.20  toma vuelo: la flama se encoge a 0.85 (ease-in-out); el wordmark se apaga
+///              en 0.14 s y los ojos y lentes en 0.08–0.20: queda la silueta sola, como el
+///              pájaro blanco.
+/// - 0.20–0.62  la silueta es la ventana y crece hasta tapar la pantalla con ease-in (el
+///              «golpe» del original). Crece lila, como el pájaro blanco, y entre ×3 y ×10 el
+///              lila se apaga y queda la app pura, que baja de 1.1 a 1 con ease-out (`RootView`).
 ///
 /// Reglas: sólo en arranque en frío, se salta con un toque, se quita en cuanto un aviso o
-/// una liga piden ir a algún lado, y con «Reducir movimiento» es un fundido.
+/// una liga piden ir a algún lado, y con «Reducir movimiento» es un fundido. Si la app no
+/// está lista en `Timing.maxWait` (10 s), último recurso: fundido.
 /// La flama y el wordmark son los assets oficiales SIN tocar: escalan uniformes, nunca se
 /// redibujan ni se deforman.
 struct LaunchIntro: View {
@@ -24,8 +31,9 @@ struct LaunchIntro: View {
     var appReady: Bool
     /// Cambia cuando un aviso o una liga piden navegar: la intro se va de inmediato.
     var linkRequests: Int
-    /// Arranca la apertura (la raíz baja la app de 1.1 a 1 con `Timing.reveal` de duración).
-    var onReveal: () -> Void = {}
+    /// Arranca la apertura. Recibe en cuántos segundos empieza a abrirse la ventana: ahí la
+    /// raíz empieza a bajar la app de 1.1 a 1 (`LaunchIntroTiming.appSettle`).
+    var onReveal: (_ growStart: Double) -> Void = { _ in }
     var onFinish: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -35,25 +43,19 @@ struct LaunchIntro: View {
     @State private var fadeAt: Date?
     /// Espejo de `appReady` que sí ve la tarea de la coreografía (la vista es un valor).
     @State private var ready = false
-    @State private var lockupMidY: CGFloat = 0
-    @State private var backdropMidY: CGFloat = 0
 
     var body: some View {
         TimelineView(.animation(paused: revealAt == nil && fadeAt == nil)) { ctx in
             let pose = IntroPose(reveal: revealAt.map { ctx.date.timeIntervalSince($0) },
                                  fade: fadeAt.map { ctx.date.timeIntervalSince($0) })
-            ZStack {
-                // El fondo cubre la pantalla completa; la marca va al centro del área segura,
-                // que es donde la pone iOS. El hueco se alinea con la marca MIDIENDO las dos
-                // capas (no calculando con los bordes seguros: según dónde cuelgue la vista,
-                // `safeAreaInsets` llega en 0 y la marca brincaba 14 pt).
-                IntroBackdrop(pose: pose, safeCenterOffset: lockupMidY - backdropMidY)
-                    .ignoresSafeArea()
-                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midY } action: { backdropMidY = $0 }
-                IntroLockup(pose: pose)
-                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midY } action: { lockupMidY = $0 }
-            }
-            .opacity(pose.overlayOpacity)
+            // UNA sola fuente de geometría: la marca va al centro del área segura (donde la
+            // pone iOS) y el fondo con la ventana es su `background`, con el MISMO centro.
+            // Antes el fondo ignoraba el área segura y el hueco se alineaba midiendo las dos
+            // capas: la medición salía igual y la silueta quedaba (top − bottom)/2 corrida
+            // (7 pt en un iPhone 11, 14 pt en un 17 Pro), con rendijas por donde se asomaba la app.
+            IntroLockup(pose: pose)
+                .background { IntroBackdrop(pose: pose) }
+                .opacity(pose.overlayOpacity)
         }
         .contentShape(Rectangle())
         .onTapGesture { leave() }
@@ -79,7 +81,7 @@ struct LaunchIntro: View {
         guard revealAt == nil, fadeAt == nil else { return }
         if ready && !reduceMotion {
             revealAt = Date()
-            onReveal()
+            onReveal(Timing.growStart)
             Task {
                 try? await Task.sleep(for: .seconds(Timing.reveal))
                 onFinish()
@@ -98,23 +100,28 @@ struct LaunchIntro: View {
 // MARK: - Tiempos
 
 enum LaunchIntroTiming {
-    /// La apertura completa: lo que dura también el 1.1 → 1 de la app en `RootView`.
-    static let reveal = 1.0
+    /// Lo que tarda la app en asentarse de 1.1 a 1 (ease-out) desde que se abre la ventana.
+    static let appSettle = 0.75
 }
 
 private enum Timing {
     static let hold = 0.35
-    /// Lo más que se espera a la app antes de fundirse con el LaunchMark.
-    static let maxWait = 3.2
-    static let reveal = LaunchIntroTiming.reveal
-    /// Fin de la toma de vuelo (el 30 % del original).
-    static let shrinkEnd = 0.30
-    static let shrinkTo: CGFloat = 0.8
+    /// Lo más que se espera a la app; después, último recurso, fundido.
+    static let maxWait = 10.0
+    /// Fin de la toma de vuelo; ahí la silueta se vuelve ventana.
+    static let growStart = 0.20
+    static let shrinkTo: CGFloat = 0.85
+    /// Fin del crecimiento: la ventana ya tapa la pantalla.
+    static let growEnd = 0.62
+    /// La overlay se quita cuando la app ya se asentó.
+    static let reveal = growStart + LaunchIntroTiming.appSettle
     /// Hasta dónde crece la ventana: con el corazón de la flama al centro, tapa las cuatro
     /// esquinas de cualquier iPhone.
     static let growTo: CGFloat = 40
-    static let wordmarkOut = 0.24
-    static let faceOut = (from: 0.30, to: 0.45)
+    static let wordmarkOut = 0.14
+    static let faceOut = (from: 0.08, to: 0.20)
+    /// Entre qué escalas de la flama su lila se apaga y deja ver la app.
+    static let fillOut = (from: 3.0, to: 10.0)
     static let fade = 0.32
 }
 
@@ -133,7 +140,10 @@ private enum Mark {
 
 private struct IntroPose {
     var flameScale: CGFloat = 1
+    /// Ojos y lentes.
     var faceOpacity: Double = 1
+    /// El cuerpo lila de la flama (dentro de la ventana, encima de la app).
+    var fillOpacity: Double = 1
     var wordmarkScale: CGFloat = 1
     var wordmarkOpacity: Double = 1
     /// La ventana: escala de la silueta recortada; `nil` = todavía no hay hueco.
@@ -143,22 +153,25 @@ private struct IntroPose {
     init(reveal r: Double?, fade f: Double?) {
         if let f { overlayOpacity = 1 - clamp(f / Timing.fade) }
         guard let r else { return }
-        // El wordmark se va primero: se encoge sobre su centro y se apaga.
-        let w = easeInOutCubic(clamp(r / Timing.wordmarkOut))
-        wordmarkScale = 1 - 0.1 * CGFloat(w)
+        // El wordmark se va primero: se encoge un poco sobre su centro y se apaga.
+        let w = easeOutCubic(clamp(r / Timing.wordmarkOut))
+        wordmarkScale = 1 - 0.06 * CGFloat(w)
         wordmarkOpacity = 1 - w
-        if r < Timing.shrinkEnd {
-            // 1 → 0.8, ease-in-out (primer tramo del original).
-            let p = easeInOutCubic(r / Timing.shrinkEnd)
+        faceOpacity = 1 - smooth(r, Timing.faceOut.from, Timing.faceOut.to)
+        if r < Timing.growStart {
+            // 1 → 0.85, ease-in-out: la toma de vuelo.
+            let p = easeInOutCubic(r / Timing.growStart)
             flameScale = 1 - (1 - Timing.shrinkTo) * CGFloat(p)
         } else {
-            // 0.8 → 40, ease-in: interpolación exponencial (se siente a velocidad pareja)
-            // que arranca lenta y termina de golpe, como el pájaro.
-            let q = clamp((r - Timing.shrinkEnd) / (Timing.reveal - Timing.shrinkEnd))
-            let e = pow(q, 1.6)
+            // 0.85 → 40 en escala logarítmica con ease-in cúbico: arranca suave y casi todo el
+            // crecimiento llega al final, de golpe, como el pájaro.
+            let q = clamp((r - Timing.growStart) / (Timing.growEnd - Timing.growStart))
+            let e = q * q
             flameScale = Timing.shrinkTo * CGFloat(exp(log(Double(Timing.growTo / Timing.shrinkTo)) * e))
             hole = flameScale
-            faceOpacity = 1 - smooth(r, Timing.faceOut.from, Timing.faceOut.to)
+            // Como el pájaro blanco: crece lila y sólo cuando ya es grande se vuelve app
+            // (nunca un recorte chiquito con texto adentro).
+            fillOpacity = 1 - smooth(log(Double(flameScale)), log(Timing.fillOut.from), log(Timing.fillOut.to))
         }
     }
 }
@@ -168,21 +181,33 @@ private struct IntroPose {
 /// El fondo del LaunchScreen con un hueco en forma de flama: por ahí se ve la app.
 private struct IntroBackdrop: View {
     let pose: IntroPose
-    let safeCenterOffset: CGFloat
+    /// Más grande que cualquier pantalla y centrado en la marca: tapa todo sin salirse del
+    /// sistema de coordenadas de la marca (un `ignoresSafeArea` lo movería).
+    private static let side: CGFloat = 3000
 
     var body: some View {
         ZStack {
-            Mark.launchBg
+            ZStack {
+                Mark.launchBg.frame(width: Self.side, height: Self.side)
+                if let s = pose.hole {
+                    silhouette(s).blendMode(.destinationOut)
+                }
+            }
+            .compositingGroup()
+            // El lila que llena la ventana sale de la MISMA silueta que la recorta (mismo
+            // tamaño, ancla y lugar): sin rendijas por donde se asome la app.
             if let s = pose.hole {
-                Image("flame-body")
-                    .resizable()
-                    .frame(width: Mark.flameSize.width, height: Mark.flameSize.height)
-                    .scaleEffect(s, anchor: Mark.core)
-                    .offset(y: safeCenterOffset + LaunchLockup.flameOffset)
-                    .blendMode(.destinationOut)
+                silhouette(s).opacity(pose.fillOpacity)
             }
         }
-        .compositingGroup()
+    }
+
+    private func silhouette(_ s: CGFloat) -> some View {
+        Image("flame-body")
+            .resizable()
+            .frame(width: Mark.flameSize.width, height: Mark.flameSize.height)
+            .scaleEffect(s, anchor: Mark.core)
+            .offset(y: LaunchLockup.flameOffset)
     }
 }
 
@@ -194,12 +219,16 @@ private struct IntroLockup: View {
     var body: some View {
         ZStack {
             ZStack {
+                // Ya con ventana, el cuerpo lo pinta el fondo (`IntroBackdrop`).
                 Image("flame-body").resizable()
-                Image("flame-eyes").resizable()
-                Image("flame-glasses").resizable()
+                    .opacity(pose.hole == nil ? 1 : 0)
+                Group {
+                    Image("flame-eyes").resizable()
+                    Image("flame-glasses").resizable()
+                }
+                .opacity(pose.faceOpacity)
             }
             .frame(width: Mark.flameSize.width, height: Mark.flameSize.height)
-            .opacity(pose.faceOpacity)
             .scaleEffect(pose.flameScale, anchor: Mark.core)
             .offset(y: LaunchLockup.flameOffset)
 
@@ -221,6 +250,7 @@ private func smooth(_ x: Double, _ a: Double, _ b: Double) -> Double {
     let p = clamp((x - a) / (b - a))
     return p * p * (3 - 2 * p)
 }
+private func easeOutCubic(_ p: Double) -> Double { 1 - pow(1 - p, 3) }
 private func easeInOutCubic(_ p: Double) -> Double {
     p < 0.5 ? 4 * p * p * p : 1 - pow(-2 * p + 2, 3) / 2
 }
@@ -231,7 +261,7 @@ private func easeInOutCubic(_ p: Double) -> Double {
 /// del fondo no recrea la raíz, y aun si lo hiciera, ya se tocó).
 enum LaunchIntroGate {
     /// Apagar aquí quita la intro entera; la app arranca como antes (LaunchMark).
-    static let enabled = false
+    static let enabled = true
 
     @MainActor private static var played = false
 

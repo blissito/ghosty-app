@@ -62,6 +62,9 @@ struct LaunchMark: View {
                 .offset(y: LaunchLockup.wordmarkOffset)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // El fondo del LaunchScreen (`bg`, #F4F4F7), no el blanco de la app: si no, el paso
+        // del arranque de iOS a esta pantalla se veía como un fundido de color.
+        .background(Color("bg").ignoresSafeArea())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Ghosty")
     }

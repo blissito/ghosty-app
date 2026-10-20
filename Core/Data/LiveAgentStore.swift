@@ -498,6 +498,11 @@ final class LiveAgentStore: AgentStoring {
            let barra = aviso.firstIndex(of: "/") {
             open(agent: String(aviso[..<barra]), session: String(aviso[aviso.index(after: barra)...]))
         }
+        // `GHOSTY_CARGA_LENTA=5`: se queda «cargando» 5 s, como una cuenta que baja por red
+        // lenta. Es el camino de la intro que el modo demo (listo al instante) nunca toma.
+        if let lenta = Gancho.valor("GHOSTY_CARGA_LENTA").flatMap(Double.init) {
+            try? await Task.sleep(for: .seconds(lenta))
+        }
         #endif
 
         // Datos falsos y ni un byte de red. Ver `DemoData.swift`: es lo que permite abrir

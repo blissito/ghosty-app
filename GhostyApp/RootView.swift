@@ -130,9 +130,12 @@ struct RootView: View {
             if showIntro {
                 LaunchIntro(appReady: store.conexion != .cargando,
                             linkRequests: store.linkRequests,
-                            onReveal: {
+                            onReveal: { growStart in
+                                // Tapada aún por la intro: nadie ve el 1.1 hasta que se abre la ventana.
                                 appZoom = 1.1
-                                withAnimation(.easeOut(duration: LaunchIntroTiming.reveal)) { appZoom = 1 }
+                                withAnimation(.easeOut(duration: LaunchIntroTiming.appSettle).delay(growStart)) {
+                                    appZoom = 1
+                                }
                             },
                             onFinish: { showIntro = false })
             }
