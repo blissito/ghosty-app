@@ -231,7 +231,7 @@ private func easeInOutCubic(_ p: Double) -> Double {
 /// del fondo no recrea la raíz, y aun si lo hiciera, ya se tocó).
 enum LaunchIntroGate {
     /// Apagar aquí quita la intro entera; la app arranca como antes (LaunchMark).
-    static let enabled = true
+    static let enabled = false
 
     @MainActor private static var played = false
 
