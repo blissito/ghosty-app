@@ -294,6 +294,11 @@ es `stale`. Lleva «¿Qué pasó?» (gs `…/why`) y los botones «Retomar» y �
 «Abrir el hilo» abre `FactoryThreadView` DENTRO de la app (en Safari pedía sesión): ahí el compositor le
 escribe al rol del pedido (`@build`/`@check`). Prueba: `testPedidoSinAvanzarDemo` (demo #35).
 Ya desplegado: Teams c14d3a5 (`factory-act` `resume|stop|cancel`, `runPersonAction`) y gs f0082097.
+**También lleva (615a29e1) «Te toca» con motivo:** cada escalado trae `escalation {kind, reason, actions}` de gs
+(`env|fix|skip|decision|platform`) y `needsYou` lo decide gs. Una falla de plataforma (preview atorada) sale gris
+como «Esperando preview» y no cuenta. `skip` de Dependabot ofrece «Cerrar e ignorar» (`act close {ignore}`), `platform`
+«Reintentar preview» (`act retry_preview`). Prueba `testTeTocaConMotivoDemo`. Ya desplegado: Teams 1be7da0, gs 81dcc712.
+Origen: «Te toca 8» de easybits (20-oct), 5 eran un despliegue viejo `preview-157` que engañaba a `repoHasPreviews`.
 El 🔁 de «Llevaba 30 min sin avanzar» que salía como cuadro con «?» es del SIMULADOR, no de la app: ahí ningún emoji se pinta, ni en un `Text` plano (probado el 20-oct). En el teléfono no aplica.
 
 ## 1.0.12 en revisión (20-oct)
