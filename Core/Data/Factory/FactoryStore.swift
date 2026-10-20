@@ -7,7 +7,8 @@ import Observation
 final class FactoryStore {
     static let shared = FactoryStore()
 
-    /// Sólo los espacios con al menos un pedido, en el orden de gs (por slug).
+    /// Los espacios con la fábrica a la mano: primero los que tienen pedidos (en el orden de gs) y
+    /// luego los vacíos, que enseñan «Conecta tu primer repo».
     private(set) var spaces: [FactorySpace] = []
     private(set) var loaded = false
     private(set) var loading = false
@@ -42,14 +43,15 @@ final class FactoryStore {
             let found = await withTaskGroup(of: (Int, FactorySpace?).self) { group in
                 for (i, s) in mine.enumerated() {
                     group.addTask {
-                        guard let runs = try? await FactoryAPI.runs(s.slug).filter({ !Self.hidden(s.slug, $0.id) }),
-                              !runs.isEmpty else { return (i, nil) }
+                        // Un espacio sin Teams (o caído) no sale; uno sin pedidos sí: ahí se conecta el primer repo.
+                        guard let runs = try? await FactoryAPI.runs(s.slug).filter({ !Self.hidden(s.slug, $0.id) })
+                        else { return (i, nil) }
                         return (i, FactorySpace(slug: s.slug, role: s.role, runs: runs))
                     }
                 }
                 var out: [(Int, FactorySpace)] = []
                 for await (i, s) in group { if let s { out.append((i, s)) } }
-                return out.sorted { $0.0 < $1.0 }.map(\.1)
+                return out.sorted { ($0.1.runs.isEmpty ? 1 : 0, $0.0) < ($1.1.runs.isEmpty ? 1 : 0, $1.0) }.map(\.1)
             }
             spaces = found
             error = nil
@@ -119,6 +121,28 @@ final class FactoryStore {
             run(37, "Correo de bienvenida con el logo del negocio", "done", repo: "demo/sitio", pr: 85, ago: 600, min: 28, usd: 1.60),
         ])]
     }
+
+    /// Los repos que «ve» la App en la demo: `demo/agenda` ya está en #agenda y `demo/inventario`
+    /// contesta el 409 (la App no lo ve), para probar «Dar acceso en GitHub».
+    static let demoHiddenRepo = "inventario"
+    static var demoRepos: FactoryRepos {
+        func repo(_ name: String, _ priv: Bool, _ lang: String?, _ ago: Double, _ rooms: [String] = [], _ desc: String? = nil) -> FactoryRepos.Repo {
+            .init(repo: "demo/\(name)", private: priv, description: desc, language: lang, pushedAt: iso(ago), rooms: rooms)
+        }
+        return FactoryRepos(factoryInstalled: true, connected: true, installed: true, installUrl: nil, detail: nil, repos: [
+            repo("agenda", true, "TypeScript", 30, ["agenda"], "Citas y recordatorios"),
+            repo("tienda", false, "TypeScript", 95, [], "La tienda en línea"),
+            repo("sitio", false, "Astro", 400, ["sitio"]),
+            repo(demoHiddenRepo, true, "Python", 2900),
+            repo("facturas", true, "Go", 9000, [], "Timbrado CFDI"),
+            repo("landing-2024", false, "HTML", 200_000),
+        ])
+    }
+    static let demoRooms: [FactoryRooms.Room] = [
+        .init(slug: "agenda", name: "agenda", private: false, repos: ["demo/agenda"], factory: true),
+        .init(slug: "sitio", name: "sitio", private: false, repos: ["demo/sitio"], factory: true),
+        .init(slug: "general", name: "general", private: false, repos: [], factory: false),
+    ]
 
     /// La recomendación de la demo para el pedido escalado (#41).
     static let demoAdvice = FactoryAdvice(

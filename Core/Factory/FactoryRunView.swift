@@ -673,21 +673,30 @@ struct FactoryNoteSheet: View {
 /// «Nuevo pedido»: room (o repo) + qué quieres. Publica «@plan …» en el room del espacio.
 struct FactoryNewRunSheet: View {
     let space: FactorySpace
+    /// El room ya escogido (viene de «Pide el primer cambio» al conectar un repo).
+    var initialRoom: String? = nil
+    /// «+ Conectar repo» al final de los rooms.
+    var onConnectRepo: (() -> Void)? = nil
     var onCreated: (FactoryAPI.NewRun) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var room: String?
+    @State private var factoryRooms: [FactoryRooms.Room] = []
     @State private var text = ""
     @State private var sending = false
     @State private var error: String?
     @State private var done: FactoryAPI.NewRun?
 
-    /// Los rooms donde ya hay pedidos, con su repo.
+    /// Los rooms de fábrica del espacio (gs `…/factory/rooms`), más los que ya tienen pedidos y el
+    /// recién conectado, aunque la lista todavía no lo traiga.
     private var rooms: [(room: String, repo: String?)] {
         var seen = Set<String>()
-        return space.runs.compactMap { r in
-            guard let room = r.room, seen.insert(room).inserted else { return nil }
-            return (room, r.repo)
+        var out: [(room: String, repo: String?)] = []
+        if let initialRoom, seen.insert(initialRoom).inserted { out.append((initialRoom, nil)) }
+        for r in factoryRooms where r.factory && seen.insert(r.slug).inserted { out.append((r.slug, r.repos.first)) }
+        for r in space.runs {
+            if let room = r.room, seen.insert(room).inserted { out.append((room, r.repo)) }
         }
+        return out
     }
 
     private var valid: Bool { room != nil && text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 15 }
@@ -725,8 +734,21 @@ struct FactoryNewRunSheet: View {
                                 .background(on ? Color.gDark : Color.gFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
                             .buttonStyle(.gPressPill)
+                            .accessibilityIdentifier("nuevo-room-\(r.room)")
+                            .accessibilityValue(on ? "escogido" : "")
+                        }
+                        if let onConnectRepo {
+                            Button(action: onConnectRepo) {
+                                Label("Conectar repo", systemImage: "plus")
+                                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gPrimary)
+                                    .padding(.horizontal, 12).frame(maxHeight: .infinity)
+                                    .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.gPressPill)
+                            .accessibilityIdentifier("nuevo-conectar-repo")
                         }
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 .scrollIndicators(.hidden)
                 Text("¿Qué quieres?").gSectionCaps()
@@ -765,7 +787,14 @@ struct FactoryNewRunSheet: View {
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(Theme.Radius.sheet)
         .presentationBackground(Color.gBg)
-        .onAppear { if room == nil { room = rooms.first?.room } }
+        .onAppear { if room == nil { room = initialRoom ?? rooms.first?.room } }
+        .task {
+            if DemoData.encendido { factoryRooms = FactoryStore.demoRooms; return }
+            if let r = try? await FactoryAPI.rooms(space.slug) {
+                factoryRooms = r.rooms
+                if room == nil { room = rooms.first?.room }
+            }
+        }
     }
 
     private func send() async {

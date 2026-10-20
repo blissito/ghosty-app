@@ -166,6 +166,58 @@ struct FactoryRunDetail: Decodable {
     }
 }
 
+/// Los rooms del espacio con sus repos (gs `…/factory/rooms`). `factory` = trabaja como fábrica.
+struct FactoryRooms: Decodable {
+    struct Room: Decodable, Hashable, Identifiable {
+        let slug: String
+        let name: String
+        let `private`: Bool
+        let repos: [String]
+        let factory: Bool
+        var id: String { slug }
+    }
+    let factoryInstalled: Bool
+    let rooms: [Room]
+}
+
+/// Los repos que ve tu GitHub App (`…/factory/rooms?repos=1`), del más reciente al más viejo.
+struct FactoryRepos: Decodable {
+    struct Repo: Decodable, Hashable, Identifiable {
+        let repo: String
+        let `private`: Bool
+        let description: String?
+        let language: String?
+        let pushedAt: String?
+        /// Los rooms donde ya está conectado.
+        let rooms: [String]
+        var id: String { repo }
+        var name: String { String(repo.split(separator: "/").last ?? Substring(repo)) }
+        var owner: String { String(repo.split(separator: "/").first ?? "") }
+    }
+    let factoryInstalled: Bool
+    let connected: Bool
+    let installed: Bool
+    let installUrl: String?
+    let detail: String?
+    let repos: [Repo]
+}
+
+/// Lo que contesta conectar un repo: el room, la caja de CI y qué tan listo está para agentes.
+struct FactoryConnected: Decodable, Hashable {
+    struct Readiness: Decodable, Hashable {
+        let level: Int
+        let passed: Int
+        let total: Int
+        let missing: [String]
+    }
+    let room: String
+    let created: Bool
+    let repo: String
+    let factoryInstalled: Bool
+    let ciLabel: String?
+    let readiness: Readiness?
+}
+
 /// Lo que hace AHORA cada rol que trabaja en un pedido (gs `…/live`): sus pasos, el abierto y el
 /// atasco vigente. Los pasos traen la misma `kind` que los del chat, así que se pintan igual.
 struct FactoryLive: Decodable, Hashable {
@@ -284,7 +336,9 @@ enum FactoryAPI {
         guard (200..<300).contains(code) else {
             // gs y Teams contestan `{ error, message }` con la frase ya redactada en español.
             let json = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
-            let msg = json?["message"] as? String ?? json?["error_description"] as? String
+            // Teams (lo que gs le pasa tal cual, como el 409 de conectar) pone la frase en `error`.
+            let teams = (json?["error"] as? String).flatMap { $0.contains(" ") ? $0 : nil }
+            let msg = json?["message"] as? String ?? json?["error_description"] as? String ?? teams
                 ?? (code == 401 ? "Hay que volver a entrar a tu cuenta." : "El servidor contestó \(code).")
             throw Failure(message: msg, status: code)
         }
@@ -331,6 +385,36 @@ enum FactoryAPI {
     /// Qué hace ahora cada rol. Una caja de gs sin `/live` contesta 404: quien llama lo ignora.
     static func live(_ slug: String, _ id: Int) async throws -> FactoryLive {
         try JSONDecoder().decode(FactoryLive.self, from: try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/live"))
+    }
+
+    static func rooms(_ slug: String) async throws -> FactoryRooms {
+        try JSONDecoder().decode(FactoryRooms.self, from: try await request("/api/v2/workspaces/\(enc(slug))/factory/rooms"))
+    }
+
+    static func repos(_ slug: String) async throws -> FactoryRepos {
+        try JSONDecoder().decode(FactoryRepos.self, from: try await request("/api/v2/workspaces/\(enc(slug))/factory/rooms?repos=1"))
+    }
+
+    /// Conecta un repo a un room (lo crea con `create`). Tarda: revisa GitHub, prepara la caja de CI y
+    /// mide qué tan listo está. Un repo que la App no ve contesta 409 (`Failure.status`).
+    static func connect(_ slug: String, repo: String, room: String, create: Bool, isPrivate: Bool) async throws -> FactoryConnected {
+        var body: [String: Any] = ["action": "connect", "repo": repo, "room": room]
+        if create { body["create"] = true }
+        if isPrivate { body["private"] = true }
+        let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/rooms", method: "POST", body: body)
+        return try JSONDecoder().decode(FactoryConnected.self, from: d)
+    }
+
+    /// La página de GitHub para darle a la App acceso a más repos (vuelve a `…://conector`).
+    static func githubAccessURL() async throws -> URL? {
+        let d = try await request("/api/v2/me/connectors/github/start?install=1", method: "POST", body: [:])
+        return ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["url"].flatMap { $0 as? String }.flatMap(URL.init(string:))
+    }
+
+    /// Autorizar GitHub (la primera vez): el mismo flujo que Integraciones.
+    static func githubConnectURL() async throws -> URL? {
+        let d = try await request("/api/v2/me/connectors/github/start", method: "POST", body: [:])
+        return ((try? JSONSerialization.jsonObject(with: d)) as? [String: Any])?["url"].flatMap { $0 as? String }.flatMap(URL.init(string:))
     }
 
     /// El token de push de la Live Activity del pedido: con él gs la mantiene al día con la app dormida.

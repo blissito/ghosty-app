@@ -18,7 +18,19 @@ struct FactoryHomeView: View {
     @State private var store = FactoryStore.shared
     @State private var selected: String?
     @State private var path: [FactoryRoute] = []
-    @State private var creating = false
+    @State private var sheet: HomeSheet?
+
+    /// Las dos hojas de la cabecera. «Pide el primer cambio» pasa de una a la otra con el room escogido.
+    enum HomeSheet: Identifiable {
+        case newRun(room: String?)
+        case connect
+        var id: String {
+            switch self {
+            case .newRun(let room): "run-\(room ?? "")"
+            case .connect: "connect"
+            }
+        }
+    }
 
     private var space: FactorySpace? {
         store.spaces.first { $0.slug == selected } ?? store.spaces.first
@@ -69,17 +81,51 @@ struct FactoryHomeView: View {
                 await store.refresh(space: slug)
             }
         }
-        .sheet(isPresented: $creating) {
+        .sheet(item: $sheet) { which in
             if let space {
-                FactoryNewRunSheet(space: space) { _ in
-                    Task { await store.refresh(space: space.slug) }
+                switch which {
+                case .newRun(let room):
+                    FactoryNewRunSheet(space: space, initialRoom: room, onConnectRepo: { swap(to: .connect) }) { _ in
+                        Task { await store.refresh(space: space.slug) }
+                    }
+                case .connect:
+                    FactoryConnectRepoSheet(slug: space.slug) { room in
+                        swap(to: .newRun(room: room))
+                    }
                 }
             }
         }
     }
 
+    /// Cambiar de hoja: se cierra la abierta y, ya abajo, sube la otra.
+    private func swap(to next: HomeSheet) {
+        sheet = nil
+        Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            sheet = next
+        }
+    }
+
+    /// «Pedido» es lo de diario (un toque); el menú del «⋯» de al lado conecta un repo nuevo.
     private var newRunButton: some View {
-        Button { creating = true } label: {
+        HStack(spacing: 6) {
+            Menu {
+                Button { sheet = .connect } label: { Label("Conectar repo", systemImage: "link.badge.plus") }
+                    .accessibilityIdentifier("menu-conectar-repo")
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .bold)).foregroundStyle(Color.gInk)
+                    .frame(width: 36, height: 36)
+                    .background(Color.gFill, in: Circle())
+            }
+            .disabled(space == nil)
+            .accessibilityIdentifier("fabrica-mas")
+            runButton
+        }
+    }
+
+    private var runButton: some View {
+        Button { sheet = .newRun(room: nil) } label: {
             HStack(spacing: 5) {
                 Image(systemName: "plus").font(.system(size: 13, weight: .bold))
                 Text("Pedido").font(.system(size: 14, weight: .semibold))
@@ -152,6 +198,9 @@ struct FactoryHomeView: View {
             let mine = space.runs.filter(\.stage.needsYou)
             let working = space.runs.filter(\.stage.working)
             let rest = space.runs.filter { !$0.stage.needsYou && !$0.stage.working }
+            if space.runs.isEmpty {
+                firstRepo
+            } else {
             VStack(alignment: .leading, spacing: 22) {
                 summary(space)
                 if !mine.isEmpty { section("Te toca", mine, accent: .gAmberInk) }
@@ -160,6 +209,7 @@ struct FactoryHomeView: View {
             }
             .id(space.slug)
             .transition(.opacity)
+            }
         } else if !store.loaded || store.loading {
             HStack { Spacer(); GhostySpinner(size: 22); Spacer() }.padding(.top, 60)
         } else {
@@ -170,6 +220,25 @@ struct FactoryHomeView: View {
             }
             .frame(maxWidth: .infinity).padding(.top, 60)
         }
+    }
+
+    /// Un espacio sin pedidos: lo primero es conectar un repo.
+    private var firstRepo: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TintedIcon(systemName: "link.badge.plus", tint: .gPrimary, background: .gPrimaryTint, size: 44)
+            Text("Conecta tu primer repo").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
+            Text("Escoge un repo de tu GitHub y la fábrica lo deja listo: @plan propone, tú firmas y @build lo hace.")
+                .font(.system(size: 15)).foregroundStyle(Color.gInk2).fixedSize(horizontal: false, vertical: true)
+            Button { sheet = .connect } label: {
+                Text("Conectar repo").gButtonLabel().foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.gPressPrimary)
+            .accessibilityIdentifier("conectar-primer-repo")
+        }
+        .padding(18)
+        .ghostyCard()
     }
 
     /// Tres cifras arriba: te toca, trabajando, terminados.

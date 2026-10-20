@@ -170,6 +170,59 @@ final class FabricaUITests: XCTestCase {
         add(lock)
     }
 
+    /// «⋯» → Conectar repo → buscar → un repo que la App no ve (409, «Dar acceso») → otro repo →
+    /// crear su room → nivel y faltantes → «Pide el primer cambio» abre «Nuevo pedido» con ese room.
+    func testConectarRepoDemo() {
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launch()
+        let pestana = app.buttons["tab-fabrica"]
+        XCTAssertTrue(pestana.waitForExistence(timeout: 20), "no apareció la pestaña «Fábrica»")
+        pestana.tap()
+        let mas = app.buttons["fabrica-mas"]
+        XCTAssertTrue(mas.waitForExistence(timeout: 10), "no hay «⋯» en la cabecera")
+        mas.tap()
+        let menu = app.buttons["menu-conectar-repo"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 3), "el menú no trae «Conectar repo»")
+        menu.tap()
+
+        XCTAssertTrue(app.buttons["repo-tienda"].waitForExistence(timeout: 5), "la hoja no lista los repos")
+        XCTAssertTrue(app.staticTexts["en #agenda"].exists, "el repo conectado no dice su room")
+        foto("c1-repos")
+
+        // El que la App no ve: el 409 se queda en la hoja con «Dar acceso».
+        app.buttons["repo-inventario"].tap()
+        XCTAssertTrue(app.buttons["conectar-repo"].waitForExistence(timeout: 3), "escoger el repo no abrió el room")
+        app.buttons["conectar-repo"].tap()
+        XCTAssertTrue(app.buttons["dar-acceso-repo"].waitForExistence(timeout: 8), "el 409 no ofreció «Dar acceso en GitHub»")
+        foto("c2-sin-acceso")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        let buscar = app.textFields["buscar-repo"]
+        XCTAssertTrue(buscar.waitForExistence(timeout: 3))
+        buscar.tap()
+        buscar.typeText("tien")
+        XCTAssertFalse(app.buttons["repo-sitio"].exists, "la búsqueda no filtró")
+        app.buttons["repo-tienda"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["room-nuevo"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.textFields["nombre-room"].value as? String, "tienda", "el room nuevo no se llama como el repo")
+        foto("c3-room")
+        app.buttons["conectar-repo"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["conectando"].waitForExistence(timeout: 2), "no se ve el progreso")
+        foto("c4-conectando")
+
+        let listo = app.staticTexts["conectado"]
+        XCTAssertTrue(listo.waitForExistence(timeout: 8), "no terminó de conectar")
+        XCTAssertTrue(listo.label.contains("#tienda"), "el resultado no nombra el room: \(listo.label)")
+        XCTAssertTrue(app.staticTexts["Reglas para agentes (AGENTS.md)"].exists, "no dice lo que falta")
+        foto("c5-listo")
+
+        app.buttons["pide-primer-cambio"].tap()
+        let chip = app.buttons["nuevo-room-tienda"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 5), "«Pide el primer cambio» no abrió «Nuevo pedido» con el room")
+        XCTAssertEqual(chip.value as? String, "escogido", "el room nuevo no quedó escogido")
+        foto("c6-pedido")
+    }
+
     func testFabricaEnVivo() throws {
         let env = ProcessInfo.processInfo.environment
         guard let token = env["GHOSTY_TOKEN"], !token.isEmpty else {
