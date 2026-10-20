@@ -64,6 +64,21 @@ final class FactoryStore {
         }
     }
 
+    /// Un sprint recién leído o cambiado (aprobado, un ticket fuera): la fila de la lista y la
+    /// tarjeta del hilo dicen lo mismo que la pantalla del sprint, sin esperar al siguiente sondeo.
+    /// Sin esto, aprobar dejaba la fila en «Propuesto · te toca revisarlo».
+    func noteSprint(_ s: FactorySprint, slug: String) {
+        if var rows = sprints[slug], let i = rows.firstIndex(where: { $0.id == s.id }) {
+            let r = rows[i]
+            rows[i] = FactorySprintRow(id: r.id, title: s.title, status: s.status, repo: s.repo, room: r.room, threadId: r.threadId,
+                                       total: s.included.count, merged: s.merged, updatedAt: Int(Date().timeIntervalSince1970))
+            sprints[slug] = rows
+        }
+        for (id, t) in threadState where t.sprint?.id == s.id {
+            threadState[id] = FactoryThread(channel: t.channel, root: t.root, messages: t.messages, run: t.run, sprint: s, working: t.working)
+        }
+    }
+
     func pending(_ slug: String) -> [PendingThread] { pendingThreads.filter { $0.slug == slug } }
 
     /// Sprints y pedidos pendientes de un espacio: la lista los repregunta junto con los runs.

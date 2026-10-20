@@ -311,6 +311,14 @@ final class FabricaUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["sprint-avance"].waitForExistence(timeout: 5), "crear no dejó el sprint en marcha")
         XCTAssertFalse(app.buttons["crear-sprint"].exists, "la barra de crear sigue ahí")
         foto("s4-en-marcha")
+
+        // De vuelta en la lista, la fila del sprint ya no dice «Propuesto · te toca revisarlo».
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let fila = app.buttons["sprint-7"]
+        XCTAssertTrue(fila.waitForExistence(timeout: 5), "no regresó a la lista")
+        XCTAssertFalse(fila.label.contains("Propuesto"), "la fila sigue diciendo propuesto: \(fila.label)")
+        foto("s5-lista-tras-aprobar")
     }
 
     func testFabricaEnVivo() throws {

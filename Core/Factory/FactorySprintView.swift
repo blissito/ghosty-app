@@ -201,6 +201,7 @@ struct FactorySprintView: View {
         if DemoData.encendido { sprint = FactoryStore.demoSprint; return }
         do {
             let s = try await FactoryAPI.sprint(slug, sprintId)
+            FactoryStore.shared.noteSprint(s, slug: slug)
             withAnimation(.snappy) { sprint = s; error = nil }
         } catch {
             self.error = error.localizedDescription
@@ -220,6 +221,7 @@ struct FactorySprintView: View {
         defer { busy = false }
         do {
             let s = DemoData.encendido ? FactoryStore.demoSprintAct(a) : try await FactoryAPI.sprintAct(slug, sprintId, a)
+            FactoryStore.shared.noteSprint(s, slug: slug)
             withAnimation(.snappy) { sprint = s; error = nil }
         } catch {
             self.error = error.localizedDescription
