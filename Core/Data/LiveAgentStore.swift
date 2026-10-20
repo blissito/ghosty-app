@@ -596,6 +596,13 @@ final class LiveAgentStore: AgentStoring {
               !cuentas.contains(where: { $0.id == agente }) else { return }
         pendingNotice = nil
         respaldoDelAviso = nil
+        // Un hilo de la fábrica se abre en la app, en su vista nativa.
+        if let route = FactoryStore.shared.route(teamsLink: url) {
+            EasyBitsClient.diag("[push] hilo de la fábrica \(url.absoluteString)")
+            FactoryStore.shared.pendingRoute = route
+            requestedTab = .fabrica
+            return
+        }
         EasyBitsClient.diag("[push] \(agente.prefix(9)) no es tuyo; abro \(url.absoluteString)")
         #if canImport(UIKit) && !GHOSTY_EXTENSION
         UIApplication.shared.open(url)

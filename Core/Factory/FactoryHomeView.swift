@@ -1,9 +1,24 @@
 import SwiftUI
 
-/// Un pedido abierto desde la lista: espacio + número.
+/// A dónde lleva un toque en la Fábrica: un pedido (run), el hilo de un pedido que todavía está
+/// con @plan, o un sprint.
 struct FactoryRoute: Hashable {
+    enum Target: Hashable {
+        case run(Int)
+        case thread(room: String, id: Int)
+        case sprint(Int)
+    }
     let slug: String
-    let id: Int
+    let target: Target
+
+    init(slug: String, id: Int) { self.init(slug: slug, target: .run(id)) }
+    init(slug: String, target: Target) {
+        self.slug = slug
+        self.target = target
+    }
+
+    /// El número del pedido, si la ruta es un pedido.
+    var id: Int? { if case let .run(id) = target { id } else { nil } }
 }
 
 /// La fábrica: los pedidos de tus espacios, lo que te toca primero. Es una PESTAÑA (un área
@@ -53,7 +68,11 @@ struct FactoryHomeView: View {
             // nativa con su flecha y el deslizar para regresar.
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: FactoryRoute.self) { r in
-                FactoryRunView(slug: r.slug, id: r.id)
+                switch r.target {
+                case .run(let id): FactoryRunView(slug: r.slug, id: id)
+                case let .thread(room, id): FactoryThreadView(slug: r.slug, room: room, threadId: id, path: $path)
+                case .sprint(let id): FactorySprintView(slug: r.slug, sprintId: id, path: $path)
+                }
             }
         }
         .tint(.gInk)
@@ -72,6 +91,10 @@ struct FactoryHomeView: View {
                 path = [openRoute]
             }
         }
+        .task(id: space?.slug) {
+            guard let slug = space?.slug else { return }
+            await store.refreshExtras(slug)
+        }
         // Mientras un agente trabaja, la lista se pone al día sola cada 10 s.
         .task(id: store.anyWorking) {
             guard store.anyWorking else { return }
@@ -79,14 +102,20 @@ struct FactoryHomeView: View {
                 try? await Task.sleep(for: .seconds(10))
                 guard !Task.isCancelled, path.isEmpty, let slug = space?.slug else { continue }
                 await store.refresh(space: slug)
+                await store.refreshExtras(slug)
             }
         }
         .sheet(item: $sheet) { which in
             if let space {
                 switch which {
                 case .newRun(let room):
-                    FactoryNewRunSheet(space: space, initialRoom: room, onConnectRepo: { swap(to: .connect) }) { _ in
+                    FactoryNewRunSheet(space: space, initialRoom: room, onConnectRepo: { swap(to: .connect) }) { r in
                         Task { await store.refresh(space: space.slug) }
+                        // El hilo del pedido, ya con la hoja abajo.
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(450))
+                            path.append(FactoryRoute(slug: space.slug, target: .thread(room: r.room, id: r.threadId)))
+                        }
                     }
                 case .connect:
                     FactoryConnectRepoSheet(slug: space.slug) { room in
@@ -198,11 +227,15 @@ struct FactoryHomeView: View {
             let mine = space.runs.filter(\.stage.needsYou)
             let working = space.runs.filter(\.stage.working)
             let rest = space.runs.filter { !$0.stage.needsYou && !$0.stage.working }
-            if space.runs.isEmpty {
+            let pending = store.pending(space.slug)
+            let sprints = store.sprints[space.slug] ?? []
+            if space.runs.isEmpty, pending.isEmpty, sprints.isEmpty {
                 firstRepo
             } else {
             VStack(alignment: .leading, spacing: 22) {
                 summary(space)
+                if !pending.isEmpty { withPlan(pending) }
+                if !sprints.isEmpty { sprintSection(sprints) }
                 if !mine.isEmpty { section("Te toca", mine, accent: .gAmberInk) }
                 if !working.isEmpty { section("Trabajando", working, accent: .gPrimaryPressed) }
                 if !rest.isEmpty { section("Recientes", rest, accent: .gInk3) }
@@ -219,6 +252,88 @@ struct FactoryHomeView: View {
                     .gMeta().multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity).padding(.top, 60)
+        }
+    }
+
+    /// Lo que pedí y sigue con @plan: en qué quedó cada uno (pensando, sprint, ideas, pregunta).
+    private func withPlan(_ items: [FactoryStore.PendingThread]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Con @plan").gSectionCaps().foregroundStyle(Color.gPrimaryPressed)
+                Text("\(items.count)").gSectionCaps()
+            }
+            ForEach(Array(items.enumerated()), id: \.element.id) { i, p in
+                let t = store.threadState[p.threadId]
+                NavigationLink(value: FactoryRoute(slug: p.slug, target: .thread(room: p.room, id: p.threadId))) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle().fill(Color.gPrimaryTint).frame(width: 38, height: 38)
+                            Image(systemName: Self.icon(t)).font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gPrimary)
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(p.text).font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk).lineLimit(1)
+                            HStack(spacing: 5) {
+                                if t == nil || t?.working == true { PulsingDot(color: .gPrimary, active: true, size: 5) }
+                                Text(t?.summary ?? "@plan lo está leyendo…").gCaption().lineLimit(1)
+                            }
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk4)
+                    }
+                    .padding(12)
+                    .ghostyCard()
+                }
+                .buttonStyle(.gPressRow)
+                .accessibilityIdentifier("con-plan-\(p.threadId)")
+                .gIn(delay: min(Double(i) * 0.04, 0.3))
+            }
+        }
+    }
+
+    private static func icon(_ t: FactoryThread?) -> String {
+        guard let t else { return "ellipsis" }
+        if t.run != nil { return "signature" }
+        if t.sprint != nil { return "square.stack.3d.up" }
+        if t.working { return "ellipsis" }
+        if let last = t.lastReply, !FactoryReply(last.body).ideas.isEmpty { return "lightbulb" }
+        if t.lastReply?.ask != nil { return "questionmark.bubble" }
+        return "text.bubble"
+    }
+
+    private func sprintSection(_ rows: [FactorySprintRow]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Sprints").gSectionCaps()
+                Text("\(rows.count)").gSectionCaps()
+            }
+            ForEach(rows) { r in
+                NavigationLink(value: FactoryRoute(slug: space?.slug ?? "", target: .sprint(r.id))) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle().stroke(Color.gFillStrong, lineWidth: 4)
+                            Circle().trim(from: 0, to: r.total > 0 ? CGFloat(r.merged) / CGFloat(r.total) : 0)
+                                .stroke(r.status == "draft" ? Color.gAmber : Color.gGreen, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                            Image(systemName: r.status == "draft" ? "square.stack.3d.up" : "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(r.status == "draft" ? Color.gAmberInk : Color.gGreenInk)
+                                .opacity(r.status == "draft" || r.merged == r.total ? 1 : 0)
+                        }
+                        .frame(width: 38, height: 38)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(r.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Color.gInk).lineLimit(1)
+                            Text(r.status == "draft" ? "Propuesto · te toca revisarlo" : "\(r.merged) de \(r.total) con merge" + (r.room.map { " · #\($0)" } ?? ""))
+                                .gCaption().foregroundStyle(r.status == "draft" ? Color.gAmberInk : Color.gInk3).lineLimit(1)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk4)
+                    }
+                    .padding(12)
+                    .ghostyCard()
+                }
+                .buttonStyle(.gPressRow)
+                .accessibilityIdentifier("sprint-\(r.id)")
+            }
         }
     }
 
@@ -243,7 +358,8 @@ struct FactoryHomeView: View {
 
     /// Tres cifras arriba: te toca, trabajando, terminados.
     private func summary(_ s: FactorySpace) -> some View {
-        let mine = s.runs.filter(\.stage.needsYou).count
+        // Un sprint propuesto también espera tu firma.
+        let mine = s.runs.filter(\.stage.needsYou).count + (store.sprints[s.slug] ?? []).filter { $0.status == "draft" }.count
         let working = s.runs.filter(\.stage.working).count
         let done = s.runs.filter { $0.stage == .done }.count
         let usd = s.runs.compactMap(\.usd).reduce(0, +)

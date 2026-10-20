@@ -802,8 +802,15 @@ struct FactoryNewRunSheet: View {
         sending = true
         defer { sending = false }
         do {
-            let r = try await FactoryAPI.create(space.slug, room: room, repo: nil, text: text.trimmingCharacters(in: .whitespacesAndNewlines))
-            withAnimation(.snappy) { done = r; error = nil }
+            let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let r = DemoData.encendido
+                ? FactoryAPI.NewRun(room: room, threadId: 9005, url: nil)
+                : try await FactoryAPI.create(space.slug, room: room, repo: nil, text: clean)
+            // No se queda diciendo «Listo»: @plan puede contestar con un plan, un sprint, ideas o una
+            // pregunta. Se abre el hilo del pedido y ahí se ve qué hizo.
+            FactoryStore.shared.addPending(slug: space.slug, room: r.room, threadId: r.threadId, text: clean)
+            error = nil
+            dismiss()
             onCreated(r)
         } catch {
             self.error = error.localizedDescription

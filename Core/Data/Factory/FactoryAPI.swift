@@ -317,7 +317,7 @@ enum FactoryAPI {
     }
 
     /// Pide y devuelve el cuerpo. Un 401 reintenta UNA vez con token nuevo, como `ClienteGS`.
-    private static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil,
+    static func request(_ path: String, method: String = "GET", body: [String: Any]? = nil,
                                 rejected: String? = nil) async throws -> Data {
         let token = try await Session.accessToken(rejected: rejected)
         var r = URLRequest(url: url(path))
@@ -345,7 +345,7 @@ enum FactoryAPI {
         return d
     }
 
-    private static func enc(_ s: String) -> String {
+    static func enc(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(.init(charactersIn: "/"))) ?? s
     }
 

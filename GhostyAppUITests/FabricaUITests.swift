@@ -223,6 +223,96 @@ final class FabricaUITests: XCTestCase {
         foto("c6-pedido")
     }
 
+    // MARK: - Lo que contesta @plan («se manda el pedido pero nada regresa», 19-oct)
+
+    private func abrirFabrica() {
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launch()
+        let pestana = app.buttons["tab-fabrica"]
+        XCTAssertTrue(pestana.waitForExistence(timeout: 20), "no apareció la pestaña «Fábrica»")
+        pestana.tap()
+    }
+
+    /// Toca una fila de la lista, bajando si la tapa la barra de pestañas.
+    private func tocar(_ id: String) {
+        let e = app.buttons[id]
+        XCTAssertTrue(e.waitForExistence(timeout: 10), "la lista no enseña «\(id)»")
+        var i = 0
+        while (!e.isHittable || e.frame.maxY > app.frame.maxY - 110) && i < 4 { app.swipeUp(velocity: .slow); i += 1 }
+        e.tap()
+    }
+
+    /// Mandar un pedido abre su hilo (no un «Listo» que no lleva a nada) y ahí se ve a @plan trabajar.
+    func testPedidoNuevoAbreElHiloDemo() {
+        abrirFabrica()
+        app.buttons["fabrica-nuevo"].tap()
+        let texto = app.textViews.firstMatch
+        XCTAssertTrue(texto.waitForExistence(timeout: 5))
+        texto.tap()
+        texto.typeText("Que el cliente pueda reagendar desde el link del recordatorio")
+        app.buttons["Mandar a @plan"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["pasos-en-vivo"].waitForExistence(timeout: 8), "mandar no abrió el hilo con @plan trabajando")
+        foto("p1-hilo-trabajando")
+    }
+
+    /// La lista «Con @plan» → una pregunta con opciones → contestar → nace el plan y pasa solo a firmarlo.
+    func testPreguntaDePlanDemo() {
+        abrirFabrica()
+        XCTAssertTrue(app.buttons["con-plan-9004"].waitForExistence(timeout: 10), "no está la sección «Con @plan»")
+        foto("p2-con-plan")
+        tocar("con-plan-9004")
+        let opcion = app.buttons["opcion-WhatsApp"]
+        XCTAssertTrue(opcion.waitForExistence(timeout: 5), "la pregunta no trae sus opciones")
+        foto("p3-pregunta")
+        opcion.tap()
+        XCTAssertTrue(app.staticTexts["pedido-titulo"].waitForExistence(timeout: 10), "contestar no llevó al plan para firmar")
+        foto("p4-plan-para-firmar")
+    }
+
+    /// Ideas: «Pedir» abre el hilo del pedido nuevo.
+    func testIdeasDePlanDemo() {
+        abrirFabrica()
+        tocar("con-plan-9003")
+        let pedir = app.buttons["pedir-idea-0"]
+        XCTAssertTrue(pedir.waitForExistence(timeout: 5), "las ideas no traen «Pedir»")
+        foto("p5-ideas")
+        pedir.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["pasos-en-vivo"].waitForExistence(timeout: 8), "«Pedir» no abrió el hilo nuevo")
+    }
+
+    /// Sprint: del hilo a la lista nativa, quitar un ticket deslizando, crear el sprint y ver su avance.
+    func testSprintDemo() {
+        abrirFabrica()
+        tocar("con-plan-9002")
+        let abrir = app.buttons["abrir-sprint"]
+        XCTAssertTrue(abrir.waitForExistence(timeout: 5), "el hilo no enseña el sprint propuesto")
+        foto("s1-hilo-sprint")
+        abrir.tap()
+        XCTAssertTrue(app.staticTexts["sprint-titulo"].waitForExistence(timeout: 5), "no abrió el sprint")
+        let crear = app.buttons["crear-sprint"]
+        XCTAssertTrue(crear.label.contains("4"), "no cuenta 4 tickets: \(crear.label)")
+        foto("s2-sprint")
+
+        app.cells.containing(.any, identifier: "ticket-K4").firstMatch.swipeLeft()
+        let quitar = app.buttons["Quitar"]
+        XCTAssertTrue(quitar.waitForExistence(timeout: 3), "deslizar no ofreció «Quitar»")
+        quitar.tap()
+        XCTAssertTrue(app.buttons["crear-sprint"].label.contains("3"), "quitar no bajó la cuenta: \(app.buttons["crear-sprint"].label)")
+
+        app.descendants(matching: .any).matching(identifier: "ticket-K1").firstMatch.tap()
+        XCTAssertTrue(app.buttons["editar-ticket"].waitForExistence(timeout: 3), "el ticket no abrió su hoja")
+        foto("s3-ticket")
+        app.buttons["Cerrar"].tap()
+
+        app.buttons["crear-sprint"].tap()
+        let confirmar = app.buttons["confirmar-sprint"]
+        XCTAssertTrue(confirmar.waitForExistence(timeout: 3), "«Crear sprint» no pidió confirmar")
+        confirmar.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["sprint-avance"].waitForExistence(timeout: 5), "crear no dejó el sprint en marcha")
+        XCTAssertFalse(app.buttons["crear-sprint"].exists, "la barra de crear sigue ahí")
+        foto("s4-en-marcha")
+    }
+
     func testFabricaEnVivo() throws {
         let env = ProcessInfo.processInfo.environment
         guard let token = env["GHOSTY_TOKEN"], !token.isEmpty else {

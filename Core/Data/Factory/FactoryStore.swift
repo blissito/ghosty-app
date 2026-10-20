@@ -17,6 +17,68 @@ final class FactoryStore {
     var pendingRoute: FactoryRoute?
     private var loadedAt: Date?
 
+    /// Un pedido mandado desde este teléfono que todavía no es run: @plan lo está leyendo, propuso un
+    /// sprint, dejó ideas o preguntó algo. Vive aquí (no en gs) porque es «lo que YO pedí»; se va solo
+    /// cuando nace su run o a los 3 días.
+    struct PendingThread: Codable, Hashable, Identifiable {
+        let slug: String
+        let room: String
+        let threadId: Int
+        let text: String
+        let at: Date
+        var id: Int { threadId }
+    }
+    private(set) var pendingThreads: [PendingThread] = FactoryStore.loadPending()
+    /// En qué quedó cada pedido pendiente (lo último que se leyó de su hilo).
+    private(set) var threadState: [Int: FactoryThread] = [:]
+    /// Los sprints de cada espacio (borradores y activos, más los terminados recientes).
+    private(set) var sprints: [String: [FactorySprintRow]] = [:]
+
+    private static let pendingKey = "fabrica.pendientes"
+    @ObservationIgnored private var demoSeeded = false
+
+    private static func loadPending() -> [PendingThread] {
+        guard let d = UserDefaults.standard.data(forKey: pendingKey),
+              let all = try? JSONDecoder().decode([PendingThread].self, from: d) else { return [] }
+        return all.filter { Date().timeIntervalSince($0.at) < 3 * 86400 }
+    }
+
+    private func savePending() {
+        // La demo no deja rastro: cada arranque empieza con sus cuatro pedidos.
+        if DemoData.encendido { return }
+        if let d = try? JSONEncoder().encode(pendingThreads) { UserDefaults.standard.set(d, forKey: Self.pendingKey) }
+    }
+
+    func addPending(slug: String, room: String, threadId: Int, text: String) {
+        guard !pendingThreads.contains(where: { $0.threadId == threadId }) else { return }
+        pendingThreads.insert(PendingThread(slug: slug, room: room, threadId: threadId, text: text, at: Date()), at: 0)
+        savePending()
+    }
+
+    /// Lo que se leyó de un hilo: si ya nació su run, deja de estar pendiente.
+    func noteThread(_ t: FactoryThread, id: Int) {
+        threadState[id] = t
+        if t.run != nil, let i = pendingThreads.firstIndex(where: { $0.threadId == id }) {
+            pendingThreads.remove(at: i)
+            savePending()
+        }
+    }
+
+    func pending(_ slug: String) -> [PendingThread] { pendingThreads.filter { $0.slug == slug } }
+
+    /// Sprints y pedidos pendientes de un espacio: la lista los repregunta junto con los runs.
+    func refreshExtras(_ slug: String) async {
+        if DemoData.encendido {
+            sprints[slug] = Self.demoSprints
+            for p in pending(slug) { if let t = Self.demoThread(p.threadId) { threadState[p.threadId] = t } }
+            return
+        }
+        if let rows = try? await FactoryAPI.sprints(slug) { sprints[slug] = rows }
+        for p in pending(slug).prefix(6) {
+            if let t = try? await FactoryAPI.thread(slug, room: p.room, id: p.threadId) { noteThread(t, id: p.threadId) }
+        }
+    }
+
     /// La entrada «Fábrica» se enseña sólo si algún espacio tuyo tiene pedidos.
     var available: Bool { spaces.contains { !$0.runs.isEmpty } }
 
@@ -24,12 +86,29 @@ final class FactoryStore {
     var needsYouCount: Int { spaces.reduce(0) { $0 + $1.runs.filter(\.stage.needsYou).count } }
 
     /// Alguien está trabajando en algún pedido: la pantalla repregunta cada 10 s.
-    var anyWorking: Bool { spaces.contains { $0.runs.contains(where: \.stage.working) } }
+    var anyWorking: Bool { spaces.contains { $0.runs.contains(where: \.stage.working) } || !pendingThreads.isEmpty }
+
+    /// El aviso de Teams «contestó» trae la liga del hilo (`<espacio>.teams.ghosty.studio/c/<room>?thread=N`).
+    /// Si es de un espacio con fábrica, se abre aquí, en la vista del pedido, no en Safari.
+    func route(teamsLink url: URL) -> FactoryRoute? {
+        guard let host = url.host, host.hasSuffix(".teams.ghosty.studio"),
+              let slug = host.split(separator: ".").first.map(String.init), spaces.contains(where: { $0.slug == slug }) else { return nil }
+        let parts = url.pathComponents
+        guard parts.count >= 3, parts[1] == "c",
+              let thread = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "thread" })?.value,
+              let id = Int(thread) else { return nil }
+        // El hilo de un pedido que ya es run abre el run; si no, la conversación con @plan.
+        if let run = spaces.first(where: { $0.slug == slug })?.runs.first(where: { $0.thread == id }) {
+            return FactoryRoute(slug: slug, id: run.id)
+        }
+        return FactoryRoute(slug: slug, target: .thread(room: parts[2], id: id))
+    }
 
     /// `force: false` no repite si lo último tiene menos de 30 s (Perfil se abre a menudo).
     func refresh(force: Bool = true) async {
         if DemoData.encendido {
             spaces = Self.demo
+            if !demoSeeded { pendingThreads = Self.demoPending; demoSeeded = true }
             loaded = true
             return
         }
