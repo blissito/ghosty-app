@@ -106,6 +106,41 @@ final class FabricaUITests: XCTestCase {
         foto("q2-aplicado")
     }
 
+    /// El #40 con @build a media vuelta: lo que hace ahora, los últimos pasos, «Ver todo» y el atasco
+    /// dentro de la tarjeta; en la bitácora, la nota firmada y ningún tipo crudo («stuck notified»).
+    func testPedidoTrabajandoDemo() {
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launch()
+        let pestana = app.buttons["tab-fabrica"]
+        XCTAssertTrue(pestana.waitForExistence(timeout: 20), "no apareció la pestaña «Fábrica»")
+        pestana.tap()
+        let fila = app.buttons["pedido-40"]
+        XCTAssertTrue(fila.waitForExistence(timeout: 15), "la lista no enseña el pedido en construcción")
+        // Va abajo de la lista: la barra de pestañas lo tapa aunque XCUITest lo dé por tocable.
+        app.swipeUp(velocity: .slow)
+        fila.tap()
+
+        let ahora = app.descendants(matching: .any)["paso-ahora"]
+        XCTAssertTrue(ahora.waitForExistence(timeout: 5), "no se ve qué hace @build ahora")
+        XCTAssertTrue(ahora.label.contains("npm install"), "la línea de ahora no dice el comando: \(ahora.label)")
+        XCTAssertTrue(app.descendants(matching: .any)["atasco"].exists, "el atasco no sale en la tarjeta")
+        foto("v1-en-vivo")
+
+        let verTodo = app.buttons["ver-todos-los-pasos"]
+        XCTAssertTrue(verTodo.exists, "no hay «Ver todo»")
+        verTodo.tap()
+        XCTAssertTrue(app.buttons["cerrar-pasos"].waitForExistence(timeout: 3), "«Ver todo» no abrió los pasos")
+        XCTAssertTrue(app.staticTexts["Repasé mi guía · factory build"].exists, "la hoja no trae el primer paso")
+        foto("v2-todos-los-pasos")
+        app.buttons["cerrar-pasos"].tap()
+
+        app.swipeUp(velocity: .slow)
+        XCTAssertTrue(app.buttons["nota-firmada"].waitForExistence(timeout: 3), "la nota firmada no sale en la bitácora")
+        XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'stuck'")).firstMatch.exists,
+                       "la bitácora enseña un tipo crudo")
+        foto("v3-bitacora")
+    }
+
     func testFabricaEnVivo() throws {
         let env = ProcessInfo.processInfo.environment
         guard let token = env["GHOSTY_TOKEN"], !token.isEmpty else {

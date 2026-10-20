@@ -163,6 +163,9 @@ enum FactoryFormat {
         return String(format: "$%.2f", v)
     }
 
+    /// Lo que lleva un paso: «41 s», «6 min».
+    static func secs(_ s: Int) -> String { s < 60 ? "\(s) s" : "\(s / 60) min" }
+
     /// Quién trabaja, como en Teams.
     static func working(_ role: String?) -> String {
         switch role {
@@ -201,7 +204,26 @@ enum FactoryFormat {
             "head_moved": "el PR cambió durante la revisión",
             "stopped": "detuvo el turno",
             "resumed": "pidió retomar",
-        ][type] ?? type.replacingOccurrences(of: "_", with: " ")
+            "stuck": "se atoró",
+            "stuck_notified": "Te avisé que se atoró",
+            "stalled": "se atoró",
+            "advice": "le pidió consejo a @arqui",
+            "note": "dejó una nota para @build",
+            "role_msg": "dejó un mensaje",
+            "waiting": "espera tu respuesta",
+            "box_ready": "La caja del pedido quedó lista",
+            "box_waiting": "En espera de una caja libre",
+            "preview_on": "Preview encendida",
+            "preview_off": "Preview apagada",
+            "preview_blocking": "La preview frena el merge",
+            "smoke_fail": "La prueba de humo falló",
+            "deploy_failed": "Falló el deploy",
+            "git_push_denied": "GitHub rechazó el push",
+            "behind_main": "La rama quedó atrás de main: la pone al día",
+            "critique_timeout": "El crítico del plan no contestó a tiempo",
+            "postmortem_requested": "pidió el post mortem",
+            "reopened": "reabrió el pedido",
+        ][type] ?? "actualizó el pedido"
     }
 
     static func actor(_ a: String?) -> String? {
@@ -223,6 +245,35 @@ enum FactoryFormat {
             "stopped": "Detuviste el turno",
             "resumed": "Pediste retomar",
         ][type]
+    }
+
+    /// El renglón de un evento, con lo que trae: el atasco dice de quién y en qué se atoró.
+    static func logLine(_ e: FactoryRunDetail.Event) -> Text {
+        let role = e.data?["role"]?.string.map { "@\($0)" }
+        switch e.type {
+        case "stuck", "stalled":
+            let human = e.data?["human"]?.string
+            // `human` trae el comando entre acentos graves: se lee como markdown.
+            return Text("\(role ?? "Un agente") ").bold() + Text(LocalizedStringKey(human.map { "se atoró: " + $0 } ?? "se atoró"))
+        case "stuck_notified":
+            return Text(role.map { "Te avisé que \($0) se atoró" } ?? "Te avisé que se atoró")
+        case "box_ready", "box_waiting", "preview_on", "preview_off", "preview_blocking", "smoke_fail",
+             "deploy_failed", "git_push_denied", "behind_main", "critique_timeout":
+            // Los dice la plataforma: sin actor delante.
+            return Text(event(e.type))
+        default:
+            return logLine(actor: e.actor, type: e.type)
+        }
+    }
+
+    /// Quita el renglón `note` que la firma deja justo junto a ella con el mismo texto.
+    static func withoutEchoedNotes(_ events: [FactoryRunDetail.Event]) -> [FactoryRunDetail.Event] {
+        // `note` guarda 500 caracteres y la firma 2000: se compara por el principio.
+        let signed = events.filter { ["approve", "changes"].contains($0.type) }.compactMap { $0.data?["note"]?.string }
+        return events.filter { e in
+            guard e.type == "note", let text = e.data?["text"]?.string, !text.isEmpty else { return true }
+            return !signed.contains { $0.hasPrefix(text) }
+        }
     }
 
     /// El renglón de la bitácora: «@plan entregó el plan» o «Firmaste tú».

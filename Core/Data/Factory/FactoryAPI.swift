@@ -166,6 +166,43 @@ struct FactoryRunDetail: Decodable {
     }
 }
 
+/// Lo que hace AHORA cada rol que trabaja en un pedido (gs `…/live`): sus pasos, el abierto y el
+/// atasco vigente. Los pasos traen la misma `kind` que los del chat, así que se pintan igual.
+struct FactoryLive: Decodable, Hashable {
+    struct Step: Decodable, Hashable {
+        let id: String
+        let title: String
+        let kind: String
+        let detail: String?
+        let status: String
+        let secs: Int?
+    }
+    struct Stall: Decodable, Hashable {
+        let human: String
+        let rule: String
+        let since: String?
+    }
+    struct Role: Decodable, Hashable {
+        let role: String?
+        let since: String
+        let now: String?
+        let steps: [Step]
+        let stalled: Stall?
+
+        /// Los pasos como los del chat (`PasosDelAgente`).
+        var toolRun: ToolRun {
+            ToolRun(herramientas: steps.map { s in
+                Herramienta(id: s.id, titulo: s.title, clase: Herramienta.Clase(s.kind),
+                            estado: s.status == "running" ? .corriendo : s.status == "failed" ? .fallida : .hecha,
+                            salida: nil, donde: nil, detalle: s.detail)
+            })
+        }
+    }
+    let running: [Role]
+
+    func role(_ r: String?) -> Role? { running.first { $0.role == r } }
+}
+
 /// «¿Qué hago?» con un pedido escalado (gs `…/advise`): arreglar o rehacer el plan, la nota para
 /// @build punto por punto y lo único que @check revisa después. Sólo recomienda: decidir es `act`.
 struct FactoryAdvice: Decodable, Hashable {
@@ -289,6 +326,11 @@ enum FactoryAPI {
         let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/act", method: "POST", body: body)
         let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
         return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false)
+    }
+
+    /// Qué hace ahora cada rol. Una caja de gs sin `/live` contesta 404: quien llama lo ignora.
+    static func live(_ slug: String, _ id: Int) async throws -> FactoryLive {
+        try JSONDecoder().decode(FactoryLive.self, from: try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/live"))
     }
 
     /// La recomendación para un pedido escalado. 409 si ya no está escalado; 503 si el modelo no contestó.

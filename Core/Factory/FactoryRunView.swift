@@ -21,6 +21,8 @@ struct FactoryRunView: View {
     @State private var confetti: UUID?
     /// «¿Qué hago?» abierto (la hoja pide la recomendación al aparecer).
     @State private var advising = false
+    /// Lo que hace ahora cada rol (gs `…/live`); nil con una caja vieja o mientras llega.
+    @State private var live: FactoryLive?
 
     private enum Pending: Identifiable {
         case approve(Int), anotherLoop, merge
@@ -172,20 +174,11 @@ struct FactoryRunView: View {
             }
             FactoryStepBar(stage: stage, dependabot: (detail?.kind ?? cached?.kind) == "dependabot")
             if let running = detail?.running, !running.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(running, id: \.self) { r in
-                        HStack(spacing: 10) {
-                            GhostySpinner(size: 16)
-                            Text(FactoryFormat.working(r.role)).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk)
-                            Spacer()
-                            if let since = FactoryAPI.date(r.since) {
-                                Text(since, style: .timer).gMono(size: 12).foregroundStyle(Color.gInk3)
-                            }
-                        }
+                        FactoryLiveRole(role: r.role, since: r.since, live: live?.role(r.role))
                     }
                 }
-                .padding(12)
-                .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
         .padding(16)
@@ -313,8 +306,10 @@ struct FactoryRunView: View {
         .buttonStyle(.gPressPill)
     }
 
-    private func logCard(_ events: [FactoryRunDetail.Event]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private func logCard(_ all: [FactoryRunDetail.Event]) -> some View {
+        // La nota que deja la firma ya se ve debajo de «Firmaste»: no se repite como renglón.
+        let events = FactoryFormat.withoutEchoedNotes(all)
+        return VStack(alignment: .leading, spacing: 0) {
             Text("Bitácora").gSectionCaps().padding(.bottom, 10)
             ForEach(Array(events.enumerated()), id: \.offset) { i, e in
                 HStack(alignment: .top, spacing: 12) {
@@ -324,10 +319,14 @@ struct FactoryRunView: View {
                         if i < events.count - 1 { Rectangle().fill(Color.gHairline).frame(width: 1.5).frame(maxHeight: .infinity) }
                     }
                     VStack(alignment: .leading, spacing: 2) {
-                        FactoryFormat.logLine(actor: e.actor, type: e.type)
+                        FactoryFormat.logLine(e)
                             .font(.system(size: 14))
                             .foregroundStyle(Color.gInk)
                             .fixedSize(horizontal: false, vertical: true)
+                        // Lo que mandaste al firmar: la nota para @build y lo único que revisa @check.
+                        if ["approve", "changes"].contains(e.type) {
+                            FactoryDecisionNote(note: e.data?["note"]?.string, scope: e.data?["checkScope"]?.string)
+                        }
                         if let d = FactoryAPI.date(e.at) {
                             Text(d.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(Locale(identifier: "es_MX"))))
                                 .gCaption()
@@ -436,6 +435,7 @@ struct FactoryRunView: View {
     private func load() async {
         if DemoData.encendido {
             detail = FactoryStore.demoDetail(id)
+            live = FactoryStore.demoLive(id)
             return
         }
         do {
@@ -443,6 +443,13 @@ struct FactoryRunView: View {
             withAnimation(.snappy(duration: 0.3)) { detail = d; error = nil }
         } catch {
             if detail == nil { self.error = error.localizedDescription }
+        }
+        // Los pasos sólo con alguien trabajando; si falla, la tarjeta se queda con el reloj.
+        if detail?.running.isEmpty == false {
+            let l = try? await FactoryAPI.live(slug, id)
+            withAnimation(.easeOut(duration: 0.3)) { live = l }
+        } else {
+            live = nil
         }
     }
 

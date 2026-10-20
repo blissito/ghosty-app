@@ -126,8 +126,9 @@ private struct NarrationRow: View {
     }
 }
 
-/// Un renglón de la tarjeta: `400 13px #5E5D6B`, icono de 16 a la izquierda.
-private struct FilaDePaso: View {
+/// Un renglón de la tarjeta: `400 13px #5E5D6B`, icono de 16 a la izquierda. También lo usa la
+/// tarjeta viva de la fábrica (`FactoryLiveRole`).
+struct FilaDePaso: View {
     let h: Herramienta
 
     var body: some View {
@@ -168,7 +169,7 @@ private struct FilaDePaso: View {
 }
 
 /// El drawer: la línea de tiempo de lo que corrió, con hilo vertical entre pasos.
-private struct DrawerDePasos: View {
+struct DrawerDePasos: View {
     let run: ToolRun
     @Environment(\.dismiss) private var dismiss
 

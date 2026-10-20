@@ -132,6 +132,21 @@ final class FactoryStore {
         confidence: "high",
         note: "1. En `app/routes/dash.tsx:636`, convertir la etiqueta con `String(label)`.\n2. En `scripts/verify.mjs:24`, dar cuerpo con llaves al callback.")
 
+    /// @build a media vuelta en el #40: cinco pasos hechos, uno abierto y un atasco vigente.
+    static func demoLive(_ id: Int) -> FactoryLive? {
+        guard demo.first?.runs.first(where: { $0.id == id })?.stage == .building else { return nil }
+        let steps: [FactoryLive.Step] = [
+            .init(id: "1", title: "Repasé mi guía", kind: "guide", detail: "factory build", status: "ok", secs: 2),
+            .init(id: "2", title: "Leí", kind: "read", detail: "app/routes/agenda.tsx", status: "ok", secs: 1),
+            .init(id: "3", title: "Busqué", kind: "search", detail: "exportMonth", status: "ok", secs: 1),
+            .init(id: "4", title: "Corregí", kind: "edit", detail: "app/lib/export.ts", status: "ok", secs: 3),
+            .init(id: "5", title: "Corrí un comando", kind: "execute", detail: "npm test -- export", status: "failed", secs: 41),
+            .init(id: "6", title: "Corriendo un comando", kind: "execute", detail: "npm install", status: "running", secs: 372),
+        ]
+        return FactoryLive(running: [.init(role: "build", since: iso(3), now: "Corriendo un comando · npm install", steps: steps,
+                                           stalled: .init(human: "lleva 6 min en `npm install` sin terminar.", rule: "long_command", since: iso(6)))])
+    }
+
     static func demoDetail(_ id: Int) -> FactoryRunDetail? {
         guard let r = demo.first?.runs.first(where: { $0.id == id }) else { return nil }
         let plan = r.stage == .escalated ? nil : FactoryRunDetail.Plan(version: r.planVersion, decision: r.stage == .planReview ? nil : "approve", markdown: demoDetailMarkdown)
@@ -142,6 +157,17 @@ final class FactoryStore {
             events = [.init(at: iso(25), actor: "check", type: "check_blocked",
                             data: .object(["findings": .string("CI rojo por la subida: falla typecheck.\n- `app/routes/dash.tsx:636` — `labelFormatter` ahora recibe `ReactNode`. Arreglo: `String(label)`.\n- `scripts/verify.mjs:24` — biome marca `useIterableCallbackReturn`. Arreglo: cuerpo con llaves.\nLo que hace falta: meter esos dos arreglos en la rama del PR.")])),
                       .init(at: iso(56), actor: "dependabot", type: "adopted", data: nil)]
+        }
+        if r.stage == .building {
+            // Otra vuelta tras escalar: la firma con nota y alcance, y un atasco que ya se avisó.
+            let note = "1. Mover `exportMonth` a `app/lib/export.ts`.\n2. Probar el mes vacío."
+            events = [.init(at: iso(2), actor: nil, type: "stuck_notified", data: .object(["role": .string("build")])),
+                      .init(at: iso(2), actor: nil, type: "stuck",
+                            data: .object(["role": .string("build"), "human": .string("lleva 6 min en `npm install` sin terminar.")])),
+                      .init(at: iso(9), actor: "Brenda", type: "note", data: .object(["text": .string(note)])),
+                      .init(at: iso(9), actor: "Brenda", type: "approve",
+                            data: .object(["note": .string(note), "checkScope": .string("Sólo esos dos puntos.")])),
+                      .init(at: iso(20), actor: "check", type: "check_fail", data: nil)] + events
         }
         let running = r.stage.working ? [FactoryRunDetail.Running(role: r.stage == .building ? "build" : r.stage == .checking ? "check" : "plan", since: iso(3))] : []
         return FactoryRunDetail(id: r.id, title: r.title, status: r.status, kind: r.kind, room: r.room, thread: r.thread,
