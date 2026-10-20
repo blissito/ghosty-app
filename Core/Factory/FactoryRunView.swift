@@ -51,8 +51,10 @@ struct FactoryRunView: View {
     private var cached: FactoryRun? { FactoryStore.shared.cached(slug, id) }
     private var stage: FactoryStage { detail?.stage ?? cached?.stage ?? .unknown }
     private var mergeQueued: Bool { detail?.mergeQueued ?? false }
-    /// También con el merge en cola: se repregunta hasta que entre (la etapa pasa a «Terminado»).
-    private var working: Bool { stage.working || !(detail?.running.isEmpty ?? true) || mergeQueued }
+    /// También con el merge en cola o el CI corriendo: se repregunta hasta que entre o acabe.
+    private var working: Bool {
+        stage.working || !(detail?.running.isEmpty ?? true) || mergeQueued || detail?.ci?.running.isEmpty == false
+    }
 
     var body: some View {
         ScrollView {
@@ -192,6 +194,7 @@ struct FactoryRunView: View {
                 Spacer(minLength: 0)
             }
             FactoryStepBar(stage: stage, dependabot: (detail?.kind ?? cached?.kind) == "dependabot")
+            if stage == .prReview, let ci = detail?.ci, let line = ci.line { ciRow(ci, line) }
             if let running = detail?.running, !running.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(running, id: \.self) { r in
@@ -202,6 +205,25 @@ struct FactoryRunView: View {
         }
         .padding(16)
         .ghostyCard()
+    }
+
+    /// Qué hace el CI del PR (#119): sin esto «esperando el CI» no decía cuánto faltaba ni qué falló.
+    private func ciRow(_ ci: FactoryRunDetail.CI, _ line: String) -> some View {
+        let red = !ci.failed.isEmpty
+        return HStack(spacing: 8) {
+            if red { Image(systemName: "xmark.octagon.fill").foregroundStyle(Color.gDanger) }
+            else if ci.running.isEmpty { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.gGreen) }
+            else { ProgressView().controlSize(.small) }
+            Text(line).font(.system(size: 14, weight: .medium))
+                .foregroundStyle(red ? Color.gDangerInk : Color.gInk2)
+                .lineLimit(2)
+            Spacer(minLength: 0)
+            if red, let url = ci.failed.first?.url.flatMap(URL.init(string:)) {
+                Button("Ver log") { openURL(url) }.font(.system(size: 14, weight: .semibold))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("pedido-ci")
     }
 
     private var escalationCard: some View {
@@ -432,7 +454,8 @@ struct FactoryRunView: View {
                 // Ya se pidió: un segundo toque no hace nada útil. Al entrar, la etapa pasa a «Terminado».
                 HStack(spacing: 8) {
                     ProgressView()
-                    Text("En cola: entra en cuanto pase el CI").gButtonLabel()
+                    Text(detail?.ci.flatMap { $0.running.isEmpty ? nil : "Corriendo \($0.running.count) de \($0.total) checks…" }
+                         ?? "En cola: entra en cuanto pase el CI").gButtonLabel()
                 }
                 .foregroundStyle(Color.gInk2)
                 .frame(maxWidth: .infinity, minHeight: 50)

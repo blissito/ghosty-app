@@ -299,6 +299,10 @@ final class FactoryStore {
                                 repo: r.repo, branch: r.branch, pr: r.pr, preview: nil, previewState: nil,
                                 planVersion: r.planVersion, loops: r.loops, updatedAt: r.updatedAt, plan: plan,
                                 plans: plan.map { [.init(version: $0.version, decision: $0.decision, title: r.title)] } ?? [],
-                                events: events, running: running)
+                                events: events, running: running,
+                                ci: r.stage == .prReview
+                                    ? .init(total: 5, passed: 3, running: [.init(name: "test", url: nil), .init(name: "e2e", url: nil)],
+                                            failed: [], startedAt: iso(3))
+                                    : nil)
     }
 }

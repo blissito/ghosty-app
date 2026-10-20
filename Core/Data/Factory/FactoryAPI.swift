@@ -148,6 +148,28 @@ struct FactoryRunDetail: Decodable {
     let plans: [PlanSummary]
     let events: [Event]
     let running: [Running]
+    /// El CI del PR (checks de GitHub) mientras el PR te toca o el merge espera. `nil` = gs viejo o
+    /// GitHub no contestó.
+    let ci: CI?
+
+    struct CI: Decodable, Hashable {
+        struct Check: Decodable, Hashable { let name: String; let url: String? }
+        let total: Int
+        let passed: Int
+        let running: [Check]
+        let failed: [Check]
+        let startedAt: String?
+
+        /// «CI 3 de 5 ✓ · corre test, e2e» / «CI en rojo: typecheck» / «CI en verde».
+        var line: String? {
+            guard total > 0 else { return nil }
+            if !failed.isEmpty { return "CI en rojo: " + failed.map(\.name).joined(separator: ", ") }
+            if running.isEmpty { return "CI en verde · \(total) de \(total) ✓" }
+            let names = running.prefix(2).map(\.name).joined(separator: ", ") + (running.count > 2 ? "…" : "")
+            let since = FactoryFormat.ago(FactoryAPI.date(startedAt)).map { " · arrancó \($0)" } ?? ""
+            return "CI \(passed) de \(total) ✓ · corre \(names)\(since)"
+        }
+    }
 
     var stage: FactoryStage { FactoryStage(status) }
 

@@ -20,3 +20,19 @@ final class FactoryMergeQueuedTests: XCTestCase {
         XCTAssertFalse(try run("done", ["merged", "merge_queued"]).mergeQueued)
     }
 }
+
+/// La línea del CI del PR (#119).
+final class FactoryCILineTests: XCTestCase {
+    private func ci(_ json: String) throws -> FactoryRunDetail.CI {
+        try JSONDecoder().decode(FactoryRunDetail.CI.self, from: Data(json.utf8))
+    }
+
+    func testLines() throws {
+        XCTAssertEqual(try ci(#"{"total":2,"passed":1,"running":[],"failed":[{"name":"typecheck","url":null}],"startedAt":null}"#).line,
+                       "CI en rojo: typecheck")
+        XCTAssertEqual(try ci(#"{"total":3,"passed":3,"running":[],"failed":[],"startedAt":null}"#).line, "CI en verde · 3 de 3 ✓")
+        XCTAssertEqual(try ci(#"{"total":5,"passed":2,"running":[{"name":"a"},{"name":"b"},{"name":"c"}],"failed":[],"startedAt":null}"#).line,
+                       "CI 2 de 5 ✓ · corre a, b…")
+        XCTAssertNil(try ci(#"{"total":0,"passed":0,"running":[],"failed":[],"startedAt":null}"#).line)
+    }
+}
