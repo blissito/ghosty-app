@@ -1,3 +1,4 @@
-• Los videos y archivos que te entrego mientras la app está cerrada ya aparecen en la conversación al volver a abrirla.
-• La conversación con tu agente sigue sin cortes al salir y volver a la app, y las aprobaciones llegan con las opciones que él te propone.
-• Mejoras de estabilidad.
+• Campanita en Chats: lo que pasó mientras no mirabas (permisos que esperan tu respuesta, respuestas sin leer y entregas de la semana). Tocar una te lleva a su conversación.
+• Si una respuesta se corta, ahora puedes pedirle a tu agente que continúe con un toque.
+• Los PDF y audios que te entrega tu agente se ven como archivo dentro de la conversación.
+• Para equipos con la Software Factory: una pestaña nueva para seguir y decidir sus pedidos, con el botón «¿Qué hago?» cuando un pedido se atora.
