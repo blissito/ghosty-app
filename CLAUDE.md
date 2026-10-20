@@ -294,7 +294,7 @@ es `stale`. Lleva «¿Qué pasó?» (gs `…/why`) y los botones «Retomar» y �
 «Abrir el hilo» abre `FactoryThreadView` DENTRO de la app (en Safari pedía sesión): ahí el compositor le
 escribe al rol del pedido (`@build`/`@check`). Prueba: `testPedidoSinAvanzarDemo` (demo #35).
 Ya desplegado: Teams c14d3a5 (`factory-act` `resume|stop|cancel`, `runPersonAction`) y gs f0082097.
-Pendiente menor: el 🔁 de «Llevaba 30 min sin avanzar» sale como cuadro con «?» en el markdown del hilo.
+El 🔁 de «Llevaba 30 min sin avanzar» que salía como cuadro con «?» es del SIMULADOR, no de la app: ahí ningún emoji se pinta, ni en un `Text` plano (probado el 20-oct). En el teléfono no aplica.
 
 ## 1.0.12 en revisión (20-oct)
 
