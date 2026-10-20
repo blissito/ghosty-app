@@ -50,7 +50,9 @@ struct FactoryRunView: View {
 
     private var cached: FactoryRun? { FactoryStore.shared.cached(slug, id) }
     private var stage: FactoryStage { detail?.stage ?? cached?.stage ?? .unknown }
-    private var working: Bool { stage.working || !(detail?.running.isEmpty ?? true) }
+    private var mergeQueued: Bool { detail?.mergeQueued ?? false }
+    /// También con el merge en cola: se repregunta hasta que entre (la etapa pasa a «Terminado»).
+    private var working: Bool { stage.working || !(detail?.running.isEmpty ?? true) || mergeQueued }
 
     var body: some View {
         ScrollView {
@@ -155,6 +157,7 @@ struct FactoryRunView: View {
         switch stage {
         case .planReview: "Te toca firmar el plan v\(detail?.planVersion ?? cached?.planVersion ?? 1)"
         case .escalated: "Te toca decidir"
+        case .prReview where mergeQueued: "Merge en cola: esperando el CI"
         case .prReview: "Te toca revisar el PR"
         case .planning, .building, .checking:
             FactoryFormat.working(detail?.running.first?.role ?? ["planning": "plan", "building": "build", "checking": "check"][stage.rawValue])
@@ -425,6 +428,16 @@ struct FactoryRunView: View {
             case .escalated:
                 barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
                 barButton("Que @build lo arregle", primary: true, id: "otra-vuelta") { confirm = .anotherLoop }
+            case .prReview where mergeQueued:
+                // Ya se pidió: un segundo toque no hace nada útil. Al entrar, la etapa pasa a «Terminado».
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("En cola: entra en cuanto pase el CI").gButtonLabel()
+                }
+                .foregroundStyle(Color.gInk2)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .accessibilityIdentifier("merge-en-cola")
             case .prReview:
                 barButton("Merge", primary: true, id: "merge", icon: "arrow.triangle.merge") { confirm = .merge }
             default:

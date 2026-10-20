@@ -1,3 +1,5 @@
+import AudioToolbox
+import UIKit
 import SwiftUI
 
 /// La intro de arranque, copiada del arranque de Twitter para iOS (el pájaro que se encoge
@@ -82,6 +84,7 @@ struct LaunchIntro: View {
         if ready && !reduceMotion {
             revealAt = Date()
             onReveal(Timing.growStart)
+            IntroFeedback.play(hitAt: Timing.growEnd)
             Task {
                 try? await Task.sleep(for: .seconds(Timing.reveal))
                 onFinish()
@@ -253,6 +256,32 @@ private func smooth(_ x: Double, _ a: Double, _ b: Double) -> Double {
 private func easeOutCubic(_ p: Double) -> Double { 1 - pow(1 - p, 3) }
 private func easeInOutCubic(_ p: Double) -> Double {
     p < 0.5 ? 4 * p * p * p : 1 - pow(-2 * p + 2, 3) / 2
+}
+
+// MARK: - Sonido y háptico
+
+/// El háptico suena en CADA apertura, justo en el «golpe» (la ventana ya tapa la pantalla).
+/// El sonido (`intro.caf`, un whoosh que sube con la ventana y cae en el mismo golpe) sólo la
+/// primera vez tras instalar o actualizar: oírlo en cada arranque cansa en dos días.
+/// Va como sonido de sistema, así que respeta el modo silencio igual que `ambient`.
+private enum IntroFeedback {
+    private static let playedBuildKey = "intro.soundBuild"
+
+    @MainActor static func play(hitAt: Double) {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: playedBuildKey) != build,
+           let url = Bundle.main.url(forResource: "intro", withExtension: "caf") {
+            defaults.set(build, forKey: playedBuildKey)
+            var id: SystemSoundID = 0
+            AudioServicesCreateSystemSoundID(url as CFURL, &id)
+            AudioServicesPlaySystemSoundWithCompletion(id) { AudioServicesDisposeSystemSoundID(id) }
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(hitAt))
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        }
+    }
 }
 
 // MARK: - Cuándo se toca

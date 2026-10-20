@@ -165,6 +165,15 @@ struct FactoryRunDetail: Decodable {
     /// vuelta de @build sólo gasta tokens. Lo resuelve la persona y @check revisa otra vez.
     var blocked: Bool { stage == .escalated && findingsEvent?.type == "check_blocked" }
 
+    /// Ya pediste el merge y GitHub lo hará solo en cuanto pase el CI: el PR ya no te toca.
+    /// Vale mientras nada lo regrese (CI en rojo, conflicto, más trabajo) después de la cola.
+    var mergeQueued: Bool {
+        guard stage == .prReview else { return false }
+        let undo: Set = ["ci_red", "ci_red_help", "conflict", "rework", "head_moved", "check_fail",
+                         "preview_blocking", "smoke_fail", "reopened"]
+        return events.first { $0.type == "merge_queued" || undo.contains($0.type) }?.type == "merge_queued"
+    }
+
     /// Las variables de entorno que nombran los hallazgos (`DATABASE_URL`, `SESSION_SECRET`…).
     var missingEnv: [String] {
         guard blocked, let f = findings else { return [] }
