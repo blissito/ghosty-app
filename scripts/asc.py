@@ -342,13 +342,13 @@ elif cmd == "ficha":
 elif cmd == "enviar-tienda":
     # Manda la versión en preparación a App Review (la de la TIENDA, no la de TestFlight).
     # Antes: `ficha <versión> <buildId>` para atar la build y los textos.
-    # ⚠️ `releaseType` MANUAL: aprobada no sale sola; sale con `publicar`.
+    # `releaseType` AFTER_APPROVAL: aprobada sale sola a la tienda (decidido por bliss el 20-oct).
     app = app_id()
     v = version_en_preparacion(app)
     if v is None:
         sys.exit("no hay versión en preparación: corre antes `ficha <versión> <buildId>`")
     api(f"/appStoreVersions/{v['id']}", "PATCH", {"data": {
-        "type": "appStoreVersions", "id": v["id"], "attributes": {"releaseType": "MANUAL"}}})
+        "type": "appStoreVersions", "id": v["id"], "attributes": {"releaseType": "AFTER_APPROVAL"}}})
     sub = api("/reviewSubmissions", "POST", {"data": {
         "type": "reviewSubmissions", "attributes": {"platform": "IOS"},
         "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})["data"]
@@ -359,7 +359,7 @@ elif cmd == "enviar-tienda":
             "appStoreVersion": {"data": {"type": "appStoreVersions", "id": v["id"]}}}}})
     api(f"/reviewSubmissions/{sub['id']}", "PATCH", {"data": {
         "type": "reviewSubmissions", "id": sub["id"], "attributes": {"submitted": True}}})
-    print("versión", v["attributes"]["versionString"], "enviada a App Review · salida MANUAL")
+    print("versión", v["attributes"]["versionString"], "enviada a App Review · sale sola al aprobarse")
 
 elif cmd == "retirar-revision":
     # Saca de App Review lo que está esperando (p. ej. para cambiar la build): la versión vuelve

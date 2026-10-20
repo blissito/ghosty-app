@@ -84,12 +84,13 @@ revisión EN CUANTO se apruebe y publique la 1.0.7: `asc.py publicar` → `asc.p
    en la tienda; sin mencionar pagos fuera de Apple).
 5. **Ficha**: `python3 scripts/asc.py ficha <versión> <buildId>` crea la versión, pone los
    textos (incluido «Qué hay de nuevo») y ata la build.
-6. **Enviar**: `python3 scripts/asc.py enviar-tienda` (salida MANUAL). Revisión: 24–72 h.
+6. **Enviar**: `python3 scripts/asc.py enviar-tienda` (sale sola al aprobarse, desde el 20-oct). Revisión: 24–72 h.
    `python3 scripts/asc.py estado-tienda` dice en qué va.
 7. **Mientras Apple revisa**: la caja de la cuenta del revisor despierta, y en
    `/admin/settings` → App iOS **nunca** `minBuild` por encima de la build en revisión, ni
    apagar flags que la revisión va a probar.
-8. **Aprobada** (`PENDING_DEVELOPER_RELEASE`): `python3 scripts/asc.py publicar`.
+8. **Aprobada**: sale sola. Sólo una versión vieja en MANUAL se queda en `PENDING_DEVELOPER_RELEASE` y
+   sale con `python3 scripts/asc.py publicar`.
 9. **Después**: en `/admin/settings` subir `suggestBuild` a la build nueva (aviso que se
    cierra). `minBuild` sólo si la vieja rompe algo que no se puede parchar en gs.
 
