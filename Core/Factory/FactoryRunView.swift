@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Un pedido de la fábrica: la versión nativa de la tarjeta de Teams. Etapa y barra de pasos,
 /// quién trabaja, el plan (para firmarlo), lo que encontró @check si escaló, la bitácora y las
@@ -217,14 +220,28 @@ struct FactoryRunView: View {
                     .accessibilityIdentifier("hallazgos")
             }
             if let names = detail?.missingEnv, !names.isEmpty {
-                Button { envOpen = true } label: {
-                    Label(names.count == 1 ? "Dar la variable" : "Dar las \(names.count) variables", systemImage: "key.fill")
+                // Las variables viven en la compu (el .env, el gestor de contraseñas): se las pide
+                // al agente de terminal. El portapapeles universal de Apple lo deja en la Mac.
+                Text("Faltan \(names.count == 1 ? "1 variable" : "\(names.count) variables") de la preview. Están en tu compu: pídeselas a tu agente de terminal (Claude Code, Codex).")
+                    .gMeta()
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { copyForTerminal() } label: {
+                    Label("Copiar para mi agente de terminal", systemImage: "terminal.fill")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
                 }
                 .buttonStyle(.gPressPrimary)
+                .disabled(detail == nil)
+                .accessibilityIdentifier("copiar-para-terminal")
+                Button { envOpen = true } label: {
+                    Label("O pégalas aquí", systemImage: "key")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.gPrimary)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                }
+                .buttonStyle(.plain)
                 .disabled(busy || detail == nil)
                 .accessibilityIdentifier("dar-variables")
             }
@@ -464,6 +481,25 @@ struct FactoryRunView: View {
         case .recheck: "Que @check revise"
         case .merge: "Merge"
         }
+    }
+
+    /// El pedido para el agente de terminal: qué repo, qué falta y los comandos exactos. Valores de
+    /// prueba, nunca de producción (la preview corre el código del repo).
+    private func copyForTerminal() {
+        guard let d = detail else { return }
+        let repo = d.repo ?? "DUEÑO/REPO"
+        let text = """
+        Pon las variables de entorno de la fábrica de Ghosty para \(repo) (pedido #\(id), espacio \(slug)). \
+        Faltan: \(d.missingEnv.joined(separator: ", ")). \
+        Mira qué falta con `ghosty factory env ls \(repo) --workspace \(slug)`, usa valores DESECHABLES (base de prueba, llaves nuevas; nunca los de producción) \
+        y súbelas con `ghosty factory env push \(repo) <archivo> [--gen LLAVE,LLAVE] --workspace \(slug)`. \
+        Luego `ghosty factory runs recheck \(id) --workspace \(slug)` para que @check revise otra vez.
+        """
+        #if canImport(UIKit)
+        UIPasteboard.general.string = text
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+        withAnimation(.snappy) { notice = "Copiado. En tu Mac ya puedes pegarlo en tu agente de terminal." }
     }
 
     /// Guarda las variables de la preview del repo del pedido. Sólo el dueño del espacio (gs

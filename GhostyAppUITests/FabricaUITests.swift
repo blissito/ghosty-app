@@ -254,6 +254,11 @@ final class FabricaUITests: XCTestCase {
         XCTAssertFalse(app.buttons["otra-vuelta"].exists, "un bloqueo no se arregla con otra vuelta de @build")
         XCTAssertTrue(app.buttons["volver-a-revisar"].exists, "falta «Que @check revise»")
         foto("b1-bloqueado")
+        let copiar = app.buttons["copiar-para-terminal"]
+        XCTAssertTrue(copiar.exists, "falta «Copiar para mi agente de terminal»")
+        copiar.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Copiado")).firstMatch.waitForExistence(timeout: 3),
+                      "copiar no avisó")
         tocar("dar-variables")
         let campo = app.secureTextFields["valor-DATABASE_URL"]
         XCTAssertTrue(campo.waitForExistence(timeout: 5), "la hoja no trae DATABASE_URL")
