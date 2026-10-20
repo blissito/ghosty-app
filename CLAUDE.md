@@ -165,6 +165,8 @@ script (`SIMCTL_CHILD_<VAR>` al lanzar):
 | `GHOSTY_DEMO_CHAT=1\|tabla\|vacio` | (con `GHOSTY_DEMO=1`) el hilo del prototipo con pasos, tabla y PDF; `tabla` corta en la tabla; `vacio` abre el chat vacío |
 | `GHOSTY_AGREGAR=1` | abre la hoja «Agregar» del compositor |
 | `GHOSTY_VOZ=1` | pinta el overlay «Te escucho…» (sin grabar) |
+| `GHOSTY_INTRO=1\|0` | fuerza o quita la intro de arranque (en modo demo no sale salvo con `=1`) |
+| `GHOSTY_CARGA_LENTA=5` | se queda «cargando» 5 s: el camino lento de la intro, que el modo demo nunca toma |
 | `GHOSTY_COMPARTIDO=<id>` | abre el paquete `compartido/<id>/` del App Group (lo que deja «Abrir en Ghosty» de la hoja de compartir) en el compositor |
 
 ⚠️ **Los cuatro últimos juntos son lo que permite verificar la app contra el servidor de
@@ -278,4 +280,42 @@ listas de todos los agentes en una llamada (`/me/conversations?agentes=`) y sól
 baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore`.
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
+
+## ⏸️ Retomar: 1.0.12 en pausa (20-oct)
+
+**Estado:** todo está en `main` e instalado en el iPhone de bliss. `MARKETING_VERSION` está en 1.0.12, pero
+**no se ha subido a TestFlight**: bliss pidió atrasarla. `metadata/es-MX/whats_new.txt` ya está escrito.
+La 1.0.11 (build 84) está publicada; falta subir `suggestBuild` a 84 en `/admin/settings`.
+
+**Qué lleva:**
+- **Intro de arranque** (`GhostyApp/Intro/LaunchIntro.swift`, interruptor `LaunchIntroGate.enabled`). Copia el
+  arranque del pájaro de Twitter: la flamita se encoge y se abre como ventana por la que aparece la app.
+  - ⚠️ El brinco que vio bliss en su iPhone era que, si la cuenta tardaba más de 3.2 s, la intro se fundía con
+    `LaunchMark`, otra capa fuera de lugar. Ahora se queda en la pose del LaunchScreen hasta que la app está
+    lista. Se mide con `GHOSTY_CARGA_LENTA` en un simulador NUEVO: el LaunchScreen se queda en caché y sólo
+    se renueva reiniciando el simulador o el teléfono.
+  - Todo sale de una sola geometría (`LaunchLockup` en `FlameLoading.swift`). `launch-mark.svg` se recortó para
+    que flama y letras queden centradas.
+- **Pedido bloqueado** (`FactoryRunView`): cuando @check escala con `check_blocked`, la app ya no ofrece
+  «Que @build lo arregle». Ofrece:
+  - «Copiar para mi agente de terminal»: los comandos `ghosty factory env …` por el portapapeles universal.
+  - «O pégalas aquí»: `FactoryEnvSheet`.
+  - «Que @check revise»: `recheck`.
+  - Los hallazgos con JSON crudo se leen como texto. Prueba: `testEscaladoBloqueadoDemo`.
+
+**Pendiente de decidir con bliss:** el sonido de la intro. Propuesta: háptico en cada arranque y sonido corto
+sólo la primera vez tras instalar o actualizar, con categoría `ambient` para respetar el modo silencio.
+Después: `./subir-testflight.sh` → `asc.py ficha 1.0.12 <build>` → `asc.py enviar-tienda` (salida MANUAL).
+
+**Lado servidor de lo mismo, ya desplegado:**
+- Teams: `factory-act` `recheck|env` y `api/internal/factory-env`.
+- gs: `…/factory/env`; `env-set` con `merge`; la preview corre `prisma migrate deploy` contra una base LOCAL.
+- CLI 0.77.0: `factory env ls|push`, `runs recheck`.
+- La preview de `blissito/ghosty-studio` ya tiene variables desechables (SQLite en la caja, llaves generadas,
+  `SANDBOX_HOST_TOKEN` falso) y arranca. El 20-oct se pidió `recheck` del #125, #120 y #119.
+
+**Idea aprobada en plática, sin construir:** que la preparación del repo termine cuando la preview arranca en
+verde. Las variables se dividen en tres clases: llaves al azar (se generan), infraestructura (base dentro de
+la caja, ya hay `services:`/`db:` en `.ghosty/factory.md`) y terceros (las da una persona desde la compu). El
+agente lo deja en el manifiesto del repo en un PR.
 
