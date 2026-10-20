@@ -48,21 +48,40 @@ struct AnimatedFlame: View {
 }
 
 /// La pantalla de arranque de la app: la misma composición que el LaunchScreen
-/// (`launch-mark`: flama de 76 pt al centro, wordmark de 140 pt con su centro 78 pt abajo),
-/// ahora con la flama viva. Así no hay salto entre el arranque de iOS y la app. Igual que Android.
+/// (`launch-mark`: el conjunto flama de 76 pt + wordmark de 140 pt, 22 pt entre ambos,
+/// centrado en el área segura), ahora con la flama viva.
+/// Así no hay salto entre el arranque de iOS y la app. Igual que Android.
 struct LaunchMark: View {
     var body: some View {
         ZStack {
             AnimatedFlame(height: 76)
+                .offset(y: LaunchLockup.flameOffset)
             Image("ghosty-wordmark")
                 .resizable()
-                .frame(width: 140, height: 140 * 28 / 110)
-                .offset(y: 78)
+                .frame(width: LaunchLockup.wordmarkSize.width, height: LaunchLockup.wordmarkSize.height)
+                .offset(y: LaunchLockup.wordmarkOffset)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Ghosty")
     }
+}
+
+/// La geometría de `launch-mark.svg` (140 × 134 pt, centrado en el área segura con
+/// `UIImageRespectsSafeAreaInsets`; medido en el simulador: con `false` iOS 26 NO lo centra
+/// en la pantalla, lo deja 29 pt abajo). Quien pinte la marca de arranque la saca de
+/// aquí: si no coincide al punto con el LaunchScreen, la marca brinca al abrir.
+enum LaunchLockup {
+    static let flameHeight: CGFloat = 76
+    static let wordmarkSize = CGSize(width: 140, height: 140 * 28 / 110)
+    /// Alto de la imagen (entero: el conjunto mide 133.82 y va centrado; con un alto
+    /// fraccionario el LaunchScreen de iOS 26 la colocaba mal). La flama empieza en 0.091 y el
+    /// wordmark en 98.273, como en el SVG.
+    static let height: CGFloat = 134
+    /// Del centro del área segura al centro de la flama (negativo = arriba).
+    static let flameOffset: CGFloat = 0.091 + flameHeight / 2 - height / 2
+    /// Del centro del área segura al centro del wordmark.
+    static let wordmarkOffset: CGFloat = 98.273 + wordmarkSize.height / 2 - height / 2
 }
 
 /// La flama en el instante `t` (segundos). Todo sale de `t`: sin estado, sin derivas.
