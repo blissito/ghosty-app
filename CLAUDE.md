@@ -282,6 +282,20 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
+## ⏸️ Retomar: 1.0.13 lista, SIN subir (20-oct)
+
+**Estado:** `main` b60ffa38, `MARKETING_VERSION` 1.0.13 y `whats_new.txt` ya escritos. bliss frenó
+`./subir-testflight.sh` justo antes de correrlo («orita volvemos»); hoy ya se subió la build 89. Al volver:
+preguntar si se sube y entonces `./subir-testflight.sh`. Instalar por WiFi con `./instalar.sh`.
+
+**Qué lleva (pedido «sin avanzar», el #121):** `FactoryRunView` dice «Sin avanzar: nadie está trabajando» en
+ámbar, en vez de «@build está construyendo…», cuando hay etapa de trabajo, `running` vacío y el último evento
+es `stale`. Lleva «¿Qué pasó?» (gs `…/why`) y los botones «Retomar» y «Detener pedido» (`act resume|cancel`).
+«Abrir el hilo» abre `FactoryThreadView` DENTRO de la app (en Safari pedía sesión): ahí el compositor le
+escribe al rol del pedido (`@build`/`@check`). Prueba: `testPedidoSinAvanzarDemo` (demo #35).
+Ya desplegado: Teams c14d3a5 (`factory-act` `resume|stop|cancel`, `runPersonAction`) y gs f0082097.
+Pendiente menor: el 🔁 de «Llevaba 30 min sin avanzar» sale como cuadro con «?» en el markdown del hilo.
+
 ## 1.0.12 en revisión (20-oct)
 
 **Estado:** build 89 (todo `main` al 45ff036a) enviada a revisión el 20-oct; salida AUTOMÁTICA (`AFTER_APPROVAL`, cambiada
