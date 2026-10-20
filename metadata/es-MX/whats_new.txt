@@ -1,2 +1,2 @@
+• Ghosty abre con una animación nueva: la flamita se abre y por ella aparece la app.
 • Software Factory: cuando un pedido se detiene porque le faltan las variables de la vista previa, ya no se gasta otra vuelta. Copia el pedido para tu agente de terminal en la compu (o pégalas aquí) y pide que se revise otra vez con un toque.
-• La pantalla de arranque queda centrada.
