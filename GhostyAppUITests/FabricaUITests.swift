@@ -141,6 +141,35 @@ final class FabricaUITests: XCTestCase {
         foto("v3-bitacora")
     }
 
+    /// Abrir el #40 (trabajando) prende su Live Activity: al ir al inicio se ve en la Dynamic Island.
+    func testLiveActivityDemo() {
+        app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        app.launch()
+        let pestana = app.buttons["tab-fabrica"]
+        XCTAssertTrue(pestana.waitForExistence(timeout: 20), "no apareció la pestaña «Fábrica»")
+        pestana.tap()
+        let fila = app.buttons["pedido-40"]
+        XCTAssertTrue(fila.waitForExistence(timeout: 15))
+        app.swipeUp(velocity: .slow)
+        fila.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["paso-ahora"].waitForExistence(timeout: 5))
+        XCUIDevice.shared.press(.home)
+        sleep(3)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let shot = XCTAttachment(screenshot: springboard.screenshot())
+        shot.name = "la1-isla"
+        shot.lifetime = .keepAlways
+        add(shot)
+        // La pantalla de bloqueo: bajar el centro de notificaciones desde arriba.
+        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.001))
+            .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.7)))
+        sleep(2)
+        let lock = XCTAttachment(screenshot: springboard.screenshot())
+        lock.name = "la2-bloqueo"
+        lock.lifetime = .keepAlways
+        add(lock)
+    }
+
     func testFabricaEnVivo() throws {
         let env = ProcessInfo.processInfo.environment
         guard let token = env["GHOSTY_TOKEN"], !token.isEmpty else {

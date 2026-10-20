@@ -436,6 +436,9 @@ struct FactoryRunView: View {
         if DemoData.encendido {
             detail = FactoryStore.demoDetail(id)
             live = FactoryStore.demoLive(id)
+            #if !GHOSTY_EXTENSION
+            if let detail { FactoryLiveActivity.sync(slug: slug, run: detail, live: live) }
+            #endif
             return
         }
         do {
@@ -451,6 +454,9 @@ struct FactoryRunView: View {
         } else {
             live = nil
         }
+        #if !GHOSTY_EXTENSION
+        if let detail { FactoryLiveActivity.sync(slug: slug, run: detail, live: live) }
+        #endif
     }
 
     private func act(_ action: FactoryAPI.Action, version: Int? = nil, note: String? = nil, checkScope: String? = nil,

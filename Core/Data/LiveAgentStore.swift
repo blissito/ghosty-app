@@ -1072,6 +1072,9 @@ final class LiveAgentStore: AgentStoring {
             }
             compartidoPendiente = r
             aplicarCompartido()
+        case .pedido(let slug, let id):
+            FactoryStore.shared.pendingRoute = FactoryRoute(slug: slug, id: id)
+            requestedTab = .fabrica
         }
     }
 

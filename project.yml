@@ -46,6 +46,8 @@ targets:
       - target: EnviarAGhosty
       # El avatar de cada agente en sus avisos (ver NotificationService/).
       - target: NotificationService
+      # La Live Activity de un pedido de la Fábrica (ver FabricaActividad/).
+      - target: FabricaActividad
     # ⚠️ El xcconfig ya NO lleva credenciales: se entra con la cuenta de
     # ghosty.studio. Se conserva sólo para GHOSTY_COMMIT y ajustes locales de
     # firma; si el archivo no existe, la app compila igual.
@@ -116,6 +118,9 @@ targets:
         # duplicado y NO manda correo. Tres subidas perdidas el 2026-09-09 por esto.
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         GhostyCommit: $(GHOSTY_COMMIT)
+        # La Live Activity de la Fábrica (pantalla bloqueada y Dynamic Island). gs la actualiza
+        # por push cada 30 s como mucho: no hace falta `FrequentUpdates`.
+        NSSupportsLiveActivities: true
         # ⚠️ SIN estas dos, la app NO avisa: se CIERRA en el momento de abrir el selector.
         # iOS mata el proceso al pedir un permiso que no está declarado. El texto lo lee la
         # persona en el diálogo, así que dice para qué, no que "se necesita acceso".
@@ -243,6 +248,30 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostyapp.notifications
+        TARGETED_DEVICE_FAMILY: "1"
+
+  # La Live Activity de un pedido de la Fábrica. Como NotificationService, NO compila `Core/`:
+  # sólo su vista y el contrato `FactoryActivityAttributes.swift` (lo comparte con la app y gs).
+  FabricaActividad:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: FabricaActividad
+      - path: Core/Factory/FactoryActivityAttributes.swift
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
+    info:
+      path: FabricaActividad/Info.plist
+      properties:
+        CFBundleDisplayName: Fábrica de Ghosty
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fixtergeek.ghostyapp.fabrica
         TARGETED_DEVICE_FAMILY: "1"
 
   # ⚠️ No se instala ni se distribuye: existe para que `Core/` compile SOLO. Si algo del

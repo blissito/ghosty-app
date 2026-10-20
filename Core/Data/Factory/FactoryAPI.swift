@@ -333,6 +333,12 @@ enum FactoryAPI {
         try JSONDecoder().decode(FactoryLive.self, from: try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/live"))
     }
 
+    /// El token de push de la Live Activity del pedido: con él gs la mantiene al día con la app dormida.
+    static func registerLiveActivity(_ slug: String, _ id: Int, token: String, environment: String) async throws {
+        _ = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/live-activity", method: "POST",
+                              body: ["token": token, "environment": environment])
+    }
+
     /// La recomendación para un pedido escalado. 409 si ya no está escalado; 503 si el modelo no contestó.
     static func advise(_ slug: String, _ id: Int) async throws -> FactoryAdvice {
         struct R: Decodable { let advice: FactoryAdvice }

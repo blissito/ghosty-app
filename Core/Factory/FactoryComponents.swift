@@ -166,6 +166,21 @@ enum FactoryFormat {
     /// Lo que lleva un paso: «41 s», «6 min».
     static func secs(_ s: Int) -> String { s < 60 ? "\(s) s" : "\(s / 60) min" }
 
+    /// El titular de la etapa cuando nadie trabaja (la Live Activity; igual que gs).
+    static func headline(_ stage: FactoryStage) -> String {
+        switch stage {
+        case .planReview: "Firma el plan"
+        case .escalated: "Te toca decidir"
+        case .prReview: "PR listo: revísalo y mergea"
+        case .done: "Terminado"
+        case .cancelled: "Cancelado"
+        case .planning: working("plan")
+        case .building: working("build")
+        case .checking: working("check")
+        case .unknown: "Trabajando…"
+        }
+    }
+
     /// Quién trabaja, como en Teams.
     static func working(_ role: String?) -> String {
         switch role {

@@ -38,6 +38,8 @@ enum GrupoDeApp {
 enum EnlaceDeGhosty: Equatable {
     case conversacion(agente: String, sesion: String)
     case compartido(id: String)
+    /// Un pedido de la Fábrica: lo que abre tocar su Live Activity.
+    case pedido(slug: String, id: Int)
 
     init?(url: URL) {
         guard url.scheme == Session.redirectScheme,
@@ -50,6 +52,9 @@ enum EnlaceDeGhosty: Equatable {
         case "compartido":
             guard let id = q("id"), !id.isEmpty else { return nil }
             self = .compartido(id: id)
+        case "pedido":
+            guard let slug = q("espacio"), !slug.isEmpty, let id = q("id").flatMap(Int.init) else { return nil }
+            self = .pedido(slug: slug, id: id)
         default:
             return nil
         }
@@ -65,6 +70,9 @@ enum EnlaceDeGhosty: Equatable {
         case .compartido(let id):
             c.host = "compartido"
             c.queryItems = [URLQueryItem(name: "id", value: id)]
+        case .pedido(let slug, let id):
+            c.host = "pedido"
+            c.queryItems = [URLQueryItem(name: "espacio", value: slug), URLQueryItem(name: "id", value: String(id))]
         }
         return c.url!
     }
