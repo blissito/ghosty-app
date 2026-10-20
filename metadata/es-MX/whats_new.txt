@@ -1,4 +1,9 @@
 • Campanita en Chats: lo que pasó mientras no mirabas (permisos que esperan tu respuesta, respuestas sin leer y entregas de la semana). Tocar una te lleva a su conversación.
 • Si una respuesta se corta, ahora puedes pedirle a tu agente que continúe con un toque.
 • Los PDF y audios que te entrega tu agente se ven como archivo dentro de la conversación.
-• Para equipos con la Software Factory: una pestaña nueva para seguir y decidir sus pedidos, con el botón «¿Qué hago?» cuando un pedido se atora.
+• Para equipos con la Software Factory, una pestaña nueva:
+  – Pide un cambio y sigue la conversación con el agente que planea: un plan para firmar, un sprint para revisar, ideas o una pregunta, todo con un toque.
+  – Revisa y crea sprints: quita tickets deslizando y créalo con una sola firma.
+  – Mira en vivo qué hace el agente que trabaja, también en la pantalla bloqueada y la Dynamic Island.
+  – Conecta un repo de GitHub desde el teléfono.
+  – El botón «¿Qué hago?» cuando un pedido se atora.
