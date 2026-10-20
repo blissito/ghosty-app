@@ -35,9 +35,13 @@ struct FactoryRunView: View {
     @State private var whyLoading = false
 
     private enum Pending: Identifiable {
-        case approve(Int), anotherLoop, recheck, merge, resume, cancel
+        case approve(Int), anotherLoop, recheck, merge, resume, cancel, retryPreview
+        /// Cerrar el PR; con `ignore` (`major`|`dependency`), Dependabot deja de proponerlo.
+        case close(String?)
         var id: String {
             switch self {
+            case .retryPreview: "retry-preview"
+            case .close(let i): i == nil ? "close" : "close-ignore"
             case .approve(let v): "approve-\(v)"
             case .anotherLoop: "loop"
             case .recheck: "recheck"
@@ -121,6 +125,8 @@ struct FactoryRunView: View {
                     case .merge: await act(.merge)
                     case .resume: await act(.resume)
                     case .cancel: await act(.cancel)
+                    case .retryPreview: await act(.retryPreview)
+                    case .close(let i): await act(.close, ignore: i)
                     }
                 }
             }
@@ -143,7 +149,16 @@ struct FactoryRunView: View {
         }
         .sheet(isPresented: $advising) {
             FactoryAdviceSheet(slug: slug, id: id) { advice, note, scope in
-                Task { await act(advice.fix ? .approve : .changes, note: note, checkScope: advice.fix ? scope : nil) }
+                Task {
+                    switch advice.decision {
+                    case "fix": await act(.approve, note: note, checkScope: scope)
+                    case "replan": await act(.changes, note: note)
+                    case "close": await act(.close)
+                    case "close_ignore": await act(.close, ignore: "major")
+                    case "recheck": await act(.recheck)
+                    default: break // `wait`: nada que hacer, la plataforma sigue sola.
+                    }
+                }
             }
         }
     }
@@ -175,6 +190,10 @@ struct FactoryRunView: View {
     private var statusLine: String {
         switch stage {
         case .planReview: "Te toca firmar el plan v\(detail?.planVersion ?? cached?.planVersion ?? 1)"
+        case .escalated where escalationKind == .platform: "Esperando la preview"
+        case .escalated where escalationKind == .env: "Te toca: faltan variables"
+        case .escalated where escalationKind == .fix: "Te toca: que @build lo arregle"
+        case .escalated where escalationKind == .skip: "Te toca: cerrar el PR"
         case .escalated: "Te toca decidir"
         case .prReview where mergeQueued: "Merge en cola: esperando el CI"
         case .prReview: "Te toca revisar el PR"
@@ -198,7 +217,7 @@ struct FactoryRunView: View {
     }
 
     private var statusCard: some View {
-        let tone = stalled ? FactoryTone.of(.escalated) : FactoryTone.of(stage)
+        let tone = stalled ? FactoryTone.of(.escalated) : FactoryTone.of(stage, detail?.escalation ?? cached?.escalation)
         return VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
                 FactoryProgressRing(stage: stage)
@@ -286,17 +305,43 @@ struct FactoryRunView: View {
         .accessibilityIdentifier("pedido-ci")
     }
 
+    private var escalationKind: FactoryEscalation.Kind { detail?.escalationKind ?? cached?.escalation?.type ?? .decision }
+
+    /// Qué significa este escalado y qué lo resuelve, según su tipo (20-oct).
+    private var escalationExplanation: String {
+        switch escalationKind {
+        case .platform:
+            "Es una falla de la plataforma, no algo que te toque. @check revisa en cuanto la preview esté lista."
+        case .env:
+            "@check no pudo revisar: falta algo que sólo tú puedes dar. Cuando lo resuelvas, que @check vuelva a revisar el mismo PR, sin otra vuelta de @build."
+        case .skip:
+            "@check recomienda no seguir con este cambio. Ciérralo; si es de Dependabot, que no vuelva a proponer esta versión."
+        case .fix:
+            "@build lo puede arreglar en la misma rama con lo que encontró @check."
+        case .decision:
+            (detail?.loops ?? 0) >= 3
+                ? "@check frenó \(detail?.loops ?? 0) veces. Si los puntos caben en el plan, que @build los arregle."
+                : "Hay que elegir cómo seguir. «¿Qué hago?» te dice qué conviene."
+        }
+    }
+
     private var escalationCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let platform = escalationKind == .platform
+        let reason = detail?.escalation?.reason ?? cached?.escalation?.reason
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(Color.gAmber)
-                Text("Lo que encontró @check").gCardTitle()
+                Image(systemName: platform ? "hourglass" : "exclamationmark.bubble.fill")
+                    .foregroundStyle(platform ? Color.gInk3 : Color.gAmber)
+                Text(platform ? "Esperando la preview" : "Lo que encontró @check").gCardTitle()
             }
-            Text(detail?.blocked == true
-                 ? "@check no pudo revisar: falta algo que sólo tú puedes dar. Cuando lo resuelvas, que @check vuelva a revisar el mismo PR, sin otra vuelta de @build."
-                 : (detail?.loops ?? 0) >= 3
-                 ? "@check frenó \(detail?.loops ?? 0) veces. Si los puntos caben en el plan, que @build los arregle."
-                 : "Falta algo que @build no puede resolver con sus herramientas: dalo tú, o rehaz el plan.")
+            if let reason, !reason.isEmpty {
+                Text(reason)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("motivo")
+            }
+            Text(escalationExplanation)
                 .gMeta()
                 .fixedSize(horizontal: false, vertical: true)
             if let findings = detail?.findings {
@@ -330,6 +375,16 @@ struct FactoryRunView: View {
                 .disabled(busy || detail == nil)
                 .accessibilityIdentifier("dar-variables")
             }
+            if !platform { adviceButton }
+        }
+        .padding(16)
+        .background((platform ? Color.gFill : Color.gAmberTint.opacity(0.55)),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+            .strokeBorder(platform ? Color.gHairline : Color.gAmber.opacity(0.35), lineWidth: 1))
+    }
+
+    private var adviceButton: some View {
             Button { advising = true } label: {
                 Label("¿Qué hago?", systemImage: "sparkles")
                     .font(.system(size: 15, weight: .bold))
@@ -340,10 +395,6 @@ struct FactoryRunView: View {
             .buttonStyle(.gPressPrimary)
             .disabled(busy || detail == nil)
             .accessibilityIdentifier("que-hago")
-        }
-        .padding(16)
-        .background(Color.gAmberTint.opacity(0.55), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Color.gAmber.opacity(0.35), lineWidth: 1))
     }
 
     private func planCard(_ plan: FactoryRunDetail.Plan) -> some View {
@@ -512,10 +563,22 @@ struct FactoryRunView: View {
             case .planReview:
                 barButton("Pedir cambios", primary: false, id: "pedir-cambios") { asking = .changes }
                 barButton("Firmar plan v\(version)", primary: true, id: "firmar-plan") { confirm = .approve(version) }
-            case .escalated where detail?.blocked == true:
+            case .escalated where escalationKind == .platform:
+                // Falla de la plataforma: ni @build ni un plan nuevo la arreglan (easybits, 20-oct).
+                barButton("Reintentar preview", primary: false, id: "reintentar-preview") { confirm = .retryPreview }
+                barButton("Que @check revise", primary: true, id: "volver-a-revisar", icon: "checkmark.shield") { confirm = .recheck }
+            case .escalated where escalationKind == .env:
                 // @build no puede dar lo que falta: otra vuelta sólo gasta tokens (#125, 20-oct).
                 barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
                 barButton("Que @check revise", primary: true, id: "volver-a-revisar", icon: "checkmark.shield") { confirm = .recheck }
+            case .escalated where escalationKind == .skip:
+                if detail?.kind == "dependabot" || cached?.isDependabot == true {
+                    barButton("Sólo cerrar", primary: false, id: "cerrar-pr") { confirm = .close(nil) }
+                    barButton("Cerrar e ignorar", primary: true, id: "cerrar-ignorar", icon: "xmark.circle") { confirm = .close("major") }
+                } else {
+                    barButton("Que @build lo arregle", primary: false, id: "otra-vuelta") { confirm = .anotherLoop }
+                    barButton("Cerrar PR", primary: true, id: "cerrar-pr", icon: "xmark.circle") { confirm = .close(nil) }
+                }
             case .escalated:
                 barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
                 barButton("Que @build lo arregle", primary: true, id: "otra-vuelta") { confirm = .anotherLoop }
@@ -572,6 +635,8 @@ struct FactoryRunView: View {
         case .merge: "¿Mergear el PR?"
         case .resume: "¿Retomar el pedido?"
         case .cancel: "¿Detener el pedido?"
+        case .retryPreview: "¿Reintentar la preview?"
+        case .close(let i): i == nil ? "¿Cerrar el PR?" : "¿Cerrar e ignorar esta versión?"
         }
     }
 
@@ -583,6 +648,10 @@ struct FactoryRunView: View {
         case .merge: "Pedido #\(id). " + (detail?.pr.map { "Se mergea \($0.replacingOccurrences(of: "https://github.com/", with: ""))." } ?? "Se mergea el PR.")
         case .resume: "Pedido #\(id). @\(stageRole) vuelve a trabajar en el mismo hilo desde donde se quedó."
         case .cancel: "Pedido #\(id). Se cancela y nadie sigue trabajando en él. El PR no se cierra solo."
+        case .retryPreview: "Pedido #\(id). Se vuelve a levantar la preview; en cuanto esté, @check revisa."
+        case .close(let i): i == nil
+            ? "Pedido #\(id). Se cierra el PR en GitHub y el pedido termina."
+            : "Pedido #\(id). Se cierra el PR y Dependabot deja de proponer esta versión mayor."
         }
     }
 
@@ -594,6 +663,8 @@ struct FactoryRunView: View {
         case .merge: "Merge"
         case .resume: "Retomar"
         case .cancel: "Detener pedido"
+        case .retryPreview: "Reintentar preview"
+        case .close(let i): i == nil ? "Cerrar PR" : "Cerrar e ignorar"
         }
     }
 
@@ -670,7 +741,7 @@ struct FactoryRunView: View {
     }
 
     private func act(_ action: FactoryAPI.Action, version: Int? = nil, note: String? = nil, checkScope: String? = nil,
-                     skipPreview: Bool = false) async {
+                     skipPreview: Bool = false, ignore: String? = nil) async {
         busy = true
         defer { busy = false }
         if DemoData.encendido {
@@ -680,7 +751,7 @@ struct FactoryRunView: View {
         }
         do {
             let r = try await FactoryAPI.act(slug, id, action, version: version, note: note, checkScope: checkScope,
-                                             skipPreview: skipPreview)
+                                             skipPreview: skipPreview, ignore: ignore)
             let msg: String = switch action {
             case .approve: stage == .escalated ? "@build ya lo está arreglando." : "Firmado: @build empieza a construir."
             case .changes: stage == .escalated ? "@plan ya está rehaciendo el plan." : "Cambios pedidos: @plan prepara otra versión."
@@ -691,6 +762,8 @@ struct FactoryRunView: View {
             case .resume: "@\(stageRole) retomó el pedido."
             case .stop: "Turno detenido."
             case .cancel: "Pedido detenido."
+            case .close: ignore == nil ? "PR cerrado." : "PR cerrado. Dependabot ya no propone esta versión."
+            case .retryPreview: "Levantando la preview otra vez."
             }
             withAnimation(.snappy) { notice = msg; error = nil }
             if action == .merge { confetti = UUID() }
@@ -774,9 +847,9 @@ struct FactoryAdviceSheet: View {
 
     @ViewBuilder
     private func content(_ a: FactoryAdvice) -> some View {
-        Text(a.fix ? "Que @build lo arregle" : "Rehacer el plan")
+        Text(Self.headline(a.decision))
             .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(a.fix ? Color.gGreenInk : Color.gAmberInk)
+            .foregroundStyle(a.decision == "replan" ? Color.gAmberInk : Color.gGreenInk)
             .accessibilityIdentifier("recomendacion")
         Text(a.why).font(.system(size: 15)).foregroundStyle(Color.gInk).fixedSize(horizontal: false, vertical: true)
         VStack(alignment: .leading, spacing: 6) {
@@ -789,14 +862,16 @@ struct FactoryAdviceSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        Text(a.fix ? "Nota para @build" : "Qué cambiar en el plan").gSectionCaps().padding(.top, 4)
-        TextEditor(text: $note)
-            .font(.system(size: 15))
-            .scrollContentBackground(.hidden)
-            .padding(10)
-            .frame(minHeight: 120)
-            .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-            .accessibilityIdentifier("nota-recomendada")
+        if a.needsNote {
+            Text(a.fix ? "Nota para @build" : "Qué cambiar en el plan").gSectionCaps().padding(.top, 4)
+            TextEditor(text: $note)
+                .font(.system(size: 15))
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .frame(minHeight: 120)
+                .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .accessibilityIdentifier("nota-recomendada")
+        }
         if a.fix {
             Text("@check revisa sólo").gSectionCaps()
             TextField("Alcance de la siguiente revisión", text: $scope, axis: .vertical)
@@ -809,14 +884,36 @@ struct FactoryAdviceSheet: View {
             onApply(a, note.trimmingCharacters(in: .whitespacesAndNewlines), scope.trimmingCharacters(in: .whitespacesAndNewlines))
             dismiss()
         } label: {
-            Text("Aplicar").gButtonLabel().foregroundStyle(.white)
+            Text(Self.applyLabel(a.decision)).gButtonLabel().foregroundStyle(.white)
                 .frame(maxWidth: .infinity, minHeight: 50)
                 .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
         }
         .buttonStyle(.gPressPrimary)
-        .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(a.needsNote && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .accessibilityIdentifier("aplicar")
-        Text("No se aplica sola: revisa la nota antes.").gCaption()
+        if a.needsNote { Text("No se aplica sola: revisa la nota antes.").gCaption() }
+    }
+
+    private static func headline(_ d: String) -> String {
+        switch d {
+        case "fix": "Que @build lo arregle"
+        case "replan": "Rehacer el plan"
+        case "close": "Cerrar el PR"
+        case "close_ignore": "Cerrar e ignorar esta versión"
+        case "recheck": "Que @check revise otra vez"
+        case "wait": "Esperar: se resuelve solo"
+        default: "Recomendación"
+        }
+    }
+
+    private static func applyLabel(_ d: String) -> String {
+        switch d {
+        case "close": "Cerrar PR"
+        case "close_ignore": "Cerrar e ignorar"
+        case "recheck": "Que @check revise"
+        case "wait": "Entendido"
+        default: "Aplicar"
+        }
     }
 
     private func load() async {

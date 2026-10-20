@@ -16,7 +16,8 @@ enum FactoryLiveActivity {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let current = Activity<FactoryActivityAttributes>.activities.first { $0.attributes.slug == slug && $0.attributes.runId == run.id }
         let state = state(run, live)
-        let working = run.stage.working || !run.running.isEmpty
+        // Esperando la preview cuenta como trabajo: la plataforma la reintenta sola (20-oct).
+        let working = run.stage.working || !run.running.isEmpty || run.escalationKind == .platform
         if let current {
             Task {
                 if working {
@@ -61,10 +62,15 @@ enum FactoryLiveActivity {
         // Con varios roles a la vez manda el que arrancó al último: es el que se mueve.
         let r = live?.running.max(by: { $0.since < $1.since })
             ?? run.running.first.map { FactoryLive.Role(role: $0.role, since: $0.since, now: nil, steps: [], stalled: nil) }
-        let needsYou = stage.needsYou
+        // gs decide si te toca: una escalada de plataforma no (20-oct). Su motivo es el titular.
+        let needsYou = run.serverNeedsYou ?? (stage.needsYou && run.escalationKind != .platform)
+        let reason = stage == .escalated ? run.escalation?.reason : nil
+        let headline = stage == .escalated && run.escalationKind == .platform ? "Esperando la preview"
+            : needsYou ? reason ?? FactoryFormat.headline(stage)
+            : r.map { FactoryFormat.working($0.role) } ?? FactoryFormat.headline(stage)
         return .init(
             stage: run.status,
-            headline: needsYou ? FactoryFormat.headline(stage) : r.map { FactoryFormat.working($0.role) } ?? FactoryFormat.headline(stage),
+            headline: headline,
             now: needsYou ? nil : r?.now,
             stepsDone: r?.steps.filter { $0.status != "running" }.count ?? 0,
             stalled: needsYou ? nil : r?.stalled?.human,

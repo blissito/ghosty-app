@@ -77,6 +77,43 @@ enum FactoryStage: String {
     }
 }
 
+/// Por qué un pedido escaló y qué lo resuelve (gs `escalation`, 20-oct). Antes la tarjeta decía «Te
+/// toca decidir» sin decir qué: de los 8 escalados de easybits, 5 eran la preview atorada —falla
+/// de la plataforma, nada que decidir— y los otros 3 pedían botones distintos.
+struct FactoryEscalation: Decodable, Hashable {
+    enum Kind: String {
+        /// Faltan variables o credenciales: las da la persona y @check revisa otra vez.
+        case env
+        /// @build lo puede arreglar en la rama.
+        case fix
+        /// Este bump no conviene: cerrar (e ignorar la versión).
+        case skip
+        /// Una persona elige.
+        case decision
+        /// Falla de la plataforma (la preview no arranca): no te toca, se reintenta sola.
+        case platform
+    }
+
+    let kind: String?
+    let reason: String?
+    let points: [String]?
+    let findings: String?
+    let at: String?
+    let actions: [String]?
+
+    var type: Kind { kind.flatMap(Kind.init) ?? .decision }
+
+    var label: String {
+        switch type {
+        case .env:      "Faltan variables"
+        case .fix:      "@build lo puede arreglar"
+        case .skip:     "No conviene"
+        case .decision: "Te toca decidir"
+        case .platform: "Esperando preview"
+        }
+    }
+}
+
 struct FactoryRun: Identifiable, Decodable, Hashable {
     let id: Int
     let title: String
@@ -95,9 +132,23 @@ struct FactoryRun: Identifiable, Decodable, Hashable {
     let updatedAt: String?
     let durationMin: Double?
     let usd: Double?
+    var escalation: FactoryEscalation? = nil
+    /// Lo decide gs (`needsYou`): una escalada de plataforma o un PR en automerge no te tocan.
+    var serverNeedsYou: Bool? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
+             loops, createdAt, updatedAt, durationMin, usd, escalation
+        case serverNeedsYou = "needsYou"
+    }
 
     var stage: FactoryStage { FactoryStage(status) }
     var isDependabot: Bool { kind == "dependabot" }
+
+    /// Le toca a una persona. gs viejo no lo manda: entonces es la etapa sola.
+    var needsYou: Bool { serverNeedsYou ?? (stage.needsYou && escalation?.type != .platform) }
+    /// Escaló por una falla de la plataforma: se pinta como trabajo, no como «Te toca».
+    var waitingOnPlatform: Bool { stage == .escalated && escalation?.type == .platform }
 
     /// «#64» de `https://github.com/o/n/pull/64`.
     var prNumber: String? {
@@ -148,9 +199,17 @@ struct FactoryRunDetail: Decodable {
     let plans: [PlanSummary]
     let events: [Event]
     let running: [Running]
+    var escalation: FactoryEscalation? = nil
+    var serverNeedsYou: Bool? = nil
     /// El CI del PR (checks de GitHub) mientras el PR te toca o el merge espera. `nil` = gs viejo o
     /// GitHub no contestó.
     let ci: CI?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
+             loops, updatedAt, plan, plans, events, running, escalation, ci
+        case serverNeedsYou = "needsYou"
+    }
 
     struct CI: Decodable, Hashable {
         struct Check: Decodable, Hashable { let name: String; let url: String? }
@@ -179,13 +238,27 @@ struct FactoryRunDetail: Decodable {
 
     /// Lo que encontró @check la última vez que escaló o regresó hallazgos. Los renglones que Teams
     /// guardó como JSON crudo (`(preview):0 — {"file":…,"text":…}`, #125) se leen como texto.
+    ///
+    /// ⚠️ Primero `escalation` de gs: los eventos son sólo los últimos 15 y un pedido con mucha
+    /// preview o «sin avanzar» después del escalado se quedaba sin motivo.
     var findings: String? {
-        findingsEvent?.data?["findings"]?.string.map(Self.readableFindings)
+        (escalation?.findings ?? findingsEvent?.data?["findings"]?.string).map(Self.readableFindings)
     }
 
     /// @check escaló porque le falta algo que @build no puede dar (variables, un acceso): otra
     /// vuelta de @build sólo gasta tokens. Lo resuelve la persona y @check revisa otra vez.
-    var blocked: Bool { stage == .escalated && findingsEvent?.type == "check_blocked" }
+    var blocked: Bool {
+        guard stage == .escalated else { return false }
+        if let e = escalation?.kind.flatMap(FactoryEscalation.Kind.init) { return e == .env || e == .platform }
+        return findingsEvent?.type == "check_blocked"
+    }
+
+    /// El tipo de escalado. gs viejo no lo manda: se deduce como antes (bloqueado = variables).
+    var escalationKind: FactoryEscalation.Kind? {
+        guard stage == .escalated else { return nil }
+        if let k = escalation?.kind.flatMap(FactoryEscalation.Kind.init) { return k }
+        return blocked ? .env : .decision
+    }
 
     /// Ya pediste el merge y GitHub lo hará solo en cuanto pase el CI: el PR ya no te toca.
     /// Vale mientras nada lo regrese (CI en rojo, conflicto, más trabajo) después de la cola.
@@ -233,7 +306,7 @@ struct FactoryRunDetail: Decodable {
         FactoryRun(id: id, title: title, status: status, kind: kind, room: room, thread: thread, repo: repo,
                    branch: branch, pr: pr, preview: preview, previewState: previewState,
                    planVersion: planVersion, loops: loops, createdAt: nil, updatedAt: updatedAt,
-                   durationMin: nil, usd: nil)
+                   durationMin: nil, usd: nil, escalation: escalation, serverNeedsYou: serverNeedsYou)
     }
 }
 
@@ -333,6 +406,7 @@ struct FactoryAdvice: Decodable, Hashable {
         let point: String
         let cites: String
     }
+    /// `fix` | `replan` | `close` | `close_ignore` | `recheck` | `wait` (las cuatro últimas, 20-oct).
     let decision: String
     let why: String
     let buildNote: [Point]
@@ -342,6 +416,25 @@ struct FactoryAdvice: Decodable, Hashable {
     let note: String
 
     var fix: Bool { decision == "fix" }
+    /// Sólo `fix` y `replan` llevan nota para un rol.
+    var needsNote: Bool { decision == "fix" || decision == "replan" }
+
+    init(decision: String, why: String, buildNote: [Point], checkScope: String, confidence: String, note: String) {
+        self.decision = decision; self.why = why; self.buildNote = buildNote
+        self.checkScope = checkScope; self.confidence = confidence; self.note = note
+    }
+
+    // Sin nota ni alcance cuando la decisión no es para un rol (`close`, `wait`…).
+    init(from d: Decoder) throws {
+        enum K: String, CodingKey { case decision, why, buildNote, checkScope, confidence, note }
+        let c = try d.container(keyedBy: K.self)
+        decision = try c.decode(String.self, forKey: .decision)
+        why = try c.decodeIfPresent(String.self, forKey: .why) ?? ""
+        buildNote = try c.decodeIfPresent([Point].self, forKey: .buildNote) ?? []
+        checkScope = try c.decodeIfPresent(String.self, forKey: .checkScope) ?? ""
+        confidence = try c.decodeIfPresent(String.self, forKey: .confidence) ?? ""
+        note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+    }
 }
 
 struct FactorySpace: Identifiable, Hashable {
@@ -359,7 +452,10 @@ enum FactoryAPI {
     }
 
     /// `resume|stop|cancel`: la salida de un pedido «sin avanzar» (20-oct), como la tarjeta web.
-    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel }
+    /// `close` cierra el PR (con `ignore`, le dice a Dependabot que no lo vuelva a abrir) y
+    /// `retry_preview` pide la preview otra vez (20-oct).
+    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close
+        case retryPreview = "retry_preview" }
 
     struct ActResult { let status: String?; let queued: Bool; var keys: [String] = [] }
     struct NewRun { let room: String; let threadId: Int; let url: String? }
@@ -442,7 +538,8 @@ enum FactoryAPI {
 
     /// Decide un pedido. `approve` en `plan_review` exige la versión del plan que la persona leyó.
     static func act(_ slug: String, _ id: Int, _ action: Action, version: Int? = nil, note: String? = nil,
-                    checkScope: String? = nil, skipPreview: Bool = false, dotenv: String? = nil) async throws -> ActResult {
+                    checkScope: String? = nil, skipPreview: Bool = false, dotenv: String? = nil,
+                    ignore: String? = nil) async throws -> ActResult {
         var body: [String: Any] = ["action": action.rawValue]
         if let version { body["version"] = version }
         if let note, !note.isEmpty { body["note"] = note }
@@ -451,6 +548,8 @@ enum FactoryAPI {
         if skipPreview { body["skipPreview"] = true }
         // Las variables de la preview: van a la bóveda de gs y nunca regresan.
         if let dotenv { body["dotenv"] = dotenv }
+        // `major` | `dependency`: lo que Dependabot debe dejar de proponer al cerrar.
+        if let ignore { body["ignore"] = ignore }
         let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/act", method: "POST", body: body)
         let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
         return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false, keys: j["keys"] as? [String] ?? [])

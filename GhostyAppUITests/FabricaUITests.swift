@@ -256,7 +256,8 @@ final class FabricaUITests: XCTestCase {
         foto("b1-bloqueado")
         let copiar = app.buttons["copiar-para-terminal"]
         XCTAssertTrue(copiar.exists, "falta «Copiar para mi agente de terminal»")
-        copiar.tap()
+        // Con el motivo arriba, el botón queda bajo la barra de decisiones: se baja a él.
+        tocar("copiar-para-terminal")
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "Copiado")).firstMatch.waitForExistence(timeout: 3),
                       "copiar no avisó")
         tocar("dar-variables")
@@ -270,6 +271,35 @@ final class FabricaUITests: XCTestCase {
         let confirmar = app.descendants(matching: .any)["confirmar-recheck"]
         XCTAssertTrue(confirmar.waitForExistence(timeout: 5), "al guardar no ofrece que @check revise")
         foto("b3-revisar")
+    }
+
+    /// «Te toca 8» con 5 que eran la preview atorada (easybits, 20-oct): una falla de la plataforma
+    /// no cuenta como «Te toca», cada tarjeta dice su motivo y cada tipo trae su botón.
+    func testTeTocaConMotivoDemo() {
+        abrirFabrica()
+        let conteo = app.staticTexts["conteo-Te toca"]
+        XCTAssertTrue(conteo.waitForExistence(timeout: 10), "no está la sección «Te toca»")
+        // #42 firma, #41 fix, #36 variables, #43 cerrar, #39 PR. El #44 (preview) no.
+        XCTAssertEqual(conteo.label, "5", "una preview atorada cuenta como «Te toca»")
+        XCTAssertTrue(app.staticTexts["motivo-43"].exists, "la tarjeta escalada no dice su motivo")
+        XCTAssertTrue(app.staticTexts["Esperando preview"].exists, "el pedido que espera la preview no lo dice")
+        foto("t1-te-toca")
+
+        tocar("pedido-44")
+        XCTAssertTrue(app.staticTexts["Esperando la preview"].waitForExistence(timeout: 5), "no sale la tarjeta de plataforma")
+        XCTAssertTrue(app.buttons["reintentar-preview"].exists, "falta «Reintentar preview»")
+        XCTAssertFalse(app.buttons["otra-vuelta"].exists, "una falla de plataforma no se arregla con @build")
+        XCTAssertFalse(app.buttons["que-hago"].exists, "en una falla de plataforma no hay nada que decidir")
+        foto("t2-plataforma")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        tocar("pedido-43")
+        XCTAssertTrue(app.staticTexts["motivo"].waitForExistence(timeout: 5), "el detalle no dice el motivo")
+        tocar("cerrar-ignorar")
+        XCTAssertTrue(app.descendants(matching: .any)["confirmar-close-ignore"].waitForExistence(timeout: 5),
+                      "«Cerrar e ignorar» no pide confirmar")
+        foto("t3-cerrar-ignorar")
+        app.buttons["confirmar-cancelar"].tap()
     }
 
     /// Un pedido sin avanzar (#121, 20-oct) dice la verdad y tiene salida: «¿Qué pasó?», «Retomar»,

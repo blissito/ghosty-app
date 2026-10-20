@@ -98,7 +98,7 @@ final class FactoryStore {
     var available: Bool { spaces.contains { !$0.runs.isEmpty } }
 
     /// Pedidos que esperan a una persona en todos los espacios: el número de la entrada.
-    var needsYouCount: Int { spaces.reduce(0) { $0 + $1.runs.filter(\.stage.needsYou).count } }
+    var needsYouCount: Int { spaces.reduce(0) { $0 + $1.runs.filter(\.needsYou).count } }
 
     /// Alguien está trabajando en algún pedido: la pantalla repregunta cada 10 s.
     var anyWorking: Bool { spaces.contains { $0.runs.contains(where: \.stage.working) } || !pendingThreads.isEmpty }
@@ -200,16 +200,25 @@ final class FactoryStore {
 
     static var demo: [FactorySpace] {
         func run(_ id: Int, _ title: String, _ status: String, repo: String, pr: Int?, ago: Double,
-                 min: Double?, usd: Double?, plan: Int = 1, kind: String = "sprint") -> FactoryRun {
+                 min: Double?, usd: Double?, plan: Int = 1, kind: String = "sprint",
+                 escalation: (String, String)? = nil) -> FactoryRun {
             FactoryRun(id: id, title: title, status: status, kind: kind, room: "agenda", thread: 900 + id, repo: repo,
                        branch: nil, pr: pr.map { "https://github.com/demo/\(repo.split(separator: "/").last ?? "")/pull/\($0)" },
                        preview: nil, previewState: nil, planVersion: plan, loops: 0,
-                       createdAt: iso(ago + (min ?? 10)), updatedAt: iso(ago), durationMin: min, usd: usd)
+                       createdAt: iso(ago + (min ?? 10)), updatedAt: iso(ago), durationMin: min, usd: usd,
+                       escalation: escalation.map { demoEscalation($0.0, $0.1) })
         }
         return [FactorySpace(slug: "demo", role: "OWNER", runs: [
             run(42, "Recordatorio por WhatsApp un día antes de la cita", "plan_review", repo: "demo/agenda", pr: nil, ago: 4, min: 6, usd: 0.41, plan: 2),
-            run(41, "Bump the minor-and-patch group with 12 updates", "escalated", repo: "demo/agenda", pr: 88, ago: 25, min: 31, usd: 1.12, plan: 0, kind: "dependabot"),
-            run(36, "Panel del espacio: ver, caducar y quitar colaboradores", "escalated", repo: "demo/agenda", pr: 84, ago: 12, min: 48, usd: 1.84),
+            run(41, "Bump the minor-and-patch group with 12 updates", "escalated", repo: "demo/agenda", pr: 88, ago: 25, min: 31, usd: 1.12, plan: 0, kind: "dependabot",
+                escalation: ("fix", "El CI se pone rojo con la subida: dos ajustes de tipos y de lint que @build mete en la rama.")),
+            run(36, "Panel del espacio: ver, caducar y quitar colaboradores", "escalated", repo: "demo/agenda", pr: 84, ago: 12, min: 48, usd: 1.84,
+                escalation: ("env", "La preview no arranca: faltan 5 variables que sólo tú tienes.")),
+            // Los dos de easybits (20-oct): uno que no conviene y uno que espera la preview, que NO te toca.
+            run(43, "Bump @types/node from 22.20.1 to 26.6.5 in /cli", "escalated", repo: "demo/agenda", pr: 90, ago: 30, min: 40, usd: 0.88, plan: 0, kind: "dependabot",
+                escalation: ("skip", "@types/node 26 no corresponde a Node 22 del proyecto: conviene cerrarlo e ignorar esta versión.")),
+            run(44, "Bump typescript from 5.9.3 to 7.0.2 in /cli", "escalated", repo: "demo/agenda", pr: 91, ago: 8, min: 41, usd: 0.61, plan: 0, kind: "dependabot",
+                escalation: ("platform", "La preview no arrancó; se reintenta sola.")),
             run(40, "Exportar la agenda del mes a Excel", "building", repo: "demo/agenda", pr: nil, ago: 1, min: 14, usd: 0.95),
             // Sin avanzar: en «building», nadie trabaja y la plataforma ya avisó (el #121, 20-oct).
             run(35, "Bump the npm group with 46 updates", "building", repo: "demo/agenda", pr: 83, ago: 840, min: 60, usd: 0.70, kind: "dependabot"),
@@ -217,6 +226,13 @@ final class FactoryStore {
             run(38, "La lista de clientes busca por teléfono", "done", repo: "demo/agenda", pr: 86, ago: 180, min: 37, usd: 2.05),
             run(37, "Correo de bienvenida con el logo del negocio", "done", repo: "demo/sitio", pr: 85, ago: 600, min: 28, usd: 1.60),
         ])]
+    }
+
+    /// El escalado de la demo con los botones que gs manda por tipo.
+    static func demoEscalation(_ kind: String, _ reason: String) -> FactoryEscalation {
+        let actions = ["env": ["env", "recheck"], "fix": ["fix", "replan"], "skip": ["close", "close_ignore", "fix"],
+                       "decision": ["advise", "fix", "replan"], "platform": ["retry_preview", "recheck"]][kind] ?? []
+        return FactoryEscalation(kind: kind, reason: reason, points: nil, findings: nil, at: iso(10), actions: actions)
     }
 
     /// Los repos que «ve» la App en la demo: `demo/agenda` ya está en #agenda y `demo/inventario`
@@ -280,6 +296,12 @@ final class FactoryStore {
             let raw = #"(preview):0 — {"file":"(preview)","line":0,"severity":"high","text":"Bloqueo: la preview que exige el plan no arranca porque faltan 5 variables (DATABASE_URL, SESSION_SECRET, GHOSTY_PARTNER_SECRET, PROVIDER_KEYS_MASTER, SANDBOX_HOST_TOKEN). @build no puede darlas."}"#
             events = [.init(at: iso(12), actor: "check", type: "check_blocked", data: .object(["findings": .string("@check no pudo revisar en la preview.\n" + raw)])),
                       .init(at: iso(40), actor: "Brenda", type: "approve", data: nil)]
+        } else if r.id == 43 || r.id == 44 {
+            let f = r.id == 43
+                ? "- `cli/package.json:45` — @types/node ^26.6.5 no corresponde a engines.node \">=22\": el typecheck dejaría pasar APIs de Node 23–26. Cerrar el PR y comentar «@dependabot ignore this major version»."
+                : "- `(preview):0` — La preview sigue en \"pending\" sin URL tras 15 min."
+            events = [.init(at: iso(10), actor: "check", type: "check_blocked", data: .object(["findings": .string(f)])),
+                      .init(at: iso(40), actor: "dependabot", type: "adopted", data: nil)]
         } else if r.stage == .escalated {
             events = [.init(at: iso(25), actor: "check", type: "check_fail",
                             data: .object(["findings": .string("CI rojo por la subida: falla typecheck.\n- `app/routes/dash.tsx:636` — `labelFormatter` ahora recibe `ReactNode`. Arreglo: `String(label)`.\n- `scripts/verify.mjs:24` — biome marca `useIterableCallbackReturn`. Arreglo: cuerpo con llaves.\nLo que hace falta: meter esos dos arreglos en la rama del PR.")])),
@@ -307,7 +329,7 @@ final class FactoryStore {
                                 repo: r.repo, branch: r.branch, pr: r.pr, preview: nil, previewState: nil,
                                 planVersion: r.planVersion, loops: r.loops, updatedAt: r.updatedAt, plan: plan,
                                 plans: plan.map { [.init(version: $0.version, decision: $0.decision, title: r.title)] } ?? [],
-                                events: events, running: running,
+                                events: events, running: running, escalation: r.escalation,
                                 ci: r.stage == .prReview
                                     ? .init(total: 5, passed: 3, running: [.init(name: "test", url: nil), .init(name: "e2e", url: nil)],
                                             failed: [], startedAt: iso(3))

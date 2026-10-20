@@ -215,7 +215,7 @@ struct FactoryHomeView: View {
         if store.spaces.count > 1 {
             Menu {
                 ForEach(store.spaces) { s in
-                    let pending = s.runs.filter(\.stage.needsYou).count
+                    let pending = s.runs.filter(\.needsYou).count
                     Button {
                         withAnimation(.snappy(duration: 0.25)) { selected = s.slug }
                     } label: {
@@ -233,9 +233,9 @@ struct FactoryHomeView: View {
     @ViewBuilder
     private var content: some View {
         if let space {
-            let mine = space.runs.filter(\.stage.needsYou)
-            let working = space.runs.filter(\.stage.working)
-            let rest = space.runs.filter { !$0.stage.needsYou && !$0.stage.working }
+            let mine = space.runs.filter(\.needsYou)
+            let working = space.runs.filter { $0.stage.working || $0.waitingOnPlatform }
+            let rest = space.runs.filter { !$0.needsYou && !$0.stage.working && !$0.waitingOnPlatform }
             let pending = store.pending(space.slug)
             let sprints = store.sprints[space.slug] ?? []
             if space.runs.isEmpty, pending.isEmpty, sprints.isEmpty {
@@ -368,8 +368,8 @@ struct FactoryHomeView: View {
     /// Tres cifras arriba: te toca, trabajando, terminados.
     private func summary(_ s: FactorySpace) -> some View {
         // Un sprint propuesto también espera tu firma.
-        let mine = s.runs.filter(\.stage.needsYou).count + (store.sprints[s.slug] ?? []).filter { $0.status == "draft" }.count
-        let working = s.runs.filter(\.stage.working).count
+        let mine = s.runs.filter(\.needsYou).count + (store.sprints[s.slug] ?? []).filter { $0.status == "draft" }.count
+        let working = s.runs.filter { $0.stage.working || $0.waitingOnPlatform }.count
         let done = s.runs.filter { $0.stage == .done }.count
         let usd = s.runs.compactMap(\.usd).reduce(0, +)
         return HStack(spacing: 8) {
@@ -395,7 +395,7 @@ struct FactoryHomeView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Text(title).gSectionCaps().foregroundStyle(accent)
-                Text("\(runs.count)").gSectionCaps()
+                Text("\(runs.count)").gSectionCaps().accessibilityIdentifier("conteo-\(title)")
             }
             ForEach(Array(runs.enumerated()), id: \.element.id) { i, run in
                 NavigationLink(value: FactoryRoute(slug: space?.slug ?? "", id: run.id)) {

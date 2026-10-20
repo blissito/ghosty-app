@@ -52,7 +52,7 @@ enum ActivityFeed {
         }
         // Los pedidos de la Fábrica que te toca decidir también te esperan.
         for space in FactoryStore.shared.spaces {
-            for run in space.runs where run.stage.needsYou {
+            for run in space.runs where run.needsYou {
                 s.waiting.append(ActivityItem(id: "f-\(space.slug)-\(run.id)", kind: .factory, agent: nil,
                                               sessionID: nil, title: run.title, detail: factoryAsk(run),
                                               date: run.updated ?? .distantPast,

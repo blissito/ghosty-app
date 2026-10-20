@@ -23,6 +23,12 @@ struct FactoryTone {
         if s == .done { return .init(ink: .gGreenInk, accent: .gGreen, tint: .gGreenTint) }
         return .init(ink: .gInk3, accent: .gInk4, tint: .gFill)
     }
+
+    /// Una escalada de plataforma no es una petición: va en gris, no en ámbar.
+    static func of(_ s: FactoryStage, _ e: FactoryEscalation?) -> FactoryTone {
+        if s == .escalated, e?.type == .platform { return .init(ink: .gInk3, accent: .gInk4, tint: .gFill) }
+        return of(s)
+    }
 }
 
 /// Punto de 7 pt; si `active`, late con un halo (alguien está trabajando o te toca).
@@ -52,13 +58,16 @@ struct PulsingDot: View {
 /// La pastilla de etapa: punto + nombre, en el tono de la etapa.
 struct StageChip: View {
     let stage: FactoryStage
+    /// Con él, un escalado dice de qué tipo es («Faltan variables», «Esperando preview»…).
+    var escalation: FactoryEscalation? = nil
 
     var body: some View {
-        let tone = FactoryTone.of(stage)
+        let tone = FactoryTone.of(stage, escalation)
+        let label = stage == .escalated ? escalation?.label ?? stage.label : stage.label
         HStack(spacing: 2) {
             PulsingDot(color: tone.accent, active: stage.working || stage.needsYou, size: 6)
                 .padding(.leading, -2)
-            Text(stage.label).gChip().foregroundStyle(tone.ink)
+            Text(label).gChip().foregroundStyle(tone.ink)
         }
         .padding(.trailing, 10).padding(.leading, 4).padding(.vertical, 3)
         .background(tone.tint, in: Capsule())
@@ -319,7 +328,7 @@ struct FactoryRunRow: View {
                     .foregroundStyle(Color.gChevron)
             }
             HStack(spacing: 8) {
-                StageChip(stage: stage)
+                StageChip(stage: stage, escalation: run.escalation)
                 if let repo = run.repo {
                     Label {
                         Text(repo.split(separator: "/").last.map(String.init) ?? repo).lineLimit(1)
@@ -334,6 +343,15 @@ struct FactoryRunRow: View {
                 }
                 Spacer(minLength: 0)
             }
+            // El motivo en un renglón: «Te toca decidir» sin decir qué no sirve (20-oct).
+            if stage == .escalated, let reason = run.escalation?.reason, !reason.isEmpty {
+                Text(reason)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.gInk2)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .accessibilityIdentifier("motivo-\(run.id)")
+            }
             let meta = [FactoryFormat.ago(run.updated), FactoryFormat.minutes(run.durationMin), FactoryFormat.usd(run.usd)]
                 .compactMap { $0 }.joined(separator: " · ")
             if !meta.isEmpty {
@@ -344,7 +362,7 @@ struct FactoryRunRow: View {
         .ghostyCard(radius: Theme.Radius.list)
         .overlay(alignment: .leading) {
             // Lo que te toca lleva una franja ámbar: se encuentra de un vistazo.
-            if stage.needsYou {
+            if run.needsYou {
                 UnevenRoundedRectangle(topLeadingRadius: Theme.Radius.list, bottomLeadingRadius: Theme.Radius.list)
                     .fill(Color.gAmber).frame(width: 4)
             }
