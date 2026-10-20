@@ -281,11 +281,11 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
-## ⏸️ Retomar: 1.0.12 en pausa (20-oct)
+## 1.0.12 en revisión (20-oct)
 
-**Estado:** todo está en `main` e instalado en el iPhone de bliss. `MARKETING_VERSION` está en 1.0.12, pero
-**no se ha subido a TestFlight**: bliss pidió atrasarla. `metadata/es-MX/whats_new.txt` ya está escrito.
-La 1.0.11 (build 84) está publicada; falta subir `suggestBuild` a 84 en `/admin/settings`.
+**Estado:** build 89 (todo `main` al 45ff036a) enviada a revisión el 20-oct; salida MANUAL. Al aprobarse:
+`asc.py publicar` y subir `suggestBuild` a 89. La 1.0.11 (build 84) está publicada; falta subir `suggestBuild` a 84.
+«Qué hay de nuevo» no acepta ✓ (409 `INVALID_CHARACTERS`), igual que ⭐.
 
 **Qué lleva:**
 - **Intro de arranque** (`GhostyApp/Intro/LaunchIntro.swift`, interruptor `LaunchIntroGate.enabled`). Copia el
@@ -303,9 +303,8 @@ La 1.0.11 (build 84) está publicada; falta subir `suggestBuild` a 84 en `/admin
   - «Que @check revise»: `recheck`.
   - Los hallazgos con JSON crudo se leen como texto. Prueba: `testEscaladoBloqueadoDemo`.
 
-**Pendiente de decidir con bliss:** el sonido de la intro. Propuesta: háptico en cada arranque y sonido corto
-sólo la primera vez tras instalar o actualizar, con categoría `ambient` para respetar el modo silencio.
-Después: `./subir-testflight.sh` → `asc.py ficha 1.0.12 <build>` → `asc.py enviar-tienda` (salida MANUAL).
+- Whoosh de la intro sólo la primera vez tras instalar o actualizar (respeta el silencio) y háptico en cada arranque.
+- El pedido en PR enseña su CI (#119) y el merge en cola espera al CI (#120).
 
 **Lado servidor de lo mismo, ya desplegado:**
 - Teams: `factory-act` `recheck|env` y `api/internal/factory-env`.
