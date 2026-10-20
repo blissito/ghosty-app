@@ -358,7 +358,8 @@ enum FactoryAPI {
         var errorDescription: String? { message }
     }
 
-    enum Action: String { case approve, changes, recheck, env, merge, card }
+    /// `resume|stop|cancel`: la salida de un pedido «sin avanzar» (20-oct), como la tarjeta web.
+    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel }
 
     struct ActResult { let status: String?; let queued: Bool; var keys: [String] = [] }
     struct NewRun { let room: String; let threadId: Int; let url: String? }
@@ -501,6 +502,13 @@ enum FactoryAPI {
         struct R: Decodable { let advice: FactoryAdvice }
         let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/advise", method: "POST", body: [:])
         return try JSONDecoder().decode(R.self, from: d).advice
+    }
+
+    /// «¿Qué pasó?» (gs `…/why`): por qué se atoró o falló, en dos frases. Se guarda la primera vez.
+    static func why(_ slug: String, _ id: Int) async throws -> String {
+        struct R: Decodable { struct W: Decodable { let summary: String }; let why: W? }
+        let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/why")
+        return try JSONDecoder().decode(R.self, from: d).why?.summary ?? "Sin señales de problema."
     }
 
     /// Pedido nuevo: publica «@plan <texto>» en el room (o en el room conectado al repo).

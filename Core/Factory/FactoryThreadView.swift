@@ -27,6 +27,12 @@ struct FactoryThreadView: View {
     @State private var arrived = 0
     @FocusState private var composing: Bool
 
+    /// A quién le hablo: @plan mientras se planea; si el pedido ya va en construcción o revisión,
+    /// a su rol (el hilo se abre también desde un pedido atorado, 20-oct).
+    private var role: String {
+        ["building": "build", "checking": "check"][thread?.run?.status ?? ""] ?? "plan"
+    }
+
     private var waiting: Bool {
         guard let thread else { return true }
         return thread.working || thread.lastReply == nil || !echo.isEmpty
@@ -89,10 +95,12 @@ struct FactoryThreadView: View {
         }
     }
 
-    private func planHeader(live: Bool) -> some View {
-        HStack(spacing: 8) {
-            TintedIcon(systemName: "doc.text", tint: .gPrimary, background: .gPrimaryTint, size: 26)
-            Text("@plan").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.gInk)
+    private func planHeader(live: Bool, handle: String? = nil) -> some View {
+        let h = handle ?? role
+        return HStack(spacing: 8) {
+            TintedIcon(systemName: h == "plan" ? "doc.text" : h == "check" ? "checkmark.shield" : "hammer",
+                       tint: .gPrimary, background: .gPrimaryTint, size: 26)
+            Text("@\(h)").font(.system(size: 14, weight: .bold)).foregroundStyle(Color.gInk)
             if live { PulsingDot(color: .gPrimary, active: true, size: 6) }
         }
     }
@@ -101,7 +109,7 @@ struct FactoryThreadView: View {
     private func agentMessage(_ m: FactoryThread.Message) -> some View {
         let r = FactoryReply(m.body)
         VStack(alignment: .leading, spacing: 10) {
-            planHeader(live: m.live)
+            planHeader(live: m.live, handle: m.handle)
             if !r.tools.isEmpty { steps(r.tools, live: m.live) }
             if !r.text.isEmpty {
                 GhostyMarkdown(markdown: r.text)
@@ -203,7 +211,11 @@ struct FactoryThreadView: View {
 
     private func runCard(_ run: FactoryThread.Run) -> some View {
         let ready = run.status == "plan_review"
-        return Button { path.append(FactoryRoute(slug: slug, id: run.id)) } label: {
+        return Button {
+            // Abierto desde el pedido: regresar a él, no apilar otro.
+            if path.dropLast().last == FactoryRoute(slug: slug, id: run.id) { path.removeLast() }
+            else { path.append(FactoryRoute(slug: slug, id: run.id)) }
+        } label: {
             HStack(spacing: 12) {
                 TintedIcon(systemName: ready ? "signature" : "shippingbox", tint: ready ? .gAmberInk : .gPrimary,
                            background: ready ? .gAmberTint : .gPrimaryTint, size: 40)
@@ -256,7 +268,7 @@ struct FactoryThreadView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Contéstale a @plan", text: $draft, axis: .vertical)
+            TextField(role == "plan" ? "Contéstale a @plan" : "Escríbele a @\(role)", text: $draft, axis: .vertical)
                 .lineLimit(1...5)
                 .focused($composing)
                 .font(.system(size: 16))
@@ -324,7 +336,10 @@ struct FactoryThreadView: View {
             return
         }
         do {
-            try await FactoryAPI.reply(slug, room: room, id: threadId, text: text)
+            // Sin mención gs se la manda a @plan: con el pedido en marcha va para su rol.
+            let addressed = role == "plan" || text.range(of: #"(^|\s)@[a-z]"#, options: [.regularExpression, .caseInsensitive]) != nil
+                ? text : "@\(role) \(text)"
+            try await FactoryAPI.reply(slug, room: room, id: threadId, text: addressed)
             await load()
         } catch {
             echo.removeAll { $0 == text }
@@ -354,7 +369,8 @@ struct FactoryThreadView: View {
 extension FactoryAPI {
     /// «@plan arma…» → «arma…»: la mención es para Teams, no para leerla.
     static func withoutPlanMention(_ s: String) -> String {
-        s.replacingOccurrences(of: #"^\s*@plan\b\s*"#, with: "", options: .regularExpression)
+        // También la de los otros roles: la app antepone «@build» al escribir en un pedido en marcha.
+        s.replacingOccurrences(of: #"^\s*@(plan|build|check)\b\s*"#, with: "", options: .regularExpression)
     }
 }
 

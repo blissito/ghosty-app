@@ -30,15 +30,20 @@ struct FactoryRunView: View {
     @State private var envOpen = false
     /// Guardadas las variables, al cerrarse su hoja se ofrece que @check revise.
     @State private var offerRecheck = false
+    /// «¿Qué pasó?» de un pedido sin avanzar (gs `…/why`): nil = no se ha pedido.
+    @State private var whyText: String?
+    @State private var whyLoading = false
 
     private enum Pending: Identifiable {
-        case approve(Int), anotherLoop, recheck, merge
+        case approve(Int), anotherLoop, recheck, merge, resume, cancel
         var id: String {
             switch self {
             case .approve(let v): "approve-\(v)"
             case .anotherLoop: "loop"
             case .recheck: "recheck"
             case .merge: "merge"
+            case .resume: "resume"
+            case .cancel: "cancel"
             }
         }
     }
@@ -51,6 +56,16 @@ struct FactoryRunView: View {
     private var cached: FactoryRun? { FactoryStore.shared.cached(slug, id) }
     private var stage: FactoryStage { detail?.stage ?? cached?.stage ?? .unknown }
     private var mergeQueued: Bool { detail?.mergeQueued ?? false }
+    /// En etapa de trabajo pero nadie trabaja y la plataforma ya avisó «sin avanzar 30 min» (o lo
+    /// retomó sola y tampoco avanzó). La app decía «@build está construyendo…» encima de un pedido
+    /// muerto (#121, 20-oct); la web dice «Sin avanzar» y ofrece «Retomar».
+    private var stalled: Bool {
+        guard stage.working, let d = detail, d.running.isEmpty else { return false }
+        let last = d.events.first { !["note", "card"].contains($0.type) }?.type
+        if last == "stale" { return true }
+        let quiet = FactoryAPI.date(d.updatedAt).map { Date().timeIntervalSince($0) > 30 * 60 } ?? false
+        return quiet && last == "auto_resumed"
+    }
     /// También con el merge en cola o el CI corriendo: se repregunta hasta que entre o acabe.
     private var working: Bool {
         stage.working || !(detail?.running.isEmpty ?? true) || mergeQueued || detail?.ci?.running.isEmpty == false
@@ -76,7 +91,7 @@ struct FactoryRunView: View {
         .scrollIndicators(.hidden)
         .background(Color.gBg.ignoresSafeArea())
         .refreshable { await load() }
-        .safeAreaInset(edge: .bottom) { if stage.needsYou { actionBar } }
+        .safeAreaInset(edge: .bottom) { if stage.needsYou || stalled { actionBar } }
         .overlay { if let confetti { ConfettiBurst().id(confetti) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.gBg, for: .navigationBar)
@@ -104,6 +119,8 @@ struct FactoryRunView: View {
                     case .anotherLoop: await act(.approve)
                     case .recheck: await act(.recheck)
                     case .merge: await act(.merge)
+                    case .resume: await act(.resume)
+                    case .cancel: await act(.cancel)
                     }
                 }
             }
@@ -161,6 +178,7 @@ struct FactoryRunView: View {
         case .escalated: "Te toca decidir"
         case .prReview where mergeQueued: "Merge en cola: esperando el CI"
         case .prReview: "Te toca revisar el PR"
+        case .planning, .building, .checking where stalled: "Sin avanzar: nadie está trabajando"
         case .planning, .building, .checking:
             FactoryFormat.working(detail?.running.first?.role ?? ["planning": "plan", "building": "build", "checking": "check"][stage.rawValue])
         case .done: "Terminado: PR mergeado"
@@ -180,7 +198,7 @@ struct FactoryRunView: View {
     }
 
     private var statusCard: some View {
-        let tone = FactoryTone.of(stage)
+        let tone = stalled ? FactoryTone.of(.escalated) : FactoryTone.of(stage)
         return VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
                 FactoryProgressRing(stage: stage)
@@ -195,6 +213,7 @@ struct FactoryRunView: View {
             }
             FactoryStepBar(stage: stage, dependabot: (detail?.kind ?? cached?.kind) == "dependabot")
             if stage == .prReview, let ci = detail?.ci, let line = ci.line { ciRow(ci, line) }
+            if stalled { whyRow }
             if let running = detail?.running, !running.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(running, id: \.self) { r in
@@ -205,6 +224,47 @@ struct FactoryRunView: View {
         }
         .padding(16)
         .ghostyCard()
+    }
+
+    /// «¿Qué pasó?»: antes de retomar o detener, por qué se atoró en dos frases (lo mismo que
+    /// `ghosty factory runs why`).
+    @ViewBuilder
+    private var whyRow: some View {
+        if let whyText {
+            Text(whyText).font(.system(size: 14)).foregroundStyle(Color.gInk2)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("que-paso-texto")
+        } else {
+            Button { Task { await loadWhy() } } label: {
+                HStack(spacing: 6) {
+                    if whyLoading { ProgressView().controlSize(.small) }
+                    else { Image(systemName: "questionmark.bubble").font(.system(size: 13, weight: .semibold)) }
+                    Text(whyLoading ? "Revisando el hilo…" : "¿Qué pasó?").font(.system(size: 14, weight: .semibold))
+                }
+                .foregroundStyle(Color.gAmberInk)
+                .padding(.horizontal, 12).frame(height: 34)
+                .background(Color.gAmberTint, in: Capsule())
+            }
+            .buttonStyle(.gPressPill)
+            .disabled(whyLoading)
+            .accessibilityIdentifier("que-paso")
+        }
+    }
+
+    private func loadWhy() async {
+        whyLoading = true
+        defer { whyLoading = false }
+        if DemoData.encendido {
+            try? await Task.sleep(for: .seconds(0.6))
+            withAnimation(.snappy) { whyText = "@build terminó su turno sin cerrar su paso y nadie lo volvió a encargar. Retomarlo suele bastar." }
+            return
+        }
+        do {
+            let t = try await FactoryAPI.why(slug, id)
+            withAnimation(.snappy) { whyText = t }
+        } catch {
+            withAnimation(.snappy) { self.error = error.localizedDescription }
+        }
     }
 
     /// Qué hace el CI del PR (#119): sin esto «esperando el CI» no decía cuánto faltaba ni qué falló.
@@ -354,7 +414,14 @@ struct FactoryRunView: View {
                 HStack(spacing: 8) {
                     if let pr { linkPill("Ver PR \(cached?.prNumber ?? "")", "arrow.triangle.pull", pr) }
                     if let preview { linkPill("Ver preview", "eye", preview) }
-                    if let teams { linkPill("Abrir el hilo", "bubble.left.and.bubble.right", teams) }
+                    // El hilo dentro de la app: el de Teams en Safari pedía sesión y no servía (20-oct).
+                    if let room = detail?.room ?? cached?.room, let thread = detail?.thread ?? cached?.thread {
+                        NavigationLink(value: FactoryRoute(slug: slug, target: .thread(room: room, id: thread))) {
+                            pillLabel("Abrir el hilo", "bubble.left.and.bubble.right", external: false)
+                        }
+                        .buttonStyle(.gPressPill)
+                        .accessibilityIdentifier("abrir-hilo")
+                    } else if let teams { linkPill("Abrir el hilo", "bubble.left.and.bubble.right", teams) }
                 }
             }
             .scrollIndicators(.hidden)
@@ -362,17 +429,19 @@ struct FactoryRunView: View {
     }
 
     private func linkPill(_ title: String, _ icon: String, _ url: URL) -> some View {
-        Button { openURL(url) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 12, weight: .semibold))
-                Text(title.trimmingCharacters(in: .whitespaces)).font(.system(size: 14, weight: .semibold))
-                Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.gInk3)
-            }
-            .foregroundStyle(Color.gInk)
-            .padding(.horizontal, 14).frame(height: 36)
-            .background(Color.gFill, in: Capsule())
+        Button { openURL(url) } label: { pillLabel(title, icon, external: true) }
+            .buttonStyle(.gPressPill)
+    }
+
+    private func pillLabel(_ title: String, _ icon: String, external: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+            Text(title.trimmingCharacters(in: .whitespaces)).font(.system(size: 14, weight: .semibold))
+            Image(systemName: external ? "arrow.up.right" : "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Color.gInk3)
         }
-        .buttonStyle(.gPressPill)
+        .foregroundStyle(Color.gInk)
+        .padding(.horizontal, 14).frame(height: 36)
+        .background(Color.gFill, in: Capsule())
     }
 
     private func logCard(_ all: [FactoryRunDetail.Event]) -> some View {
@@ -463,6 +532,9 @@ struct FactoryRunView: View {
                 .accessibilityIdentifier("merge-en-cola")
             case .prReview:
                 barButton("Merge", primary: true, id: "merge", icon: "arrow.triangle.merge") { confirm = .merge }
+            case .planning, .building, .checking where stalled:
+                barButton("Detener pedido", primary: false, id: "detener-pedido") { confirm = .cancel }
+                barButton("Retomar", primary: true, id: "retomar", icon: "arrow.clockwise") { confirm = .resume }
             default:
                 EmptyView()
             }
@@ -498,6 +570,8 @@ struct FactoryRunView: View {
         case .anotherLoop: "¿Que @build lo arregle?"
         case .recheck: "¿Que @check revise otra vez?"
         case .merge: "¿Mergear el PR?"
+        case .resume: "¿Retomar el pedido?"
+        case .cancel: "¿Detener el pedido?"
         }
     }
 
@@ -507,6 +581,8 @@ struct FactoryRunView: View {
         case .anotherLoop: "Pedido #\(id). @build vuelve a intentarlo con lo que encontró @check."
         case .recheck: "Pedido #\(id). @check revisa el mismo PR con lo que resolviste; @build no da otra vuelta."
         case .merge: "Pedido #\(id). " + (detail?.pr.map { "Se mergea \($0.replacingOccurrences(of: "https://github.com/", with: ""))." } ?? "Se mergea el PR.")
+        case .resume: "Pedido #\(id). @\(stageRole) vuelve a trabajar en el mismo hilo desde donde se quedó."
+        case .cancel: "Pedido #\(id). Se cancela y nadie sigue trabajando en él. El PR no se cierra solo."
         }
     }
 
@@ -516,7 +592,13 @@ struct FactoryRunView: View {
         case .anotherLoop: "Que @build lo arregle"
         case .recheck: "Que @check revise"
         case .merge: "Merge"
+        case .resume: "Retomar"
+        case .cancel: "Detener pedido"
         }
+    }
+
+    private var stageRole: String {
+        ["planning": "plan", "building": "build", "checking": "check"][stage.rawValue] ?? "build"
     }
 
     /// El pedido para el agente de terminal: qué repo, qué falta y los comandos exactos. Valores de
@@ -606,6 +688,9 @@ struct FactoryRunView: View {
             case .env: "Variables guardadas."
             case .merge: r.queued ? "Merge en cola: entra en cuanto pase el CI." : "Mergeado."
             case .card: "Tarjeta enviada al hilo."
+            case .resume: "@\(stageRole) retomó el pedido."
+            case .stop: "Turno detenido."
+            case .cancel: "Pedido detenido."
             }
             withAnimation(.snappy) { notice = msg; error = nil }
             if action == .merge { confetti = UUID() }

@@ -48,8 +48,18 @@ extension FactoryStore {
     }
 
     static func demoThread(_ id: Int) -> FactoryThread? {
-        guard let p = demoPending.first(where: { $0.threadId == id }) else { return nil }
         let now = Int(Date().timeIntervalSince1970)
+        // El hilo del pedido sin avanzar (#35): ya va con @build, no con @plan.
+        if id == 935 {
+            let root = FactoryThread.Message(id: id, from: "person", handle: nil, name: "dependabot", body: "Bump the npm group with 46 updates", at: now - 50_000, live: false, ask: nil)
+            var m = [FactoryThread.Message(id: 9351, from: "agent", handle: "build", name: "Worker",
+                                           body: "Subí los arreglos del typecheck. Falta correr las pruebas de la agenda.", at: now - 48_000, live: false, ask: nil),
+                     .init(id: 9352, from: "agent", handle: "build", name: "Worker",
+                           body: "🔁 Llevaba 30 min sin avanzar: retomo el pedido.", at: now - 46_000, live: false, ask: nil)]
+            if let a = demoAnswers[id] { m.append(.init(id: 9353, from: "person", handle: nil, name: "Tú", body: "@build \(a)", at: now, live: false, ask: nil)) }
+            return .init(channel: "agenda", root: root, messages: m, run: .init(id: 35, status: "building", title: "Bump the npm group with 46 updates"), sprint: nil, working: false)
+        }
+        guard let p = demoPending.first(where: { $0.threadId == id }) else { return nil }
         func msg(_ i: Int, _ body: String, live: Bool = false, ask: FactoryThread.Ask? = nil) -> FactoryThread.Message {
             .init(id: id * 10 + i, from: "agent", handle: "plan", name: "Arqui", body: body, at: now - 300 + i * 20, live: live, ask: ask)
         }

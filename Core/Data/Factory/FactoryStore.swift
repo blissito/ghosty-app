@@ -211,6 +211,8 @@ final class FactoryStore {
             run(41, "Bump the minor-and-patch group with 12 updates", "escalated", repo: "demo/agenda", pr: 88, ago: 25, min: 31, usd: 1.12, plan: 0, kind: "dependabot"),
             run(36, "Panel del espacio: ver, caducar y quitar colaboradores", "escalated", repo: "demo/agenda", pr: 84, ago: 12, min: 48, usd: 1.84),
             run(40, "Exportar la agenda del mes a Excel", "building", repo: "demo/agenda", pr: nil, ago: 1, min: 14, usd: 0.95),
+            // Sin avanzar: en «building», nadie trabaja y la plataforma ya avisó (el #121, 20-oct).
+            run(35, "Bump the npm group with 46 updates", "building", repo: "demo/agenda", pr: 83, ago: 840, min: 60, usd: 0.70, kind: "dependabot"),
             run(39, "Página de precios con el plan anual", "pr_review", repo: "demo/sitio", pr: 87, ago: 50, min: 42, usd: 2.30),
             run(38, "La lista de clientes busca por teléfono", "done", repo: "demo/agenda", pr: 86, ago: 180, min: 37, usd: 2.05),
             run(37, "Correo de bienvenida con el logo del negocio", "done", repo: "demo/sitio", pr: 85, ago: 600, min: 28, usd: 1.60),
@@ -253,7 +255,7 @@ final class FactoryStore {
 
     /// @build a media vuelta en el #40: cinco pasos hechos, uno abierto y un atasco vigente.
     static func demoLive(_ id: Int) -> FactoryLive? {
-        guard demo.first?.runs.first(where: { $0.id == id })?.stage == .building else { return nil }
+        guard id != 35, demo.first?.runs.first(where: { $0.id == id })?.stage == .building else { return nil }
         let steps: [FactoryLive.Step] = [
             .init(id: "1", title: "Repasé mi guía", kind: "guide", detail: "factory build", status: "ok", secs: 2),
             .init(id: "2", title: "Leí", kind: "read", detail: "app/routes/agenda.tsx", status: "ok", secs: 1),
@@ -294,7 +296,13 @@ final class FactoryStore {
                             data: .object(["note": .string(note), "checkScope": .string("Sólo esos dos puntos.")])),
                       .init(at: iso(20), actor: "check", type: "check_fail", data: nil)] + events
         }
-        let running = r.stage.working ? [FactoryRunDetail.Running(role: r.stage == .building ? "build" : r.stage == .checking ? "check" : "plan", since: iso(3))] : []
+        if r.id == 35 {
+            events = [.init(at: iso(800), actor: nil, type: "stale", data: .object(["status": .string("building")])),
+                      .init(at: iso(830), actor: nil, type: "auto_resumed", data: .object(["role": .string("build")])),
+                      .init(at: iso(860), actor: "build", type: "commits", data: nil),
+                      .init(at: iso(900), actor: "dependabot", type: "adopted", data: nil)]
+        }
+        let running = r.stage.working && r.id != 35 ? [FactoryRunDetail.Running(role: r.stage == .building ? "build" : r.stage == .checking ? "check" : "plan", since: iso(3))] : []
         return FactoryRunDetail(id: r.id, title: r.title, status: r.status, kind: r.kind, room: r.room, thread: r.thread,
                                 repo: r.repo, branch: r.branch, pr: r.pr, preview: nil, previewState: nil,
                                 planVersion: r.planVersion, loops: r.loops, updatedAt: r.updatedAt, plan: plan,

@@ -272,6 +272,31 @@ final class FabricaUITests: XCTestCase {
         foto("b3-revisar")
     }
 
+    /// Un pedido sin avanzar (#121, 20-oct) dice la verdad y tiene salida: «¿Qué pasó?», «Retomar»,
+    /// «Detener pedido» y el hilo DENTRO de la app, donde se le escribe a @build.
+    func testPedidoSinAvanzarDemo() {
+        abrirFabrica()
+        tocar("pedido-35")
+        XCTAssertTrue(app.staticTexts["Sin avanzar: nadie está trabajando"].waitForExistence(timeout: 5),
+                      "un pedido atorado sigue diciendo que alguien construye")
+        XCTAssertTrue(app.buttons["retomar"].exists, "falta «Retomar»")
+        XCTAssertTrue(app.buttons["detener-pedido"].exists, "falta «Detener pedido»")
+        tocar("que-paso")
+        XCTAssertTrue(app.staticTexts["que-paso-texto"].waitForExistence(timeout: 5), "«¿Qué pasó?» no contestó")
+        foto("s1-sin-avanzar")
+        tocar("retomar")
+        XCTAssertTrue(app.descendants(matching: .any)["confirmar-resume"].waitForExistence(timeout: 5), "«Retomar» no pide confirmar")
+        app.buttons["confirmar-cancelar"].tap()
+        tocar("abrir-hilo")
+        XCTAssertTrue(app.descendants(matching: .any)["hilo-pedido"].waitForExistence(timeout: 5), "el hilo no abre dentro de la app")
+        // El identificador de la pantalla («hilo-pedido») tapa el del campo: se busca por su texto.
+        let campo = app.textFields.matching(NSPredicate(format: "placeholderValue == %@", "Escríbele a @build")).firstMatch
+        XCTAssertTrue(campo.waitForExistence(timeout: 5), "en un pedido en marcha se le escribe a @build, no a @plan")
+        foto("s2-hilo")
+        tocar("plan-listo")
+        XCTAssertTrue(app.buttons["retomar"].waitForExistence(timeout: 5), "la tarjeta del hilo no regresa al pedido")
+    }
+
     /// Mandar un pedido abre su hilo (no un «Listo» que no lleva a nada) y ahí se ve a @plan trabajar.
     func testPedidoNuevoAbreElHiloDemo() {
         abrirFabrica()

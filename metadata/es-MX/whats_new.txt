@@ -1,4 +1,2 @@
-• Ghosty abre con una animación nueva: la flamita se abre y por ella aparece la app.
-• Software Factory: cuando un pedido se detiene porque le faltan las variables de la vista previa, ya no se gasta otra vuelta. Copia el pedido para tu agente de terminal en la compu (o pégalas aquí) y pide que se revise otra vez con un toque.
-• Software Factory: el pedido en PR enseña su CI en vivo («CI 3 de 5»), y si algo sale rojo lo abres con «Ver log».
-• Merge en cola: el botón dice «En cola: entra en cuanto pase el CI» y el pedido se actualiza solo hasta que entra.
+• Software Factory: un pedido que se quedó sin avanzar ya no dice que alguien trabaja. Te explica qué pasó y puedes retomarlo o detenerlo desde el teléfono.
+• El hilo del pedido se abre dentro de la app y ahí le escribes directo al agente que lo lleva.
