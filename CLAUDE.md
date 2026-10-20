@@ -282,11 +282,11 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
-## ⏸️ Retomar: 1.0.13 lista, SIN subir (20-oct)
+## 1.0.13 en TestFlight (20-oct)
 
-**Estado:** `main` b60ffa38, `MARKETING_VERSION` 1.0.13 y `whats_new.txt` ya escritos. bliss frenó
-`./subir-testflight.sh` justo antes de correrlo («orita volvemos»); hoy ya se subió la build 89. Al volver:
-preguntar si se sube y entonces `./subir-testflight.sh`. Instalar por WiFi con `./instalar.sh`.
+**Estado:** build 91 repartida en TestFlight (grupo Alpha) el 20-oct (bliss: «dale a todos los pendientes ya»), con «Te toca» con motivo.
+La ficha de la tienda espera a que salga la 1.0.12 (en revisión): entonces `asc.py ficha 1.0.13 <id build>` →
+`asc.py enviar-tienda`, y `suggestBuild` a 89.
 
 **Qué lleva (pedido «sin avanzar», el #121):** `FactoryRunView` dice «Sin avanzar: nadie está trabajando» en
 ámbar, en vez de «@build está construyendo…», cuando hay etapa de trabajo, `running` vacío y el último evento
