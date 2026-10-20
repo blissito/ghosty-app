@@ -996,6 +996,7 @@ final class LiveAgentStore: AgentStoring {
     /// `seleccionar` fallaba en silencio si las cuentas no habían cargado. Resultado:
     /// tocar un aviso abría la app en la conversación de siempre, como si fuera de ésa.
     func open(agent: String, session: String, fallback: URL? = nil) {
+        linkRequests += 1
         pendingNotice = (agent, session)
         respaldoDelAviso = fallback
         applyPendingNotice()
@@ -1066,6 +1067,7 @@ final class LiveAgentStore: AgentStoring {
         case .conversacion(let agente, let sesion):
             open(agent: agente, session: sesion)
         case .compartido(let id):
+            linkRequests += 1
             guard let r = BuzonCompartido.tomar(id) else {
                 EasyBitsClient.diag("[compartir] el paquete \(id.prefix(8)) ya no existe")
                 return
@@ -1122,6 +1124,10 @@ final class LiveAgentStore: AgentStoring {
     private var respaldoDelAviso: URL?
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
     var requestedTab: GhostyTab?
+    /// Cuántas veces un aviso o una liga pidió llevarte a algún lado. Sólo sirve para
+    /// enterarse de que pasó: la intro de arranque se quita en cuanto cambia, para no
+    /// hacer esperar a quien abrió la app tocando un aviso.
+    private(set) var linkRequests = 0
 
     // MARK: - «Enviar a un chat» (desde Archivos)
 

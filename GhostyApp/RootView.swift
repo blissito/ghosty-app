@@ -48,6 +48,11 @@ struct RootView: View {
     /// suspensión se quedaba pintado como un fallo para siempre. Ver `volverDelFondo`.
     @Environment(\.scenePhase) private var fase
     private var config = AppConfig.shared
+    /// La intro animada: sólo en arranque en frío (`LaunchIntroGate`).
+    @State private var showIntro = LaunchIntroGate.claim()
+    /// La app debajo de la intro arranca a 1.1 y baja a 1 mientras la flama la destapa
+    /// (el «aterrizaje» del arranque de Twitter). Sin intro, 1 desde el principio.
+    @State private var appZoom: CGFloat = 1
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -117,6 +122,19 @@ struct RootView: View {
             }
             if config.mustUpdate {
                 UpdateRequiredView().transition(.opacity)
+            }
+        }
+        .scaleEffect(appZoom)
+        // La intro de arranque, encima de todo y fuera del zoom de la app (ver `LaunchIntro`).
+        .overlay {
+            if showIntro {
+                LaunchIntro(appReady: store.conexion != .cargando,
+                            linkRequests: store.linkRequests,
+                            onReveal: {
+                                appZoom = 1.1
+                                withAnimation(.easeOut(duration: LaunchIntroTiming.reveal)) { appZoom = 1 }
+                            },
+                            onFinish: { showIntro = false })
             }
         }
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { nuevo in
