@@ -65,7 +65,7 @@ MANUAL. Sale de `main` 499e216a (la build 81, sin `ghosty.replace`, se retiró a
 y `/agui` a la vez hasta que la adopción permita `minBuild` + corte (410 «actualiza»).
 La 1.0.10 se publicó el 2026-10-19. La 1.0.11 (build 83: campanita de Actividad, «Continuar» en un run cortado,
 PDF/audio que ya no salen crudos, pestaña Fábrica con «¿Qué hago?» en el pedido escalado) se mandó a revisión el
-2026-10-19; salida MANUAL. Falta subir `suggestBuild` a 82 en `/admin/settings` (la 1.0.10 ya está en la tienda).
+2026-10-19; salida MANUAL. `suggestBuild` quedó en 82 el 19-oct (la 1.0.10 ya está en la tienda).
 **Antes (decidido por bliss el 8-oct):** la 1.0.8 (build 77 en TestFlight —la 76 más «Juntando…» que no se cuelga y push de Teams que abre su liga—: íconos por clase de
 paso, hoja del ghostyllo legible, «Juntando…» por `delivered` de gs; textos en `whats_new.txt`) va a
 revisión EN CUANTO se apruebe y publique la 1.0.7: `asc.py publicar` → `asc.py ficha 1.0.8 <id build 77>`
