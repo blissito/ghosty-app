@@ -94,12 +94,69 @@ struct FactoryEscalation: Decodable, Hashable {
         case platform
     }
 
+    /// La ficha de decisión (gs `escalation.brief`, 21-oct): qué pasa en una frase, lo que el agente
+    /// ya verificó, qué conviene y por qué, y la pregunta que de verdad queda para la persona. Así la
+    /// tarjeta deja de enseñar los hallazgos crudos de @check como si fueran la decisión.
+    struct Brief: Decodable, Hashable {
+        struct Recommend: Decodable, Hashable {
+            /// `fix` | `replan` | `close` | `close_ignore` | `recheck` | `env` | `retry_preview`.
+            let action: String
+            let why: String?
+        }
+        let summary: String?
+        let verified: [String]
+        let recommend: Recommend?
+        let question: String?
+        let at: String?
+
+        init(summary: String?, verified: [String], recommend: Recommend?, question: String?, at: String?) {
+            self.summary = summary; self.verified = verified; self.recommend = recommend
+            self.question = question; self.at = at
+        }
+
+        // Tolerante: un campo con otra forma se ignora, nunca tumba el pedido entero.
+        private enum CodingKeys: String, CodingKey { case summary, verified, recommend, question, at }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            summary = (try? c.decodeIfPresent(String.self, forKey: .summary)) ?? nil
+            verified = ((try? c.decodeIfPresent([String].self, forKey: .verified)) ?? nil) ?? []
+            recommend = (try? c.decodeIfPresent(Recommend.self, forKey: .recommend)) ?? nil
+            question = (try? c.decodeIfPresent(String.self, forKey: .question)) ?? nil
+            at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? nil
+        }
+
+        /// Algo que enseñar: sin resumen ni recomendación, la tarjeta se queda como antes.
+        var usable: Bool {
+            !(summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || recommend != nil
+        }
+    }
+
     let kind: String?
     let reason: String?
     let points: [String]?
     let findings: String?
     let at: String?
     let actions: [String]?
+    /// gs viejo no la manda; null o con otra forma = sin ficha.
+    let brief: Brief?
+
+    init(kind: String?, reason: String?, points: [String]?, findings: String?, at: String?, actions: [String]?,
+         brief: Brief? = nil) {
+        self.kind = kind; self.reason = reason; self.points = points; self.findings = findings
+        self.at = at; self.actions = actions; self.brief = brief
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, reason, points, findings, at, actions, brief }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        points = try c.decodeIfPresent([String].self, forKey: .points)
+        findings = try c.decodeIfPresent(String.self, forKey: .findings)
+        at = try c.decodeIfPresent(String.self, forKey: .at)
+        actions = try c.decodeIfPresent([String].self, forKey: .actions)
+        brief = ((try? c.decodeIfPresent(Brief.self, forKey: .brief)) ?? nil).flatMap { $0.usable ? $0 : nil }
+    }
 
     var type: Kind { kind.flatMap(Kind.init) ?? .decision }
 

@@ -33,6 +33,8 @@ struct FactoryRunView: View {
     /// «¿Qué pasó?» de un pedido sin avanzar (gs `…/why`): nil = no se ha pedido.
     @State private var whyText: String?
     @State private var whyLoading = false
+    /// Los hallazgos crudos de @check bajo la ficha de decisión: plegados hasta que se piden.
+    @State private var briefDetailOpen = false
 
     private enum Pending: Identifiable {
         case approve(Int), anotherLoop, recheck, merge, resume, cancel, retryPreview
@@ -97,7 +99,7 @@ struct FactoryRunView: View {
         .scrollIndicators(.hidden)
         .background(Color.gBg.ignoresSafeArea())
         .refreshable { await load() }
-        .safeAreaInset(edge: .bottom) { if stage.needsYou || stalled { actionBar } }
+        .safeAreaInset(edge: .bottom) { if (stage.needsYou && brief == nil) || stalled { actionBar } }
         .overlay { if let confetti { ConfettiBurst().id(confetti) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.gBg, for: .navigationBar)
@@ -468,6 +470,137 @@ struct FactoryRunView: View {
         }
     }
 
+    /// La ficha de decisión de gs (21-oct). Con ella, la tarjeta trae las decisiones y la barra de
+    /// abajo se quita: dos botones primarios distintos para lo mismo confundían.
+    private var brief: FactoryEscalation.Brief? {
+        guard stage == .escalated, escalationKind != .platform else { return nil }
+        return detail?.escalation?.brief ?? cached?.escalation?.brief
+    }
+
+    /// El texto de cada acción que puede recomendar la ficha. nil = una acción que esta versión no sabe hacer.
+    static func briefLabel(_ action: String) -> String? {
+        switch action {
+        case "fix": "Que @build lo arregle"
+        case "replan": "Rehacer el plan"
+        case "close": "Cerrar el PR"
+        case "close_ignore": "Cerrar e ignorar esta versión"
+        case "recheck": "Que @check revise otra vez"
+        case "env": "Dar las variables"
+        case "retry_preview": "Reintentar preview"
+        default: nil
+        }
+    }
+
+    private static func briefIcon(_ action: String) -> String {
+        switch action {
+        case "fix": "hammer.fill"
+        case "replan": "doc.badge.gearshape"
+        case "close", "close_ignore": "xmark.circle"
+        case "recheck": "checkmark.shield"
+        case "env": "key"
+        case "retry_preview": "arrow.clockwise"
+        default: "sparkles"
+        }
+    }
+
+    /// Las mismas rutas que la barra: todo pasa por confirmar (o por la hoja de la nota o de las variables).
+    private func perform(_ action: String) {
+        switch action {
+        case "fix": confirm = .anotherLoop
+        case "replan": asking = .replan
+        case "close": confirm = .close(nil)
+        case "close_ignore": confirm = .close("major")
+        case "recheck": confirm = .recheck
+        case "env": envOpen = true
+        case "retry_preview": confirm = .retryPreview
+        default: advising = true
+        }
+    }
+
+    @ViewBuilder
+    private func briefBlock(_ b: FactoryEscalation.Brief, reason: String?) -> some View {
+        if let headline = b.summary ?? reason, !headline.isEmpty {
+            Text(headline)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.gInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("brief-summary")
+        }
+        if !b.verified.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Ya verificado").gSectionCaps()
+                ForEach(Array(b.verified.enumerated()), id: \.offset) { _, v in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.gGreen)
+                        Text(v)
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.gInk)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.gCard, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("brief-verified")
+        }
+        if let q = b.question?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "questionmark.bubble.fill").foregroundStyle(Color.gAmber)
+                Text(q)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("brief-question")
+        }
+        if let r = b.recommend, let label = Self.briefLabel(r.action) {
+            VStack(alignment: .leading, spacing: 6) {
+                Button { perform(r.action) } label: {
+                    Label(label, systemImage: Self.briefIcon(r.action))
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                        .shadow(color: Color.gPrimary.opacity(0.3), radius: 8, y: 4)
+                }
+                .buttonStyle(.gPressPrimary)
+                .disabled(busy || detail == nil)
+                .accessibilityIdentifier("brief-recommend")
+                if let why = r.why, !why.isEmpty {
+                    Text(why)
+                        .gMeta()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("brief-why")
+                }
+            }
+            .padding(.top, 2)
+        }
+        let others = (detail?.escalation?.actions ?? cached?.escalation?.actions ?? [])
+            .filter { $0 != "advise" && $0 != b.recommend?.action && Self.briefLabel($0) != nil }
+        if !others.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(others, id: \.self) { a in
+                    Button { perform(a) } label: {
+                        Text(Self.briefLabel(a) ?? a)
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                            .foregroundStyle(Color.gPrimary)
+                            .frame(maxWidth: .infinity, minHeight: 40)
+                            .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                    }
+                    .buttonStyle(.gPressPrimary)
+                    .disabled(busy || detail == nil)
+                    .accessibilityIdentifier("brief-alt-\(a)")
+                }
+            }
+        }
+    }
+
     private var escalationCard: some View {
         let platform = escalationKind == .platform
         let reason = detail?.escalation?.reason ?? cached?.escalation?.reason
@@ -475,22 +608,48 @@ struct FactoryRunView: View {
             HStack(spacing: 8) {
                 Image(systemName: platform ? "hourglass" : "exclamationmark.bubble.fill")
                     .foregroundStyle(platform ? Color.gInk3 : Color.gAmber)
-                Text(platform ? "Esperando la preview" : "Lo que encontró @check").gCardTitle()
+                Text(platform ? "Esperando la preview" : brief != nil ? "Lo que hay que decidir" : "Lo que encontró @check").gCardTitle()
             }
-            if let reason, !reason.isEmpty {
-                Text(reason)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.gInk)
+            if let brief {
+                briefBlock(brief, reason: reason)
+            } else {
+                if let reason, !reason.isEmpty {
+                    Text(reason)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("motivo")
+                }
+                Text(escalationExplanation)
+                    .gMeta()
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("motivo")
             }
-            Text(escalationExplanation)
-                .gMeta()
-                .fixedSize(horizontal: false, vertical: true)
             if let findings = detail?.findings {
-                GhostyMarkdown(markdown: findings)
-                    .padding(.top, 2)
-                    .accessibilityIdentifier("hallazgos")
+                if brief != nil {
+                    // Con ficha, los hallazgos crudos son el respaldo: plegados por defecto.
+                    Button {
+                        withAnimation(.snappy(duration: 0.3)) { briefDetailOpen.toggle() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Detalle de @check").font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk2)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.gChevron)
+                                .rotationEffect(.degrees(briefDetailOpen ? 180 : 0))
+                            Spacer(minLength: 0)
+                        }
+                        .frame(minHeight: 32)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("brief-detail")
+                }
+                if brief == nil || briefDetailOpen {
+                    GhostyMarkdown(markdown: findings)
+                        .padding(.top, 2)
+                        .accessibilityIdentifier("hallazgos")
+                        .transition(.opacity)
+                }
             }
             if let names = detail?.missingEnv, !names.isEmpty {
                 // Las variables viven en la compu (el .env, el gestor de contraseñas): se las pide
@@ -518,13 +677,28 @@ struct FactoryRunView: View {
                 .disabled(busy || detail == nil)
                 .accessibilityIdentifier("dar-variables")
             }
-            if !platform { adviceButton }
+            if !platform {
+                if brief != nil { adviceLink } else { adviceButton }
+            }
         }
         .padding(16)
         .background((platform ? Color.gFill : Color.gAmberTint.opacity(0.55)),
                     in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
             .strokeBorder(platform ? Color.gHairline : Color.gAmber.opacity(0.35), lineWidth: 1))
+    }
+
+    /// «¿Qué hago?» en segundo plano cuando la ficha ya recomienda algo.
+    private var adviceLink: some View {
+        Button { advising = true } label: {
+            Label("¿Qué hago? Pedir otra recomendación", systemImage: "sparkles")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.gPrimary)
+                .frame(maxWidth: .infinity, minHeight: 36)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy || detail == nil)
+        .accessibilityIdentifier("que-hago")
     }
 
     private var adviceButton: some View {

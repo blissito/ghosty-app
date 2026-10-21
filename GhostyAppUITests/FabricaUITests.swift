@@ -279,8 +279,8 @@ final class FabricaUITests: XCTestCase {
         abrirFabrica()
         let conteo = app.staticTexts["conteo-Te toca"]
         XCTAssertTrue(conteo.waitForExistence(timeout: 10), "no está la sección «Te toca»")
-        // #42 firma, #41 fix, #36 variables, #43 cerrar, #39 PR. El #44 (preview) no.
-        XCTAssertEqual(conteo.label, "5", "una preview atorada cuenta como «Te toca»")
+        // #42 firma, #41 fix, #36 variables, #43 cerrar, #47 ficha, #39 PR. El #44 (preview) no.
+        XCTAssertEqual(conteo.label, "6", "una preview atorada cuenta como «Te toca»")
         XCTAssertTrue(app.staticTexts["motivo-43"].exists, "la tarjeta escalada no dice su motivo")
         XCTAssertTrue(app.staticTexts["Esperando preview"].exists, "el pedido que espera la preview no lo dice")
         foto("t1-te-toca")
@@ -326,6 +326,44 @@ final class FabricaUITests: XCTestCase {
         tocar("pedido-44")
         XCTAssertTrue(app.buttons["reintentar-preview"].waitForExistence(timeout: 5), "falta «Reintentar preview» en la barra")
         XCTAssertFalse(app.buttons["retry-preview-card"].exists, "dos «Reintentar preview» en el mismo pedido")
+    }
+
+    /// Ficha de decisión (gs `escalation.brief`, 21-oct, el #137 de ghosty-studio): arriba qué pasa,
+    /// lo ya verificado y la acción recomendada como botón principal; los hallazgos crudos de @check,
+    /// plegados en «Detalle» hasta que se piden. La barra de abajo no repite otro botón principal.
+    func testBriefDeEscaladoDemo() {
+        abrirFabrica()
+        tocar("pedido-47")
+        let summary = app.staticTexts["brief-summary"]
+        XCTAssertTrue(summary.waitForExistence(timeout: 5), "la ficha no dice qué pasa")
+        XCTAssertTrue(summary.label.hasPrefix("Dependabot quiere subir actions/checkout"), "el resumen no es el de la ficha")
+        XCTAssertTrue(app.descendants(matching: .any)["brief-verified"].exists, "falta «Ya verificado»")
+        // `gSectionCaps` lo pinta en mayúsculas: se compara sin distinguir.
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label ==[c] %@", "Ya verificado")).firstMatch.exists,
+                      "falta el título «Ya verificado»")
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "2.338.0")).firstMatch.exists,
+                      "no sale lo que ya se verificó del runner")
+        let recomendado = app.buttons["brief-recommend"]
+        XCTAssertTrue(recomendado.exists, "falta la acción recomendada")
+        XCTAssertTrue(recomendado.label.contains("Que @check revise otra vez"), "la recomendación no es «recheck»: \(recomendado.label)")
+        XCTAssertTrue(app.staticTexts["brief-why"].label.hasPrefix("El riesgo del runner"), "falta el porqué de la recomendación")
+        XCTAssertTrue(app.buttons["brief-alt-fix"].exists && app.buttons["brief-alt-replan"].exists, "faltan las otras acciones")
+        XCTAssertTrue(app.buttons["que-hago"].exists, "«¿Qué hago?» debe seguir a la mano")
+        XCTAssertFalse(app.descendants(matching: .any)["hallazgos"].exists, "los hallazgos crudos deben ir plegados")
+        XCTAssertFalse(app.buttons["otra-vuelta"].exists, "la barra repite otro botón principal")
+        foto("f1-ficha")
+
+        tocar("brief-detail")
+        XCTAssertTrue(app.descendants(matching: .any)["hallazgos"].waitForExistence(timeout: 3), "«Detalle» no abre los hallazgos")
+        foto("f2-detalle")
+
+        tocar("brief-recommend")
+        let confirmar = app.descendants(matching: .any)["confirmar-recheck"]
+        XCTAssertTrue(confirmar.waitForExistence(timeout: 5), "la recomendación no pide confirmar")
+        confirmar.tap()
+        XCTAssertTrue(app.otherElements["aviso-pedido"].waitForExistence(timeout: 5) || app.staticTexts["Listo (demo)"].exists,
+                      "la recomendación no hizo nada")
+        foto("f3-recheck")
     }
 
     /// Cortesía de lugar (21-oct): el plan estaba lleno y gs prestó la caja esta vez. La tarjeta

@@ -202,12 +202,12 @@ final class FactoryStore {
         func run(_ id: Int, _ title: String, _ status: String, repo: String, pr: Int?, ago: Double,
                  min: Double?, usd: Double?, plan: Int = 1, kind: String = "sprint",
                  escalation: (String, String)? = nil, previewStatus: FactoryPreviewStatus? = nil,
-                 slotNote: FactorySlotNote? = nil) -> FactoryRun {
+                 slotNote: FactorySlotNote? = nil, rawEscalation: FactoryEscalation? = nil) -> FactoryRun {
             FactoryRun(id: id, title: title, status: status, kind: kind, room: "agenda", thread: 900 + id, repo: repo,
                        branch: nil, pr: pr.map { "https://github.com/demo/\(repo.split(separator: "/").last ?? "")/pull/\($0)" },
                        preview: nil, previewState: nil, planVersion: plan, loops: 0,
                        createdAt: iso(ago + (min ?? 10)), updatedAt: iso(ago), durationMin: min, usd: usd,
-                       escalation: escalation.map { demoEscalation($0.0, $0.1) }, previewStatus: previewStatus,
+                       escalation: rawEscalation ?? escalation.map { demoEscalation($0.0, $0.1) }, previewStatus: previewStatus,
                        slotNote: slotNote)
         }
         return [FactorySpace(slug: "demo", role: "OWNER", runs: [
@@ -221,6 +221,10 @@ final class FactoryStore {
                 escalation: ("skip", "@types/node 26 no corresponde a Node 22 del proyecto: conviene cerrarlo e ignorar esta versión.")),
             run(44, "Bump typescript from 5.9.3 to 7.0.2 in /cli", "escalated", repo: "demo/agenda", pr: 91, ago: 8, min: 41, usd: 0.61, plan: 0, kind: "dependabot",
                 escalation: ("platform", "La preview no arrancó; se reintenta sola.")),
+            // Con ficha de decisión (gs `escalation.brief`, 21-oct): el #137 de ghosty-studio. Los
+            // hallazgos de @check quedan como «Detalle»; arriba, lo verificado y qué conviene.
+            run(47, "Bump actions/checkout from 5 to 7", "escalated", repo: "demo/agenda", pr: 93, ago: 15, min: 22, usd: 0.54, plan: 0, kind: "dependabot",
+                rawEscalation: demoBriefEscalation),
             run(40, "Exportar la agenda del mes a Excel", "building", repo: "demo/agenda", pr: nil, ago: 1, min: 14, usd: 0.95),
             // Cortesía de lugar (21-oct): el plan estaba lleno y gs prestó la caja esta vez; y el
             // segundo del mes, que ya espera en la fila.
@@ -263,6 +267,27 @@ final class FactoryStore {
         let actions = ["env": ["env", "recheck"], "fix": ["fix", "replan"], "skip": ["close", "close_ignore", "fix"],
                        "decision": ["advise", "fix", "replan"], "platform": ["retry_preview", "recheck"]][kind] ?? []
         return FactoryEscalation(kind: kind, reason: reason, points: nil, findings: nil, at: iso(10), actions: actions)
+    }
+
+    /// El escalado con ficha de decisión de la demo (#47), copiado del #137 de ghosty-studio.
+    static var demoBriefEscalation: FactoryEscalation {
+        FactoryEscalation(
+            kind: "decision",
+            reason: "La ficha de CI prohíbe tocar deploy-ovh.yml en un PR de dependencias.",
+            points: nil,
+            findings: "- `.github/workflows/deploy-ovh.yml:41` — docs/agents/ci.md dice «no toques deploy-ovh.yml en un PR de dependencias»… elige (a) mergear y actualizar la ficha, o (b) cerrar el PR.\n- `.github/workflows/deploy-ovh.yml:41` — Riesgo no verificable desde aquí: checkout v7 corre en Node 24 y exige un runner self-hosted reciente; la imagen ci-runner no es legible.",
+            at: iso(15),
+            actions: ["advise", "fix", "replan"],
+            brief: .init(
+                summary: "Dependabot quiere subir actions/checkout a la v7 en el flujo que publica ghosty-studio a producción.",
+                verified: [
+                    "El runner de CI del espacio es la versión 2.338.0 y trae Node 20 y Node 24: la v7 corre ahí.",
+                    "La ficha de CI (ci.md) cambió en la rama principal después del escalado: «Dependabot puede subir versiones de acciones también en deploy-ovh.yml».",
+                ],
+                recommend: .init(action: "recheck",
+                                 why: "El riesgo del runner ya está descartado y la ficha ya lo permite: basta con que @check revise otra vez."),
+                question: nil,
+                at: iso(5)))
     }
 
     /// Los repos que «ve» la App en la demo: `demo/agenda` ya está en #agenda y `demo/inventario`
@@ -332,6 +357,10 @@ final class FactoryStore {
                 : "- `(preview):0` — La preview sigue en \"pending\" sin URL tras 15 min."
             events = [.init(at: iso(10), actor: "check", type: "check_blocked", data: .object(["findings": .string(f)])),
                       .init(at: iso(40), actor: "dependabot", type: "adopted", data: nil)]
+        } else if r.id == 47 {
+            events = [.init(at: iso(15), actor: "check", type: "check_blocked",
+                            data: .object(["findings": .string(r.escalation?.findings ?? "")])),
+                      .init(at: iso(37), actor: "dependabot", type: "adopted", data: nil)]
         } else if r.stage == .escalated {
             events = [.init(at: iso(25), actor: "check", type: "check_fail",
                             data: .object(["findings": .string("CI rojo por la subida: falla typecheck.\n- `app/routes/dash.tsx:636` — `labelFormatter` ahora recibe `ReactNode`. Arreglo: `String(label)`.\n- `scripts/verify.mjs:24` — biome marca `useIterableCallbackReturn`. Arreglo: cuerpo con llaves.\nLo que hace falta: meter esos dos arreglos en la rama del PR.")])),
