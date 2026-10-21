@@ -194,14 +194,46 @@ struct FactorySlotNote: Decodable, Hashable {
     struct Occupant: Decodable, Hashable {
         let label: String
         let detail: String?
+        /// Para «Liberar»: el pedido (`run`) o la PR de la preview suelta (`pr` + `repo`).
+        var run: Int? = nil
+        var pr: Int? = nil
+        var repo: String? = nil
+        /// Ya sólo espera (o lleva horas sin nada) y no tiene turno corriendo: se puede liberar.
+        var releasable = false
 
-        init(label: String, detail: String?) { self.label = label; self.detail = detail }
+        init(label: String, detail: String?, run: Int? = nil, pr: Int? = nil, releasable: Bool = false) {
+            self.label = label; self.detail = detail; self.run = run; self.pr = pr; self.releasable = releasable
+        }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             label = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? "—"
             detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+            run = try? c.decodeIfPresent(Int.self, forKey: .run)
+            pr = try? c.decodeIfPresent(Int.self, forKey: .pr)
+            repo = try? c.decodeIfPresent(String.self, forKey: .repo)
+            releasable = (try? c.decodeIfPresent(Bool.self, forKey: .releasable)) ?? false
         }
-        private enum CodingKeys: String, CodingKey { case label, detail }
+        private enum CodingKeys: String, CodingKey { case label, detail, run, pr, repo, releasable }
+
+        /// El `target` de `act(.release)`.
+        var target: [String: Any]? {
+            if let run { return ["run": run] }
+            if let pr { return repo.map { ["pr": pr, "repo": $0] } ?? ["pr": pr] }
+            return nil
+        }
+    }
+
+    /// «Avisar al admin» (quien no puede cambiar el plan): uno cada 14 días por espacio.
+    struct NotifyAdmin: Decodable, Hashable {
+        let available: Bool
+        let nextAt: String?
+        init(available: Bool, nextAt: String?) { self.available = available; self.nextAt = nextAt }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            available = (try? c.decodeIfPresent(Bool.self, forKey: .available)) ?? false
+            nextAt = try? c.decodeIfPresent(String.self, forKey: .nextAt)
+        }
+        private enum CodingKeys: String, CodingKey { case available, nextAt }
     }
 
     /// `courtesy` | `queued`.
@@ -218,6 +250,11 @@ struct FactorySlotNote: Decodable, Hashable {
     /// Tres meses seguidos con cortesía: el botón dice «Subir de plan».
     let suggestUpgrade: Bool
     let plansUrl: String?
+    /// «Agregar 1 lugar»: el plan con el lugar ya sumado (`?lugar=1`).
+    var addSlotUrl: String? = nil
+    /// Dueño, admin o staff. Los demás ven «Avisar al admin» (`notifyAdmin`).
+    var canAddSlot = true
+    var notifyAdmin: NotifyAdmin? = nil
 
     var queued: Bool { kind == "queued" }
 
@@ -239,10 +276,13 @@ struct FactorySlotNote: Decodable, Hashable {
         chip = try? c.decodeIfPresent(String.self, forKey: .chip)
         suggestUpgrade = (try? c.decodeIfPresent(Bool.self, forKey: .suggestUpgrade)) ?? false
         plansUrl = try? c.decodeIfPresent(String.self, forKey: .plansUrl)
+        addSlotUrl = try? c.decodeIfPresent(String.self, forKey: .addSlotUrl)
+        canAddSlot = (try? c.decodeIfPresent(Bool.self, forKey: .canAddSlot)) ?? true
+        notifyAdmin = try? c.decodeIfPresent(NotifyAdmin.self, forKey: .notifyAdmin)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, title, message, occupants, position, ahead, chip, suggestUpgrade, plansUrl
+        case kind, title, message, occupants, position, ahead, chip, suggestUpgrade, plansUrl, addSlotUrl, canAddSlot, notifyAdmin
     }
 }
 
@@ -594,12 +634,15 @@ enum FactoryAPI {
     /// `resume|stop|cancel`: la salida de un pedido «sin avanzar» (20-oct), como la tarjeta web.
     /// `close` cierra el PR (con `ignore`, le dice a Dependabot que no lo vuelva a abrir) y
     /// `retry_preview` pide la preview otra vez (20-oct).
-    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close
-        case retryPreview = "retry_preview" }
+    /// `release` (con `target`) libera el lugar de un ocupante y `notify_admin` le pide un lugar al
+    /// dueño/admin: los dos de la tarjeta «Lugar» (21-oct).
+    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close, release
+        case retryPreview = "retry_preview"
+        case notifyAdmin = "notify_admin" }
 
     /// `previewState`/`previewError`: cómo quedó la preview tras `retry_preview` (`waiting` = sin lugar de caja).
     struct ActResult { let status: String?; let queued: Bool; var keys: [String] = []
-        var previewState: String? = nil; var previewError: String? = nil }
+        var previewState: String? = nil; var previewError: String? = nil; var message: String? = nil }
     struct NewRun { let room: String; let threadId: Int; let url: String? }
 
     private static let session: URLSession = {
@@ -681,7 +724,7 @@ enum FactoryAPI {
     /// Decide un pedido. `approve` en `plan_review` exige la versión del plan que la persona leyó.
     static func act(_ slug: String, _ id: Int, _ action: Action, version: Int? = nil, note: String? = nil,
                     checkScope: String? = nil, skipPreview: Bool = false, dotenv: String? = nil,
-                    ignore: String? = nil) async throws -> ActResult {
+                    ignore: String? = nil, target: [String: Any]? = nil) async throws -> ActResult {
         var body: [String: Any] = ["action": action.rawValue]
         if let version { body["version"] = version }
         if let note, !note.isEmpty { body["note"] = note }
@@ -692,11 +735,13 @@ enum FactoryAPI {
         if let dotenv { body["dotenv"] = dotenv }
         // `major` | `dependency`: lo que Dependabot debe dejar de proponer al cerrar.
         if let ignore { body["ignore"] = ignore }
+        if let target { body["target"] = target }
         let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/act", method: "POST", body: body)
         let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
         let preview = j["preview"] as? [String: Any]
         return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false, keys: j["keys"] as? [String] ?? [],
-                         previewState: preview?["state"] as? String, previewError: preview?["error"] as? String)
+                         previewState: preview?["state"] as? String, previewError: preview?["error"] as? String,
+                         message: j["message"] as? String)
     }
 
     /// Qué hace ahora cada rol. Una caja de gs sin `/live` contesta 404: quien llama lo ignora.

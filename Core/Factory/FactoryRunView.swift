@@ -361,8 +361,8 @@ struct FactoryRunView: View {
 
     /// Cortesía de lugar o fila (21-oct): el plan estaba lleno y gs prestó la caja una vez en el mes,
     /// o el pedido espera porque la cortesía ya se usó. No es un error: dice quién ocupa cada lugar
-    /// y lleva a los planes. «Agregar 1 lugar» todavía no tiene precio: abre la misma página.
-    /// Pendiente: «Avisar al admin» para quien no es admin.
+    /// y lleva a los planes. «Agregar 1 lugar» ($499 al mes) abre el plan con el lugar sumado; quien
+    /// no es admin ve «Avisar al admin» (uno cada 14 días). «Liberar» saca a un ocupante que ya sólo espera.
     /// En la fila por un lugar y sin nadie trabajando: la etapa no dice «@build está construyendo…».
     private var queuedForSlot: Bool { slotNote?.queued == true && (detail?.running.isEmpty ?? true) }
 
@@ -411,6 +411,13 @@ struct FactoryRunView: View {
                                 .foregroundStyle(Color.gInk)
                             if let d = o.detail { Text(d).gCaption() }
                             Spacer(minLength: 0)
+                            if o.releasable, let target = o.target {
+                                Button("Liberar") { Task { await act(.release, target: target) } }
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(Color.gPrimary)
+                                    .disabled(busy)
+                                    .accessibilityIdentifier("lugar-liberar-\(o.label)")
+                            }
                         }
                     }
                 }
@@ -422,7 +429,16 @@ struct FactoryRunView: View {
             }
             if let url = n.plansUrl.flatMap(URL.init(string:)) {
                 HStack(spacing: 10) {
-                    slotButton("Agregar 1 lugar", "plus", primary: true, id: "lugar-agregar") { openURL(url) }
+                    if n.canAddSlot {
+                        let add = n.addSlotUrl.flatMap(URL.init(string:)) ?? url
+                        slotButton("Agregar 1 lugar", "plus", primary: true, id: "lugar-agregar") { openURL(add) }
+                    } else if n.notifyAdmin?.available ?? true {
+                        slotButton("Avisar al admin", "bell", primary: true, id: "lugar-avisar") { Task { await act(.notifyAdmin) } }
+                            .disabled(busy)
+                    } else {
+                        slotButton(Self.notifiedLabel(n.notifyAdmin?.nextAt), "checkmark", primary: false, id: "lugar-avisado") {}
+                            .disabled(true)
+                    }
                     slotButton(n.suggestUpgrade ? "Subir de plan" : "Ver planes", "square.stack.3d.up", primary: false, id: "lugar-planes") { openURL(url) }
                 }
             }
@@ -434,6 +450,15 @@ struct FactoryRunView: View {
             .strokeBorder(tint.opacity(0.3), lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(n.queued ? "lugar-fila-card" : "lugar-cortesia")
+    }
+
+    /// «Avisado · otra vez el 4-nov».
+    static func notifiedLabel(_ nextAt: String?) -> String {
+        guard let d = FactoryAPI.date(nextAt) else { return "Admin avisado" }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.dateFormat = "d-MMM"
+        return "Avisado · otra vez el " + f.string(from: d).replacingOccurrences(of: ".", with: "")
     }
 
     private func slotButton(_ title: String, _ icon: String, primary: Bool, id: String, action: @escaping () -> Void) -> some View {
@@ -1060,7 +1085,7 @@ struct FactoryRunView: View {
     }
 
     private func act(_ action: FactoryAPI.Action, version: Int? = nil, note: String? = nil, checkScope: String? = nil,
-                     skipPreview: Bool = false, ignore: String? = nil) async {
+                     skipPreview: Bool = false, ignore: String? = nil, target: [String: Any]? = nil) async {
         busy = true
         defer { busy = false }
         if DemoData.encendido {
@@ -1070,7 +1095,7 @@ struct FactoryRunView: View {
         }
         do {
             let r = try await FactoryAPI.act(slug, id, action, version: version, note: note, checkScope: checkScope,
-                                             skipPreview: skipPreview, ignore: ignore)
+                                             skipPreview: skipPreview, ignore: ignore, target: target)
             let msg: String = switch action {
             case .approve: stage == .escalated ? "@build ya lo está arreglando." : "Firmado: @build empieza a construir."
             case .changes: stage == .escalated ? "@plan ya está rehaciendo el plan." : "Cambios pedidos: @plan prepara otra versión."
@@ -1083,6 +1108,8 @@ struct FactoryRunView: View {
             case .cancel: "Pedido detenido."
             case .close: ignore == nil ? "PR cerrado." : "PR cerrado. Dependabot ya no propone esta versión."
             case .retryPreview: Self.retryNotice(r)
+            case .release: r.message ?? "Lugar liberado: el pedido en fila arranca en un minuto."
+            case .notifyAdmin: "Le avisamos al admin del espacio."
             }
             withAnimation(.snappy) { notice = msg; error = nil }
             if action == .merge { confetti = UUID() }
