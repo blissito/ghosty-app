@@ -1,4 +1,8 @@
+• Ghosty abre con una animación nueva: la flamita se abre y por ella aparece la app.
+• Califica la respuesta de tu agente con pulgar arriba o abajo. Si algo faltó, dilo en un renglón: así sabemos qué mejorar.
+• Software Factory: «Te toca» sólo enseña lo que de verdad te toca, con el motivo en un renglón y el botón que lo resuelve. Si la falla es de la plataforma, se reintenta sola y no te molesta.
 • Software Factory: un pedido que se quedó sin avanzar ya no dice que alguien trabaja. Te explica qué pasó y puedes retomarlo o detenerlo desde el teléfono.
 • El hilo del pedido se abre dentro de la app y ahí le escribes directo al agente que lo lleva.
-• Software Factory: «Te toca» sólo enseña lo que de verdad te toca, con el motivo en un renglón y el botón que lo resuelve. Si la falla es de la plataforma, se reintenta sola y no te molesta.
-• Califica la respuesta de tu agente con pulgar arriba o abajo. Si algo faltó, dilo en un renglón: así sabemos qué mejorar.
+• Si la vista previa de un pedido se atora, la ves en su tarjeta con el motivo y la reintentas con un toque.
+• Cuando tu fábrica se llena, la tarjeta te dice quién ocupa cada lugar; la primera vez en el mes te prestamos el lugar para que tu pedido no espere.
+• Si a un pedido le faltan las variables de la vista previa, copia el pedido para tu agente de terminal o pégalas aquí, y pide que se revise otra vez con un toque.
