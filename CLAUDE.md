@@ -282,6 +282,12 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
+## 1.0.13 en revisión (21-oct)
+
+**Al día (21-oct):** se retiró la 1.0.12 y la **1.0.13 con la build 93** (todo `main` al d6f2e561: lo de la 89, la 91 y
+la «Siguiente build» de abajo) está en revisión, salida AUTOMÁTICA; la 93 también está en TestFlight (Alpha). Al salir:
+`suggestBuild` a 93.
+
 ## 1.0.13 en TestFlight (20-oct)
 
 **Estado:** build 91 repartida en TestFlight (grupo Alpha) el 20-oct (bliss: «dale a todos los pendientes ya»), con «Te toca» con motivo.
