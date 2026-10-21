@@ -330,6 +330,29 @@ final class RecorridoUITests: XCTestCase {
                       "copiar la respuesta no confirmó nada")
         foto("07-bis-copiado")
 
+        // 4-ter. 👎 a la última respuesta: cuenta al tocar, abre «¿Qué faltó?» (opcional) y,
+        //        al omitirla, el pulgar se queda relleno. Tocarlo otra vez lo quita.
+        let rateDown = app.buttons.matching(identifier: "rate-down").allElementsBoundByIndex
+            .last { $0.isHittable }
+        XCTAssertNotNil(rateDown, "no hay 👎 junto a copiar")
+        rateDown?.tap()
+        let skip = app.buttons["feedback-skip"]
+        XCTAssertTrue(skip.waitForExistence(timeout: 3), "el 👎 no abrió «¿Qué faltó?»")
+        foto("07-ter-que-falto")
+        skip.tap()
+        XCTAssertTrue(skip.waitForNonExistence(timeout: 3), "«Omitir» no cerró la hoja")
+        let voted = app.buttons.matching(identifier: "rate-down").allElementsBoundByIndex
+            .last { $0.isHittable }
+        XCTAssertEqual(voted?.value as? String, "seleccionado", "el 👎 no se quedó seleccionado")
+        XCTAssertNotEqual(app.buttons.matching(identifier: "rate-up").allElementsBoundByIndex
+            .last { $0.isHittable }?.value as? String, "seleccionado", "se encendieron los dos pulgares")
+        foto("07-ter-votado")
+        voted?.tap()
+        XCTAssertFalse(app.buttons["feedback-skip"].waitForExistence(timeout: 1),
+                       "quitar el 👎 volvió a abrir la hoja")
+        XCTAssertNotEqual(app.buttons.matching(identifier: "rate-down").allElementsBoundByIndex
+            .last { $0.isHittable }?.value as? String, "seleccionado", "tocar el 👎 otra vez no lo quitó")
+
         // 4a. Las fuentes de la última respuesta: la barra tiene que estar Y tiene que
         //     abrir la hoja. Una barra que no abre nada es el fallo de siempre.
         let fuentes = app.buttons["barra-de-fuentes"].firstMatch

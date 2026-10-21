@@ -44,7 +44,7 @@ enum DemoData {
                     // capturas: sin un mensaje con enlaces no había nada que verificar.
                     + (i == 12 ? " Según [Causo](https://causo.io/informe) y "
                                + "[Enginy](https://enginy.com/precios)." : ""),
-                tools: nil, trailing: nil)))
+                tools: nil, trailing: nil), turnId: "demo-turno-\(i)"))
         }
         return m
     }

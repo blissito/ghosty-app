@@ -42,6 +42,13 @@ final class LiveAgentStore: AgentStoring {
         cuentas.first(where: { $0.id == agentID })?.nativeSubagents
     }
 
+    /// 👍/👎 por turno, ya pintado aunque gs no lo tenga aún (ver `FeedbackLedger`).
+    /// En demo sólo vive en memoria: ni red ni base, y cada recorrido arranca sin votos.
+    var feedback: [String: Feedback] = DemoData.encendido ? [:]
+        : Dictionary(FeedbackLedger.all().map { ($0.turnID, $0) }, uniquingKeysWith: { a, _ in a })
+    /// Los votos que van de camino, para no mandar dos veces el mismo.
+    @ObservationIgnored fileprivate var sendingFeedback: Set<String> = []
+
     var canalActivo: AgentChannel? { channels[selectedAgentID] }
     /// La conversación que se está mirando.
     var hiloActivo: ChatThread? { canalActivo?.hilo }
@@ -839,6 +846,7 @@ final class LiveAgentStore: AgentStoring {
         GrupoDeApp.espejarConsentimiento()
         repasarLaFlota(forzado: true)
         startAccountEvents()
+        flushFeedback()
     }
 
     /// Al irse al fondo: el stream de la cuenta se suelta (iOS lo cortaría de todos modos).
@@ -3484,6 +3492,10 @@ extension LiveAgentStore {
                 titulos.anotarSiFalta(agent, sid, desde: t)
             }
             aplicarUltimoTurno(page.lastTurn, a: hilo, de: canal)
+            // Al entrar al hilo: lo votado en otra superficie se pinta y lo que quedó sin
+            // mandar de aquí se vuelve a intentar.
+            applyServerRatings(page.myRatings, agentID: agent, sessionID: sid)
+            flushFeedback()
             if merged.isEmpty, hilo.vieneDe == nil, !page.enCurso {
                 hilo.loadError = "Esta conversación está vacía o ya no existe."
             }
@@ -3651,3 +3663,84 @@ extension LiveAgentStore {
     }
 }
 
+
+
+// MARK: - 👍/👎 por respuesta
+
+extension LiveAgentStore {
+    /// El voto de esta cuenta sobre un turno: 1, -1 o 0 (sin voto).
+    func rating(of turnID: String) -> Int { feedback[turnID]?.rating ?? 0 }
+
+    /// Vota una respuesta de la conversación que se mira. Optimista: se pinta y se guarda
+    /// aquí al instante; gs se entera después (y si no puede, al volver del fondo).
+    /// `rating: 0` quita el voto. El comentario sólo acompaña al 👎.
+    func rate(turnID: String, rating: Int, comment: String? = nil) {
+        guard let canal = canalActivo, let sid = canal.hilo?.sesionID ?? feedback[turnID]?.sessionID else { return }
+        let clean = comment?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let f = Feedback(agentID: canal.cuenta.id, sessionID: sid, turnID: turnID, rating: rating,
+                         comment: rating == -1 && clean?.isEmpty == false ? clean : nil,
+                         sent: false, at: Date())
+        guard !DemoData.encendido else {
+            feedback[turnID] = rating == 0 ? nil : f
+            return
+        }
+        feedback[turnID] = f
+        FeedbackLedger.save(f)
+        send(f)
+    }
+
+    /// Manda lo que quedó sin enviar (sin red, servidor caído, ruta aún sin desplegar).
+    func flushFeedback() {
+        guard !DemoData.encendido else { return }
+        for f in feedback.values where !f.sent { send(f) }
+    }
+
+    /// Lo que gs dice que votaste (`myRating`, quizá desde la web). Gana lo de aquí si
+    /// todavía no se manda: es más nuevo que lo que gs sabe.
+    func applyServerRatings(_ ratings: [String: Int], agentID: String, sessionID: String) {
+        guard !DemoData.encendido else { return }
+        for (turnID, value) in ratings {
+            if let local = feedback[turnID], !local.sent || local.rating == value { continue }
+            let f = Feedback(agentID: agentID, sessionID: sessionID, turnID: turnID, rating: value,
+                             comment: feedback[turnID]?.comment, sent: true, at: Date())
+            feedback[turnID] = f
+            FeedbackLedger.save(f)
+        }
+    }
+
+    fileprivate func send(_ f: Feedback) {
+        guard !sendingFeedback.contains(f.turnID), let canal = channels[f.agentID] else { return }
+        sendingFeedback.insert(f.turnID)
+        Task { [weak self] in
+            guard let self else { return }
+            guard let gs = try? await self.asegurarSocket(canal) as? ClienteGS else {
+                self.sendingFeedback.remove(f.turnID); return
+            }
+            let outcome = await gs.rate(sessionID: f.sessionID, turnID: f.turnID, rating: f.rating, comment: f.comment)
+            self.sendingFeedback.remove(f.turnID)
+            // Si cambió mientras viajaba, esta respuesta ya no es la suya: sale el voto nuevo.
+            guard let current = self.feedback[f.turnID], current.at == f.at else {
+                if let next = self.feedback[f.turnID], !next.sent { self.send(next) }
+                return
+            }
+            switch outcome {
+            case .saved:
+                if f.rating == 0 {
+                    self.feedback[f.turnID] = nil
+                    FeedbackLedger.remove(f.turnID)
+                } else {
+                    var done = current; done.sent = true
+                    self.feedback[f.turnID] = done
+                    FeedbackLedger.save(done)
+                }
+            case .rejected:
+                // gs no reconoce ese turno en esa conversación: repetirlo no lo arregla.
+                EasyBitsClient.diag("[feedback] gs rechazó el voto de \(f.turnID); se descarta")
+                self.feedback[f.turnID] = nil
+                FeedbackLedger.remove(f.turnID)
+            case .retryLater:
+                EasyBitsClient.diag("[feedback] no pude mandar el voto de \(f.turnID); se reintenta luego")
+            }
+        }
+    }
+}

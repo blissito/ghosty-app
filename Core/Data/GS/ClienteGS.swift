@@ -364,6 +364,49 @@ actor ClienteGS: TransporteDeAgente {
         _ = try await pedir(base("/conversations/\(id)"), metodo: "PATCH", cuerpo: ["title": titulo])
     }
 
+    /// Lo que pasó al mandar un 👍/👎.
+    enum FeedbackOutcome: Sendable {
+        /// gs lo guardó (o lo borró, con `rating: 0`).
+        case saved
+        /// gs dijo que no y repetirlo no lo cambia (turno ajeno, cuerpo inválido): se descarta.
+        case rejected
+        /// Sin red, servidor caído o un gs que todavía no tiene la ruta: se reintenta luego.
+        case retryLater
+    }
+
+    /// Vota una respuesta del agente (`rating` 1 / -1; 0 quita el voto). Contrato en gs:
+    /// `POST …/conversations/:id/feedback {turnId, rating, comment?, surface}`.
+    ///
+    /// ⚠️ No va por `pedir`: hace falta distinguir el 404 de gs (JSON: ese turno no es de esta
+    /// conversación → se descarta) del 404 de una ruta que aún no existe (HTML de la web →
+    /// se guarda para cuando exista). Con `pedir` los dos eran la misma frase.
+    func rate(sessionID: String, turnID: String, rating: Int, comment: String?) async -> FeedbackOutcome {
+        var cuerpo: [String: Any] = ["turnId": turnID, "rating": rating, "surface": "app"]
+        if let comment, !comment.isEmpty { cuerpo["comment"] = String(comment.prefix(500)) }
+        let url = base("/conversations/\(sessionID)/feedback")
+        var rejected: String?
+        for _ in 0..<2 {
+            guard let req = try? await peticion(url, metodo: "POST", cuerpo: cuerpo, rejected: rejected),
+                  let (d, resp) = try? await Self.sesion.data(for: req),
+                  let http = resp as? HTTPURLResponse else { return .retryLater }
+            switch http.statusCode {
+            case 200..<300: return .saved
+            case 401:
+                // Una vez con token nuevo, como `pedir`.
+                guard rejected == nil, let used = Self.bearerToken(req) else { return .retryLater }
+                rejected = used
+                continue
+            case 404:
+                let json = http.value(forHTTPHeaderField: "Content-Type")?.contains("json") == true
+                    && (try? JSONSerialization.jsonObject(with: d)) != nil
+                return json ? .rejected : .retryLater
+            case 400, 422: return .rejected
+            default: return .retryLater
+            }
+        }
+        return .retryLater
+    }
+
     func fijarModo(_ modo: String, sessionID: String) async throws {
         // El modo no se fija por conversación: el permiso se pide turno a turno.
     }
@@ -961,6 +1004,10 @@ extension ClienteGS {
         var continuesFrom: String?
         /// Los archivos de la página, por nombre (para entregas y adjuntos).
         var files: [String: GhostyAPI.ArchivoDeSesion]
+        /// Los votos que esta cuenta ya dejó en las respuestas de la página (`myRating`), por
+        /// `turnId`. Sólo los que hay: que falte no quiere decir que se quitó (un gs viejo no
+        /// lo manda).
+        var myRatings: [String: Int] = [:]
     }
 
     /// `after` = lo nuevo, `before` = lo anterior; sin ninguno, la última página.
@@ -1007,7 +1054,11 @@ extension ClienteGS {
             lastSeq: r["lastSeq"] as? Int, enCurso: r["enCurso"] as? Bool ?? false,
             lastTurn: ACPClient.LastTurn.desde(r["ultimoTurno"]),
             largo: r["largo"] as? Bool ?? false, continuesFrom: r["continuesFrom"] as? String,
-            files: files)
+            files: files,
+            myRatings: Dictionary(raw.compactMap { m -> (String, Int)? in
+                guard let t = m["turnId"] as? String, let v = m["myRating"] as? Int, v == 1 || v == -1 else { return nil }
+                return (t, v)
+            }, uniquingKeysWith: { a, _ in a }))
     }
 }
 

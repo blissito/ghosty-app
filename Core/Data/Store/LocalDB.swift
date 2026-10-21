@@ -74,6 +74,20 @@ enum LocalDB {
                 t.column("value", .text).notNull()
             }
         }
+        // 👍/👎 por respuesta: el voto vive aquí primero (optimista) y se manda a gs después.
+        // `sent = false` = falta mandarlo; se reintenta al volver del fondo y al entrar al hilo.
+        // `rating = 0` sin mandar = un voto quitado que gs todavía no sabe.
+        m.registerMigration("v2-feedback") { db in
+            try db.create(table: "feedback") { t in
+                t.primaryKey("turnId", .text)
+                t.column("agentId", .text).notNull()
+                t.column("sessionId", .text).notNull()
+                t.column("rating", .integer).notNull()
+                t.column("comment", .text)
+                t.column("sent", .boolean).notNull().defaults(to: false)
+                t.column("at", .double).notNull()
+            }
+        }
         return m
     }
 }

@@ -202,6 +202,10 @@ struct AgentBubble: View {
     var imagen: ImagenDelTurno? = nil
     /// «Editar» de la imagen: el adjunto va al compositor.
     var alEditarImagen: ((Adjunto?) -> Void)? = nil
+    /// El 👍/👎 de esta respuesta (1, -1 o 0) y cómo cambiarlo. Va junto a copiar, en la
+    /// misma fila y con la misma regla (sólo la última): `nil` = sin turno, no se vota.
+    var rating: Int = 0
+    var onRate: ((_ rating: Int, _ comment: String?) -> Void)? = nil
 
     private var fuentes: [Fuente] {
         Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
@@ -257,11 +261,17 @@ struct AgentBubble: View {
                 // respuesta que sigue creciendo no sirve de nada.
                 // ⚠️ Su sitio se RESERVA mientras escribe (invisible): si apareciera al
                 // terminar, la respuesta crecería justo al final y el hilo daría un brinco.
+                // El 👍/👎 va en la misma fila y con la misma reserva.
                 if showCopy, !fullText.isEmpty {
-                    CopyButton(text: fullText)
-                        .opacity(vivo ? 0 : 1)
-                        .allowsHitTesting(!vivo)
-                        .accessibilityHidden(vivo)
+                    HStack(spacing: 0) {
+                        CopyButton(text: fullText)
+                        if let onRate { RateButtons(rating: rating, onRate: onRate) }
+                    }
+                    .padding(.leading, -6)
+                    .padding(.top, -6)
+                    .opacity(vivo ? 0 : 1)
+                    .allowsHitTesting(!vivo)
+                    .accessibilityHidden(vivo)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -306,8 +316,105 @@ private struct CopyButton: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("copy-response")
         .accessibilityLabel(copied ? "Copiado" : "Copiar respuesta")
-        .padding(.leading, -6)
-        .padding(.top, -6)
+    }
+}
+
+/// 👍/👎 de la respuesta, como ChatGPT: el elegido queda relleno y tocarlo otra vez lo quita.
+/// El 👎 se cuenta al tocar y además abre una hoja corta OPCIONAL para decir qué faltó.
+private struct RateButtons: View {
+    let rating: Int
+    let onRate: (_ rating: Int, _ comment: String?) -> Void
+    @State private var askingWhy = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            thumb(up: true)
+            thumb(up: false)
+        }
+        .sheet(isPresented: $askingWhy) {
+            WhatWasMissingSheet { comment in onRate(-1, comment) }
+        }
+    }
+
+    private func thumb(up: Bool) -> some View {
+        let value = up ? 1 : -1
+        let selected = rating == value
+        return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.snappy(duration: 0.2)) { onRate(selected ? 0 : value, nil) }
+            if !up, !selected { askingWhy = true }
+        } label: {
+            Image(systemName: (up ? "hand.thumbsup" : "hand.thumbsdown") + (selected ? ".fill" : ""))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(selected ? Color.gPrimary : Color.gInk3)
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(up ? "rate-up" : "rate-down")
+        .accessibilityLabel(up ? "Buena respuesta" : "Mala respuesta")
+        .accessibilityValue(selected ? "seleccionado" : "")
+    }
+}
+
+/// «¿Qué faltó?»: un renglón y ya. Omitir no deshace el 👎, que ya contó.
+private struct WhatWasMissingSheet: View {
+    let onSend: (String) -> Void
+    @State private var text = ""
+    @FocusState private var focused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("¿Qué faltó?").font(.system(size: 22, weight: .heavy)).foregroundStyle(Color.gInk)
+            Text("Opcional. Así sabemos qué mejorar.")
+                .gBody().foregroundStyle(Color.gInk2)
+            TextField("Por ejemplo: no contestó lo que pregunté", text: $text)
+                .gBody()
+                .submitLabel(.send)
+                .focused($focused)
+                .onSubmit(send)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 48)
+                .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .accessibilityIdentifier("feedback-comment")
+                .onChange(of: text) { _, t in if t.count > 500 { text = String(t.prefix(500)) } }
+            Spacer(minLength: 4)
+            HStack(spacing: 10) {
+                Button { dismiss() } label: {
+                    Text("Omitir").gButtonLabel().foregroundStyle(Color.gInk)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.gFill, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.gPressRow)
+                .accessibilityIdentifier("feedback-skip")
+                Button(action: send) {
+                    Text("Enviar").gButtonLabel().foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.gPrimary, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.gPressPrimary)
+                .disabled(clean.isEmpty)
+                .opacity(clean.isEmpty ? 0.5 : 1)
+                .accessibilityIdentifier("feedback-send")
+            }
+        }
+        .padding(.horizontal, Theme.Space.screenH)
+        .padding(.top, 28)
+        .padding(.bottom, 12)
+        .presentationDetents([.height(245)])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(Theme.Radius.sheet)
+        .presentationBackground(Color.gBg)
+    }
+
+    private var clean: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private func send() {
+        guard !clean.isEmpty else { return }
+        onSend(clean)
+        dismiss()
     }
 }
 

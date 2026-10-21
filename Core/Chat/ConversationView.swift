@@ -1001,6 +1001,13 @@ struct ConversationView: View {
         mensajesÚnicos.last(where: { if case .agent = $0.kind { return true } else { return false } })?.id
     }
 
+    /// El turno de gs de una respuesta, para votarla. En vivo la burbuja se llama
+    /// `turno-<id>` antes de que el mensaje lo traiga puesto.
+    private func turnoDe(_ m: Message) -> String? {
+        if let t = m.turnId, !t.hasPrefix("pending-") { return t }
+        return m.id.hasPrefix("turno-") ? String(m.id.dropFirst(6)) : nil
+    }
+
     private var textoDelUltimo: Int {
         guard case .agent(let t, _, _) = store.messages.last?.kind else { return 0 }
         return t.count
@@ -1023,7 +1030,11 @@ struct ConversationView: View {
                         showCopy: mensaje.id == lastReplyID,
                         tone: store.selectedAgent?.tone ?? .lila,
                         imagen: imagenDelTurno(mensaje, en: mensajesÚnicos).estado,
-                        alEditarImagen: { editarImagen($0) })
+                        alEditarImagen: { editarImagen($0) },
+                        rating: turnoDe(mensaje).map { store.rating(of: $0) } ?? 0,
+                        onRate: turnoDe(mensaje).map { turn in
+                            { rating, comment in store.rate(turnID: turn, rating: rating, comment: comment) }
+                        })
         case .entrega(let e):
             // En el margen de la respuesta (ya sin columna de avatar): lo entregó él.
             HStack(spacing: 0) {

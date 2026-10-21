@@ -301,6 +301,16 @@ como «Esperando preview» y no cuenta. `skip` de Dependabot ofrece «Cerrar e i
 Origen: «Te toca 8» de easybits (20-oct), 5 eran un despliegue viejo `preview-157` que engañaba a `repoHasPreviews`.
 El 🔁 de «Llevaba 30 min sin avanzar» que salía como cuadro con «?» es del SIMULADOR, no de la app: ahí ningún emoji se pinta, ni en un `Text` plano (probado el 20-oct). En el teléfono no aplica.
 
+## Siguiente build (va en la próxima subida, NO la 91)
+
+**👍/👎 por respuesta** (plan `sip-solido-y-completo-partitioned-avalanche`, §3): junto a copiar, en la última
+respuesta (`RateButtons` en `ChatBubble.swift`, ids `rate-up`/`rate-down`, el elegido relleno; tocarlo otra vez lo
+quita). El 👎 abre «¿Qué faltó?» opcional. Voto optimista en la tabla `feedback` de `LocalDB` (migración
+`v2-feedback`, `FeedbackLedger`), se manda con `ClienteGS.rate` a `POST …/conversations/:id/feedback` y lo no enviado
+se reintenta al volver del fondo y al entrar al hilo. Un 404 JSON (turno ajeno) se descarta; un 404 HTML (ruta aún
+sin desplegar) se guarda. `myRating` de `…/messages` se pinta (sólo cuando viene: que falte no borra). Demo: sólo en
+memoria. Prueba: paso 4-ter de `testRecorrido`.
+
 ## 1.0.12 en revisión (20-oct)
 
 **Estado:** build 89 (todo `main` al 45ff036a) enviada a revisión el 20-oct; salida AUTOMÁTICA (`AFTER_APPROVAL`, cambiada
