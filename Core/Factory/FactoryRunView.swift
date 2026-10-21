@@ -84,6 +84,7 @@ struct FactoryRunView: View {
                 if let error { errorBanner(error) }
                 if stage == .escalated { escalationCard }
                 if let p = previewStuck { previewCard(p) }
+                if let n = slotNote { slotCard(n) }
                 if let plan = detail?.plan { planCard(plan) }
                 linksRow
                 if let events = detail?.events, !events.isEmpty { logCard(events) }
@@ -198,7 +199,10 @@ struct FactoryRunView: View {
         case .escalated: "Te toca decidir"
         case .prReview where mergeQueued: "Merge en cola: esperando el CI"
         case .prReview: "Te toca revisar el PR"
-        case .planning, .building, .checking where stalled: "Sin avanzar: nadie está trabajando"
+        // ⚠️ El `where` de un `case a, b, c where x` sólo aplica a `c`: decía «Sin avanzar» en todo
+        // pedido planeando o construyendo, trabajara o no (visto el 21-oct en la demo).
+        case .planning where stalled, .building where stalled, .checking where stalled: "Sin avanzar: nadie está trabajando"
+        case .planning where queuedForSlot, .building where queuedForSlot, .checking where queuedForSlot: "En fila por un lugar"
         case .planning, .building, .checking:
             FactoryFormat.working(detail?.running.first?.role ?? ["planning": "plan", "building": "build", "checking": "check"][stage.rawValue])
         case .done: "Terminado: PR mergeado"
@@ -351,6 +355,97 @@ struct FactoryRunView: View {
             .strokeBorder(p.failed ? Color.gAmber.opacity(0.35) : Color.gHairline, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("preview-atorada")
+    }
+
+    /// Cortesía de lugar o fila (21-oct): el plan estaba lleno y gs prestó la caja una vez en el mes,
+    /// o el pedido espera porque la cortesía ya se usó. No es un error: dice quién ocupa cada lugar
+    /// y lleva a los planes. «Agregar 1 lugar» todavía no tiene precio: abre la misma página.
+    /// Pendiente: «Avisar al admin» para quien no es admin.
+    /// En la fila por un lugar y sin nadie trabajando: la etapa no dice «@build está construyendo…».
+    private var queuedForSlot: Bool { slotNote?.queued == true && (detail?.running.isEmpty ?? true) }
+
+    private var slotNote: FactorySlotNote? {
+        guard stage != .done, stage != .cancelled else { return nil }
+        return detail?.slotNote ?? cached?.slotNote
+    }
+
+    private func slotCard(_ n: FactorySlotNote) -> some View {
+        let tint: Color = n.queued ? Color.gAmber : Color.gPrimary
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: n.queued ? "hourglass" : "gift.fill").foregroundStyle(tint)
+                Text("Lugar").gCardTitle()
+                Spacer(minLength: 0)
+                if let chip = n.chip {
+                    Text(chip)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.gInk2)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Color.gFill, in: Capsule())
+                        .accessibilityIdentifier("lugar-chip")
+                }
+            }
+            Text(n.title)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.gInk)
+                .accessibilityIdentifier("lugar-titulo")
+            if !n.message.isEmpty {
+                Text(n.message)
+                    .gMeta()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if n.queued, let pos = n.position {
+                Text("Va \(pos) en la fila" + (n.ahead.isEmpty ? "" : " · delante: " + n.ahead.map { "#\($0)" }.joined(separator: ", ")))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                    .accessibilityIdentifier("lugar-fila")
+            }
+            if !n.occupants.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(n.occupants.enumerated()), id: \.offset) { _, o in
+                        HStack(spacing: 8) {
+                            Text(o.label)
+                                .font(.system(size: 13, weight: .bold).monospacedDigit())
+                                .foregroundStyle(Color.gInk)
+                            if let d = o.detail { Text(d).gCaption() }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.gCard, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("lugar-ocupantes")
+            }
+            if let url = n.plansUrl.flatMap(URL.init(string:)) {
+                HStack(spacing: 10) {
+                    slotButton("Agregar 1 lugar", "plus", primary: true, id: "lugar-agregar") { openURL(url) }
+                    slotButton(n.suggestUpgrade ? "Subir de plan" : "Ver planes", "square.stack.3d.up", primary: false, id: "lugar-planes") { openURL(url) }
+                }
+            }
+        }
+        .padding(16)
+        .background((n.queued ? Color.gAmberTint.opacity(0.45) : Color.gPrimaryWash),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+            .strokeBorder(tint.opacity(0.3), lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(n.queued ? "lugar-fila-card" : "lugar-cortesia")
+    }
+
+    private func slotButton(_ title: String, _ icon: String, primary: Bool, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 14, weight: .bold))
+                .lineLimit(1).minimumScaleFactor(0.85)
+                .foregroundStyle(primary ? Color.white : Color.gPrimary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(primary ? Color.gPrimary : Color.gPrimaryTint,
+                            in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+        }
+        .buttonStyle(.gPressPrimary)
+        .accessibilityIdentifier(id)
     }
 
     private var escalationKind: FactoryEscalation.Kind { detail?.escalationKind ?? cached?.escalation?.type ?? .decision }

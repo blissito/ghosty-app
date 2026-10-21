@@ -201,12 +201,14 @@ final class FactoryStore {
     static var demo: [FactorySpace] {
         func run(_ id: Int, _ title: String, _ status: String, repo: String, pr: Int?, ago: Double,
                  min: Double?, usd: Double?, plan: Int = 1, kind: String = "sprint",
-                 escalation: (String, String)? = nil, previewStatus: FactoryPreviewStatus? = nil) -> FactoryRun {
+                 escalation: (String, String)? = nil, previewStatus: FactoryPreviewStatus? = nil,
+                 slotNote: FactorySlotNote? = nil) -> FactoryRun {
             FactoryRun(id: id, title: title, status: status, kind: kind, room: "agenda", thread: 900 + id, repo: repo,
                        branch: nil, pr: pr.map { "https://github.com/demo/\(repo.split(separator: "/").last ?? "")/pull/\($0)" },
                        preview: nil, previewState: nil, planVersion: plan, loops: 0,
                        createdAt: iso(ago + (min ?? 10)), updatedAt: iso(ago), durationMin: min, usd: usd,
-                       escalation: escalation.map { demoEscalation($0.0, $0.1) }, previewStatus: previewStatus)
+                       escalation: escalation.map { demoEscalation($0.0, $0.1) }, previewStatus: previewStatus,
+                       slotNote: slotNote)
         }
         return [FactorySpace(slug: "demo", role: "OWNER", runs: [
             run(42, "Recordatorio por WhatsApp un día antes de la cita", "plan_review", repo: "demo/agenda", pr: nil, ago: 4, min: 6, usd: 0.41, plan: 2),
@@ -220,6 +222,12 @@ final class FactoryStore {
             run(44, "Bump typescript from 5.9.3 to 7.0.2 in /cli", "escalated", repo: "demo/agenda", pr: 91, ago: 8, min: 41, usd: 0.61, plan: 0, kind: "dependabot",
                 escalation: ("platform", "La preview no arrancó; se reintenta sola.")),
             run(40, "Exportar la agenda del mes a Excel", "building", repo: "demo/agenda", pr: nil, ago: 1, min: 14, usd: 0.95),
+            // Cortesía de lugar (21-oct): el plan estaba lleno y gs prestó la caja esta vez; y el
+            // segundo del mes, que ya espera en la fila.
+            run(45, "Reporte de citas canceladas por semana", "building", repo: "demo/agenda", pr: nil, ago: 2, min: 5, usd: 0.30,
+                slotNote: demoSlotNote(queued: false)),
+            run(46, "Recordatorio de pago con liga de MercadoPago", "building", repo: "demo/agenda", pr: nil, ago: 3, min: 2, usd: 0.05,
+                slotNote: demoSlotNote(queued: true)),
             // Sin avanzar: en «building», nadie trabaja y la plataforma ya avisó (el #121, 20-oct).
             run(35, "Bump the npm group with 46 updates", "building", repo: "demo/agenda", pr: 83, ago: 840, min: 60, usd: 0.70, kind: "dependabot"),
             // En revisión con la preview atorada y sin escalado (el #131 de easybits, 20-oct).
@@ -229,6 +237,25 @@ final class FactoryStore {
             run(38, "La lista de clientes busca por teléfono", "done", repo: "demo/agenda", pr: 86, ago: 180, min: 37, usd: 2.05),
             run(37, "Correo de bienvenida con el logo del negocio", "done", repo: "demo/sitio", pr: 85, ago: 600, min: 28, usd: 1.60),
         ])]
+    }
+
+    /// La nota de lugar de la demo: cortesía prestada (#45) o en la fila con la cortesía usada (#46).
+    static func demoSlotNote(queued: Bool) -> FactorySlotNote {
+        let occupants: [FactorySlotNote.Occupant] = [
+            .init(label: "#40", detail: "pedido · construyendo"),
+            .init(label: "#39", detail: "pedido · en revisión"),
+            .init(label: "PR #92", detail: "preview · agenda"),
+        ]
+        let plans = "https://www.ghosty.studio/app/workspaces/demo/plan"
+        if queued {
+            return FactorySlotNote(kind: "queued", title: "En fila por un lugar",
+                                   message: "Tu plan tiene 3 lugares, ocupados por #40, #39 y la preview del PR #92. #46 arranca solo en cuanto se libere uno.",
+                                   occupants: occupants, position: 2, ahead: [45], chip: "Cortesía usada · se renueva el 1-nov",
+                                   suggestUpgrade: false, plansUrl: plans)
+        }
+        return FactorySlotNote(kind: "courtesy", title: "Cortesía de octubre",
+                               message: "Tu plan tiene 3 lugares, ocupados por #40, #39 y la preview del PR #92. Esta vez te prestamos la caja para que #45 no espere: es tu cortesía de octubre. Si se repite, agrega un lugar o mira los planes.",
+                               occupants: occupants, position: nil, ahead: [], chip: nil, suggestUpgrade: false, plansUrl: plans)
     }
 
     /// El escalado de la demo con los botones que gs manda por tipo.
@@ -274,7 +301,7 @@ final class FactoryStore {
 
     /// @build a media vuelta en el #40: cinco pasos hechos, uno abierto y un atasco vigente.
     static func demoLive(_ id: Int) -> FactoryLive? {
-        guard id != 35, demo.first?.runs.first(where: { $0.id == id })?.stage == .building else { return nil }
+        guard id != 35, id != 46, demo.first?.runs.first(where: { $0.id == id })?.stage == .building else { return nil }
         let steps: [FactoryLive.Step] = [
             .init(id: "1", title: "Repasé mi guía", kind: "guide", detail: "factory build", status: "ok", secs: 2),
             .init(id: "2", title: "Leí", kind: "read", detail: "app/routes/agenda.tsx", status: "ok", secs: 1),
@@ -327,7 +354,10 @@ final class FactoryStore {
                       .init(at: iso(860), actor: "build", type: "commits", data: nil),
                       .init(at: iso(900), actor: "dependabot", type: "adopted", data: nil)]
         }
-        let running = r.stage.working && r.id != 35 ? [FactoryRunDetail.Running(role: r.stage == .building ? "build" : r.stage == .checking ? "check" : "plan", since: iso(3))] : []
+        if r.id == 46 {
+            events = [.init(at: iso(3), actor: nil, type: "box_waiting", data: nil)] + events
+        }
+        let running = r.stage.working && r.id != 35 && r.id != 46 ? [FactoryRunDetail.Running(role: r.stage == .building ? "build" : r.stage == .checking ? "check" : "plan", since: iso(3))] : []
         return FactoryRunDetail(id: r.id, title: r.title, status: r.status, kind: r.kind, room: r.room, thread: r.thread,
                                 repo: r.repo, branch: r.branch, pr: r.pr, preview: nil, previewState: nil,
                                 planVersion: r.planVersion, loops: r.loops, updatedAt: r.updatedAt, plan: plan,
@@ -337,6 +367,6 @@ final class FactoryStore {
                                     ? .init(total: 5, passed: 3, running: [.init(name: "test", url: nil), .init(name: "e2e", url: nil)],
                                             failed: [], startedAt: iso(3))
                                     : nil,
-                                previewStatus: r.previewStatus)
+                                previewStatus: r.previewStatus, slotNote: r.slotNote)
     }
 }

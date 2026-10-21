@@ -311,6 +311,13 @@ se reintenta al volver del fondo y al entrar al hilo. Un 404 JSON (turno ajeno) 
 sin desplegar) se guarda. `myRating` de `…/messages` se pinta (sólo cuando viene: que falte no borra). Demo: sólo en
 memoria. Prueba: paso 4-ter de `testRecorrido`.
 
+**Tarjeta «Lugar» (cortesía de lugar, 21-oct)**: gs manda `slotNote {kind courtesy|queued, title, message, occupants,
+position, ahead, chip, suggestUpgrade, plansUrl}` (spec `~/ghosty-studio/docs/claude/cortesia-de-lugar.md`). `FactoryRunView`
+pinta quién ocupa cada lugar, «Va N en la fila», la ficha «Cortesía usada · se renueva…» y «Agregar 1 lugar»/«Ver planes»
+(los dos abren `plansUrl`: el lugar extra aún no tiene precio). Pendiente «Avisar al admin». De paso: la etapa ya no dice
+«Sin avanzar» en todo pedido planeando/construyendo (el `where` sólo aplicaba a `.checking`). Demos #45/#46, pruebas
+`testLugarCortesiaDemo` y `testLugarEnFilaDemo`.
+
 **Preview atorada en cualquier etapa** (#131 de easybits, 20-oct): tarjeta «Preview» en `FactoryRunView` con el motivo de gs
 (`previewStatus {state, since, reason, stuck}`, gs 8274d671) y «Reintentar preview» (`retry-preview-card`, `act retry_preview`,
 Teams 2e6ff9f: la pide YA y contesta `waiting` «esperando lugar de caja (N ocupados)» sin cambiar la etapa). No sale en un

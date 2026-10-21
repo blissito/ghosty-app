@@ -328,6 +328,35 @@ final class FabricaUITests: XCTestCase {
         XCTAssertFalse(app.buttons["retry-preview-card"].exists, "dos «Reintentar preview» en el mismo pedido")
     }
 
+    /// Cortesía de lugar (21-oct): el plan estaba lleno y gs prestó la caja esta vez. La tarjeta
+    /// «Lugar» dice quién ocupa cada lugar y lleva a los planes; no es un error.
+    func testLugarCortesiaDemo() {
+        abrirFabrica()
+        tocar("pedido-45")
+        let card = app.descendants(matching: .any)["lugar-cortesia"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "la cortesía de lugar no sale en el detalle")
+        XCTAssertEqual(app.staticTexts["lugar-titulo"].label, "Cortesía de octubre")
+        XCTAssertTrue(app.descendants(matching: .any)["lugar-ocupantes"].exists, "la tarjeta no dice quién ocupa los lugares")
+        XCTAssertTrue(app.buttons["lugar-agregar"].exists, "falta «Agregar 1 lugar»")
+        XCTAssertTrue(app.buttons["lugar-planes"].exists, "falta «Ver planes»")
+        XCTAssertFalse(app.staticTexts["lugar-chip"].exists, "la cortesía recién prestada no lleva la ficha de usada")
+        foto("l1-cortesia")
+    }
+
+    /// Segunda vez en el mes: el pedido va a la fila, sin tono de error, con quién va delante y la
+    /// ficha «Cortesía usada · se renueva el 1-nov».
+    func testLugarEnFilaDemo() {
+        abrirFabrica()
+        tocar("pedido-46")
+        let card = app.descendants(matching: .any)["lugar-fila-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "el pedido en la fila no enseña la tarjeta «Lugar»")
+        XCTAssertTrue(app.staticTexts["lugar-fila"].label.contains("Va 2 en la fila"), "no dice qué lugar lleva en la fila")
+        XCTAssertTrue(app.staticTexts["lugar-fila"].label.contains("#45"), "no dice quién va delante")
+        XCTAssertTrue(app.staticTexts["lugar-chip"].label.contains("se renueva"), "falta la ficha de cortesía usada")
+        XCTAssertTrue(app.buttons["lugar-planes"].exists, "falta «Ver planes»")
+        foto("l2-en-fila")
+    }
+
     /// Un pedido sin avanzar (#121, 20-oct) dice la verdad y tiene salida: «¿Qué pasó?», «Retomar»,
     /// «Detener pedido» y el hilo DENTRO de la app, donde se le escribe a @build.
     func testPedidoSinAvanzarDemo() {

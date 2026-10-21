@@ -129,6 +129,66 @@ struct FactoryPreviewStatus: Decodable, Hashable {
     var failed: Bool { state == "failed" }
 }
 
+/// La nota de lugar de un pedido (gs `slotNote`, 21-oct, «cortesía de lugar»): el plan no tenía
+/// lugar y gs prestó la caja una vez en el mes (`courtesy`), o el pedido espera en la fila
+/// (`queued`) porque la cortesía ya se usó. No es un error: dice quién ocupa cada lugar y lleva a
+/// los planes. Todo opcional: un campo que falte no tumba el pedido entero.
+struct FactorySlotNote: Decodable, Hashable {
+    struct Occupant: Decodable, Hashable {
+        let label: String
+        let detail: String?
+
+        init(label: String, detail: String?) { self.label = label; self.detail = detail }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            label = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? "—"
+            detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+        }
+        private enum CodingKeys: String, CodingKey { case label, detail }
+    }
+
+    /// `courtesy` | `queued`.
+    let kind: String
+    let title: String
+    let message: String
+    let occupants: [Occupant]
+    /// En la fila: 1 = el siguiente.
+    let position: Int?
+    /// Los pedidos que van delante en la fila.
+    let ahead: [Int]
+    /// «Cortesía usada · se renueva el 1-nov».
+    let chip: String?
+    /// Tres meses seguidos con cortesía: el botón dice «Subir de plan».
+    let suggestUpgrade: Bool
+    let plansUrl: String?
+
+    var queued: Bool { kind == "queued" }
+
+    init(kind: String, title: String, message: String, occupants: [Occupant], position: Int?, ahead: [Int],
+         chip: String?, suggestUpgrade: Bool, plansUrl: String?) {
+        self.kind = kind; self.title = title; self.message = message; self.occupants = occupants
+        self.position = position; self.ahead = ahead; self.chip = chip; self.suggestUpgrade = suggestUpgrade
+        self.plansUrl = plansUrl
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "courtesy"
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? (kind == "queued" ? "En fila por un lugar" : "Cortesía de lugar")
+        message = (try? c.decodeIfPresent(String.self, forKey: .message)) ?? ""
+        occupants = (try? c.decodeIfPresent([Occupant].self, forKey: .occupants)) ?? []
+        position = try? c.decodeIfPresent(Int.self, forKey: .position)
+        ahead = (try? c.decodeIfPresent([Int].self, forKey: .ahead)) ?? []
+        chip = try? c.decodeIfPresent(String.self, forKey: .chip)
+        suggestUpgrade = (try? c.decodeIfPresent(Bool.self, forKey: .suggestUpgrade)) ?? false
+        plansUrl = try? c.decodeIfPresent(String.self, forKey: .plansUrl)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, title, message, occupants, position, ahead, chip, suggestUpgrade, plansUrl
+    }
+}
+
 struct FactoryRun: Identifiable, Decodable, Hashable {
     let id: Int
     let title: String
@@ -151,10 +211,12 @@ struct FactoryRun: Identifiable, Decodable, Hashable {
     /// Lo decide gs (`needsYou`): una escalada de plataforma o un PR en automerge no te tocan.
     var serverNeedsYou: Bool? = nil
     var previewStatus: FactoryPreviewStatus? = nil
+    /// Cortesía de lugar o fila (gs viejo no la manda).
+    var slotNote: FactorySlotNote? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, createdAt, updatedAt, durationMin, usd, escalation, previewStatus
+             loops, createdAt, updatedAt, durationMin, usd, escalation, previewStatus, slotNote
         case serverNeedsYou = "needsYou"
     }
 
@@ -222,10 +284,12 @@ struct FactoryRunDetail: Decodable {
     let ci: CI?
     /// La preview atorada o fallida en cualquier etapa (gs viejo no la manda).
     var previewStatus: FactoryPreviewStatus? = nil
+    /// Cortesía de lugar o fila (gs viejo no la manda).
+    var slotNote: FactorySlotNote? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, updatedAt, plan, plans, events, running, escalation, ci, previewStatus
+             loops, updatedAt, plan, plans, events, running, escalation, ci, previewStatus, slotNote
         case serverNeedsYou = "needsYou"
     }
 
@@ -325,7 +389,7 @@ struct FactoryRunDetail: Decodable {
                    branch: branch, pr: pr, preview: preview, previewState: previewState,
                    planVersion: planVersion, loops: loops, createdAt: nil, updatedAt: updatedAt,
                    durationMin: nil, usd: nil, escalation: escalation, serverNeedsYou: serverNeedsYou,
-                   previewStatus: previewStatus)
+                   previewStatus: previewStatus, slotNote: slotNote)
     }
 }
 
