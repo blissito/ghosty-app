@@ -332,7 +332,7 @@ escalado `platform` (ahí ya está su barra). Prueba `testPreviewAtoradaDemo` (d
 ## 1.0.12 en revisión (20-oct)
 
 **Estado:** build 89 (todo `main` al 45ff036a) enviada a revisión el 20-oct; salida AUTOMÁTICA (`AFTER_APPROVAL`, cambiada
-con la versión ya en `WAITING_FOR_REVIEW`: Apple lo acepta). Al salir: subir `suggestBuild` a 89. La 1.0.11 (build 84) está publicada; falta subir `suggestBuild` a 84.
+con la versión ya en `WAITING_FOR_REVIEW`: Apple lo acepta). Al salir: subir `suggestBuild` a 89. La 1.0.11 (build 84) está publicada; `suggestBuild` quedó en 84 el 21-oct.
 «Qué hay de nuevo» no acepta ✓ (409 `INVALID_CHARACTERS`), igual que ⭐.
 
 **Qué lleva:**
