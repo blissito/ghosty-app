@@ -311,6 +311,11 @@ se reintenta al volver del fondo y al entrar al hilo. Un 404 JSON (turno ajeno) 
 sin desplegar) se guarda. `myRating` de `…/messages` se pinta (sólo cuando viene: que falte no borra). Demo: sólo en
 memoria. Prueba: paso 4-ter de `testRecorrido`.
 
+**Preview atorada en cualquier etapa** (#131 de easybits, 20-oct): tarjeta «Preview» en `FactoryRunView` con el motivo de gs
+(`previewStatus {state, since, reason, stuck}`, gs 8274d671) y «Reintentar preview» (`retry-preview-card`, `act retry_preview`,
+Teams 2e6ff9f: la pide YA y contesta `waiting` «esperando lugar de caja (N ocupados)» sin cambiar la etapa). No sale en un
+escalado `platform` (ahí ya está su barra). Prueba `testPreviewAtoradaDemo` (demo #39).
+
 ## 1.0.12 en revisión (20-oct)
 
 **Estado:** build 89 (todo `main` al 45ff036a) enviada a revisión el 20-oct; salida AUTOMÁTICA (`AFTER_APPROVAL`, cambiada

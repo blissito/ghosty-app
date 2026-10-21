@@ -114,6 +114,21 @@ struct FactoryEscalation: Decodable, Hashable {
     }
 }
 
+/// La preview de un pedido abierto que no está lista (gs `previewStatus`, 20-oct): en camino,
+/// esperando lugar de caja o fallida, en CUALQUIER etapa. El #131 de easybits pasó horas en revisión
+/// con la preview atorada, sin escalado, y la app no ofrecía nada. `stuck` = ofrecer «Reintentar».
+struct FactoryPreviewStatus: Decodable, Hashable {
+    /// `pending` | `waiting` | `failed` | `needs_env`.
+    let state: String
+    let since: String?
+    let minutes: Int?
+    /// «Esperando lugar de caja (3 ocupados)», «Falló: …», «Lleva 40 min en camino».
+    let reason: String
+    let stuck: Bool
+
+    var failed: Bool { state == "failed" }
+}
+
 struct FactoryRun: Identifiable, Decodable, Hashable {
     let id: Int
     let title: String
@@ -135,10 +150,11 @@ struct FactoryRun: Identifiable, Decodable, Hashable {
     var escalation: FactoryEscalation? = nil
     /// Lo decide gs (`needsYou`): una escalada de plataforma o un PR en automerge no te tocan.
     var serverNeedsYou: Bool? = nil
+    var previewStatus: FactoryPreviewStatus? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, createdAt, updatedAt, durationMin, usd, escalation
+             loops, createdAt, updatedAt, durationMin, usd, escalation, previewStatus
         case serverNeedsYou = "needsYou"
     }
 
@@ -204,10 +220,12 @@ struct FactoryRunDetail: Decodable {
     /// El CI del PR (checks de GitHub) mientras el PR te toca o el merge espera. `nil` = gs viejo o
     /// GitHub no contestó.
     let ci: CI?
+    /// La preview atorada o fallida en cualquier etapa (gs viejo no la manda).
+    var previewStatus: FactoryPreviewStatus? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, updatedAt, plan, plans, events, running, escalation, ci
+             loops, updatedAt, plan, plans, events, running, escalation, ci, previewStatus
         case serverNeedsYou = "needsYou"
     }
 
@@ -306,7 +324,8 @@ struct FactoryRunDetail: Decodable {
         FactoryRun(id: id, title: title, status: status, kind: kind, room: room, thread: thread, repo: repo,
                    branch: branch, pr: pr, preview: preview, previewState: previewState,
                    planVersion: planVersion, loops: loops, createdAt: nil, updatedAt: updatedAt,
-                   durationMin: nil, usd: nil, escalation: escalation, serverNeedsYou: serverNeedsYou)
+                   durationMin: nil, usd: nil, escalation: escalation, serverNeedsYou: serverNeedsYou,
+                   previewStatus: previewStatus)
     }
 }
 
@@ -457,7 +476,9 @@ enum FactoryAPI {
     enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close
         case retryPreview = "retry_preview" }
 
-    struct ActResult { let status: String?; let queued: Bool; var keys: [String] = [] }
+    /// `previewState`/`previewError`: cómo quedó la preview tras `retry_preview` (`waiting` = sin lugar de caja).
+    struct ActResult { let status: String?; let queued: Bool; var keys: [String] = []
+        var previewState: String? = nil; var previewError: String? = nil }
     struct NewRun { let room: String; let threadId: Int; let url: String? }
 
     private static let session: URLSession = {
@@ -552,7 +573,9 @@ enum FactoryAPI {
         if let ignore { body["ignore"] = ignore }
         let d = try await request("/api/v2/workspaces/\(enc(slug))/factory/runs/\(id)/act", method: "POST", body: body)
         let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] ?? [:]
-        return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false, keys: j["keys"] as? [String] ?? [])
+        let preview = j["preview"] as? [String: Any]
+        return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false, keys: j["keys"] as? [String] ?? [],
+                         previewState: preview?["state"] as? String, previewError: preview?["error"] as? String)
     }
 
     /// Qué hace ahora cada rol. Una caja de gs sin `/live` contesta 404: quien llama lo ignora.

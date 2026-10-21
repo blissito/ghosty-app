@@ -201,12 +201,12 @@ final class FactoryStore {
     static var demo: [FactorySpace] {
         func run(_ id: Int, _ title: String, _ status: String, repo: String, pr: Int?, ago: Double,
                  min: Double?, usd: Double?, plan: Int = 1, kind: String = "sprint",
-                 escalation: (String, String)? = nil) -> FactoryRun {
+                 escalation: (String, String)? = nil, previewStatus: FactoryPreviewStatus? = nil) -> FactoryRun {
             FactoryRun(id: id, title: title, status: status, kind: kind, room: "agenda", thread: 900 + id, repo: repo,
                        branch: nil, pr: pr.map { "https://github.com/demo/\(repo.split(separator: "/").last ?? "")/pull/\($0)" },
                        preview: nil, previewState: nil, planVersion: plan, loops: 0,
                        createdAt: iso(ago + (min ?? 10)), updatedAt: iso(ago), durationMin: min, usd: usd,
-                       escalation: escalation.map { demoEscalation($0.0, $0.1) })
+                       escalation: escalation.map { demoEscalation($0.0, $0.1) }, previewStatus: previewStatus)
         }
         return [FactorySpace(slug: "demo", role: "OWNER", runs: [
             run(42, "Recordatorio por WhatsApp un día antes de la cita", "plan_review", repo: "demo/agenda", pr: nil, ago: 4, min: 6, usd: 0.41, plan: 2),
@@ -222,7 +222,10 @@ final class FactoryStore {
             run(40, "Exportar la agenda del mes a Excel", "building", repo: "demo/agenda", pr: nil, ago: 1, min: 14, usd: 0.95),
             // Sin avanzar: en «building», nadie trabaja y la plataforma ya avisó (el #121, 20-oct).
             run(35, "Bump the npm group with 46 updates", "building", repo: "demo/agenda", pr: 83, ago: 840, min: 60, usd: 0.70, kind: "dependabot"),
-            run(39, "Página de precios con el plan anual", "pr_review", repo: "demo/sitio", pr: 87, ago: 50, min: 42, usd: 2.30),
+            // En revisión con la preview atorada y sin escalado (el #131 de easybits, 20-oct).
+            run(39, "Página de precios con el plan anual", "pr_review", repo: "demo/sitio", pr: 87, ago: 50, min: 42, usd: 2.30,
+                previewStatus: .init(state: "failed", since: iso(180), minutes: 180,
+                                     reason: "Falló: la caja se quedó en «building» 15 min", stuck: true)),
             run(38, "La lista de clientes busca por teléfono", "done", repo: "demo/agenda", pr: 86, ago: 180, min: 37, usd: 2.05),
             run(37, "Correo de bienvenida con el logo del negocio", "done", repo: "demo/sitio", pr: 85, ago: 600, min: 28, usd: 1.60),
         ])]
@@ -333,6 +336,7 @@ final class FactoryStore {
                                 ci: r.stage == .prReview
                                     ? .init(total: 5, passed: 3, running: [.init(name: "test", url: nil), .init(name: "e2e", url: nil)],
                                             failed: [], startedAt: iso(3))
-                                    : nil)
+                                    : nil,
+                                previewStatus: r.previewStatus)
     }
 }

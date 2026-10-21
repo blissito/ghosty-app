@@ -83,6 +83,7 @@ struct FactoryRunView: View {
                 if let notice { noticeBanner(notice) }
                 if let error { errorBanner(error) }
                 if stage == .escalated { escalationCard }
+                if let p = previewStuck { previewCard(p) }
                 if let plan = detail?.plan { planCard(plan) }
                 linksRow
                 if let events = detail?.events, !events.isEmpty { logCard(events) }
@@ -303,6 +304,53 @@ struct FactoryRunView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("pedido-ci")
+    }
+
+    /// La preview atorada o fallida en CUALQUIER etapa (#131 de easybits, 20-oct: horas en revisión
+    /// sin nada que tocar). En un escalado de plataforma ya lo dicen su tarjeta y su barra.
+    private var previewStuck: FactoryPreviewStatus? {
+        guard let p = detail?.previewStatus ?? cached?.previewStatus, p.stuck,
+              !(stage == .escalated && escalationKind == .platform) else { return nil }
+        return p
+    }
+
+    private func previewCard(_ p: FactoryPreviewStatus) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: p.failed ? "exclamationmark.triangle.fill" : "hourglass")
+                    .foregroundStyle(p.failed ? Color.gAmber : Color.gInk3)
+                Text("Preview").gCardTitle()
+                Spacer(minLength: 0)
+                if let ago = FactoryFormat.ago(FactoryAPI.date(p.since)) { Text(ago).gCaption() }
+            }
+            Text(p.reason)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.gInk)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("preview-motivo")
+            Text(p.state == "waiting"
+                 ? "Arranca sola en cuanto se libere un lugar. Si tarda, reintentar la pide otra vez."
+                 : "Es la plataforma, no el código del PR. Reintentar la levanta otra vez; el pedido sigue donde está.")
+                .gMeta()
+                .fixedSize(horizontal: false, vertical: true)
+            Button { confirm = .retryPreview } label: {
+                Label("Reintentar preview", systemImage: "arrow.clockwise")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.gPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            }
+            .buttonStyle(.gPressPrimary)
+            .disabled(busy || detail == nil)
+            .accessibilityIdentifier("retry-preview-card")
+        }
+        .padding(16)
+        .background((p.failed ? Color.gAmberTint.opacity(0.55) : Color.gFill),
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+            .strokeBorder(p.failed ? Color.gAmber.opacity(0.35) : Color.gHairline, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("preview-atorada")
     }
 
     private var escalationKind: FactoryEscalation.Kind { detail?.escalationKind ?? cached?.escalation?.type ?? .decision }
@@ -648,7 +696,9 @@ struct FactoryRunView: View {
         case .merge: "Pedido #\(id). " + (detail?.pr.map { "Se mergea \($0.replacingOccurrences(of: "https://github.com/", with: ""))." } ?? "Se mergea el PR.")
         case .resume: "Pedido #\(id). @\(stageRole) vuelve a trabajar en el mismo hilo desde donde se quedó."
         case .cancel: "Pedido #\(id). Se cancela y nadie sigue trabajando en él. El PR no se cierra solo."
-        case .retryPreview: "Pedido #\(id). Se vuelve a levantar la preview; en cuanto esté, @check revisa."
+        case .retryPreview: stage == .escalated
+            ? "Pedido #\(id). Se vuelve a levantar la preview; en cuanto esté, @check revisa."
+            : "Pedido #\(id). Se vuelve a levantar la preview. El pedido sigue en su etapa."
         case .close(let i): i == nil
             ? "Pedido #\(id). Se cierra el PR en GitHub y el pedido termina."
             : "Pedido #\(id). Se cierra el PR y Dependabot deja de proponer esta versión mayor."
@@ -763,7 +813,7 @@ struct FactoryRunView: View {
             case .stop: "Turno detenido."
             case .cancel: "Pedido detenido."
             case .close: ignore == nil ? "PR cerrado." : "PR cerrado. Dependabot ya no propone esta versión."
-            case .retryPreview: "Levantando la preview otra vez."
+            case .retryPreview: Self.retryNotice(r)
             }
             withAnimation(.snappy) { notice = msg; error = nil }
             if action == .merge { confetti = UUID() }
@@ -774,6 +824,18 @@ struct FactoryRunView: View {
             mergeWithoutPreview = true
         } catch {
             withAnimation(.snappy) { self.error = error.localizedDescription; notice = nil }
+        }
+    }
+
+    /// Cómo quedó la preview al reintentar: sin lugar de caja dice cuántos hay ocupados (Teams).
+    static func retryNotice(_ r: FactoryAPI.ActResult) -> String {
+        switch r.previewState {
+        case "waiting":
+            let why = r.previewError.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Esperando lugar de caja"
+            return why.contains("arranca sola") ? why + "." : why + ". Arranca sola al liberarse uno."
+        case "failed": return "La preview volvió a fallar" + (r.previewError.map { ": \($0)" } ?? ".")
+        case "needs_env": return "La preview necesita las variables del repo."
+        default: return "Levantando la preview otra vez."
         }
     }
 

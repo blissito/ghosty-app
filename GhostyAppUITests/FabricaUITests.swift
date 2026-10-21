@@ -302,6 +302,32 @@ final class FabricaUITests: XCTestCase {
         app.buttons["confirmar-cancelar"].tap()
     }
 
+    /// La preview atorada en revisión, sin escalado (el #131 de easybits, 20-oct): la tarjeta «Preview»
+    /// dice por qué y «Reintentar preview» la pide otra vez sin sacar al pedido de su etapa.
+    func testPreviewAtoradaDemo() {
+        abrirFabrica()
+        tocar("pedido-39")
+        let card = app.descendants(matching: .any)["preview-atorada"]
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "una preview atorada en revisión no sale en el detalle")
+        XCTAssertTrue(app.staticTexts["preview-motivo"].label.hasPrefix("Falló:"), "la tarjeta no dice por qué")
+        XCTAssertTrue(app.buttons["merge"].exists, "la tarjeta de la preview no debe quitar el Merge")
+        foto("p1-preview-atorada")
+        tocar("retry-preview-card")
+        let confirmar = app.descendants(matching: .any)["confirmar-retry-preview"]
+        XCTAssertTrue(confirmar.waitForExistence(timeout: 5), "«Reintentar preview» no pide confirmar")
+        foto("p2-confirmar")
+        confirmar.tap()
+        XCTAssertTrue(app.otherElements["aviso-pedido"].waitForExistence(timeout: 5) || app.staticTexts["Listo (demo)"].exists,
+                      "«Reintentar preview» no hizo nada")
+        foto("p3-reintentada")
+
+        // En un escalado de plataforma lo dice su barra: sin tarjeta repetida.
+        app.navigationBars.buttons.firstMatch.tap()
+        tocar("pedido-44")
+        XCTAssertTrue(app.buttons["reintentar-preview"].waitForExistence(timeout: 5), "falta «Reintentar preview» en la barra")
+        XCTAssertFalse(app.buttons["retry-preview-card"].exists, "dos «Reintentar preview» en el mismo pedido")
+    }
+
     /// Un pedido sin avanzar (#121, 20-oct) dice la verdad y tiene salida: «¿Qué pasó?», «Retomar»,
     /// «Detener pedido» y el hilo DENTRO de la app, donde se le escribe a @build.
     func testPedidoSinAvanzarDemo() {
