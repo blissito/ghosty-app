@@ -201,8 +201,8 @@ struct FactorySlotNote: Decodable, Hashable {
         /// Ya sólo espera (o lleva horas sin nada) y no tiene turno corriendo: se puede liberar.
         var releasable = false
 
-        init(label: String, detail: String?, run: Int? = nil, pr: Int? = nil, releasable: Bool = false) {
-            self.label = label; self.detail = detail; self.run = run; self.pr = pr; self.releasable = releasable
+        init(label: String, detail: String?, run: Int? = nil, pr: Int? = nil, repo: String? = nil, releasable: Bool = false) {
+            self.label = label; self.detail = detail; self.run = run; self.pr = pr; self.repo = repo; self.releasable = releasable
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)

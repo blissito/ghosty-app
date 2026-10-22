@@ -248,14 +248,19 @@ final class FactoryStore {
         let occupants: [FactorySlotNote.Occupant] = [
             .init(label: "#40", detail: "pedido · construyendo"),
             .init(label: "#39", detail: "pedido · en revisión"),
-            .init(label: "PR #92", detail: "preview · agenda"),
+            // La preview suelta ya sólo espera: se puede liberar.
+            .init(label: "PR #92", detail: "preview · agenda", pr: 92, repo: "demo/agenda", releasable: true),
         ]
         let plans = "https://www.ghosty.studio/app/workspaces/demo/plan"
         if queued {
-            return FactorySlotNote(kind: "queued", title: "En fila por un lugar",
-                                   message: "Tu plan tiene 3 lugares, ocupados por #40, #39 y la preview del PR #92. #46 arranca solo en cuanto se libere uno.",
-                                   occupants: occupants, position: 2, ahead: [45], chip: "Cortesía usada · se renueva el 1-nov",
-                                   suggestUpgrade: false, plansUrl: plans)
+            // Quien mira el #46 no es admin: en vez de «Agregar 1 lugar» ve «Avisar al admin».
+            var n = FactorySlotNote(kind: "queued", title: "En fila por un lugar",
+                                    message: "Tu plan tiene 3 lugares, ocupados por #40, #39 y la preview del PR #92. #46 arranca solo en cuanto se libere uno.",
+                                    occupants: occupants, position: 2, ahead: [45], chip: "Cortesía usada · se renueva el 1-nov",
+                                    suggestUpgrade: false, plansUrl: plans)
+            n.canAddSlot = false
+            n.notifyAdmin = .init(available: true, nextAt: nil)
+            return n
         }
         return FactorySlotNote(kind: "courtesy", title: "Cortesía de octubre",
                                message: "Tu plan tiene 3 lugares, ocupados por #40, #39 y la preview del PR #92. Esta vez te prestamos la caja para que #45 no espere: es tu cortesía de octubre. Si se repite, agrega un lugar o mira los planes.",

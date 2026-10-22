@@ -898,6 +898,13 @@ struct FactoryRunView: View {
 
     // MARK: - Decisiones
 
+    /// gs quita `replan` de las acciones cuando no hay plan que rehacer (Dependabot adoptado, plan v0;
+    /// #137 de business, 21-oct). gs viejo no manda acciones: se ofrece como antes.
+    private var canReplan: Bool {
+        guard let actions = detail?.escalation?.actions ?? cached?.escalation?.actions else { return true }
+        return actions.contains("replan")
+    }
+
     private var actionBar: some View {
         let version = detail?.planVersion ?? cached?.planVersion ?? 1
         return HStack(spacing: 10) {
@@ -911,7 +918,7 @@ struct FactoryRunView: View {
                 barButton("Que @check revise", primary: true, id: "volver-a-revisar", icon: "checkmark.shield") { confirm = .recheck }
             case .escalated where escalationKind == .env:
                 // @build no puede dar lo que falta: otra vuelta sólo gasta tokens (#125, 20-oct).
-                barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
+                if canReplan { barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan } }
                 barButton("Que @check revise", primary: true, id: "volver-a-revisar", icon: "checkmark.shield") { confirm = .recheck }
             case .escalated where escalationKind == .skip:
                 if detail?.kind == "dependabot" || cached?.isDependabot == true {
@@ -922,7 +929,7 @@ struct FactoryRunView: View {
                     barButton("Cerrar PR", primary: true, id: "cerrar-pr", icon: "xmark.circle") { confirm = .close(nil) }
                 }
             case .escalated:
-                barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan }
+                if canReplan { barButton("Rehacer el plan", primary: false, id: "replanear") { asking = .replan } }
                 barButton("Que @build lo arregle", primary: true, id: "otra-vuelta") { confirm = .anotherLoop }
             case .prReview where mergeQueued:
                 // Ya se pidió: un segundo toque no hace nada útil. Al entrar, la etapa pasa a «Terminado».

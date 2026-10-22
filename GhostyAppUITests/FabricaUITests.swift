@@ -392,6 +392,11 @@ final class FabricaUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["lugar-fila"].label.contains("#45"), "no dice quién va delante")
         XCTAssertTrue(app.staticTexts["lugar-chip"].label.contains("se renueva"), "falta la ficha de cortesía usada")
         XCTAssertTrue(app.buttons["lugar-planes"].exists, "falta «Ver planes»")
+        // Quien no es admin no agrega el lugar: avisa al admin. Y la preview que sólo espera se libera.
+        XCTAssertFalse(app.buttons["lugar-agregar"].exists, "quien no es admin no debería ver «Agregar 1 lugar»")
+        XCTAssertTrue(app.buttons["lugar-avisar"].exists, "falta «Avisar al admin»")
+        XCTAssertTrue(app.buttons["lugar-liberar-PR #92"].exists, "falta «Liberar» en la preview que sólo espera")
+        XCTAssertFalse(app.buttons["lugar-liberar-#40"].exists, "un pedido trabajando no se puede liberar")
         foto("l2-en-fila")
     }
 

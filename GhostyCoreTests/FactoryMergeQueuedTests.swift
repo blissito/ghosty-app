@@ -36,3 +36,38 @@ final class FactoryCILineTests: XCTestCase {
         XCTAssertNil(try ci(#"{"total":0,"passed":0,"running":[],"failed":[],"startedAt":null}"#).line)
     }
 }
+
+/// La tarjeta «Lugar» (21-oct) contra la forma exacta de gs `slotNoteOf` (`app/lib/ci/slot-courtesy.ts`).
+final class FactorySlotNoteTests: XCTestCase {
+    private let gs = #"""
+    {"kind":"queued","title":"En fila por un lugar","message":"m","occupants":[
+      {"label":"#40","detail":"pedido · construyendo","kind":"run","run":40,"pr":null,"repo":null,"releasable":false},
+      {"label":"PR #92","detail":"preview","kind":"preview","run":null,"pr":92,"repo":"o/agenda","releasable":true}],
+     "position":2,"ahead":[45],"chip":null,"suggestUpgrade":false,
+     "plansUrl":"https://www.ghosty.studio/app/workspaces/x/plan","addSlotUrl":"https://www.ghosty.studio/app/workspaces/x/plan?lugar=1",
+     "canAddSlot":false,"notifyAdmin":{"available":false,"lastAt":"2026-10-20T10:00:00.000Z","nextAt":"2026-11-03T10:00:00.000Z"}}
+    """#
+
+    func testDecodesGsShape() throws {
+        let n = try JSONDecoder().decode(FactorySlotNote.self, from: Data(gs.utf8))
+        XCTAssertTrue(n.queued)
+        XCTAssertFalse(n.canAddSlot)
+        XCTAssertEqual(n.addSlotUrl, "https://www.ghosty.studio/app/workspaces/x/plan?lugar=1")
+        XCTAssertEqual(n.notifyAdmin?.available, false)
+        XCTAssertEqual(n.notifyAdmin?.nextAt, "2026-11-03T10:00:00.000Z")
+        // El `target` de `release` es el que acepta gs `releaseSlot`: {run} o {pr, repo}.
+        XCTAssertEqual(n.occupants[0].target as? [String: Int], ["run": 40])
+        XCTAssertFalse(n.occupants[0].releasable)
+        let t = try XCTUnwrap(n.occupants[1].target)
+        XCTAssertEqual(t["pr"] as? Int, 92)
+        XCTAssertEqual(t["repo"] as? String, "o/agenda")
+        XCTAssertTrue(n.occupants[1].releasable)
+    }
+
+    func testAdminNoteHasNoNotify() throws {
+        let admin = #"{"kind":"courtesy","title":"t","message":"m","occupants":[],"plansUrl":"u","addSlotUrl":"u?lugar=1","canAddSlot":true,"notifyAdmin":null}"#
+        let n = try JSONDecoder().decode(FactorySlotNote.self, from: Data(admin.utf8))
+        XCTAssertTrue(n.canAddSlot)
+        XCTAssertNil(n.notifyAdmin)
+    }
+}
