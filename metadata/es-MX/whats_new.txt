@@ -7,3 +7,4 @@
 • Si la vista previa de un pedido se atora, la ves en su tarjeta con el motivo y la reintentas con un toque.
 • Cuando tu fábrica se llena, la tarjeta te dice quién ocupa cada lugar; la primera vez en el mes te prestamos el lugar para que tu pedido no espere.
 • Si a un pedido le faltan las variables de la vista previa, copia el pedido para tu agente de terminal o pégalas aquí, y pide que se revise otra vez con un toque.
+• Cuando tu fábrica se llena, libera con un toque el lugar de un pedido que ya sólo espera, o avísale al admin que hace falta otro lugar.
