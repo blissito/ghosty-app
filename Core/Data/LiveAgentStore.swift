@@ -45,7 +45,7 @@ final class LiveAgentStore: AgentStoring {
     /// 👍/👎 por turno, ya pintado aunque gs no lo tenga aún (ver `FeedbackLedger`).
     /// En demo sólo vive en memoria: ni red ni base, y cada recorrido arranca sin votos.
     var feedback: [String: Feedback] = DemoData.encendido ? [:]
-        : Dictionary(FeedbackLedger.all().map { ($0.turnID, $0) }, uniquingKeysWith: { a, _ in a })
+        : Dictionary(FeedbackLedger.all().map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
     /// Los votos que van de camino, para no mandar dos veces el mismo.
     @ObservationIgnored fileprivate var sendingFeedback: Set<String> = []
 
@@ -3668,23 +3668,25 @@ extension LiveAgentStore {
 // MARK: - 👍/👎 por respuesta
 
 extension LiveAgentStore {
-    /// El voto de esta cuenta sobre un turno: 1, -1 o 0 (sin voto).
-    func rating(of turnID: String) -> Int { feedback[turnID]?.rating ?? 0 }
+    /// El voto de esta cuenta sobre un turno (o una tarjeta suya): 1, -1 o 0 (sin voto).
+    func rating(of turnID: String, card: Int? = nil) -> Int { feedback[Feedback.key(turnID, card: card)]?.rating ?? 0 }
 
     /// Vota una respuesta de la conversación que se mira. Optimista: se pinta y se guarda
     /// aquí al instante; gs se entera después (y si no puede, al volver del fondo).
-    /// `rating: 0` quita el voto. El comentario sólo acompaña al 👎.
-    func rate(turnID: String, rating: Int, comment: String? = nil) {
-        guard let canal = canalActivo, let sid = canal.hilo?.sesionID ?? feedback[turnID]?.sessionID else { return }
+    /// `rating: 0` quita el voto. El comentario sólo acompaña al 👎. `card` vota una sola
+    /// tarjeta del resumen de la mañana.
+    func rate(turnID: String, rating: Int, comment: String? = nil, card: Int? = nil) {
+        let key = Feedback.key(turnID, card: card)
+        guard let canal = canalActivo, let sid = canal.hilo?.sesionID ?? feedback[key]?.sessionID else { return }
         let clean = comment?.trimmingCharacters(in: .whitespacesAndNewlines)
         let f = Feedback(agentID: canal.cuenta.id, sessionID: sid, turnID: turnID, rating: rating,
                          comment: rating == -1 && clean?.isEmpty == false ? clean : nil,
-                         sent: false, at: Date())
+                         sent: false, at: Date(), card: card)
         guard !DemoData.encendido else {
-            feedback[turnID] = rating == 0 ? nil : f
+            feedback[key] = rating == 0 ? nil : f
             return
         }
-        feedback[turnID] = f
+        feedback[key] = f
         FeedbackLedger.save(f)
         send(f)
     }
@@ -3709,35 +3711,35 @@ extension LiveAgentStore {
     }
 
     fileprivate func send(_ f: Feedback) {
-        guard !sendingFeedback.contains(f.turnID), let canal = channels[f.agentID] else { return }
-        sendingFeedback.insert(f.turnID)
+        guard !sendingFeedback.contains(f.key), let canal = channels[f.agentID] else { return }
+        sendingFeedback.insert(f.key)
         Task { [weak self] in
             guard let self else { return }
             guard let gs = try? await self.asegurarSocket(canal) as? ClienteGS else {
-                self.sendingFeedback.remove(f.turnID); return
+                self.sendingFeedback.remove(f.key); return
             }
-            let outcome = await gs.rate(sessionID: f.sessionID, turnID: f.turnID, rating: f.rating, comment: f.comment)
-            self.sendingFeedback.remove(f.turnID)
+            let outcome = await gs.rate(sessionID: f.sessionID, turnID: f.turnID, rating: f.rating, comment: f.comment, card: f.card)
+            self.sendingFeedback.remove(f.key)
             // Si cambió mientras viajaba, esta respuesta ya no es la suya: sale el voto nuevo.
-            guard let current = self.feedback[f.turnID], current.at == f.at else {
-                if let next = self.feedback[f.turnID], !next.sent { self.send(next) }
+            guard let current = self.feedback[f.key], current.at == f.at else {
+                if let next = self.feedback[f.key], !next.sent { self.send(next) }
                 return
             }
             switch outcome {
             case .saved:
                 if f.rating == 0 {
-                    self.feedback[f.turnID] = nil
-                    FeedbackLedger.remove(f.turnID)
+                    self.feedback[f.key] = nil
+                    FeedbackLedger.remove(f.key)
                 } else {
                     var done = current; done.sent = true
-                    self.feedback[f.turnID] = done
+                    self.feedback[f.key] = done
                     FeedbackLedger.save(done)
                 }
             case .rejected:
                 // gs no reconoce ese turno en esa conversación: repetirlo no lo arregla.
                 EasyBitsClient.diag("[feedback] gs rechazó el voto de \(f.turnID); se descarta")
-                self.feedback[f.turnID] = nil
-                FeedbackLedger.remove(f.turnID)
+                self.feedback[f.key] = nil
+                FeedbackLedger.remove(f.key)
             case .retryLater:
                 EasyBitsClient.diag("[feedback] no pude mandar el voto de \(f.turnID); se reintenta luego")
             }

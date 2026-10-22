@@ -88,6 +88,10 @@ enum LocalDB {
                 t.column("at", .double).notNull()
             }
         }
+        // Los votos por tarjeta del resumen de la mañana: misma tabla, llave `turno#tarjeta`.
+        m.registerMigration("v3-feedback-card") { db in
+            try db.alter(table: "feedback") { t in t.add(column: "card", .integer) }
+        }
         return m
     }
 }

@@ -41,6 +41,8 @@ struct ChatsView: View {
     /// Cuándo terminó el último toque largo en una fila (ver `onTapGesture`).
     @State private var toqueLargoEn: Date?
     @AppStorage("app.chats.soloFavoritos") private var soloFavoritos = false
+    /// La oferta del resumen de la mañana: sale una vez, arriba de la lista.
+    @State private var resumen = MorningBriefStore.shared
     /// Chats fijados arriba (deslizar a la derecha → Fijar), como WhatsApp.
     @State private var fijadas: Set<String> = ChatsFijados.ids
     /// El chat que se va a archivar (confirmación).
@@ -173,6 +175,11 @@ struct ChatsView: View {
                     .padding(.bottom, 10)
                 buscador.padding(.bottom, 12)
                 if variosAgentes { chips(todas, orden: agentesOrdenados(todas)).padding(.bottom, 8) }
+                if resumen.shouldOffer, !seleccionando {
+                    MorningBriefOffer(brief: resumen)
+                        .padding(.bottom, 10)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 lista(rows)
             }
             .padding(.horizontal, Theme.Space.screenH)
@@ -193,6 +200,7 @@ struct ChatsView: View {
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: rows.map(\.id))
         // Entrar ES verlo: el punto del historial se apaga aquí.
         .onAppear { store.vistoTodo() }
+        .task { await resumen.load() }
         // Lo que hay se pinta YA; la red sólo si pasaron más de 20 s (lo frena el store).
         .task {
             store.recalcularVistasPrevias()
@@ -1109,5 +1117,56 @@ private struct DeslizarChat: ViewModifier {
 
     private func cerrar() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { lado = 0; dx = 0 }
+    }
+}
+
+
+/// «¿Quieres tu resumen cada mañana?»: la única vez que se ofrece. Viene apagado porque gasta
+/// saldo; con «Ahora no» no vuelve a salir (ni en Android ni en `/c`). Se prende después en Perfil.
+private struct MorningBriefOffer: View {
+    let brief: MorningBriefStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "sun.horizon.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(Color.gPrimary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.gPrimaryTint, in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("¿Quieres tu resumen cada mañana?")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                    Text("A las 8, tu agente revisa tu correo, tu agenda y tus pendientes y te deja lo importante en tarjetas y en audio.")
+                        .gMeta().foregroundStyle(Color.gInk2)
+                }
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button("Ahora no") { Task { await brief.update { $0.offered = true } } }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.gInk2)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .accessibilityIdentifier("resumen-oferta-no")
+                Button {
+                    Avisos.pedirPermisoSiHaceFalta()
+                    Task { await brief.update { $0.enabled = true } }
+                } label: {
+                    Text("Sí, a las 8")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .background(Color.gPrimary, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("resumen-oferta-si")
+            }
+        }
+        .padding(14)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.gSeparator, lineWidth: 0.5))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("resumen-oferta")
     }
 }

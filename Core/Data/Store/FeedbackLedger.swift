@@ -14,6 +14,13 @@ struct Feedback: Equatable, Sendable {
     var sent: Bool
     /// Cuándo se votó: si cambió mientras viajaba, la respuesta de gs ya no lo marca enviado.
     var at: Date
+    /// La tarjeta del resumen de la mañana que se votó (`## ` número `card`). `nil` = la
+    /// respuesta entera, como siempre.
+    var card: Int? = nil
+
+    /// La llave en memoria y en la tabla: el turno, o `turno#tarjeta` si es de una tarjeta.
+    var key: String { Self.key(turnID, card: card) }
+    static func key(_ turnID: String, card: Int?) -> String { card.map { "\(turnID)#\($0)" } ?? turnID }
 }
 
 /// La tabla `feedback` de `LocalDB`. Pocas filas (una por respuesta votada): se lee entera al
@@ -21,10 +28,14 @@ struct Feedback: Equatable, Sendable {
 enum FeedbackLedger {
     static func all() -> [Feedback] {
         (try? LocalDB.queue?.read { db in
+            // La columna `turnId` guarda la LLAVE (`turno#tarjeta` en las de tarjeta).
             try Row.fetchAll(db, sql: "SELECT * FROM feedback").map { r in
-                Feedback(agentID: r["agentId"], sessionID: r["sessionId"], turnID: r["turnId"],
-                         rating: r["rating"], comment: r["comment"], sent: r["sent"],
-                         at: Date(timeIntervalSince1970: r["at"]))
+                let key: String = r["turnId"]
+                let card: Int? = r["card"]
+                let turnID = card == nil ? key : String(key.split(separator: "#").first ?? Substring(key))
+                return Feedback(agentID: r["agentId"], sessionID: r["sessionId"], turnID: turnID,
+                                rating: r["rating"], comment: r["comment"], sent: r["sent"],
+                                at: Date(timeIntervalSince1970: r["at"]), card: card)
             }
         }) ?? []
     }
@@ -32,19 +43,19 @@ enum FeedbackLedger {
     static func save(_ f: Feedback) {
         LocalDB.queue?.asyncWrite({ db in
             try db.execute(sql: """
-                INSERT INTO feedback (turnId, agentId, sessionId, rating, comment, sent, at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO feedback (turnId, agentId, sessionId, rating, comment, sent, at, card)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turnId) DO UPDATE SET
                   agentId = excluded.agentId, sessionId = excluded.sessionId, rating = excluded.rating,
-                  comment = excluded.comment, sent = excluded.sent, at = excluded.at
-                """, arguments: [f.turnID, f.agentID, f.sessionID, f.rating, f.comment, f.sent,
-                                 f.at.timeIntervalSince1970])
+                  comment = excluded.comment, sent = excluded.sent, at = excluded.at, card = excluded.card
+                """, arguments: [f.key, f.agentID, f.sessionID, f.rating, f.comment, f.sent,
+                                 f.at.timeIntervalSince1970, f.card])
         }, completion: logFailure)
     }
 
-    static func remove(_ turnID: String) {
+    static func remove(_ key: String) {
         LocalDB.queue?.asyncWrite({ db in
-            try db.execute(sql: "DELETE FROM feedback WHERE turnId = ?", arguments: [turnID])
+            try db.execute(sql: "DELETE FROM feedback WHERE turnId = ?", arguments: [key])
         }, completion: logFailure)
     }
 

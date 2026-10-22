@@ -72,6 +72,8 @@ struct PerfilView: View {
     @State private var falloAlBorrar: String?
     @AppStorage(AIConsentSheet.key) private var consentGiven = false
     @State private var abrirConsentimiento = false
+    @State private var resumen = MorningBriefStore.shared
+    @State private var verResumen = false
     @State private var webAbierta = false
     @State private var avisos: UNAuthorizationStatus?
     /// La fábrica de tus espacios: la entrada sólo sale si alguno tiene pedidos.
@@ -157,6 +159,8 @@ struct PerfilView: View {
         .task { await store.cargarAlmacenamiento() }
         .task(id: fase) { await leerAvisos() }
         .sheet(isPresented: $abrirConsentimiento) { AIConsentSheet() }
+        .sheet(isPresented: $verResumen) { MorningBriefSheet(store: store) }
+        .task { await resumen.load() }
         .sheet(isPresented: Binding(get: { store.integracionesPedidas },
                                     set: { store.integracionesPedidas = $0 })) {
             ConectoresPane(store: store)
@@ -245,6 +249,14 @@ struct PerfilView: View {
                     .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
                     .accessibilityIdentifier("ajuste-notificaciones")
                     divisorWA
+                    if resumen.available {
+                        Button { verResumen = true } label: {
+                            renglonWA("sun.horizon", "Resumen de la mañana", resumen.brief?.summary ?? " ", chevron: true)
+                        }
+                        .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                        .accessibilityIdentifier("ajuste-resumen-manana")
+                        divisorWA
+                    }
                     // 5.1.2(i): el permiso de IA de terceros se revisa y se retira aquí.
                     Button { abrirConsentimiento = true } label: {
                         renglonWA("hand.raised", "IA de terceros", consentGiven ? "Permitido" : "No permitido", chevron: true)

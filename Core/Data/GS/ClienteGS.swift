@@ -380,8 +380,9 @@ actor ClienteGS: TransporteDeAgente {
     /// ⚠️ No va por `pedir`: hace falta distinguir el 404 de gs (JSON: ese turno no es de esta
     /// conversación → se descarta) del 404 de una ruta que aún no existe (HTML de la web →
     /// se guarda para cuando exista). Con `pedir` los dos eran la misma frase.
-    func rate(sessionID: String, turnID: String, rating: Int, comment: String?) async -> FeedbackOutcome {
+    func rate(sessionID: String, turnID: String, rating: Int, comment: String?, card: Int? = nil) async -> FeedbackOutcome {
         var cuerpo: [String: Any] = ["turnId": turnID, "rating": rating, "surface": "app"]
+        if let card { cuerpo["card"] = card }
         if let comment, !comment.isEmpty { cuerpo["comment"] = String(comment.prefix(500)) }
         let url = base("/conversations/\(sessionID)/feedback")
         var rejected: String?
