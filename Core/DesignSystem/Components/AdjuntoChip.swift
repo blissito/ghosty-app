@@ -7,6 +7,9 @@ import SwiftUI
 struct AdjuntoChip: View {
     let adjunto: Adjunto
     var alQuitar: () -> Void
+    /// La foto de un archivo de «Mis archivos» no trae bytes: se baja (con la caché de siempre) si
+    /// la hoja no la dejó en memoria, p. ej. cuando llega desde la pestaña Archivos.
+    @State private var remota: UIImage?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -39,7 +42,7 @@ struct AdjuntoChip: View {
 
     @ViewBuilder
     private var miniatura: some View {
-        if adjunto.esImagen, let img = UIImage(data: adjunto.datos) ?? CacheDeImagenes.enMemoria(adjunto) {
+        if adjunto.esImagen, let img = UIImage(data: adjunto.datos) ?? CacheDeImagenes.enMemoria(adjunto) ?? remota {
             Image(uiImage: img)
                 .resizable()
                 .scaledToFill()
@@ -48,6 +51,10 @@ struct AdjuntoChip: View {
         } else {
             TintedIcon(systemName: adjunto.icono, tint: .gPrimary,
                        background: .gPrimaryTint, size: 34)
+                .task(id: adjunto.remoto?.id) {
+                    guard adjunto.esImagen, adjunto.esDeBiblioteca else { return }
+                    remota = await CacheDeImagenes.imagen(adjunto)
+                }
         }
     }
 }
