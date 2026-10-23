@@ -852,10 +852,13 @@ struct NuevaConversacionSheet: View {
                     .frame(width: 48, height: 48)
                     .background(Circle().fill(Color.gPrimaryTint))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(a.name)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.gInk)
-                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(a.name)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color.gInk)
+                            .lineLimit(1)
+                        if DefaultAgentStore.shared.isDefault(a.id) { DefaultAgentBadge() }
+                    }
                     Text(CambiarAgenteSheet.tipo(a))
                         .font(.system(size: 13))
                         .foregroundStyle(Color.gInk3)
@@ -1138,7 +1141,9 @@ private struct MorningBriefOffer: View {
                     Text("¿Quieres tu resumen cada mañana?")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color.gInk)
-                    Text("A las 8, tu agente revisa tu correo, tu agenda y tus pendientes y te deja lo importante en tarjetas y en audio.")
+                    Text(brief.brief?.hasSources == false
+                         ? "A las 8, tu agente te deja lo importante del día en tarjetas y en audio. Conecta tu correo y tu agenda para que sea mejor."
+                         : "A las 8, tu agente revisa tu correo, tu agenda y tus pendientes y te deja lo importante en tarjetas y en audio.")
                         .gMeta().foregroundStyle(Color.gInk2)
                 }
             }

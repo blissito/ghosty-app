@@ -19,6 +19,17 @@ struct MorningBriefSheet: View {
                     } footer: {
                         Text("Tu agente revisa tu correo, tu agenda y tus pendientes y te deja de 3 a 5 tarjetas con un audio. Si no hay nada nuevo, no te avisa. Usa tu saldo como cualquier otro mensaje.")
                     }
+                    if !b.hasSources {
+                        Section {
+                            Button { dismiss(); store.requestedTab = .perfil; store.integracionesPedidas = true } label: {
+                                Label("Conecta tu correo para un mejor resumen", systemImage: "envelope.badge")
+                                    .foregroundStyle(Color.gPrimary)
+                            }
+                            .accessibilityIdentifier("resumen-conectar")
+                        } footer: {
+                            Text("Sin correo ni agenda, tu agente usa lo que ya sabe: tus turnos programados, tus pendientes y lo que te preguntó.")
+                        }
+                    }
                     if b.enabled {
                         Section {
                             DatePicker("Hora", selection: horaBinding(b), displayedComponents: .hourAndMinute)
@@ -33,6 +44,7 @@ struct MorningBriefSheet: View {
                             .accessibilityIdentifier("resumen-dias")
                             if agentes.count > 1 {
                                 Picker("Lo escribe", selection: binding(\.agentId)) {
+                                    Text("Tu agente principal (\(nombrePrincipal))").tag(String?.none)
                                     ForEach(agentes, id: \.id) { a in Text(a.name).tag(Optional(a.id)) }
                                 }
                                 .accessibilityIdentifier("resumen-agente")
@@ -78,6 +90,10 @@ struct MorningBriefSheet: View {
         }
         .presentationBackground(Color.gBg)
         .task { await brief.load(force: true) }
+    }
+
+    private var nombrePrincipal: String {
+        store.agents.first { DefaultAgentStore.shared.isDefault($0.id) }?.name ?? "automático"
     }
 
     /// Sólo los tuyos: un agente compartido contigo no lee tu correo.

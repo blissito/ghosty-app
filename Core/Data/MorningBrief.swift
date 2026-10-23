@@ -13,11 +13,17 @@ struct MorningBrief: Equatable, Sendable {
     var minute = 0
     /// 0 = domingo … 6 = sábado, como `Date.getDay()` en gs.
     var days: [Int] = [1, 2, 3, 4, 5]
+    /// `nil` = lo escribe el agente principal (`resolvedAgentId`).
     var agentId: String?
+    /// Quién lo escribe de verdad: `agentId` o, si es `nil`, el principal.
+    var resolvedAgentId: String?
     var timeZone = TimeZone.current.identifier
     /// La conversación «Resumen de la mañana». `nil` hasta que corre la primera vez.
     var sessionId: String?
     var offered = false
+    /// ¿El agente tiene correo o agenda conectados? Sin ellos el resumen sale de lo que gs ya
+    /// sabe (agenda, pendientes, preguntas sin contestar) y se sugiere conectar el correo.
+    var hasSources = true
 
     static let weekdays = [1, 2, 3, 4, 5]
     static let everyDay = [0, 1, 2, 3, 4, 5, 6]
@@ -30,9 +36,11 @@ struct MorningBrief: Equatable, Sendable {
         minute = j["minute"] as? Int ?? 0
         days = (j["days"] as? [Int]).flatMap { $0.isEmpty ? nil : $0.sorted() } ?? Self.weekdays
         agentId = j["agentId"] as? String
+        resolvedAgentId = j["resolvedAgentId"] as? String ?? agentId
         timeZone = j["timeZone"] as? String ?? TimeZone.current.identifier
         sessionId = j["sessionId"] as? String
         offered = j["offered"] as? Bool ?? false
+        hasSources = j["hasSources"] as? Bool ?? true
     }
 
     /// «8:00 · L–V», para el subtítulo del renglón de Perfil.
@@ -157,7 +165,7 @@ final class MorningBriefStore {
     /// «Probar ahora». Devuelve dónde abrir el resultado.
     func runNow() async -> (agentId: String, sessionId: String)? {
         if DemoData.encendido {
-            guard let b = brief, let a = b.agentId, let s = b.sessionId else { return nil }
+            guard let b = brief, let a = b.resolvedAgentId ?? b.agentId, let s = b.sessionId else { return nil }
             return (a, s)
         }
         do {
@@ -176,7 +184,7 @@ final class MorningBriefStore {
         if a.hour != b.hour { p["hour"] = b.hour }
         if a.minute != b.minute { p["minute"] = b.minute }
         if a.days != b.days { p["days"] = b.days }
-        if a.agentId != b.agentId, let id = b.agentId { p["agentId"] = id }
+        if a.agentId != b.agentId { p["agentId"] = b.agentId ?? NSNull() }
         if a.offered != b.offered { p["offered"] = b.offered }
         // La zona va siempre: quien viaja recibe el resumen a SU hora.
         p["timeZone"] = TimeZone.current.identifier

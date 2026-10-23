@@ -4,10 +4,11 @@ import XCTest
 /// tarjetas, 👍/👎 y la barra «Escúchalo · Ajustar · Apagar». Todo en demo, sin red.
 final class MorningBriefUITests: XCTestCase {
 
-    private func launch(_ resumen: String) -> XCUIApplication {
+    private func launch(_ resumen: String, principal: Bool = false) -> XCUIApplication {
         continueAfterFailure = true
         let app = XCUIApplication()
         app.launchEnvironment["GHOSTY_DEMO"] = "1"
+        if principal { app.launchEnvironment["GHOSTY_DEMO_PRINCIPAL"] = "1" }
         app.launchEnvironment["GHOSTY_DEMO_RESUMEN"] = resumen
         app.launchArguments += ["-ai.consentGiven", "YES"]
         app.launch()
@@ -53,6 +54,47 @@ final class MorningBriefUITests: XCTestCase {
         app.buttons["resumen-listo"].tap()
         XCTAssertTrue(renglon.waitForExistence(timeout: 3))
         XCTAssertTrue(renglon.label.contains("Apagado"), "Perfil no dice «Apagado»: \(renglon.label)")
+    }
+
+    /// Sin correo ni agenda conectados, la hoja lo dice y lleva a Integraciones.
+    func testSinCorreoSugiereConectar() {
+        let app = launch("sin-correo")
+        app.buttons["tab-perfil"].tap()
+        let renglon = app.buttons["ajuste-resumen-manana"].firstMatch
+        XCTAssertTrue(renglon.waitForExistence(timeout: 5))
+        for _ in 0..<4 where !renglon.isHittable { app.swipeUp() }
+        renglon.tap()
+        let conectar = app.buttons["resumen-conectar"]
+        XCTAssertTrue(conectar.waitForExistence(timeout: 3), "falta «Conecta tu correo»")
+        foto(app, "resumen-5-sin-correo")
+        conectar.tap()
+        XCTAssertTrue(app.switches["resumen-toggle"].waitForNonExistence(timeout: 3), "no cerró la hoja del resumen")
+    }
+
+    /// Agente principal: Perfil lo dice, cambiarlo pasa por la advertencia y Perfil se entera.
+    func testAgentePrincipalConAdvertencia() {
+        let app = launch("0", principal: true)
+        app.buttons["tab-perfil"].tap()
+        let renglon = app.buttons["ajuste-agente-principal"].firstMatch
+        XCTAssertTrue(renglon.waitForExistence(timeout: 5), "no está «Agente principal» en Perfil")
+        for _ in 0..<4 where !renglon.isHittable { app.swipeUp() }
+        XCTAssertTrue(renglon.label.contains("Ghosty"), "el principal de la demo debería ser Ghosty: \(renglon.label)")
+        renglon.tap()
+        let otro = app.buttons["principal-demo-3"]
+        XCTAssertTrue(otro.waitForExistence(timeout: 3), "la lista de agentes no abrió")
+        XCTAssertTrue(app.staticTexts["agente-principal-insignia"].exists || app.otherElements["agente-principal-insignia"].exists
+                      || app.descendants(matching: .any)["agente-principal-insignia"].exists, "falta la insignia «Principal»")
+        foto(app, "principal-1-lista")
+        otro.tap()
+        XCTAssertTrue(app.buttons["principal-confirmar"].waitForExistence(timeout: 3), "no salió la advertencia")
+        foto(app, "principal-2-advertencia")
+        app.buttons["principal-cancelar"].tap()
+        XCTAssertTrue(otro.waitForExistence(timeout: 3), "«Cancelar» no regresó a la lista")
+        otro.tap()
+        app.buttons["principal-confirmar"].tap()
+        XCTAssertTrue(app.buttons["principal-confirmar"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(renglon.waitForExistence(timeout: 3))
+        XCTAssertTrue(renglon.label.contains("Luna"), "Perfil no dice el nuevo principal: \(renglon.label)")
     }
 
     /// El hilo del resumen: barra con audio, tarjetas con 👍 que se queda y «Apagar».

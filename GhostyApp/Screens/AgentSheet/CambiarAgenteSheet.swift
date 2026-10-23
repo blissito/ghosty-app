@@ -13,6 +13,9 @@ struct CambiarAgenteSheet: View {
     /// Uso por agente, compartido con Perfil: al reabrir la hoja las barras ya están.
     /// Ausente = todavía no llega o falló.
     @State private var cache = UsosDeAgentes.compartido
+    @State private var defaults = DefaultAgentStore.shared
+    /// El agente que se quiere hacer principal (toque largo): abre la advertencia.
+    @State private var makingDefault: Agent?
     private var usos: [String: PersonalUsage] { cache.usos }
 
     /// Grupos por espacio: primero lo tuyo, luego cada workspace (en el orden en que llegan)
@@ -65,7 +68,12 @@ struct CambiarAgenteSheet: View {
                                    action: { elegir(agente) },
                                    leading: { AgentAvatar(tone: agente.tone, size: 40) },
                                    // Sólo elegir: el uso vive en Perfil y en la hoja del agente de arriba.
-                                   extra: { EmptyView() })
+                                   extra: { if defaults.isDefault(agente.id) { DefaultAgentBadge().padding(.top, 3) } })
+                        .contextMenu {
+                            if Self.canBeDefault(agente), !defaults.isDefault(agente.id) {
+                                Button { makingDefault = agente } label: { Label("Hacer principal", systemImage: "star") }
+                            }
+                        }
                         .overlay(alignment: .bottom) {
                             // Hairline desde donde empieza el nombre (82), menos en el último.
                             if i < grupo.agentes.count - 1 {
@@ -79,6 +87,19 @@ struct CambiarAgenteSheet: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: store.selectedAgentID)
+        .task { await defaults.load() }
+        .sheet(item: $makingDefault) { a in
+            MakeDefaultAgentConfirm(agent: a, current: store.agents.first { defaults.isDefault($0.id) },
+                                    onConfirm: { makingDefault = nil; Task { await defaults.set(a.id) } },
+                                    onCancel: { makingDefault = nil })
+                .presentationDetents([.medium])
+                .presentationBackground(Color.gBg)
+        }
+    }
+
+    /// Sólo uno tuyo puede ser el principal: no uno compartido ni el de un espacio.
+    static func canBeDefault(_ a: Agent) -> Bool {
+        a.compartidoPor == nil && a.space?.kind != .workspace && a.space?.kind != .shared
     }
 
     /// Con encabezado de grupo, el espacio ya se lee arriba: la línea dice el modelo.

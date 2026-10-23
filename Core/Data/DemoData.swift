@@ -19,7 +19,13 @@ enum DemoData {
         Gancho.valor("GHOSTY_DEMO") == "1"
     }
 
-    static let cuentas: [AgentAccount] = [
+    static let cuentas: [AgentAccount] = cuentasBase + (Gancho.valor("GHOSTY_DEMO_PRINCIPAL") == "1" ? [
+        // `GHOSTY_DEMO_PRINCIPAL=1`: un segundo agente TUYO, para poder cambiar de principal.
+        AgentAccount(id: "demo-3", token: "gat_demo3", name: "Luna", host: nil, motor: "ghosty-lite", space: .personal,
+                     model: "Claude Sonnet 5"),
+    ] : [])
+
+    private static let cuentasBase: [AgentAccount] = [
         AgentAccount(id: "demo-1", token: "gat_demo1", name: "Ghosty", host: nil, motor: "ghosty-lite", space: .personal,
                      model: Gancho.valor("GHOSTY_DEMO_PLAN") == "power" ? "Claude Sonnet 5" : "DeepSeek Flash"),
         // De un workspace: es lo que hace que la lista enseñe secciones en el recorrido.
@@ -175,6 +181,7 @@ enum DemoData {
         switch Gancho.valor("GHOSTY_DEMO_RESUMEN") {
         case "1": b.enabled = true; b.offered = true; b.sessionId = "s-resumen"
         case "oferta": break
+        case "sin-correo": b.enabled = true; b.offered = true; b.hasSources = false
         default: b.offered = true
         }
         return b
@@ -422,7 +429,13 @@ extension LiveAgentStore {
         // Con el gancho remoto, el PDF que el agente entregó desde la Mac: es lo que llena
         // «Entregas» en Actividad (sin tocar las capturas de Archivos de siempre).
         if Gancho.valor("GHOSTY_DEMO_REMOTO") == "1" { accountFiles.insert(DemoData.remoteQuote, at: 0) }
-        ponerCanalesDeDemo([DemoData.cuentas[0].id: uno, DemoData.cuentas[1].id: dos])
+        var canales = [DemoData.cuentas[0].id: uno, DemoData.cuentas[1].id: dos]
+        if DemoData.cuentas.count > 2 {
+            let tres = AgentChannel(cuenta: DemoData.cuentas[2])
+            tres.estadoHilos = .listo
+            canales[DemoData.cuentas[2].id] = tres
+        }
+        ponerCanalesDeDemo(canales)
         conexion = .lista
         applyPendingNotice()
     }

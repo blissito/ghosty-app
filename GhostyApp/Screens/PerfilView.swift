@@ -74,6 +74,8 @@ struct PerfilView: View {
     @State private var abrirConsentimiento = false
     @State private var resumen = MorningBriefStore.shared
     @State private var verResumen = false
+    @State private var principal = DefaultAgentStore.shared
+    @State private var verPrincipal = false
     @State private var webAbierta = false
     @State private var avisos: UNAuthorizationStatus?
     /// La fábrica de tus espacios: la entrada sólo sale si alguno tiene pedidos.
@@ -161,6 +163,8 @@ struct PerfilView: View {
         .sheet(isPresented: $abrirConsentimiento) { AIConsentSheet() }
         .sheet(isPresented: $verResumen) { MorningBriefSheet(store: store) }
         .task { await resumen.load() }
+        .task { await principal.load() }
+        .sheet(isPresented: $verPrincipal) { DefaultAgentPickerSheet(store: store) }
         .sheet(isPresented: Binding(get: { store.integracionesPedidas },
                                     set: { store.integracionesPedidas = $0 })) {
             ConectoresPane(store: store)
@@ -248,6 +252,13 @@ struct PerfilView: View {
                     } label: { renglonWA("bell", "Notificaciones", textoDeAvisos, chevron: true) }
                     .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
                     .accessibilityIdentifier("ajuste-notificaciones")
+                    divisorWA
+                    Button { verPrincipal = true } label: {
+                        renglonWA("star", "Agente principal",
+                                  store.agents.first { principal.isDefault($0.id) }?.name ?? "Automático", chevron: true)
+                    }
+                    .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
+                    .accessibilityIdentifier("ajuste-agente-principal")
                     divisorWA
                     if resumen.available {
                         Button { verResumen = true } label: {
