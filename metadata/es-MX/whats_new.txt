@@ -1,10 +1,3 @@
-• Ghosty abre con una animación nueva: la flamita se abre y por ella aparece la app.
-• Califica la respuesta de tu agente con pulgar arriba o abajo. Si algo faltó, dilo en un renglón: así sabemos qué mejorar.
-• Software Factory: «Te toca» sólo enseña lo que de verdad te toca, con el motivo en un renglón y el botón que lo resuelve. Si la falla es de la plataforma, se reintenta sola y no te molesta.
-• Software Factory: cuando un pedido necesita tu decisión, te dice qué pasa en una frase, qué ya se verificó y qué botón te recomendamos.
-• Software Factory: un pedido que se quedó sin avanzar ya no dice que alguien trabaja. Te explica qué pasó y puedes retomarlo o detenerlo desde el teléfono.
-• El hilo del pedido se abre dentro de la app y ahí le escribes directo al agente que lo lleva.
-• Si la vista previa de un pedido se atora, la ves en su tarjeta con el motivo y la reintentas con un toque.
-• Cuando tu fábrica se llena, la tarjeta te dice quién ocupa cada lugar; la primera vez en el mes te prestamos el lugar para que tu pedido no espere.
-• Si a un pedido le faltan las variables de la vista previa, copia el pedido para tu agente de terminal o pégalas aquí, y pide que se revise otra vez con un toque.
-• Cuando tu fábrica se llena, libera con un toque el lugar de un pedido que ya sólo espera, o avísale al admin que hace falta otro lugar.
+• Resumen de la mañana: a la hora que elijas, tu agente revisa tu correo, tu agenda y tus pendientes y te deja lo importante en tarjetas y en un audio para escuchar. Viene apagado; lo prendes y lo apagas cuando quieras desde Perfil o desde el mismo resumen.
+• Califica cada tarjeta del resumen con pulgar arriba o abajo y el de mañana sale más a tu medida. Cada tarjeta trae su acción sugerida, y tu agente te pregunta antes de hacer nada.
+• Elige tu agente principal: es el que usa Ghosty cuando no eliges otro. Lo ves marcado como «Principal» y lo cambias desde Perfil o dejando presionado un agente.
