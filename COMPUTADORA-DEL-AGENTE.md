@@ -5,8 +5,8 @@ El agente pide ayuda en su navegador → push → un toque → tomas el control 
 ## Qué hace la app
 
 - **En el hilo**: cada `CUSTOM ghosty.browser` de un run vivo (AG-UI) llega a `AgentComputerStore`
-  (`Core/Computer/AgentComputer.swift`). Con `needsHuman` sale «Te necesito aquí» + **Tomar el control**
-  encima del compositor; sin él, un renglón **Mirar en vivo**. Se quita al terminar el run.
+  (`Core/Computer/AgentComputer.swift`). Con `needsHuman` sale «Te necesito aquí» + **Tomar el control** /
+  **Sólo mirar** encima del compositor; sin él, **Ver mi computadora en vivo**. Textos iguales a Android. Se quita al terminar el run.
 - **Pases**: `POST /api/v2/me/agents/:agentId/browser/(watch|takeover) {sessionId: <sesión del NAVEGADOR>}`
   con el bearer de la app. 410 = «Tu agente ya cerró ese navegador».
 - **Pantalla** (`GhostyApp/Computer/TakeoverView.swift`, LiveKit Swift 2.17.0 exacta): video del
@@ -39,7 +39,7 @@ await avisarA(turn.userId, {
   cuerpo: instructions,                       // el texto de needsHuman
   sonido: "gota.caf",
   threadId: turn.sessionId,                   // la CONVERSACIÓN
-  collapseId: `ask:${browserSessionId}`,
+  collapseId: `help:${browserSessionId}`,
   urgente: true,                              // espera a una persona: time-sensitive
   datos: {
     kind: "browser_help",
@@ -47,14 +47,15 @@ await avisarA(turn.userId, {
     sessionId: turn.sessionId,                // la conversación
     turnId: turn.turnId,
     browserSessionId,                         // la sesión del NAVEGADOR (args.session_id)
-    needsHuman: instructions,
+    instructions,                             // ≤300; mismo nombre que Android
     agentName: header.agent,
   },
 });
 ```
 
 Al tocarlo la app abre la conversación y la toma (`Avisos` → `AgentComputerStore.openFromPush`).
-Android necesita lo mismo.
+Mismos nombres que Android (`~/ghosty-android/docs/tomar-el-control.md`, 422b7c3). La app también acepta
+`needsHuman` en lugar de `instructions`.
 
 ## Probar
 

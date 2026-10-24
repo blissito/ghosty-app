@@ -237,6 +237,7 @@ final class RecorridoUITests: XCTestCase {
         let tomar = app.buttons["tomar-el-control"]
         XCTAssertTrue(tomar.waitForExistence(timeout: 10), "no salió «Tomar el control» con el pedido de ayuda")
         XCTAssertTrue(app.staticTexts["Te necesito aquí"].exists)
+        XCTAssertTrue(app.buttons["solo-mirar"].exists, "falta «Sólo mirar»")
         foto("25-te-necesito")
         tomar.tap()
         let devolver = app.buttons["devolver-el-control"]

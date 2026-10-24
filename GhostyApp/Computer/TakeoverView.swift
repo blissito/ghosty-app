@@ -56,7 +56,7 @@ struct TakeoverView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(takeover ? "Tienes el control" : "Mirando en vivo")
+                Text(takeover ? "Tienes el control" : "Su computadora en vivo")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
                 if let ask = presentation.live.needsHuman {
@@ -78,8 +78,10 @@ struct TakeoverView: View {
                 }
                 .accessibilityLabel("Quitar el zoom")
             }
-            if !takeover {
-                Button(action: onClose) {
+            // La X también devuelve el control en una toma (como Atrás en Android): irse sin
+            // devolverlo dejaba al agente esperando hasta que venciera la toma.
+            do {
+                Button { if takeover { Task { await session.release() } } else { onClose() } } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.white)
@@ -222,8 +224,7 @@ struct TakeoverView: View {
                         .frame(width: 40, height: 40)
                         .background(texto.isEmpty ? Color.white.opacity(0.14) : Color.gPrimary, in: Circle())
                 }
-                .disabled(texto.isEmpty)
-                .accessibilityLabel("Escribir en la página")
+                .accessibilityLabel(texto.isEmpty ? "Enter" : "Escribir en la página")
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -249,8 +250,9 @@ struct TakeoverView: View {
         .padding(.horizontal, 16).padding(.top, 10)
     }
 
+    /// Con el campo vacío, «enviar» es Enter (como Android): llenar un campo y mandarlo es un toque.
     private func enviarTexto() {
-        guard !texto.isEmpty else { return }
+        guard !texto.isEmpty else { session.send(.key("Enter")); return }
         session.typeText(texto)
         texto = ""
     }
@@ -487,7 +489,7 @@ final class TakeoverSession {
             guard let room, room.connectionState == .connected else { return }
             _ = try? await room.localParticipant.performRpc(
                 destinationIdentity: Participant.Identity(from: TakeoverProtocol.publisherIdentity),
-                method: TakeoverProtocol.rpcRelease, payload: "", responseTimeout: 4, maxRoundTripLatency: 2)
+                method: TakeoverProtocol.rpcRelease, payload: "", responseTimeout: 3, maxRoundTripLatency: 2)
         }()
         if let pass { await AgentComputerAPI.release(pass) }
         await rpc

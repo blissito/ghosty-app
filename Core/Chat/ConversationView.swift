@@ -201,7 +201,7 @@ struct ConversationView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            // La computadora del agente: «Te necesito aquí» o «Mirar en vivo» (AgentComputer.swift).
+            // La computadora del agente: «Te necesito aquí» o «Ver mi computadora en vivo» (AgentComputer.swift).
             if let b = AgentComputerStore.shared.current(agent: store.selectedAgentID, conversation: store.hiloActivo?.sesionID) {
                 AgentComputerBanner(live: b)
                     .transition(.move(edge: .bottom).combined(with: .opacity))

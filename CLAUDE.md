@@ -286,7 +286,7 @@ desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
 «La computadora del agente»: el agente pide ayuda en su navegador (`cloud_browser_ask_human`) → «Te necesito
 aquí» encima del compositor (o push) → **Tomar el control** por WebRTC (LiveKit Swift **2.17.0 exacta**, sólo en
-el target de la app) → **Devolver el control**. Sin ayuda pedida, «Mirar en vivo». Contrato, lo que falta en gs
+el target de la app) → **Devolver el control**. Sin ayuda pedida, «Ver mi computadora en vivo»; textos y push iguales a Android. Contrato, lo que falta en gs
 (el push `kind: "browser_help"` NO existe aún) y cómo probar: `COMPUTADORA-DEL-AGENTE.md`. El protocolo de
 entrada es espejo de `ghosty-studio/packages/computer/src/protocol.ts` (`Core/Computer/TakeoverProtocol.swift` +
 `TakeoverProtocolTests`). Prueba de UI: `testTomarElControl`. Falta: respaldo SSE en el teléfono y Android.

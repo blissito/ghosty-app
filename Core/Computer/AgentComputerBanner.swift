@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Encima del compositor, mientras el agente usa su navegador en ESTA conversación: «Te necesito
-/// aquí» con «Tomar el control» al frente si pidió ayuda; si sólo navega, un renglón discreto para
-/// mirarlo en vivo. La pantalla la abre `RootView` (`AgentComputerStore.presenting`).
+/// aquí» con «Tomar el control» y «Sólo mirar» si pidió ayuda; si sólo navega, «Ver mi computadora
+/// en vivo». Mismos textos que Android (`~/ghosty-android/docs/tomar-el-control.md`). La pantalla la abre `RootView` (`AgentComputerStore.presenting`).
 struct AgentComputerBanner: View {
     let live: BrowserLive
 
@@ -21,12 +21,18 @@ struct AgentComputerBanner: View {
                         .lineLimit(3)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Button("Tomar el control") { AgentComputerStore.shared.open(live, mode: .takeover) }
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Color.gPrimary, in: Capsule())
-                    .accessibilityIdentifier("tomar-el-control")
+                VStack(spacing: 6) {
+                    Button("Tomar el control") { AgentComputerStore.shared.open(live, mode: .takeover) }
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(Color.gPrimary, in: Capsule())
+                        .accessibilityIdentifier("tomar-el-control")
+                    Button("Sólo mirar") { AgentComputerStore.shared.open(live, mode: .watch) }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.gPrimary)
+                        .accessibilityIdentifier("solo-mirar")
+                }
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
             .background(Color.gPrimaryTint, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -39,7 +45,7 @@ struct AgentComputerBanner: View {
                     Text(live.title.flatMap { $0.isEmpty ? nil : $0 } ?? host(live.url) ?? "Navegando")
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Mirar en vivo").fontWeight(.semibold).foregroundStyle(Color.gPrimary)
+                    Text("Ver mi computadora en vivo").fontWeight(.semibold).foregroundStyle(Color.gPrimary)
                 }
                 .font(.system(size: 13))
                 .foregroundStyle(Color.gInk2)
@@ -48,7 +54,7 @@ struct AgentComputerBanner: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 16).padding(.bottom, 6)
-            .accessibilityIdentifier("mirar-en-vivo")
+            .accessibilityIdentifier("ver-computadora")
         }
     }
 
