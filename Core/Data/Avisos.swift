@@ -297,6 +297,16 @@ enum Avisos {
                 if let sesion { LiveAgentStore.compartido.open(agent: id, session: sesion, fallback: respaldo) }
                 else { LiveAgentStore.compartido.seleccionar(id) }
             }
+            // El agente pidió ayuda en su navegador (`cloud_browser_ask_human`): además de abrir la
+            // conversación, un toque abre la toma. Contrato en `COMPUTADORA-DEL-AGENTE.md`.
+            if (info["kind"] as? String) == "browser_help", let sesion,
+               let navegador = info["browserSessionId"] as? String, !navegador.isEmpty {
+                let texto = info["needsHuman"] as? String
+                await MainActor.run {
+                    AgentComputerStore.shared.openFromPush(agent: id, conversation: sesion,
+                                                           browserSessionID: navegador, text: texto)
+                }
+            }
         }
     }
 }

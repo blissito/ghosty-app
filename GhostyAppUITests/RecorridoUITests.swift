@@ -226,6 +226,27 @@ final class RecorridoUITests: XCTestCase {
         foto("23-interrumpido-lista")
     }
 
+    /// La computadora del agente: el agente pidió ayuda en su navegador → «Te necesito aquí» encima
+    /// del compositor → «Tomar el control» abre la pantalla → «Devolver el control» la cierra.
+    /// (En demo no hay pase ni sala: se ve el estado sin transmisión.)
+    func testTomarElControl() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_EN_HILO"] = "1"
+        app.launchEnvironment["GHOSTY_AYUDA"] = "demo-1/s-larga/b1/Escribe tú la contraseña del banco."
+        app.launch()
+        let tomar = app.buttons["tomar-el-control"]
+        XCTAssertTrue(tomar.waitForExistence(timeout: 10), "no salió «Tomar el control» con el pedido de ayuda")
+        XCTAssertTrue(app.staticTexts["Te necesito aquí"].exists)
+        foto("25-te-necesito")
+        tomar.tap()
+        let devolver = app.buttons["devolver-el-control"]
+        XCTAssertTrue(devolver.waitForExistence(timeout: 5), "«Tomar el control» no abrió la computadora")
+        XCTAssertTrue(app.staticTexts["Tienes el control"].exists)
+        foto("26-tomar-el-control")
+        devolver.tap()
+        XCTAssertTrue(devolver.waitForNonExistence(timeout: 5), "«Devolver el control» no cerró la pantalla")
+    }
+
     /// El servidor cortó la respuesta (deploy): la franja con la razón y «Continuar», que la quita.
     func testCortadoContinuar() {
         app.terminate()

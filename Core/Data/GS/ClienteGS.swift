@@ -442,6 +442,11 @@ actor ClienteGS: TransporteDeAgente {
     /// El `state` compartido de una conversación cambió (capacidades, modelo, subagentes). Lo mira
     /// la barra de subagentes: `(agentID, sessionID, state)`.
     nonisolated(unsafe) static var alCambiarState: (@Sendable (String, String, [String: Any]) -> Void)?
+    /// La computadora del agente (`ghosty.browser`): agente, conversación y el paso sin la imagen.
+    /// Lo escucha `AgentComputerStore`.
+    nonisolated(unsafe) static var alVerNavegador: (@Sendable (String, String, [String: Any]) -> Void)?
+    /// Un run terminó (cualquier final): el navegador de ese turno ya no se puede mirar.
+    nonisolated(unsafe) static var alTerminarRun: (@Sendable (String, String) -> Void)?
 
     /// Quién pinta cada conversación: el flujo del turno propio o el vigilante.
     private struct Oyente {
@@ -721,11 +726,14 @@ actor ClienteGS: TransporteDeAgente {
             EasyBitsClient.diag("[agui] \(sesion): \(m)")
         case .injected:
             break
+        case .browser(let frame):
+            Self.alVerNavegador?(agentID, sesion, frame)
         case .interrupts(let ps):
             abrir(ps, en: sesion)
         case .finished(let fin):
             // Lo que estaba abierto y ya no viene: alguien lo contestó en otra superficie.
             if fin != .interrupt { abrir([], en: sesion) }
+            Self.alTerminarRun?(agentID, sesion)
         case .cut(let run, let reason):
             alCortarse?(sesion, run, reason)
         }

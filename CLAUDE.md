@@ -282,6 +282,15 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
+## 1.0.16 (siguiente, SIN subir — 24-oct)
+
+«La computadora del agente»: el agente pide ayuda en su navegador (`cloud_browser_ask_human`) → «Te necesito
+aquí» encima del compositor (o push) → **Tomar el control** por WebRTC (LiveKit Swift **2.17.0 exacta**, sólo en
+el target de la app) → **Devolver el control**. Sin ayuda pedida, «Mirar en vivo». Contrato, lo que falta en gs
+(el push `kind: "browser_help"` NO existe aún) y cómo probar: `COMPUTADORA-DEL-AGENTE.md`. El protocolo de
+entrada es espejo de `ghosty-studio/packages/computer/src/protocol.ts` (`Core/Computer/TakeoverProtocol.swift` +
+`TakeoverProtocolTests`). Prueba de UI: `testTomarElControl`. Falta: respaldo SSE en el teléfono y Android.
+
 ## 1.0.15 en revisión (22-oct)
 
 Build 95 (resumen de la mañana + agente principal; contrato en `RESUMEN-DE-LA-MANANA.md`, gs e45c6deb) enviada a

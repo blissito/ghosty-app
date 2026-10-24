@@ -286,6 +286,12 @@ struct RootView: View {
         .fullScreenCover(item: Binding(get: { visor.imagen }, set: { visor.imagen = $0 })) { img in
             VisorDeImagen(imagen: img, titulo: visor.titulo)
         }
+        // La computadora del agente (mirar o tomar el control): la piden el renglón del hilo y el
+        // push de «te necesito» (`AgentComputerStore.presenting`).
+        .fullScreenCover(item: Binding(get: { AgentComputerStore.shared.presenting },
+                                       set: { AgentComputerStore.shared.presenting = $0 })) { p in
+            TakeoverView(presentation: p) { AgentComputerStore.shared.presenting = nil }
+        }
         .onChange(of: store.limitNotice) { antes, ahora in
             if antes != nil, ahora == nil { limiteCerradoEn = Date() }
         }

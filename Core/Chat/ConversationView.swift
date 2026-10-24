@@ -201,6 +201,12 @@ struct ConversationView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
+            // La computadora del agente: «Te necesito aquí» o «Mirar en vivo» (AgentComputer.swift).
+            if let b = AgentComputerStore.shared.current(agent: store.selectedAgentID, conversation: store.hiloActivo?.sesionID) {
+                AgentComputerBanner(live: b)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if let agenda { AgendaStrip(agenda: agenda) { abrirAgenda = true } }
 
             // ⚠️ Aquí vivió la barra de chips de conversaciones con su «+». Se fue: la

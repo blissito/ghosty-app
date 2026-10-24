@@ -19,6 +19,12 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
     from: 7.0.0
+  # «Tomar el control» de la computadora del agente por WebRTC (la pestaña llega como video de la
+  # sala y la entrada va por el canal de datos). Versión EXACTA: un SDK de WebRTC que se mueve
+  # solo cambia el motor sin avisar. 2.17.0 = 14-sep-2026. Sólo lo enlaza la app, no las extensiones.
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    exactVersion: 2.17.0
 
 settings:
   base:
@@ -26,7 +32,7 @@ settings:
     DEVELOPMENT_TEAM: E77EZQG9YS
     GHOSTY_COMMIT: ""
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.0.15"
+    MARKETING_VERSION: "1.0.16"
     CURRENT_PROJECT_VERSION: "1"
 
 targets:
@@ -42,6 +48,7 @@ targets:
     dependencies:
       - package: MarkdownUI
       - package: GRDB
+      - package: LiveKit
       # La entrada «Enviar a Ghosty» de la hoja de compartir (ver EnviarAGhosty/).
       - target: EnviarAGhosty
       # El avatar de cada agente en sus avisos (ver NotificationService/).

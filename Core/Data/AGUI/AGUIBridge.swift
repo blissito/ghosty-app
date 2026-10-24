@@ -21,6 +21,8 @@ struct AGUIBridge {
         static let replace = "ghosty.replace"
         /// `{names, message}`: adjuntos que no llegaron al agente.
         static let attachmentsFailed = "ghosty.attachments_failed"
+        /// La captura del navegador de la caja con su paso (`sessionId`, `viewport`, `needsHuman`…).
+        static let browser = "ghosty.browser"
     }
 
     /// Los `stepName` de gs (§0.3). Los de otros servidores (LangGraph manda `agent`) se ignoran.
@@ -39,6 +41,8 @@ struct AGUIBridge {
         /// El steer entró en el run vivo.
         case injected
         case notice(String)
+        /// Un paso de la computadora del agente (`ghosty.browser` sin la imagen).
+        case browser([String: Any])
         /// El run terminó (cualquier `outcome`).
         case finished(AGUIState.Outcome)
         /// Cómo quedó el último run al cerrar: cortado del lado del servidor (`metadata.interrupted`,
@@ -132,6 +136,12 @@ struct AGUIBridge {
                 if let t = v["title"] as? String { out.append(.title(t)) }
             case Custom.attachmentsFailed:
                 if let m = v["message"] as? String { out.append(.notice(m)) }
+            case Custom.browser:
+                // Sin run vivo es historia: no hay navegador que mirar ni ayuda que dar.
+                guard sawLive else { break }
+                var frame = v
+                frame["data"] = nil  // la captura no hace falta y pesa
+                out.append(.browser(frame))
             default:
                 break
             }

@@ -505,6 +505,21 @@ final class LiveAgentStore: AgentStoring {
            let barra = aviso.firstIndex(of: "/") {
             open(agent: String(aviso[..<barra]), session: String(aviso[aviso.index(after: barra)...]))
         }
+        // `GHOSTY_AYUDA=<agente>/<conversación>/<navegador>[/<texto>]`: lo que hace el push de «te
+        // necesito» (abre la conversación y la toma). En demo sólo pinta el renglón del hilo.
+        if let ayuda = Gancho.valor("GHOSTY_AYUDA") {
+            let p = ayuda.split(separator: "/", maxSplits: 3).map(String.init)
+            if p.count >= 3 {
+                let texto = p.count > 3 ? p[3] : "Escribe tú la contraseña, por favor."
+                if DemoData.encendido {
+                    AgentComputerStore.shared.apply(agent: p[0], conversation: p[1],
+                                                    frame: ["sessionId": p[2], "needsHuman": texto])
+                } else {
+                    open(agent: p[0], session: p[1])
+                    AgentComputerStore.shared.openFromPush(agent: p[0], conversation: p[1], browserSessionID: p[2], text: texto)
+                }
+            }
+        }
         // `GHOSTY_CARGA_LENTA=5`: se queda «cargando» 5 s, como una cuenta que baja por red
         // lenta. Es el camino de la intro que el modo demo (listo al instante) nunca toma.
         if let lenta = Gancho.valor("GHOSTY_CARGA_LENTA").flatMap(Double.init) {
