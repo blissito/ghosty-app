@@ -114,7 +114,17 @@ enum GhostyAPI {
     /// la entrada. Una pantalla que se abre para explicar por qué está vacía es justo lo
     /// que quitamos de esta app hace unas horas.
     static func conectores() async -> RespuestaDeConectores {
-        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me/connectors"))
+        var c = URLComponents(url: Session.base.appendingPathComponent("api/v2/me/connectors"),
+                              resolvingAgainstBaseURL: false)!
+        // gs localiza textos (intro, manage) con `?lang=` y sin él responde en español.
+        // ⚠️ Sólo se manda si la app DE VERDAD está en inglés: sin `en.lproj`, iOS reporta
+        // la región de desarrollo («en») aunque toda la interfaz sea español.
+        if Bundle.main.path(forResource: "en", ofType: "lproj") != nil,
+           Bundle.main.preferredLocalizations.first == "en" {
+            c.queryItems = [URLQueryItem(name: "lang", value: "en")]
+        }
+        guard let url = c.url else { return .sinSoporte }
+        var req = URLRequest(url: url)
         req.assumesHTTP3Capable = false
         guard let token = try? await Session.accessToken() else { return .sinSoporte }
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
