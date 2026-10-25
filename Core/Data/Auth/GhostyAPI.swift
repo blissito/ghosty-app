@@ -133,23 +133,7 @@ enum GhostyAPI {
               let lista = j["connectors"] as? [[String: Any]]
         else { return .fallo("No pude leer tus integraciones (\(codigo)).") }
 
-        let iso = ISO8601DateFormatter()
-        return .servidos(lista.compactMap { c in
-            guard let id = c["id"] as? String else { return nil }
-            return Conector(id: id,
-                            nombre: (c["nombre"] as? String) ?? (c["name"] as? String) ?? id,
-                            conectado: (c["conectado"] as? Bool) ?? (c["connected"] as? Bool) ?? false,
-                            // ⚠️ Este campo NO se leía, así que TODA fila del servidor
-                            // quedaba en el default `true`: los conectores que aún no
-                            // existen se pintaban como si se pudieran conectar, y el botón
-                            // llevaba a un error. El servidor es quien sabe cuáles sirve.
-                            disponible: (c["disponible"] as? Bool) ?? (c["available"] as? Bool) ?? true,
-                            desde: (c["desde"] as? String).flatMap { iso.date(from: $0) },
-                            descripcion: (c["descripcion"] as? String) ?? (c["description"] as? String),
-                            logoSrc: (c["logo"] as? [String: Any])?["src"] as? String,
-                            sfSymbol: c["sfSymbol"] as? String,
-                            logoPng: c["logoPng"] as? String)
-        })
+        return .servidos(lista.compactMap(Conector.desdeJSON))
     }
 
     /// Lo que contestó gs al conectar el MCP de la persona («Tu sistema»).

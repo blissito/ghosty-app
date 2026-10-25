@@ -36,6 +36,11 @@ struct ConectoresPane: View {
     @Environment(Toaster.self) private var toaster: Toaster?
     /// La hoja de «Tu sistema» (MCP propio).
     @State private var hojaMCP = false
+    /// El conector cuya intro está abierta (la manda gs; hoy GitHub).
+    @State private var introDe: Conector?
+    /// Se conecta al CERRARSE la intro: presentar el navegador mientras la hoja se va falla.
+    @State private var pendienteDeConectar: Conector?
+    @Environment(\.openURL) private var abrir
 
     private var disponibles: [Conector] {
         store.conectores.filter(\.disponible).sorted { $0.conectado && !$1.conectado }
@@ -62,6 +67,16 @@ struct ConectoresPane: View {
         }
         .scrollIndicators(.hidden)
         .task { await store.cargarConectores() }
+        .sheet(item: $introDe, onDismiss: {
+            if let c = pendienteDeConectar { pendienteDeConectar = nil; conectar(c) }
+        }) { c in
+            if let intro = c.intro {
+                IntroConectorSheet(intro: intro) {
+                    pendienteDeConectar = c
+                    introDe = nil
+                }
+            }
+        }
         .sheet(isPresented: $hojaMCP) {
             ConectarMCPSheet { nombre, url, token in
                 await conectarMCP(nombre: nombre, url: url, token: token)
@@ -186,9 +201,26 @@ struct ConectoresPane: View {
                 // Botones oscuros de la paleta, como Android: Conectar relleno, Desconectar
                 // con borde.
                 let cargando = trabajando == c.id
+                // Administrarlo del otro lado (GitHub: «Repos»). Lo manda gs.
+                if c.conectado, !cargando, let m = c.manage, let u = m.url {
+                    Button { abrir(u) } label: {
+                        Text(m.label)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.gDark)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .overlay(Capsule().strokeBorder(Color.gDark, lineWidth: 1.2))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.gPressPill)
+                    .accessibilityLabel("\(m.label) de \(c.nombre)")
+                    .accessibilityIdentifier("connector-manage-\(c.id)")
+                }
                 Button {
                     guard trabajando == nil else { return }
-                    if c.conectado { porDesconectar = c } else { conectar(c) }
+                    if c.conectado { porDesconectar = c }
+                    else if c.intro != nil { fallo = nil; introDe = c }
+                    else { conectar(c) }
                 } label: {
                     Group {
                         if cargando { ProgressView().controlSize(.small).tint(c.conectado ? Color.gDark : .white) }
@@ -529,6 +561,68 @@ final class AnclaDeLaSesion: NSObject, ASWebAuthenticationPresentationContextPro
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow }
             .first ?? ASPresentationAnchor()
+    }
+}
+
+/// Lo que se lee antes de ir a conectar: qué marcar del otro lado y por qué es seguro.
+/// El texto entero lo manda gs (`intro` del conector).
+struct IntroConectorSheet: View {
+    let intro: IntroDeConector
+    let continuar: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(intro.title).gScreenTitle()
+                        .padding(.bottom, 4)
+                    if !intro.subtitle.isEmpty {
+                        Text(intro.subtitle).gScreenSubtitle()
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.bottom, 18)
+                    }
+                    ForEach(Array(intro.items.enumerated()), id: \.offset) { _, item in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color.gInk)
+                            Text(item.body)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.gInk3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.bottom, 14)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Theme.Space.screenH)
+                .padding(.top, 24)
+            }
+            .scrollIndicators(.hidden)
+            VStack(spacing: 6) {
+                Button(action: continuar) {
+                    Text(intro.continueLabel)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color.gDark, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.gPressPill)
+                .accessibilityIdentifier("intro-continuar")
+                Button(intro.cancelLabel) { dismiss() }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.gInk3)
+                    .frame(height: 40)
+                    .accessibilityIdentifier("intro-cancelar")
+            }
+            .padding(.horizontal, Theme.Space.screenH)
+            .padding(.bottom, 12)
+        }
+        .presentationDetents([.large])
+        .presentationBackground(Color.gBg)
     }
 }
 

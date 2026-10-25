@@ -42,6 +42,34 @@ struct Conector: Identifiable, Equatable, Sendable {
     /// PNG de 96 px que gs sirve para TODOS los conectores (`/api/v2/connectors/<id>/logo.png`).
     /// Es la fuente principal: un conector nuevo trae su logo sin versión nueva de la app.
     var logoPng: String? = nil
+    /// Lo que hay que leer ANTES de ir a conectar (hoy sólo GitHub). Lo manda el servidor.
+    var intro: IntroDeConector? = nil
+    /// Un botón para administrarlo ya conectado (GitHub: «Repos»).
+    var manage: GestionDeConector? = nil
+
+    /// Arma un conector desde una fila de `GET /api/v2/me/connectors`. `nil` sin `id`.
+    ///
+    /// `intro` y `manage` son opcionales a propósito: un servidor viejo no los manda y uno
+    /// mal formado no debe tumbar la lista entera.
+    static func desdeJSON(_ c: [String: Any]) -> Conector? {
+        guard let id = c["id"] as? String else { return nil }
+        let iso = ISO8601DateFormatter()
+        return Conector(id: id,
+                        nombre: (c["nombre"] as? String) ?? (c["name"] as? String) ?? id,
+                        conectado: (c["conectado"] as? Bool) ?? (c["connected"] as? Bool) ?? false,
+                        // ⚠️ Este campo NO se leía, así que TODA fila del servidor
+                        // quedaba en el default `true`: los conectores que aún no
+                        // existen se pintaban como si se pudieran conectar, y el botón
+                        // llevaba a un error. El servidor es quien sabe cuáles sirve.
+                        disponible: (c["disponible"] as? Bool) ?? (c["available"] as? Bool) ?? true,
+                        desde: (c["desde"] as? String).flatMap { iso.date(from: $0) },
+                        descripcion: (c["descripcion"] as? String) ?? (c["description"] as? String),
+                        logoSrc: (c["logo"] as? [String: Any])?["src"] as? String,
+                        sfSymbol: c["sfSymbol"] as? String,
+                        logoPng: c["logoPng"] as? String,
+                        intro: (c["intro"] as? [String: Any]).flatMap(IntroDeConector.desdeJSON),
+                        manage: (c["manage"] as? [String: Any]).flatMap(GestionDeConector.desdeJSON))
+    }
 
     /// La URL del PNG del servidor, si la mandó (absoluta; relativa se resuelve contra gs).
     var logoPngURL: URL? {
@@ -98,5 +126,51 @@ struct Conector: Identifiable, Equatable, Sendable {
         case "drive", "google-drive":     return "folder.fill"
         default:                          return "puzzlepiece.extension.fill"
         }
+    }
+}
+
+/// La hoja que se lee antes de conectar: qué marcar del otro lado y por qué es seguro.
+struct IntroDeConector: Equatable, Sendable {
+    struct Item: Equatable, Sendable {
+        let title: String
+        let body: String
+    }
+    let title: String
+    let subtitle: String
+    let items: [Item]
+    let continueLabel: String
+    let cancelLabel: String
+
+    /// `nil` si falta cualquier texto: una hoja a medias confunde más que no enseñarla.
+    static func desdeJSON(_ j: [String: Any]) -> IntroDeConector? {
+        guard let title = j["title"] as? String,
+              let continueLabel = j["continueLabel"] as? String,
+              let cancelLabel = j["cancelLabel"] as? String
+        else { return nil }
+        let items = ((j["items"] as? [[String: Any]]) ?? []).compactMap { i -> Item? in
+            guard let t = i["title"] as? String, let b = i["body"] as? String else { return nil }
+            return Item(title: t, body: b)
+        }
+        return IntroDeConector(title: title, subtitle: (j["subtitle"] as? String) ?? "",
+                               items: items, continueLabel: continueLabel, cancelLabel: cancelLabel)
+    }
+}
+
+/// El botón para administrar un conector ya conectado.
+struct GestionDeConector: Equatable, Sendable {
+    let label: String
+    /// https absoluta o ruta del sitio (`/settings/…`), relativa a `Session.base`.
+    let href: String
+
+    var url: URL? {
+        guard !href.isEmpty else { return nil }
+        return URL(string: href, relativeTo: Session.base)?.absoluteURL
+    }
+
+    static func desdeJSON(_ j: [String: Any]) -> GestionDeConector? {
+        guard let label = j["label"] as? String, !label.isEmpty,
+              let href = j["href"] as? String, !href.isEmpty
+        else { return nil }
+        return GestionDeConector(label: label, href: href)
     }
 }
