@@ -57,6 +57,10 @@ struct Conector: Identifiable, Equatable, Sendable {
     /// mal formado no debe tumbar la lista entera.
     static func desdeJSON(_ c: [String: Any]) -> Conector? {
         guard let id = c["id"] as? String else { return nil }
+        // gs manda `toISOString()` (con milisegundos) y el formateador por default no los lee:
+        // `desde` llegaba siempre nil. Se prueba con fracción y luego sin ella.
+        let isoFrac = ISO8601DateFormatter()
+        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let iso = ISO8601DateFormatter()
         return Conector(id: id,
                         nombre: (c["nombre"] as? String) ?? (c["name"] as? String) ?? id,
@@ -66,7 +70,7 @@ struct Conector: Identifiable, Equatable, Sendable {
                         // existen se pintaban como si se pudieran conectar, y el botón
                         // llevaba a un error. El servidor es quien sabe cuáles sirve.
                         disponible: (c["disponible"] as? Bool) ?? (c["available"] as? Bool) ?? true,
-                        desde: (c["desde"] as? String).flatMap { iso.date(from: $0) },
+                        desde: (c["desde"] as? String).flatMap { isoFrac.date(from: $0) ?? iso.date(from: $0) },
                         descripcion: (c["descripcion"] as? String) ?? (c["description"] as? String),
                         logoSrc: (c["logo"] as? [String: Any])?["src"] as? String,
                         sfSymbol: c["sfSymbol"] as? String,

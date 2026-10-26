@@ -27,6 +27,8 @@ struct ConnectOfferCard: View {
     @State private var pendingStart = false
     @State private var waitingSince = Date()
     @State private var told = false
+    /// Al reconectar, el «ya conectado» de antes no cuenta: se espera a que cambie `desde`.
+    @State private var sinceAtStart: Date?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
 
@@ -181,6 +183,10 @@ struct ConnectOfferCard: View {
                         .buttonStyle(.gPressPill)
                 }
                 Spacer(minLength: 0)
+                if phase == .already {
+                    smallButton("Reconectar", icon: "arrow.clockwise") { start(seenIntro: true) }
+                        .accessibilityIdentifier("connect-offer-reconnect-\(connectorID)")
+                }
                 if let m = item?.manage, let u = m.url {
                     Button { openURL(u) } label: {
                         HStack(spacing: 3) {
@@ -247,12 +253,18 @@ struct ConnectOfferCard: View {
     private func recheck() async {
         guard let found = await fetch(), let c = found else { return }
         item = c
-        if c.conectado, phase == .waiting || phase == .idle || phase == .starting {
+        if isFreshConnection(c), phase == .waiting || phase == .idle || phase == .starting {
             failure = nil
             finish()
         } else if phase == .waiting, Date().timeIntervalSince(waitingSince) > Self.pollFor {
             phase = .idle
         }
+    }
+
+    /// Conectado Y con `desde` distinto al de antes de empezar (si no, un reconectar
+    /// terminaría al instante con la conexión vieja).
+    private func isFreshConnection(_ c: Conector) -> Bool {
+        c.conectado && c.desde != sinceAtStart
     }
 
     private func poll() async {
@@ -275,6 +287,7 @@ struct ConnectOfferCard: View {
     private func start(seenIntro: Bool = false) {
         guard let c = item else { return }
         if c.intro != nil, !seenIntro { failure = nil; showIntro = true; return }
+        sinceAtStart = c.conectado ? c.desde : nil
         // De llave: el formulario vive en Integraciones; al volver, la tarjeta revisa sola.
         if c.kind == "credential" {
             waitingSince = Date()
