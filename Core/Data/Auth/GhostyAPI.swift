@@ -616,8 +616,13 @@ enum GhostyAPI {
         _ = try await URLSession.shared.data(for: req)
     }
 
-    /// La foto del servidor (`GET /api/v2/me` → `avatarUrl`). `nil` si no hay o falla.
-    static func avatarURL() async -> URL? {
+    /// Lo que gs sabe de la persona (`GET /api/v2/me`): su foto y su nombre. `nil` si falla.
+    struct Me: Sendable {
+        let avatarURL: URL?
+        let name: String?
+    }
+
+    static func me() async -> Me? {
         var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me"))
         req.assumesHTTP3Capable = false
         guard let token = try? await Session.accessToken() else { return nil }
@@ -625,7 +630,40 @@ enum GhostyAPI {
         guard let (datos, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any] else { return nil }
-        return (j["avatarUrl"] as? String).flatMap(URL.init(string:))
+        let name = (j["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Me(avatarURL: (j["avatarUrl"] as? String).flatMap(URL.init(string:)),
+                  name: name?.isEmpty == false ? name : nil)
+    }
+
+    /// La foto del servidor (`GET /api/v2/me` → `avatarUrl`). `nil` si no hay o falla.
+    static func avatarURL() async -> URL? { await me()?.avatarURL }
+
+    /// Cambia el nombre (`PATCH /api/v2/me {name}`, 1–60). Devuelve el nombre que quedó o el
+    /// motivo del fallo; un 400 trae `error` (y `detalle`) de gs.
+    static func cambiarNombre(_ nombre: String) async -> Result<String, MensajeDeFallo> {
+        var req = URLRequest(url: Session.base.appendingPathComponent("api/v2/me"))
+        req.httpMethod = "PATCH"
+        req.assumesHTTP3Capable = false
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        guard let token = try? await Session.accessToken() else { return .failure(.init("Tu sesión expiró. Vuelve a entrar.")) }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["name": nombre])
+        guard let (datos, resp) = try? await URLSession.shared.data(for: req) else {
+            return .failure(.init("Sin conexión. Inténtalo de nuevo."))
+        }
+        let codigo = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+        if codigo == 200 { return .success((j?["name"] as? String) ?? nombre) }
+        if codigo == 400, let e = (j?["detalle"] as? String) ?? (j?["error"] as? String) {
+            return .failure(.init(e))
+        }
+        return .failure(.init("No pude guardar tu nombre (\(codigo)). Inténtalo más tarde."))
+    }
+
+    /// Un motivo legible para enseñar tal cual.
+    struct MensajeDeFallo: Error, Sendable {
+        let texto: String
+        init(_ texto: String) { self.texto = texto }
     }
 
     /// Cuánto almacenamiento lleva usado la cuenta.

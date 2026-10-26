@@ -103,6 +103,13 @@ struct PerfilView: View {
     @State private var eligiendoFoto: PhotosPickerItem?
     @State private var subiendoFoto = false
     @State private var falloDeFoto: String?
+    /// El nombre de gs (`GET /api/v2/me` → `name`). Lo último visto pinta al instante; sin
+    /// nombre en gs, sale del correo.
+    @State private var nombreGS: String?
+    @State private var editandoNombre = false
+    @State private var borradorDeNombre = ""
+    @State private var guardandoNombre = false
+    @State private var falloDeNombre: String?
     /// Cuánto se ha subido el contenido: la portada hace parallax con esto.
     @State private var subido: CGFloat = 0
 
@@ -137,7 +144,13 @@ struct PerfilView: View {
             Task { await cambiarFoto(item) }
         }
         .task {
-            if let u = await GhostyAPI.avatarURL() {
+            if nombreGS == nil { nombreGS = Self.nombreGuardado(store.correo) }
+            let me = await GhostyAPI.me()
+            if let me {
+                nombreGS = me.name
+                Self.guardarNombre(me.name, correo: store.correo)
+            }
+            if let u = me?.avatarURL {
                 if let d = await Descargas.bytes(u), let img = UIImage(data: d) {
                     foto = img
                     FotoDePerfil.guardar(d)
@@ -191,12 +204,41 @@ struct PerfilView: View {
             avatar
                 .padding(.top, -64)
                 .padding(.bottom, 12)
-            if let nombre = Self.nombreCorto(store.correo) {
-                Text(nombre)
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(Color.gInk)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+            Button {
+                borradorDeNombre = nombreVisible ?? ""
+                falloDeNombre = nil
+                editandoNombre = true
+            } label: {
+                HStack(spacing: 6) {
+                    Text(nombreVisible ?? "Tu nombre")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(nombreVisible == nil ? Color.gInk3 : Color.gInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    if guardandoNombre {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color.gInk3)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(guardandoNombre)
+            .accessibilityLabel("Cambiar tu nombre")
+            .accessibilityIdentifier("perfil-nombre")
+            .alert("Tu nombre", isPresented: $editandoNombre) {
+                TextField("Cómo te llamas", text: $borradorDeNombre)
+                    .textInputAutocapitalization(.words)
+                Button("Guardar") { Task { await guardarNombre() } }
+                Button("Cancelar", role: .cancel) {}
+            } message: {
+                Text("Así te llama tu agente. De 1 a 60 caracteres.")
+            }
+            if let falloDeNombre {
+                Text(falloDeNombre).gCaption().foregroundStyle(Color.gDangerInk).padding(.top, 2)
             }
             if let correo = store.correo {
                 Text(correo).font(.system(size: 15)).foregroundStyle(Color.gInk3)
@@ -358,7 +400,7 @@ struct PerfilView: View {
                 if let foto {
                     Image(uiImage: foto).resizable().scaledToFill()
                 } else {
-                    Text(String((Self.nombreCorto(store.correo) ?? "G").prefix(1)))
+                    Text(String((nombreVisible ?? "G").prefix(1)).uppercased())
                         .font(.system(size: 52, weight: .bold))
                         .foregroundStyle(Color.gPrimary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -499,6 +541,38 @@ struct PerfilView: View {
             }
             barra(fraccion: pct, fondo: .gSeparator, relleno: pct > 0.9 ? .gDanger : .gPrimary, alto: 4)
         }
+    }
+
+    /// El de gs; sin él, el que sale del correo.
+    private var nombreVisible: String? { nombreGS ?? Self.nombreCorto(store.correo) }
+
+    private func guardarNombre() async {
+        let limpio = borradorDeNombre.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (1...60).contains(limpio.count) else {
+            falloDeNombre = limpio.isEmpty ? "Escribe tu nombre." : "Máximo 60 caracteres."
+            return
+        }
+        guard limpio != nombreGS else { return }
+        guardandoNombre = true
+        defer { guardandoNombre = false }
+        switch await GhostyAPI.cambiarNombre(limpio) {
+        case .success(let n):
+            nombreGS = n
+            falloDeNombre = nil
+            Self.guardarNombre(n, correo: store.correo)
+        case .failure(let f):
+            falloDeNombre = f.texto
+        }
+    }
+
+    /// El último nombre visto, por correo: otra cuenta en el mismo teléfono no lo hereda.
+    private static func claveDeNombre(_ correo: String?) -> String? { correo.map { "perfil.nombre.\($0)" } }
+    static func nombreGuardado(_ correo: String?) -> String? {
+        claveDeNombre(correo).flatMap { UserDefaults.standard.string(forKey: $0) }
+    }
+    static func guardarNombre(_ nombre: String?, correo: String?) {
+        guard let k = claveDeNombre(correo) else { return }
+        if let nombre { UserDefaults.standard.set(nombre, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
     }
 
     /// La parte del correo antes de @, con mayúscula («blissitos@…» → «Blissitos»).
