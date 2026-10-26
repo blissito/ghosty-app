@@ -1071,6 +1071,17 @@ struct ConversationView: View {
                         rating: turnoDe(mensaje).map { store.rating(of: $0) } ?? 0,
                         onRate: turnoDe(mensaje).map { turn in
                             { rating, comment in store.rate(turnID: turn, rating: rating, comment: comment) }
+                        },
+                        connectCard: { [store] id in
+                            // Avisarle al agente sólo desde la última respuesta: una vieja
+                            // abriría un turno fuera de contexto.
+                            ConnectOfferCard(connectorID: id, store: store,
+                                             onConnected: mensaje.id == lastReplyID
+                                                ? { texto in Task { await store.send(texto) } } : nil,
+                                             openIntegrations: {
+                                                 store.requestedTab = .perfil
+                                                 store.integracionesPedidas = true
+                                             })
                         })
         case .entrega(let e):
             // En el margen de la respuesta (ya sin columna de avatar): lo entregó él.

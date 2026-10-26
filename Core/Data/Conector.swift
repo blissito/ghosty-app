@@ -46,6 +46,10 @@ struct Conector: Identifiable, Equatable, Sendable {
     var intro: IntroDeConector? = nil
     /// Un botón para administrarlo ya conectado (GitHub: «Repos»).
     var manage: GestionDeConector? = nil
+    /// El color de la marca (`logo.color`, `#181717`): la franja de la tarjeta del chat.
+    var logoColor: String? = nil
+    /// `oauth` o `credential` (llave). Una de llave no abre navegador.
+    var kind: String? = nil
 
     /// Arma un conector desde una fila de `GET /api/v2/me/connectors`. `nil` sin `id`.
     ///
@@ -68,13 +72,23 @@ struct Conector: Identifiable, Equatable, Sendable {
                         sfSymbol: c["sfSymbol"] as? String,
                         logoPng: c["logoPng"] as? String,
                         intro: (c["intro"] as? [String: Any]).flatMap(IntroDeConector.desdeJSON),
-                        manage: (c["manage"] as? [String: Any]).flatMap(GestionDeConector.desdeJSON))
+                        manage: (c["manage"] as? [String: Any]).flatMap(GestionDeConector.desdeJSON),
+                        logoColor: (c["logo"] as? [String: Any])?["color"] as? String,
+                        kind: c["kind"] as? String)
     }
 
     /// La URL del PNG del servidor, si la mandó (absoluta; relativa se resuelve contra gs).
     var logoPngURL: URL? {
         guard let logoPng, !logoPng.isEmpty else { return nil }
         return URL(string: logoPng, relativeTo: Session.base)?.absoluteURL
+    }
+
+    /// El color de marca como `UInt32` (`#181717` → 0x181717), si vino bien formado.
+    var brandHex: UInt32? {
+        guard let logoColor else { return nil }
+        let h = logoColor.hasPrefix("#") ? String(logoColor.dropFirst()) : logoColor
+        guard h.count == 6 else { return nil }
+        return UInt32(h, radix: 16)
     }
 
     /// La URL absoluta del logo remoto, si el servidor mandó uno.

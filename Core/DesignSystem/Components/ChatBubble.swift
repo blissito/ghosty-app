@@ -206,6 +206,12 @@ struct AgentBubble: View {
     /// misma fila y con la misma regla (sólo la última): `nil` = sin turno, no se vota.
     var rating: Int = 0
     var onRate: ((_ rating: Int, _ comment: String?) -> Void)? = nil
+    /// La tarjeta «Conecta tu …» de cada ` ```gs_connect <id>``` `. `nil` = no se pintan
+    /// (la marca igual se quita del texto).
+    var connectCard: ((String) -> ConnectOfferCard)? = nil
+
+    /// La respuesta sin las marcas ` ```gs_connect ``` ` y los conectores que ofrecen.
+    private var offers: (ids: [String], rest: String) { ConnectOffers.extract(text) }
 
     private var fuentes: [Fuente] {
         Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
@@ -214,7 +220,7 @@ struct AgentBubble: View {
 
     /// La respuesta separada de su narración. Ver `AgentNarration`.
     private var narrated: (steps: [String], rest: String) {
-        AgentNarration.split(text, cuts: tools?.narrationCuts ?? [])
+        AgentNarration.split(offers.rest, cuts: tools?.narrationCuts ?? [])
     }
 
     /// Lo que se copia es la respuesta, no los pasos.
@@ -252,6 +258,11 @@ struct AgentBubble: View {
 
                 if let trailing {
                     GhostyMarkdown(markdown: trailing)
+                }
+
+                // Sólo con el turno terminado, como en /c: a media respuesta no se ofrece nada.
+                if !vivo, let connectCard {
+                    ForEach(offers.ids, id: \.self) { id in connectCard(id) }
                 }
 
                 // Debajo de todo, como en Claude: lo que leyó para contestar.
