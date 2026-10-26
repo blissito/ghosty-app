@@ -77,7 +77,7 @@ struct ConnectOfferCard: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text("Tu agente lo usa en cuanto conectes.")
+                Text(ok ? "Tu agente ya lo puede usar." : "Tu agente lo usa en cuanto conectes.")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.75))
                     .lineLimit(1)
