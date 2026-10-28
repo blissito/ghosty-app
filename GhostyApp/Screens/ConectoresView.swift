@@ -41,6 +41,10 @@ struct ConectoresPane: View {
     /// Se conecta al CERRARSE la intro: presentar el navegador mientras la hoja se va falla.
     @State private var pendienteDeConectar: Conector?
     @Environment(\.openURL) private var abrir
+    /// La extensión de Chrome en la compu; `nil` mientras se pregunta o si no se pudo.
+    @State private var browser: GhostyAPI.BrowserStatus?
+    /// Redirige a la ficha de Chrome Web Store (`CHROME_EXTENSION_URL` en gs, sin deploy).
+    private static let chromeInstallURL = URL(string: "https://www.ghosty.studio/chrome")!
 
     private var disponibles: [Conector] {
         store.conectores.filter(\.disponible).sorted { $0.conectado && !$1.conectado }
@@ -67,6 +71,10 @@ struct ConectoresPane: View {
         }
         .scrollIndicators(.hidden)
         .task { await store.cargarConectores() }
+        .task {
+            // En la demo no hay red: sale «sin conectar» para poder mirar la fila.
+            browser = DemoData.encendido ? .init(connected: false) : await GhostyAPI.browserStatus()
+        }
         .sheet(item: $introDe, onDismiss: {
             if let c = pendienteDeConectar { pendienteDeConectar = nil; conectar(c) }
         }) { c in
@@ -141,10 +149,16 @@ struct ConectoresPane: View {
 
             if !disponibles.isEmpty { lista(disponibles) }
 
+            // Va con lo disponible, no debajo de «Próximamente»: ya está en la tienda.
+            // No es un conector de la cuenta: la extensión vive en el Chrome de la compu.
+            chromeRow
+                .ghostySeparator(inset: .infinity)
+                .padding(.horizontal, -Theme.Space.screenH)
+
             if !proximas.isEmpty {
                 Text("Próximamente").gSectionCaps()
                     .padding(.horizontal, 4)
-                    .padding(.top, disponibles.isEmpty ? 0 : 22)
+                    .padding(.top, 22)
                     .padding(.bottom, 8)
                 lista(proximas)
             }
@@ -410,6 +424,53 @@ struct ConectoresPane: View {
     private static func failureDetail(_ url: URL) -> String? {
         URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "detalle" }?.value
+    }
+
+    /// «Tu Chrome»: se instala en la COMPU, así que no se abre aquí: se comparte la liga
+    /// (AirDrop, correo, notas) para abrirla allá. Conectado, sólo lo dice.
+    @ViewBuilder
+    private var chromeRow: some View {
+        let connected = browser?.connected == true
+        let label = HStack(spacing: 12) {
+            Image(systemName: "macbook")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Color(light: 0x5E5D6B, dark: 0xA3A2B0))
+                .frame(width: 42, height: 42)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.gSeparator, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Tu Chrome")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.gInk)
+                Text(connected ? "Conectado en tu compu\(browser?.email.map { " · \($0)" } ?? "")"
+                               : "Manejo el Chrome de tu compu por ti")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.gInk3)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if connected {
+                Circle().fill(Color.gGreen).frame(width: 8, height: 8)
+                    .accessibilityLabel("Conectado")
+            } else {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.gDark)
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .contentShape(Rectangle())
+
+        if connected {
+            label.accessibilityIdentifier("connector-chrome")
+        } else {
+            ShareLink(item: Self.chromeInstallURL,
+                      subject: Text("Ghosty para Chrome"),
+                      message: Text("Ábrela en el Chrome de tu compu para instalar Ghosty.")) { label }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("connector-chrome")
+        }
     }
 
     private var filaTuSistema: some View {

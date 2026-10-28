@@ -200,6 +200,34 @@ enum GhostyAPI {
         return URL(string: s)
     }
 
+    /// La extensión «Ghosty» en el Chrome de la COMPU de la persona (no el del iPhone).
+    struct BrowserStatus: Equatable {
+        var connected: Bool
+        var email: String?
+    }
+
+    /// `GET /api/browser/call`: gs acepta el bearer OAuth de las apps first-party.
+    /// ⚠️ Durante un deploy blue/green de gs dice «no conectado» unos segundos: un «no» se
+    /// reintenta una vez antes de creerlo. `nil` = no se pudo preguntar (no es «desconectado»).
+    static func browserStatus() async -> BrowserStatus? {
+        var last: BrowserStatus?
+        for attempt in 0..<2 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(2)) }
+            var req = URLRequest(url: Session.base.appendingPathComponent("api/browser/call"))
+            req.assumesHTTP3Capable = false
+            guard let token = try? await Session.accessToken() else { return nil }
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            guard let (datos, resp) = try? await URLSession.shared.data(for: req),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any]
+            else { continue }
+            let s = BrowserStatus(connected: j["connected"] as? Bool ?? false, email: j["email"] as? String)
+            if s.connected { return s }
+            last = s
+        }
+        return last
+    }
+
     /// Desconecta. `aviso` trae lo que la persona tenga que ir a hacer por su cuenta —hoy,
     /// que la llave siguió viva porque no se pudo revocar—. Silenciarlo dejaría creer que
     /// desconectar ya lo resolvió todo.

@@ -183,6 +183,27 @@ final class RecorridoUITests: XCTestCase {
                       "al cerrar Integraciones ya no estás en el chat")
     }
 
+    /// «Tu Chrome» en Integraciones: sin conectar, tocarla abre la hoja de compartir con la
+    /// liga (la extensión se instala en la compu, no en el iPhone).
+    func testChromeRowSharesLink() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_CHAT"] = "vacio"
+        app.launch()
+        let chip = app.buttons["chip-herramientas"].firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 10), "no está el chip de herramientas")
+        chip.tap()
+        let row = app.buttons["connector-chrome"].firstMatch
+        if !row.waitForExistence(timeout: 3) { app.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "no está la fila «Tu Chrome»")
+        foto("56-tu-chrome")
+        row.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        foto("57-tu-chrome-compartir")
+        XCTAssertTrue(app.otherElements["ActivityListView"].waitForExistence(timeout: 5)
+                      || app.navigationBars["UIActivityContentView"].exists,
+                      "tocar «Tu Chrome» no abrió la hoja de compartir")
+    }
+
     func testDetener() {
         app.terminate()
         app.launchEnvironment["GHOSTY_DEMO_TRABAJANDO"] = "1"
