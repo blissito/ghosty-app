@@ -12,6 +12,8 @@ struct ConversationView: View {
     var onCambiarAgente: (() -> Void)? = nil
 
     @State private var borrador = ""
+    /// El re-anclaje pendiente por `.hiloCrecio` (se juntan varios en uno).
+    @State private var pendingReanchor: Task<Void, Never>?
     @FocusState private var escribiendo: Bool
     @Namespace private var formaDelCompositor
     /// Donde vuela la nota de voz: de la barra de grabación a su burbuja.
@@ -679,10 +681,13 @@ struct ConversationView: View {
         .onAppear { reanclar(lector) }
         .onChange(of: textoDelUltimo) { _, _ in seguir() }
         // Una tarjeta que se midió tarde (video, imagen): si seguías el final, abajo.
+        // Se juntan: con decenas de videos midiéndose, cada aviso era un `scrollTo` aparte.
         .onReceive(NotificationCenter.default.publisher(for: .hiloCrecio)) { _ in
             guard siguiendoElFinal else { return }
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(60))
+            pendingReanchor?.cancel()
+            pendingReanchor = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(120))
+                guard !Task.isCancelled else { return }
                 reanclar(lector)
             }
         }

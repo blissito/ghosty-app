@@ -2,7 +2,6 @@ import UniformTypeIdentifiers
 import SwiftUI
 import AVKit
 import Photos
-import Network
 
 /// Un video que el agente entregó, reproducible dentro de la tarjeta.
 ///
@@ -203,11 +202,10 @@ struct ReproductorDeVideo: View {
             if let datos { aplicar(datos) }
             if img == nil || datos == nil { await generarPortada() }
         }
-        // En Wi-Fi y de peso conocido ≤150 MB: se baja ya, para que el play sea del disco.
-        if let id = entrega.remoteID, let peso = entrega.bytesRemotos,
-           peso <= ArchivosEnDisco.maximoPorVideo, RedLibre.esWiFi {
-            ReproductoresDeVideo.bajarEnSegundoPlano(id)
-        }
+        // ⚠️ Ya NO se baja el video al aparecer. El hilo es un VStack (no perezoso): un chat
+        // con decenas de videos arrancaba decenas de descargas de hasta 150 MB a la vez,
+        // saturaba la red de TODA la app y, con el tope de 200 MB en disco, se desalojaban
+        // entre ellas y se volvían a bajar en cada visita. Se baja tras el primer play.
     }
 
     private func aplicar(_ d: MiniaturasEnMemoria.DatosDeVideo) {
@@ -219,7 +217,10 @@ struct ReproductorDeVideo: View {
     }
 
     private func generarPortada() async {
-        guard let asset = await asset(fresca: false) else { return }
+        // Pocas a la vez: cada una abre el video por streaming.
+        await CoverGate.shared.enter()
+        defer { Task { await CoverGate.shared.leave() } }
+        guard !Task.isCancelled, let asset = await asset(fresca: false) else { return }
         let gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
         gen.maximumSize = CGSize(width: 720, height: 720)
@@ -350,18 +351,23 @@ enum ReproductoresDeVideo {
     }
 }
 
-/// ¿La red de ahora es Wi-Fi (ni cara ni restringida)? Para decidir si se baja un video
-/// sin que nadie lo pida.
-enum RedLibre {
-    private static let monitor: NWPathMonitor = {
-        let m = NWPathMonitor()
-        m.start(queue: DispatchQueue(label: "ghosty.red-libre", qos: .utility))
-        return m
-    }()
+/// Cuántas portadas de video se generan a la vez. Sin tope, abrir un hilo con decenas de
+/// videos abría decenas de assets por red al mismo tiempo y todo lo demás esperaba.
+actor CoverGate {
+    static let shared = CoverGate(limit: 2)
+    private let limit: Int
+    private var running = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
 
-    static var esWiFi: Bool {
-        let p = monitor.currentPath
-        return p.status == .satisfied && !p.isExpensive && !p.isConstrained && p.usesInterfaceType(.wifi)
+    init(limit: Int) { self.limit = limit }
+
+    func enter() async {
+        if running < limit { running += 1; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func leave() {
+        if waiting.isEmpty { running -= 1 } else { waiting.removeFirst().resume() }
     }
 }
 

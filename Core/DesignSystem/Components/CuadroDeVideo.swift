@@ -55,6 +55,8 @@ enum CuadroDeVideo {
 
     /// Al segundo 1 (el 0 suele ser negro o un fundido); un video más corto, el primero.
     private static func generar(_ asset: AVURLAsset) async -> UIImage? {
+        await CoverGate.shared.enter()
+        defer { Task { await CoverGate.shared.leave() } }
         let gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
         gen.maximumSize = CGSize(width: 360, height: 360)
