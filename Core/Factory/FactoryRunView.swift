@@ -200,11 +200,11 @@ struct FactoryRunView: View {
     private var budgetUsd: Double? { detail?.budgetUsd ?? cached?.budgetUsd }
     private var spentUsd: Double? { detail?.usd ?? cached?.usd }
     /// El siguiente escalón (como Teams): +$5 hasta $20, luego el doble.
-    private var nextBudget: Double { let b = budgetUsd ?? 5; return b < 20 ? b + 5 : b * 2 }
+    private var nextBudget: Double { let b = budgetUsd ?? 15; return b < 20 ? b + 5 : b * 2 }
     private static func money(_ v: Double) -> String { v.rounded() == v ? "$\(Int(v))" : String(format: "$%.2f", v) }
 
     private var statusLine: String {
-        if budgetPaused { return "Llegó al tope de \(Self.money(budgetUsd ?? 5))" }
+        if budgetPaused { return "Llegó al tope de \(Self.money(budgetUsd ?? 15))" }
         return switch stage {
         case .planReview: "Te toca firmar el plan v\(detail?.planVersion ?? cached?.planVersion ?? 1)"
         case .escalated where escalationKind == .platform: "Esperando la preview"
@@ -1024,7 +1024,7 @@ struct FactoryRunView: View {
         case .close(let i): i == nil
             ? "Pedido #\(id). Se cierra el PR en GitHub y el pedido termina."
             : "Pedido #\(id). Se cierra el PR y Dependabot deja de proponer esta versión mayor."
-        case .budget: "Pedido #\(id). Lleva \(Self.money(spentUsd ?? 0)) de \(Self.money(budgetUsd ?? 5)). " +
+        case .budget: "Pedido #\(id). Lleva \(Self.money(spentUsd ?? 0)) de \(Self.money(budgetUsd ?? 15)). " +
             (budgetPaused ? "Sigue donde se quedó y se detiene otra vez al llegar a \(Self.money(nextBudget))." : "Se detendrá al llegar a \(Self.money(nextBudget)).")
         }
     }

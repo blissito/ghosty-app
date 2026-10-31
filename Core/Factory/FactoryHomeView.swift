@@ -85,7 +85,7 @@ struct FactoryHomeView: View {
             Button("Guardar") { Task { await saveBudget() } }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("Al llegar a este gasto, el pedido se detiene sin gastar más hasta que lo subas o lo canceles. Vale para todos los pedidos del espacio que no tengan uno propio.")
+            Text("Al llegar a este gasto, el pedido se detiene sin gastar más hasta que lo subas o lo canceles. Vale para los pedidos y sprints del espacio que no tengan uno propio; Dependabot se queda en $5 o menos.")
         }
         .alert(budgetNotice ?? "", isPresented: Binding(get: { budgetNotice != nil }, set: { if !$0 { budgetNotice = nil } })) {
             Button("OK", role: .cancel) {}
@@ -180,7 +180,7 @@ struct FactoryHomeView: View {
 
     private func openBudget() async {
         guard let slug = space?.slug else { return }
-        let current = (try? await FactoryAPI.spaceBudget(slug)) ?? 5
+        let current = (try? await FactoryAPI.spaceBudget(slug)) ?? 15
         budgetText = current.rounded() == current ? String(Int(current)) : String(format: "%.2f", current)
         budgetEditing = true
     }
