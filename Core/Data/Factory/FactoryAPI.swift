@@ -310,10 +310,13 @@ struct FactoryRun: Identifiable, Decodable, Hashable {
     var previewStatus: FactoryPreviewStatus? = nil
     /// Cortesía de lugar o fila (gs viejo no la manda).
     var slotNote: FactorySlotNote? = nil
+    /// Tope de gasto del pedido (USD) y si está detenido por llegar a él (31-oct; gs viejo no lo manda).
+    var budgetUsd: Double? = nil
+    var budgetPaused: Bool? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, createdAt, updatedAt, durationMin, usd, escalation, previewStatus, slotNote
+             loops, createdAt, updatedAt, durationMin, usd, escalation, previewStatus, slotNote, budgetUsd, budgetPaused
         case serverNeedsYou = "needsYou"
     }
 
@@ -383,10 +386,14 @@ struct FactoryRunDetail: Decodable {
     var previewStatus: FactoryPreviewStatus? = nil
     /// Cortesía de lugar o fila (gs viejo no la manda).
     var slotNote: FactorySlotNote? = nil
+    /// Lo gastado, el tope y si está detenido por llegar a él (31-oct; gs viejo no los manda).
+    var usd: Double? = nil
+    var budgetUsd: Double? = nil
+    var budgetPaused: Bool? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, updatedAt, plan, plans, events, running, escalation, ci, previewStatus, slotNote
+             loops, updatedAt, plan, plans, events, running, escalation, ci, previewStatus, slotNote, usd, budgetUsd, budgetPaused
         case serverNeedsYou = "needsYou"
     }
 
@@ -636,7 +643,7 @@ enum FactoryAPI {
     /// `retry_preview` pide la preview otra vez (20-oct).
     /// `release` (con `target`) libera el lugar de un ocupante y `notify_admin` le pide un lugar al
     /// dueño/admin: los dos de la tarjeta «Lugar» (21-oct).
-    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close, release
+    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close, release, budget
         case retryPreview = "retry_preview"
         case notifyAdmin = "notify_admin" }
 
@@ -724,8 +731,10 @@ enum FactoryAPI {
     /// Decide un pedido. `approve` en `plan_review` exige la versión del plan que la persona leyó.
     static func act(_ slug: String, _ id: Int, _ action: Action, version: Int? = nil, note: String? = nil,
                     checkScope: String? = nil, skipPreview: Bool = false, dotenv: String? = nil,
-                    ignore: String? = nil, target: [String: Any]? = nil) async throws -> ActResult {
+                    ignore: String? = nil, target: [String: Any]? = nil, usd: Double? = nil) async throws -> ActResult {
         var body: [String: Any] = ["action": action.rawValue]
+        // `budget`: el tope nuevo; sin él, gs sube al siguiente escalón.
+        if let usd { body["usd"] = usd }
         if let version { body["version"] = version }
         if let note, !note.isEmpty { body["note"] = note }
         // Lo único que @check revisa en la siguiente vuelta (lo propone `advise`).
@@ -742,6 +751,18 @@ enum FactoryAPI {
         return ActResult(status: j["status"] as? String, queued: j["queued"] as? Bool ?? false, keys: j["keys"] as? [String] ?? [],
                          previewState: preview?["state"] as? String, previewError: preview?["error"] as? String,
                          message: j["message"] as? String)
+    }
+
+    /// El tope de gasto por pedido del espacio (USD).
+    static func spaceBudget(_ slug: String) async throws -> Double {
+        struct R: Decodable { let budgetUsd: Double }
+        return try JSONDecoder().decode(R.self, from: try await request("/api/v2/workspaces/\(enc(slug))/factory/budget")).budgetUsd
+    }
+
+    /// Cambia el tope por pedido del espacio. Sólo el dueño (gs contesta 403 a los demás).
+    static func setSpaceBudget(_ slug: String, _ usd: Double) async throws -> Double {
+        struct R: Decodable { let budgetUsd: Double }
+        return try JSONDecoder().decode(R.self, from: try await request("/api/v2/workspaces/\(enc(slug))/factory/budget", method: "POST", body: ["usd": usd])).budgetUsd
     }
 
     /// Qué hace ahora cada rol. Una caja de gs sin `/live` contesta 404: quien llama lo ignora.

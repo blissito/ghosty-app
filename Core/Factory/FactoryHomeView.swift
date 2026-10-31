@@ -34,6 +34,10 @@ struct FactoryHomeView: View {
     @State private var selected: String?
     @State private var path: [FactoryRoute] = []
     @State private var sheet: HomeSheet?
+    // Tope de gasto por pedido del espacio (31-oct): se edita desde el «…».
+    @State private var budgetEditing = false
+    @State private var budgetText = ""
+    @State private var budgetNotice: String?
 
     /// Las dos hojas de la cabecera. «Pide el primer cambio» pasa de una a la otra con el room escogido.
     enum HomeSheet: Identifiable {
@@ -76,6 +80,16 @@ struct FactoryHomeView: View {
             }
         }
         .tint(.gInk)
+        .alert("Tope por pedido", isPresented: $budgetEditing) {
+            TextField("USD", text: $budgetText).keyboardType(.decimalPad)
+            Button("Guardar") { Task { await saveBudget() } }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Al llegar a este gasto, el pedido se detiene sin gastar más hasta que lo subas o lo canceles. Vale para todos los pedidos del espacio que no tengan uno propio.")
+        }
+        .alert(budgetNotice ?? "", isPresented: Binding(get: { budgetNotice != nil }, set: { if !$0 { budgetNotice = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
         .onChange(of: path) { _, p in
             withAnimation(.easeOut(duration: 0.2)) { inRun = !p.isEmpty }
             // De vuelta en la lista: lo que cambió adentro (un sprint aprobado, un plan firmado) ya se ve.
@@ -150,6 +164,8 @@ struct FactoryHomeView: View {
             Menu {
                 Button { sheet = .connect } label: { Label("Conectar repo", systemImage: "link.badge.plus") }
                     .accessibilityIdentifier("menu-conectar-repo")
+                Button { Task { await openBudget() } } label: { Label("Tope por pedido", systemImage: "dollarsign.circle") }
+                    .accessibilityIdentifier("menu-tope")
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 15, weight: .bold)).foregroundStyle(Color.gInk)
@@ -159,6 +175,28 @@ struct FactoryHomeView: View {
             .disabled(space == nil)
             .accessibilityIdentifier("fabrica-mas")
             runButton
+        }
+    }
+
+    private func openBudget() async {
+        guard let slug = space?.slug else { return }
+        let current = (try? await FactoryAPI.spaceBudget(slug)) ?? 5
+        budgetText = current.rounded() == current ? String(Int(current)) : String(format: "%.2f", current)
+        budgetEditing = true
+    }
+
+    private func saveBudget() async {
+        guard let slug = space?.slug else { return }
+        guard let usd = Double(budgetText.replacingOccurrences(of: ",", with: ".").filter { "0123456789.".contains($0) }), usd >= 1 else {
+            budgetNotice = "Escribe un tope de $1 o más."
+            return
+        }
+        do {
+            let saved = try await FactoryAPI.setSpaceBudget(slug, usd)
+            budgetNotice = "Listo: cada pedido se detiene al llegar a $\(saved.rounded() == saved ? String(Int(saved)) : String(format: "%.2f", saved))."
+            await store.refresh(space: slug)
+        } catch {
+            budgetNotice = error.localizedDescription
         }
     }
 
@@ -234,7 +272,8 @@ struct FactoryHomeView: View {
     private var content: some View {
         if let space {
             let mine = space.runs.filter(\.needsYou)
-            let working = space.runs.filter { $0.stage.working || $0.waitingOnPlatform }
+            // Detenido por el tope: está en «Te toca», no también en «Trabajando».
+            let working = space.runs.filter { ($0.stage.working && !$0.needsYou) || $0.waitingOnPlatform }
             let rest = space.runs.filter { !$0.needsYou && !$0.stage.working && !$0.waitingOnPlatform }
             let pending = store.pending(space.slug)
             let sprints = store.sprints[space.slug] ?? []

@@ -38,6 +38,8 @@ struct FactoryRunView: View {
 
     private enum Pending: Identifiable {
         case approve(Int), anotherLoop, recheck, merge, resume, cancel, retryPreview
+        /// Subir el tope de gasto del pedido al siguiente escalón (si estaba detenido, sigue).
+        case budget
         /// Cerrar el PR; con `ignore` (`major`|`dependency`), Dependabot deja de proponerlo.
         case close(String?)
         var id: String {
@@ -50,6 +52,7 @@ struct FactoryRunView: View {
             case .merge: "merge"
             case .resume: "resume"
             case .cancel: "cancel"
+            case .budget: "budget"
             }
         }
     }
@@ -131,6 +134,7 @@ struct FactoryRunView: View {
                     case .cancel: await act(.cancel)
                     case .retryPreview: await act(.retryPreview)
                     case .close(let i): await act(.close, ignore: i)
+                    case .budget: await act(.budget)
                     }
                 }
             }
@@ -191,8 +195,17 @@ struct FactoryRunView: View {
         }
     }
 
+    // Tope de gasto (31-oct): lo gastado contra el tope y si está detenido por llegar.
+    private var budgetPaused: Bool { stage.working && (detail?.budgetPaused ?? cached?.budgetPaused ?? false) }
+    private var budgetUsd: Double? { detail?.budgetUsd ?? cached?.budgetUsd }
+    private var spentUsd: Double? { detail?.usd ?? cached?.usd }
+    /// El siguiente escalón (como Teams): +$5 hasta $20, luego el doble.
+    private var nextBudget: Double { let b = budgetUsd ?? 5; return b < 20 ? b + 5 : b * 2 }
+    private static func money(_ v: Double) -> String { v.rounded() == v ? "$\(Int(v))" : String(format: "$%.2f", v) }
+
     private var statusLine: String {
-        switch stage {
+        if budgetPaused { return "Llegó al tope de \(Self.money(budgetUsd ?? 5))" }
+        return switch stage {
         case .planReview: "Te toca firmar el plan v\(detail?.planVersion ?? cached?.planVersion ?? 1)"
         case .escalated where escalationKind == .platform: "Esperando la preview"
         case .escalated where escalationKind == .env: "Te toca: faltan variables"
@@ -216,6 +229,7 @@ struct FactoryRunView: View {
     private var statusExtra: String? {
         let loops = detail?.loops ?? cached?.loops ?? 0
         let parts = [
+            spentUsd.map { s in budgetUsd.map { "\(Self.money((s * 100).rounded() / 100)) de \(Self.money($0))" } ?? Self.money(s) } ?? nil,
             loops > 0 ? "Vueltas de check: \(loops)" : nil,
             detail?.room.map { "#\($0)" },
             FactoryFormat.ago(FactoryAPI.date(detail?.updatedAt ?? cached?.updatedAt)).map { "movido \($0)" },
@@ -908,6 +922,11 @@ struct FactoryRunView: View {
     private var actionBar: some View {
         let version = detail?.planVersion ?? cached?.planVersion ?? 1
         return HStack(spacing: 10) {
+            if budgetPaused {
+                // Llegó al tope: nadie trabaja hasta subirlo; cancelar no gasta nada.
+                barButton("Cancelar pedido", primary: false, id: "cancelar-tope") { confirm = .cancel }
+                barButton("Subir a \(Self.money(nextBudget))", primary: true, id: "subir-tope", icon: "arrow.up.circle") { confirm = .budget }
+            } else {
             switch stage {
             case .planReview:
                 barButton("Pedir cambios", primary: false, id: "pedir-cambios") { asking = .changes }
@@ -950,6 +969,7 @@ struct FactoryRunView: View {
             default:
                 EmptyView()
             }
+            }
         }
         .disabled(busy || detail == nil)
         .padding(.horizontal, Theme.Space.screenH)
@@ -986,6 +1006,7 @@ struct FactoryRunView: View {
         case .cancel: "¿Detener el pedido?"
         case .retryPreview: "¿Reintentar la preview?"
         case .close(let i): i == nil ? "¿Cerrar el PR?" : "¿Cerrar e ignorar esta versión?"
+        case .budget: "¿Subir el tope a \(Self.money(nextBudget))?"
         }
     }
 
@@ -1003,6 +1024,8 @@ struct FactoryRunView: View {
         case .close(let i): i == nil
             ? "Pedido #\(id). Se cierra el PR en GitHub y el pedido termina."
             : "Pedido #\(id). Se cierra el PR y Dependabot deja de proponer esta versión mayor."
+        case .budget: "Pedido #\(id). Lleva \(Self.money(spentUsd ?? 0)) de \(Self.money(budgetUsd ?? 5)). " +
+            (budgetPaused ? "Sigue donde se quedó y se detiene otra vez al llegar a \(Self.money(nextBudget))." : "Se detendrá al llegar a \(Self.money(nextBudget)).")
         }
     }
 
@@ -1016,6 +1039,7 @@ struct FactoryRunView: View {
         case .cancel: "Detener pedido"
         case .retryPreview: "Reintentar preview"
         case .close(let i): i == nil ? "Cerrar PR" : "Cerrar e ignorar"
+        case .budget: "Subir a \(Self.money(nextBudget))"
         }
     }
 
@@ -1117,6 +1141,7 @@ struct FactoryRunView: View {
             case .retryPreview: Self.retryNotice(r)
             case .release: r.message ?? "Lugar liberado: el pedido en fila arranca en un minuto."
             case .notifyAdmin: "Le avisamos al admin del espacio."
+            case .budget: budgetPaused ? "Tope subido: el pedido sigue." : "Tope subido."
             }
             withAnimation(.snappy) { notice = msg; error = nil }
             if action == .merge { confetti = UUID() }
@@ -1153,6 +1178,12 @@ struct FactoryRunView: View {
             if detail?.blocked == true {
                 // La salida de siempre, por si de verdad era de código.
                 Button { confirm = .anotherLoop } label: { Label("Que @build lo intente", systemImage: "hammer") }
+            }
+            if stage.working || stage == .escalated || stage == .planReview || stage == .prReview {
+                // Más presupuesto antes de llegar al tope, sin esperar a que se detenga.
+                Button { confirm = .budget } label: { Label("Subir tope a \(Self.money(nextBudget))", systemImage: "dollarsign.circle") }
+                // Cancelar desde cualquier etapa abierta (antes sólo con «Sin avanzar»).
+                Button(role: .destructive) { confirm = .cancel } label: { Label("Cancelar pedido", systemImage: "xmark.octagon") }
             }
             Button { Task { await act(.card) } } label: { Label("Mandar la tarjeta al hilo", systemImage: "rectangle.portrait.on.rectangle.portrait") }
             Button { Task { await load() } } label: { Label("Actualizar", systemImage: "arrow.clockwise") }

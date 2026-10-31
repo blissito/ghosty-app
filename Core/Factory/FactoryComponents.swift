@@ -60,10 +60,12 @@ struct StageChip: View {
     let stage: FactoryStage
     /// Con él, un escalado dice de qué tipo es («Faltan variables», «Esperando preview»…).
     var escalation: FactoryEscalation? = nil
+    /// Detenido por llegar a su tope de gasto: se pinta como «te toca».
+    var budgetPaused = false
 
     var body: some View {
-        let tone = FactoryTone.of(stage, escalation)
-        let label = stage == .escalated ? escalation?.label ?? stage.label : stage.label
+        let tone = budgetPaused ? FactoryTone.of(.escalated, nil) : FactoryTone.of(stage, escalation)
+        let label = budgetPaused ? "Llegó al tope" : stage == .escalated ? escalation?.label ?? stage.label : stage.label
         HStack(spacing: 2) {
             PulsingDot(color: tone.accent, active: stage.working || stage.needsYou, size: 6)
                 .padding(.leading, -2)
@@ -328,7 +330,7 @@ struct FactoryRunRow: View {
                     .foregroundStyle(Color.gChevron)
             }
             HStack(spacing: 8) {
-                StageChip(stage: stage, escalation: run.escalation)
+                StageChip(stage: stage, escalation: run.escalation, budgetPaused: run.stage.working && run.budgetPaused == true)
                 if let repo = run.repo {
                     Label {
                         Text(repo.split(separator: "/").last.map(String.init) ?? repo).lineLimit(1)
