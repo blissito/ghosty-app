@@ -609,7 +609,7 @@ final class LiveAgentStore: AgentStoring {
         // uno borrado desde la web dejaría la app apuntando a la nada.
         montarCanales()
         conexion = .lista
-        abrirRespaldoSiNoEsTuyo()
+        openFallbackIfNotOwned()
     }
 
     /// Ya con la flota del SERVIDOR (no la del caché): si el aviso pendiente es de un agente
@@ -618,11 +618,11 @@ final class LiveAgentStore: AgentStoring {
     /// ⚠️ Las menciones de Teams traen agentId + sessionId de un agente del espacio de Teams
     /// que no está en tu lista: se abría un chat vacío que reintentaba con 404 sin fin
     /// (bliss, 8-oct).
-    private func abrirRespaldoSiNoEsTuyo() {
-        guard let (agente, _) = pendingNotice, let url = respaldoDelAviso,
+    private func openFallbackIfNotOwned() {
+        guard let (agente, _) = pendingNotice, let url = noticeFallback,
               !cuentas.contains(where: { $0.id == agente }) else { return }
         pendingNotice = nil
-        respaldoDelAviso = nil
+        noticeFallback = nil
         // Un hilo de la fábrica se abre en la app, en su vista nativa.
         if let route = FactoryStore.shared.route(teamsLink: url) {
             EasyBitsClient.diag("[push] hilo de la fábrica \(url.absoluteString)")
@@ -1033,7 +1033,7 @@ final class LiveAgentStore: AgentStoring {
     func open(agent: String, session: String, fallback: URL? = nil) {
         linkRequests += 1
         pendingNotice = (agent, session)
-        respaldoDelAviso = fallback
+        noticeFallback = fallback
         applyPendingNotice()
         // ⚠️ Un agente creado DESPUÉS de la última carga (en la web, en otra superficie)
         // no está en `cuentas`: el aviso se quedaba guardado esperando un `montarCanales`
@@ -1056,7 +1056,7 @@ final class LiveAgentStore: AgentStoring {
               cuentas.contains(where: { $0.id == agentID }),
               let canal = channels[agentID] else { return }
         pendingNotice = nil
-        respaldoDelAviso = nil
+        noticeFallback = nil
         let hilo = canal.hilo(sesion: sesion) ?? canal.abrir(sesion)
         EasyBitsClient.diag("[push] abro \(sesion) de \(agentID.prefix(9)) (\(hilo.mensajes.count) mensajes en caché)")
         focus(hilo, agent: agentID)
@@ -1097,11 +1097,11 @@ final class LiveAgentStore: AgentStoring {
 
     /// Un enlace `com.fixtergeek.ghostyapp://…`. Misma doctrina que `irA`: el destino es
     /// ESTADO y se aplica cuando haya a dónde ir.
-    func abrir(_ enlace: EnlaceDeGhosty) {
-        switch enlace {
-        case .conversacion(let agente, let sesion):
-            open(agent: agente, session: sesion)
-        case .compartido(let id):
+    func openLink(_ link: GhostyLink) {
+        switch link {
+        case .conversation(let agent, let session):
+            open(agent: agent, session: session)
+        case .shared(let id):
             linkRequests += 1
             guard let r = BuzonCompartido.tomar(id) else {
                 EasyBitsClient.diag("[compartir] el paquete \(id.prefix(8)) ya no existe")
@@ -1109,10 +1109,19 @@ final class LiveAgentStore: AgentStoring {
             }
             compartidoPendiente = r
             aplicarCompartido()
-        case .pedido(let slug, let id):
-            FactoryStore.shared.pendingRoute = FactoryRoute(slug: slug, id: id)
-            requestedTab = .fabrica
+        case .factoryRun(let space, let id):
+            openFactory(FactoryRoute(slug: space, id: id))
+        case .factoryThread(let space, let room, let thread):
+            openFactory(FactoryRoute(slug: space, target: .thread(room: room, id: thread)))
         }
+    }
+
+    /// La pestaña Fábrica con esa vista ya abierta. No espera a que carguen los espacios:
+    /// `FactoryHomeView` abre `pendingRoute` y la vista del pedido se carga sola por su id.
+    private func openFactory(_ route: FactoryRoute) {
+        linkRequests += 1
+        FactoryStore.shared.pendingRoute = route
+        requestedTab = .fabrica
     }
 
     /// Conversación NUEVA con el agente elegido en la hoja, y lo compartido al compositor.
@@ -1159,7 +1168,7 @@ final class LiveAgentStore: AgentStoring {
     /// El aviso que se tocó antes de que la app tuviera conversaciones que enseñar.
     private var pendingNotice: (agente: String, sesion: String)?
     /// La liga a abrir si el agente del aviso resulta no ser tuyo (avisos de Teams).
-    private var respaldoDelAviso: URL?
+    private var noticeFallback: URL?
     /// A qué pestaña quiere llevar el último aviso. La raíz lo lee y lo limpia.
     var requestedTab: GhostyTab?
     /// Cuántas veces un aviso o una liga pidió llevarte a algún lado. Sólo sirve para

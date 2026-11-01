@@ -219,12 +219,9 @@ struct RootView: View {
             showAgentPicker = false
             store.requestedTab = nil
         }
-        // `com.fixtergeek.ghostyapp://conversacion|compartido` (ver `EnlaceDeGhosty`): lo
+        // `com.fixtergeek.ghostyapp://conversacion|compartido` (ver `GhostyLink`): lo
         // que abre la extensión «Enviar a Ghosty».
-        .onOpenURL { url in
-            guard let enlace = EnlaceDeGhosty(url: url) else { return }
-            store.abrir(enlace)
-        }
+        .onOpenURL(perform: openAppURL)
         // ¿Hay fábrica? Al volver al frente y al cambiar de cuenta (cuántos agentes ve).
         // Best-effort: sin sesión falla callado y la pestaña simplemente no sale.
         .task(id: "\(fase)-\(store.agents.count)") {
@@ -240,7 +237,7 @@ struct RootView: View {
             // Gancho: `GHOSTY_COMPARTIDO=<id>` abre ese paquete de la hoja de compartir como
             // si llegara por `…://compartido` (el simulador pregunta antes de abrir un enlace
             // y nadie puede contestar).
-            if let id = Gancho.valor("GHOSTY_COMPARTIDO") { store.abrir(.compartido(id: id)) }
+            if let id = Gancho.valor("GHOSTY_COMPARTIDO") { store.openLink(.shared(id: id)) }
             // En paralelo: ninguna de las dos bloquea la pantalla y las dos deciden qué se
             // enseña en Ajustes.
             async let almacen: Void = store.cargarAlmacenamiento()
@@ -348,7 +345,13 @@ struct RootView: View {
         return [.perfil, .memorias, .artifacts] + (conFabrica ? [.fabrica] : []) + [.chat]
     }
 
+    private func openAppURL(_ url: URL) {
+        guard let link = GhostyLink(url: url) else { return }
+        store.openLink(link)
+    }
+
     /// `GHOSTY_FABRICA=<espacio>/<id>` abre ese pedido dentro de la pestaña Fábrica.
+
     static var pedidoDelGancho: FactoryRoute? {
         guard let v = Gancho.valor("GHOSTY_FABRICA"), case let p = v.split(separator: "/"), p.count == 2,
               let id = Int(p[1]) else { return nil }

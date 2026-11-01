@@ -269,6 +269,22 @@ enum Avisos {
             // equivocada no deja rastro de por qué, y la diferencia entre «no venía el
             // id» y «venía y lo busqué mal» son dos arreglos distintos.
             EasyBitsClient.diag("[push] tocado: \(info.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))")
+            // Aviso con destino explícito (`link`, gs `app/lib/push/factory-link.ts`): hoy, un
+            // hilo de la Fábrica en Teams. Gana a todo lo demás: la conversación vive en Teams,
+            // no en gs, y abrirla como chat dejaba un hilo nuevo y vacío (1-nov). Si ya se sabe
+            // que no tienes ese espacio de la Fábrica, se abre Teams en el navegador (`url`).
+            if let link = GhostyLink(string: info["link"] as? String) {
+                let fallback = (info["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
+                await MainActor.run {
+                    let f = FactoryStore.shared
+                    let missingSpace = link.factorySpace.map { space in f.loaded && !f.spaces.contains { $0.slug == space } } ?? false
+                    #if canImport(UIKit) && !GHOSTY_EXTENSION
+                    if missingSpace, let fallback { UIApplication.shared.open(fallback); return }
+                    #endif
+                    LiveAgentStore.compartido.openLink(link)
+                }
+                return
+            }
             // Aviso de VENTAS (cliente sin respuesta, escalado, etapa): no es un chat de
             // agente, es una tarjeta del tablero. La app no tiene tablero, así que se abre
             // la tarjeta en el navegador (gs manda la liga en `url`). Antes el toque no hacía nada.
@@ -289,7 +305,8 @@ enum Avisos {
             // tuvieras abierta — y parecía que el aviso era de ésa.
             let hilo = (info["aps"] as? [String: Any])?["thread-id"] as? String
             let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String) ?? hilo
-            // Aviso de TEAMS: si el agente no es tuyo, `irA` se va a la liga (`url`).
+            // Aviso de TEAMS viejo (gs ya no manda `tipo: "teams"`, 1-nov): si el agente no es
+            // tuyo, se va a la liga (`url`). Se queda por los avisos ya entregados.
             let respaldo = (info["tipo"] as? String) == "teams"
                 ? (info["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
                 : nil

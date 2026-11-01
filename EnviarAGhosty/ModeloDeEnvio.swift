@@ -127,7 +127,7 @@ final class ModeloDeEnvio {
         do {
             let id = try BuzonCompartido.guardar(agente: agenteID, texto: texto,
                                                  adjuntos: piezas.map(\.adjunto))
-            abrirApp(EnlaceDeGhosty.compartido(id: id).url)
+            abrirApp(GhostyLink.shared(id: id).url)
         } catch {
             estado = .fallo("No pude pasarle los archivos a la app: \(error.localizedDescription)")
         }
@@ -135,7 +135,7 @@ final class ModeloDeEnvio {
 
     func abrirConversacion() {
         guard case .enviado(let a, let s) = estado else { return }
-        abrirApp(EnlaceDeGhosty.conversacion(agente: a, sesion: s).url)
+        abrirApp(GhostyLink.conversation(agent: a, session: s).url)
     }
 
     /// Para iniciar sesión o dar el consentimiento: la app, sin más.

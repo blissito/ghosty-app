@@ -32,49 +32,76 @@ enum GrupoDeApp {
 ///
 /// - `…://conversacion?agente=<id>&sesion=<id>`: esa conversación.
 /// - `…://compartido?id=<paquete>`: un compositor nuevo con lo que se compartió.
+/// - `…://pedido?espacio=<slug>&id=<n>`: un pedido de la Fábrica (Live Activity y avisos de Teams).
+/// - `…://factory-thread?space=<slug>&room=<room>&thread=<n>`: un hilo de la Fábrica que todavía
+///   no es pedido (la conversación con @plan).
+///
+/// Los nombres de host y de parámetros son formato de cable: la Live Activity y gs
+/// (`app/lib/push/factory-link.ts`) los escriben, así que no se renombran.
 ///
 /// ⚠️ `…://cb` (login) y `…://conector` los consume `ASWebAuthenticationSession`; no
 /// pasan por aquí y aquí se ignoran.
-enum EnlaceDeGhosty: Equatable {
-    case conversacion(agente: String, sesion: String)
-    case compartido(id: String)
-    /// Un pedido de la Fábrica: lo que abre tocar su Live Activity.
-    case pedido(slug: String, id: Int)
+enum GhostyLink: Equatable {
+    case conversation(agent: String, session: String)
+    case shared(id: String)
+    case factoryRun(space: String, id: Int)
+    case factoryThread(space: String, room: String, thread: Int)
 
     init?(url: URL) {
         guard url.scheme == Session.redirectScheme,
               let c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        let q = { (n: String) in c.queryItems?.first { $0.name == n }?.value }
+        let q = { (n: String) in c.queryItems?.first { $0.name == n }?.value.flatMap { $0.isEmpty ? nil : $0 } }
         switch url.host {
         case "conversacion":
-            guard let a = q("agente"), let s = q("sesion"), !a.isEmpty, !s.isEmpty else { return nil }
-            self = .conversacion(agente: a, sesion: s)
+            guard let a = q("agente"), let s = q("sesion") else { return nil }
+            self = .conversation(agent: a, session: s)
         case "compartido":
-            guard let id = q("id"), !id.isEmpty else { return nil }
-            self = .compartido(id: id)
+            guard let id = q("id") else { return nil }
+            self = .shared(id: id)
         case "pedido":
-            guard let slug = q("espacio"), !slug.isEmpty, let id = q("id").flatMap(Int.init) else { return nil }
-            self = .pedido(slug: slug, id: id)
+            guard let space = q("espacio"), let id = q("id").flatMap(Int.init) else { return nil }
+            self = .factoryRun(space: space, id: id)
+        case "factory-thread":
+            guard let space = q("space"), let room = q("room"), let thread = q("thread").flatMap(Int.init) else { return nil }
+            self = .factoryThread(space: space, room: room, thread: thread)
         default:
             return nil
         }
+    }
+
+    /// El `link` de un push (gs lo manda como texto en el payload).
+    init?(string: String?) {
+        guard let string, let url = URL(string: string) else { return nil }
+        self.init(url: url)
     }
 
     var url: URL {
         var c = URLComponents()
         c.scheme = Session.redirectScheme
         switch self {
-        case .conversacion(let a, let s):
+        case .conversation(let a, let s):
             c.host = "conversacion"
             c.queryItems = [URLQueryItem(name: "agente", value: a), URLQueryItem(name: "sesion", value: s)]
-        case .compartido(let id):
+        case .shared(let id):
             c.host = "compartido"
             c.queryItems = [URLQueryItem(name: "id", value: id)]
-        case .pedido(let slug, let id):
+        case .factoryRun(let space, let id):
             c.host = "pedido"
-            c.queryItems = [URLQueryItem(name: "espacio", value: slug), URLQueryItem(name: "id", value: String(id))]
+            c.queryItems = [URLQueryItem(name: "espacio", value: space), URLQueryItem(name: "id", value: String(id))]
+        case .factoryThread(let space, let room, let thread):
+            c.host = "factory-thread"
+            c.queryItems = [URLQueryItem(name: "space", value: space), URLQueryItem(name: "room", value: room),
+                            URLQueryItem(name: "thread", value: String(thread))]
         }
         return c.url!
+    }
+
+    /// A qué espacio de la Fábrica lleva, si lleva a uno.
+    var factorySpace: String? {
+        switch self {
+        case .factoryRun(let space, _), .factoryThread(let space, _, _): space
+        default: nil
+        }
     }
 }
 
