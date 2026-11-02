@@ -203,6 +203,10 @@ struct AgentHeader: View {
     /// Los subagentes de esta conversación (su historial, como `/tasks` de Claude Code). `nil` =
     /// sin botón: sólo sale en agentes que los tienen y cuando el hilo ya lanzó alguno.
     var onSubagents: (() -> Void)? = nil
+    /// «Tareas» del agente (`AgentTasksSheet`). Con algo pendiente sale como botón con insignia
+    /// junto al ⋯; en reposo vive dentro del ⋯, para no amontonar la cabecera.
+    var onTasks: (() -> Void)? = nil
+    var taskCounts = AgentTaskCounts()
 
     private var status: AgentStatus { estado ?? agent.status }
     private var trabajando: Bool { if case .working = status { return true } else { return false } }
@@ -309,8 +313,16 @@ struct AgentHeader: View {
 
             // ⚠️ Favorito y subagentes van en un menú «⋯», como WhatsApp: con estrella, personas
             // y lápiz sueltos la cabecera se amontonaba y el nombre del agente se cortaba (8-oct).
-            if (favorito != nil && onFavorito != nil) || onSubagents != nil {
+            if let onTasks, taskCounts.badge > 0 {
+                AgentTasksButton(counts: taskCounts, action: onTasks)
+                    .transition(.scale.combined(with: .opacity))
+            }
+            if (favorito != nil && onFavorito != nil) || onSubagents != nil || onTasks != nil {
                 Menu {
+                    if let onTasks {
+                        Button(action: onTasks) { Label("Tareas", systemImage: "checklist") }
+                            .accessibilityIdentifier("hilo-menu-tareas")
+                    }
                     if let favorito, let onFavorito {
                         Button(action: onFavorito) {
                             Label(favorito ? "Quitar de favoritos" : "Agregar a favoritos",
@@ -360,6 +372,7 @@ struct AgentHeader: View {
         .frame(height: 56)
         .frame(maxWidth: .infinity)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: puntoHistorial)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: taskCounts.badge > 0)
     }
 }
 

@@ -98,6 +98,9 @@ struct ConversationView: View {
     /// `(agente, sesión)`, y una conversación nueva sin `sessionId` no tiene agenda aún.
     @State private var agenda: Agenda?
     @State private var abrirAgenda = false
+    /// La hoja «Tareas» del agente (lo que trae entre manos; ver `AgentTasksSheet`).
+    @State private var showTasks = Gancho.valor("GHOSTY_TAREAS") == "1"
+    @State private var agentTasks = AgentTasksStore.shared
     /// Los ajustes del resumen de la mañana, desde la barra de su hilo.
     @State private var abrirResumen = false
     @State private var morningBrief = MorningBriefStore.shared
@@ -125,7 +128,9 @@ struct ConversationView: View {
                                 guard let k = llaveFavorita else { return }
                                 favoritas.alternar(k)
                             },
-                            onSubagents: subagentsHistoryAction)
+                            onSubagents: subagentsHistoryAction,
+                            onTasks: { escribiendo = false; showTasks = true },
+                            taskCounts: agentTasks.counts(for: agente.id))
             }
 
             // El hilo del resumen de la mañana: su audio, «Ajustar» y «Apagar» siempre a la mano.
@@ -711,6 +716,22 @@ struct ConversationView: View {
             let a = Agenda(agentID: store.selectedAgentID, sessionID: sid)
             agenda = a
             await a.recargar()
+        }
+        // Las tareas del agente: la insignia de la cabecera se refresca mientras miras el hilo
+        // (10 s si algo se mueve, 60 s si no). La hoja vive dentro, así que el bucle sigue.
+        .task(id: store.selectedAgentID) { await agentTasks.poll(store.selectedAgentID) }
+        .sheet(isPresented: $showTasks) {
+            if let agente = store.selectedAgent {
+                AgentTasksSheet(agentID: agente.id, agentName: agente.name) { session in
+                    showTasks = false
+                    // Lo mismo que tocar un aviso: entra a esa conversación con ese agente.
+                    if store.hiloActivo?.sesionID != session { store.open(agent: agente.id, session: session) }
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(Theme.Radius.sheet)
+                .presentationBackground(Color.gBg)
+            }
         }
         .sheet(isPresented: $abrirResumen) { MorningBriefSheet(store: store) }
         .task { await morningBrief.load() }
