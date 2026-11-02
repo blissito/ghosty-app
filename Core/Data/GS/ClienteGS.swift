@@ -753,7 +753,7 @@ actor ClienteGS: TransporteDeAgente {
         for p in ps where !antes.contains(where: { $0.id == p.id }) {
             pendingPermission?(ACPClient.Permiso(
                 id: p.id, sessionID: sesion, titulo: p.title, herramienta: p.tool ?? "",
-                opciones: p.options.map { ($0.id, $0.name, $0.kind) }))
+                opciones: p.options.map { ($0.id, $0.name, $0.kind) }, preview: p.preview))
         }
     }
 
@@ -890,9 +890,10 @@ actor ClienteGS: TransporteDeAgente {
 
     /// El `RunAgentInput` de un mensaje nuevo. Si había tarjetas abiertas, escribir otra cosa las
     /// contesta `cancelled` (§4 del contrato): el agente no corre esa acción.
-    /// `forwardedProps.permissions` (`ask` | `auto`). La app no lo pide (gs decide, `auto`); existe
-    /// para las pruebas de aprobaciones contra gs.
-    nonisolated(unsafe) static var modoPermisos: String?
+    /// `forwardedProps.permissions` (`ask` | `envios` | `auto`). Desde el 2-nov la app pide `envios`,
+    /// igual que /c: lo que sale de la cuenta (correos, pagos, publicar, borrados) espera la tarjeta
+    /// con el borrador. Las pruebas lo cambian a `ask`.
+    nonisolated(unsafe) static var modoPermisos: String? = "envios"
 
     private func entrada(_ sesion: String, texto: String, adjuntos: [Adjunto], runId: String) async throws -> AGUITransport.Input {
         var input = AGUITransport.Input(threadId: sesion, runId: runId, text: texto)

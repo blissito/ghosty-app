@@ -10,7 +10,7 @@ final class AGUILocalGsTests: XCTestCase {
         guard !agent.isEmpty, sids.count >= 6 else { throw XCTSkip("sin gs local") }
         ClienteGS.runURL = URL(string: "http://localhost:5180/api/v2/me/agents/\(agent)/agui")
     }
-    override func tearDown() { ClienteGS.runURL = nil; ClienteGS.modoPermisos = nil }
+    override func tearDown() { ClienteGS.runURL = nil; ClienteGS.modoPermisos = "envios" }
 
     func texto(_ ev: [ACPClient.Replay]) -> String { ev.compactMap { if case .agent(let t) = $0 { return t } else { return nil } }.joined() }
     func correr(_ f: AsyncThrowingStream<ACPClient.Replay, Error>) -> (ClienteGSAGUITests.Caja, Task<Void, Never>) {

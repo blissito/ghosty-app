@@ -91,6 +91,8 @@ enum ACPClient {
         let herramienta: String
         /// Las opciones que ofrece el agente, con su `optionId` real.
         var opciones: [(id: String, nombre: String, tipo: String)]
+        /// El borrador que arma gs; el socket ACP no lo trae.
+        var preview: ApprovalPreview? = nil
     }
 
     /// Lo que trae el replay de `session/load`. Los `*_chunk` llegan **partidos**, así

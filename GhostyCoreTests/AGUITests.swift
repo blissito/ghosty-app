@@ -122,6 +122,25 @@ final class AGUIReducerTests: XCTestCase {
         XCTAssertEqual(s.permissions[0].deadline!.timeIntervalSince(phoneNow), 120, accuracy: 1)
     }
 
+    /// El borrador de gs (`metadata.preview`) llega a la tarjeta: tipo, verbo, destinatarios y cuerpo.
+    func testInterruptCarriesTheDraft() {
+        let s = AGUIReducer.reduce(AGUIState(), AGUIEvent(type: "RUN_FINISHED", [
+            "outcome": ["type": "interrupt", "interrupts": [["id": "i1", "reason": "confirmation", "message": "Mandar un correo",
+                "metadata": ["tool": "enviar_correo",
+                             "options": [["optionId": "allow", "name": "Enviar", "kind": "allow_once"],
+                                         ["optionId": "reject", "name": "Ahora no", "kind": "reject_once"]],
+                             "preview": ["kind": "email", "label": "Correo", "verb": "Enviar",
+                                         "fields": [["label": "Para", "value": "ana@x.mx, beto@y.mx"], ["label": "Vacío", "value": ""]],
+                                         "body": "Hola Ana"]]]]],
+        ]), now: Date())
+        let pv = s.permissions[0].preview
+        XCTAssertEqual(pv?.kind, "email")
+        XCTAssertEqual(pv?.verb, "Enviar")
+        XCTAssertEqual(pv?.fields, [.init(label: "Para", value: "ana@x.mx, beto@y.mx")])
+        XCTAssertEqual(pv?.body, "Hola Ana")
+        XCTAssertNil(ApprovalPreview(json: ["kind": "email"]), "sin encabezado no hay borrador")
+    }
+
     func testCustomStepNamesTheToolForPeople() {
         let s = AGUIReducer.reduce(AGUIState(), [
             AGUIEvent(type: "TOOL_CALL_START", ["toolCallId": "t1", "toolCallName": "Read"]),

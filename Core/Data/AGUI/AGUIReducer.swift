@@ -55,6 +55,8 @@ struct AGUIState: Equatable {
         var options: [Option] = []
         /// Vencimiento en el reloj de ESTE teléfono: `expiresAt − hora del servidor + hora local`.
         var deadline: Date?
+        /// El borrador (`metadata.preview` de gs): correo, pago, publicación… Opcional.
+        var preview: ApprovalPreview? = nil
     }
 
     struct Option: Sendable, Equatable {
@@ -399,7 +401,7 @@ enum AGUIReducer {
         return .init(id: i["id"] as? String ?? "",
                      title: (i["message"] as? String) ?? toolName ?? (i["reason"] as? String ?? "una acción"),
                      tool: toolName, toolCallId: toolCallId, reason: i["reason"] as? String,
-                     options: options, deadline: deadline)
+                     options: options, deadline: deadline, preview: ApprovalPreview(json: meta["preview"]))
     }
 
     /// `expiresAt` (ISO o epoch ms) → fecha.

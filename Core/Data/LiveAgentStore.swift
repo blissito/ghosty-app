@@ -1895,7 +1895,11 @@ final class LiveAgentStore: AgentStoring {
             agentName: canal.cuenta.name,
             question: "¿Puedo usar \(p.titulo)?",
             detail: "Eso ya no se puede deshacer, por eso te pregunto. Me espero a que me digas.",
-            attachment: nil)
+            attachment: nil,
+            preview: p.preview,
+            // gs no ofrece «no me vuelvas a preguntar» en pagos ni borrados; sin opciones (socket
+            // viejo) se queda como estaba.
+            allowsAlways: p.opciones.isEmpty || p.opciones.contains { $0.tipo.lowercased().contains("always") })
     }
 
     /// Los archivos de un hilo: los que vinieron con el historial (`?archivos=1`, un viaje

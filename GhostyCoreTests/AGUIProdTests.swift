@@ -77,7 +77,7 @@ final class AGUIProdTests: XCTestCase {
         let st = try await c.estado(de: sid)
         print("PROD2 sid=\(sid) caps=\(String(describing: st?["caps"]).replacingOccurrences(of: "\n", with: " "))")
         ClienteGS.modoPermisos = "ask"
-        defer { ClienteGS.modoPermisos = nil }
+        defer { ClienteGS.modoPermisos = "envios" }
         let f = c.prompt(sessionID: sid, texto: "Usa tu herramienta de terminal para correr `ls /tmp` y dime cuántas entradas hay.", adjuntos: [], turnId: UUID().uuidString.lowercased())
         let caja = ClienteGSAGUITests.Caja()
         let t = Task { do { for try await r in f { await caja.add(r) }; await caja.cerrar(nil) } catch { await caja.cerrar(error) } }
