@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// El agente principal (gs `defaultAgentId` en `/api/v2/me`), como `default_agent` de OpenCode:
-/// el que se usa cuando nadie eligió otro. Lo usan el resumen de la mañana, «Nueva conversación»
+/// el que se usa cuando nadie eligió otro. Lo usan el brief de la mañana, «Nueva conversación»
 /// y lo que llega sin agente. Cambiarlo no mueve los hilos que ya existen.
 ///
 /// `saved` es lo que eligió la persona (`nil` = automático) y `resolved` el que gs usa de verdad:
@@ -50,8 +50,6 @@ final class DefaultAgentStore {
             (saved, resolved) = (antes, antesResuelto)
             self.error = error.localizedDescription
         }
-        // El resumen que sigue al principal cambia de autor: que lo relea.
-        await MorningBriefStore.shared.load(force: true)
     }
 
     private func pedir(_ metodo: String, _ cuerpo: [String: Any]?) async throws -> [String: Any] {

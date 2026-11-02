@@ -72,8 +72,8 @@ struct PerfilView: View {
     @State private var falloAlBorrar: String?
     @AppStorage(AIConsentSheet.key) private var consentGiven = false
     @State private var abrirConsentimiento = false
-    @State private var resumen = MorningBriefStore.shared
-    @State private var verResumen = false
+    @State private var brief = DailyDigestStore.shared
+    @State private var verBrief = false
     @State private var principal = DefaultAgentStore.shared
     @State private var verPrincipal = false
     @State private var webAbierta = false
@@ -174,8 +174,8 @@ struct PerfilView: View {
         .task { await store.cargarAlmacenamiento() }
         .task(id: fase) { await leerAvisos() }
         .sheet(isPresented: $abrirConsentimiento) { AIConsentSheet() }
-        .sheet(isPresented: $verResumen) { MorningBriefSheet(store: store) }
-        .task { await resumen.load() }
+        .sheet(isPresented: $verBrief) { DailyDigestSheet() }
+        .task { await brief.load() }
         .task { await principal.load() }
         .sheet(isPresented: $verPrincipal) { DefaultAgentPickerSheet(store: store) }
         .sheet(isPresented: Binding(get: { store.integracionesPedidas },
@@ -302,12 +302,13 @@ struct PerfilView: View {
                     .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
                     .accessibilityIdentifier("ajuste-agente-principal")
                     divisorWA
-                    if resumen.available {
-                        Button { verResumen = true } label: {
-                            renglonWA("sun.horizon", "Resumen de la mañana", resumen.brief?.summary ?? " ", chevron: true)
+                    // Sin preferencia leída (gs viejo o sin red) no se enseña: no habría qué ajustar.
+                    if let d = brief.digest {
+                        Button { verBrief = true } label: {
+                            renglonWA("sun.horizon", "Brief de la mañana", d.summary, chevron: true)
                         }
                         .buttonStyle(GhostyPressStyle(scale: 1, pressedBackground: .gFillStrong))
-                        .accessibilityIdentifier("ajuste-resumen-manana")
+                        .accessibilityIdentifier("ajuste-brief-manana")
                         divisorWA
                     }
                     // 5.1.2(i): el permiso de IA de terceros se revisa y se retira aquí.

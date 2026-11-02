@@ -101,9 +101,6 @@ struct ConversationView: View {
     /// La hoja «Tareas» del agente (lo que trae entre manos; ver `AgentTasksSheet`).
     @State private var showTasks = Gancho.valor("GHOSTY_TAREAS") == "1"
     @State private var agentTasks = AgentTasksStore.shared
-    /// Los ajustes del resumen de la mañana, desde la barra de su hilo.
-    @State private var abrirResumen = false
-    @State private var morningBrief = MorningBriefStore.shared
     /// Permiso de IA de terceros (5.1.2(i)): sin él, el envío abre la hoja y espera.
     @AppStorage(AIConsentSheet.key) private var consentGiven = false
     @State private var pendingSend: (() -> Void)?
@@ -131,11 +128,6 @@ struct ConversationView: View {
                             onSubagents: subagentsHistoryAction,
                             onTasks: { escribiendo = false; showTasks = true },
                             taskCounts: agentTasks.counts(for: agente.id))
-            }
-
-            // El hilo del resumen de la mañana: su audio, «Ajustar» y «Apagar» siempre a la mano.
-            if esHiloDelResumen {
-                MorningBriefBar(audio: audioDelResumen) { escribiendo = false; abrirResumen = true }
             }
 
             // ⚠️⚠️ El scroll va con la API de Apple —`scrollPosition` y
@@ -534,18 +526,6 @@ struct ConversationView: View {
     /// ahí. Pasó de verdad, tres veces reportado. La causa se arregla en el store (una
     /// entrega que llegaba dos veces al mismo hilo), pero un hilo en blanco es tan malo
     /// que no puede depender de que nadie se equivoque nunca más.
-    private var esHiloDelResumen: Bool {
-        morningBrief.available && morningBrief.isBriefThread(store.hiloActivo?.sesionID)
-    }
-
-    /// El audio más reciente del hilo del resumen: el de hoy.
-    private var audioDelResumen: Delivery? {
-        for m in mensajesÚnicos.reversed() {
-            if case .entrega(let e) = m.kind, e.esAudio { return e }
-        }
-        return nil
-    }
-
     private var mensajesÚnicos: [Message] {
         var vistos = Set<String>()
         return store.messages.filter { vistos.insert($0.id).inserted }
@@ -733,8 +713,6 @@ struct ConversationView: View {
                 .presentationBackground(Color.gBg)
             }
         }
-        .sheet(isPresented: $abrirResumen) { MorningBriefSheet(store: store) }
-        .task { await morningBrief.load() }
         .sheet(isPresented: $abrirAgenda) {
             if let agenda { AgendaSheet(agenda: agenda) }
         }
@@ -1075,15 +1053,6 @@ struct ConversationView: View {
                 Spacer(minLength: 0)
                 UserBubble(text: t, adjuntos: adj, vuelo: vuelo, steer: steer)
             }
-        case .agent(let t, _, _) where esHiloDelResumen && !esLaQueEscribe(mensaje) && turnoDe(mensaje) != nil
-                && MorningBriefContent(t) != nil:
-            let turn = turnoDe(mensaje)!
-            MorningBriefCards(content: MorningBriefContent(t)!,
-                              rating: { store.rating(of: turn, card: $0) },
-                              onRate: { card, rating in store.rate(turnID: turn, rating: rating, card: card) },
-                              onAction: { card, action in
-                                  Task { await store.send("De mi resumen («\(card.title)»): \(action)") }
-                              })
         case .agent(let t, let tools, let trailing):
             // ⚠️ Aquí había una segunda mascota para cuando no hay texto y sí herramienta
             // corriendo. La quita `pieDeTrabajo`, que cubre TODO el turno y no sólo ese
