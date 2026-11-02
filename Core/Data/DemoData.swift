@@ -173,36 +173,23 @@ enum DemoData {
                           updatedAt: Date().addingTimeInterval(-86_400), messageCount: 6),
     ]
 
-    /// El resumen de la mañana de la demo. Prendido con `GHOSTY_DEMO_RESUMEN=1`; con
-    /// `=oferta`, apagado y sin contestar, para mirar la tarjeta de Chats.
-    static var morningBrief: MorningBrief {
-        var b = MorningBrief()
-        b.agentId = "demo-1"
-        switch Gancho.valor("GHOSTY_DEMO_RESUMEN") {
-        case "1": b.enabled = true; b.offered = true; b.sessionId = "s-resumen"
-        case "oferta": break
-        case "sin-correo": b.enabled = true; b.offered = true; b.hasSources = false
-        default: b.offered = true
-        }
-        return b
-    }
-
-    /// El hilo del resumen: el audio arriba y cuatro tarjetas, como lo escribe gs.
-    static func morningBriefThread() -> [Message] {
-        let crudo = "```eb-audio\n{\"url\":\"\(audioDemo().absoluteString)\",\"waveform\":\"\",\"durationMs\":4000,\"mime\":\"audio/wav\"}\n```\n\n"
-            + "## Laura pidió la cotización con IVA\nTe escribió a las 7:40; quiere el PDF antes de las 12.\n→ Acción sugerida: mandarle la cotización de marzo actualizada\n\n"
-            + "## Junta con la imprenta a las 10:30\nEn tu agenda, por Meet. Falta confirmar el tiraje.\n\n"
-            + "## Se venció la factura de la luz\nCFE avisó ayer; el pago en línea sigue abierto.\n→ Acción sugerida: recordarte a las 6 pm\n\n"
-            + "## 3 pedidos nuevos en la tienda\nDos de tarjetas y uno de lonas.\n\n"
-            + "Eso es todo por hoy."
+    /// El brief de la mañana de la demo, como lo escribe gs (`renderDigestMessage`) con su audio.
+    /// `BloqueEbFile` saca el audio como entrega, igual que al recargar un hilo de verdad.
+    static func digestThread() -> [Message] {
+        let crudo = "---\n*☀️ Brief de la mañana · lunes 2 de noviembre*\n\n"
+            + "```eb-audio\n{\"url\":\"\(audioDemo().absoluteString)\",\"waveform\":\"\",\"durationMs\":4000,\"mime\":\"audio/wav\",\"name\":\"brief-2026-11-02.wav\"}\n```\n\n"
+            + "**2 cosas en curso y 1 que te necesita**\n\n"
+            + "- Laura espera tu visto bueno para mandarle la cotización con IVA\n"
+            + "- El pedido #42 de la Fábrica sigue en revisión\n"
+            + "- Junta con la imprenta a las 10:30\n\n"
+            + "¿Te sirve? [Sí](https://www.ghosty.studio/brief/r/demo-token?a=yes) · [No](https://www.ghosty.studio/brief/r/demo-token?a=no) · [Ya no me lo mandes](https://www.ghosty.studio/brief/r/demo-token?a=off)"
         var visible = crudo
         var audio: [Message] = []
-        for h in BloqueEbFile.buscar(crudo, agentID: "demo-1", sesionID: "s-resumen").reversed() {
+        for h in BloqueEbFile.buscar(crudo, agentID: "demo-1", sesionID: "s-brief").reversed() {
             visible.removeSubrange(h.rango)
             audio.append(Message(id: "entrega-\(h.entrega.id)", kind: .entrega(h.entrega)))
         }
-        return audio + [Message(id: "turno-demo-resumen", kind: .agent(text: visible.trimmingCharacters(in: .whitespacesAndNewlines),
-                                                         tools: nil, trailing: nil))]
+        return [Message(id: "demo-brief", kind: .agent(text: visible, tools: nil, trailing: nil))] + audio
     }
 
     /// Memorias para mirar la pestaña: dos guardadas por el agente y una tuya.
@@ -319,14 +306,14 @@ extension LiveAgentStore {
         foto.termino = Date().addingTimeInterval(-120)
         foto.visto = false
         let vacia = uno.abrir()
-        // `GHOSTY_DEMO_RESUMEN=1`: el hilo «Resumen de la mañana» con sus tarjetas y su audio.
+        // `GHOSTY_DEMO_BRIEF=1`: un hilo con el brief de la mañana (etiqueta, audio y pie).
         // Va detrás de un gancho para no mover la lista que fotografían las demás pruebas.
-        if Gancho.valor("GHOSTY_DEMO_RESUMEN") == "1" {
-            let resumen = uno.abrir("s-resumen")
-            resumen.mensajes = DemoData.morningBriefThread()
-            resumen.termino = Date().addingTimeInterval(-60)
-            resumen.visto = false
-            TitleStore.compartido.anotar("demo-1", "s-resumen", titulo: "Resumen de la mañana")
+        if Gancho.valor("GHOSTY_DEMO_BRIEF") == "1" {
+            let brief = uno.abrir("s-brief")
+            brief.mensajes = DemoData.digestThread()
+            brief.termino = Date().addingTimeInterval(-60)
+            brief.visto = false
+            TitleStore.compartido.anotar("demo-1", "s-brief", titulo: "Pendientes de hoy")
         }
         uno.activa = larga.clave
         // Gancho para poder fotografiar la conversación con entregas sin tocar la pantalla.

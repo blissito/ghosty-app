@@ -293,7 +293,7 @@ entrada es espejo de `ghosty-studio/packages/computer/src/protocol.ts` (`Core/Co
 
 ## 1.0.15 en revisión (22-oct)
 
-Build 95 (resumen de la mañana + agente principal; contrato en `RESUMEN-DE-LA-MANANA.md`, gs e45c6deb) enviada a
+Build 95 (resumen de la mañana + agente principal; contrato viejo; el de hoy en `RESUMEN-DE-LA-MANANA.md`) enviada a
 revisión el 22-oct, salida AUTOMÁTICA, y repartida en TestFlight (Alpha). La 1.0.14 (build 94) ya salió:
 `suggestBuild` quedó en 94 el 22-oct. Al salir la 1.0.15: `suggestBuild` a 95. Falta Android (pasarle el contrato).
 
