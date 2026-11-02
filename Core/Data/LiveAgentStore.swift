@@ -3686,7 +3686,7 @@ extension LiveAgentStore {
         guard let p = item.preview else { return }
         let key = "\(item.agentID)/\(item.session.id)"
         let respuestas = p.fromUser ? 0 : (vistasPrevias[key]?.replies ?? 1)
-        vistasPrevias[key] = ChatPreview(text: ChatPreview.plano(HelpersHeader.stripped(p.text)), fromUser: p.fromUser,
+        vistasPrevias[key] = ChatPreview(text: ChatPreview.plano(DigestMessage.preview(p.text) ?? HelpersHeader.stripped(p.text)), fromUser: p.fromUser,
                                          replies: respuestas)
     }
 }

@@ -37,7 +37,8 @@ struct ChatPreview: Equatable, Sendable {
             return nil
         case .agent(let t, _, let trailing):
             // El remate de los ayudantes sin su encabezado («--- Terminó «…» · hora»).
-            let cuerpo = HelpersHeader.stripped(t)
+            // El brief de la mañana sin el `---` ni las ligas del pie.
+            let cuerpo = DigestMessage.preview(t) ?? HelpersHeader.stripped(t)
             let limpio = plano(trailing.map { cuerpo + " " + $0 } ?? cuerpo)
             return limpio.isEmpty ? nil : limpio
         case .entrega(let e):

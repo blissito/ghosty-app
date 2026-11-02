@@ -214,7 +214,9 @@ struct AgentBubble: View {
     private var offers: (ids: [String], rest: String) { ConnectOffers.extract(text) }
 
     private var fuentes: [Fuente] {
-        Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
+        // Las ligas del pie del brief no son fuentes.
+        if DigestMessage.split(text) != nil { return [] }
+        return Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
                    herramientas: tools?.herramientas ?? [])
     }
 
@@ -249,7 +251,10 @@ struct AgentBubble: View {
 
                 // El texto se suelta a ritmo constante y cada tramo entra con su fade.
                 // El remate de los ayudantes trae su encabezado: se pinta como en /c.
-                if let wake = HelpersHeader.split(narrated.rest) {
+                // El brief de la mañana (gs, sin turno): etiqueta ámbar y pie de un toque.
+                if !vivo, let digest = DigestMessage.split(narrated.rest) {
+                    DigestMessageView(digest: digest)
+                } else if let wake = HelpersHeader.split(narrated.rest) {
                     wake.header
                     if !wake.rest.isEmpty { TextoAlRitmo(id: id, texto: wake.rest, vivo: vivo) }
                 } else if !narrated.rest.isEmpty {
