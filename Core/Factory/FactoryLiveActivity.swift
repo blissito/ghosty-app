@@ -17,7 +17,8 @@ enum FactoryLiveActivity {
         let current = Activity<FactoryActivityAttributes>.activities.first { $0.attributes.slug == slug && $0.attributes.runId == run.id }
         let state = state(run, live)
         // Esperando la preview cuenta como trabajo: la plataforma la reintenta sola (20-oct).
-        let working = run.stage.working || !run.running.isEmpty || run.escalationKind == .platform
+        // Esperando el arreglo de main también: sigue sola cuando se mergee (3-nov).
+        let working = run.stage.working || !run.running.isEmpty || run.escalationKind == .platform || run.escalation?.waitingFix != nil
         if let current {
             Task {
                 if working {
@@ -65,9 +66,11 @@ enum FactoryLiveActivity {
         // gs decide si te toca: una escalada de plataforma no (20-oct). Su motivo es el titular.
         let needsYou = run.serverNeedsYou ?? (stage.needsYou && run.escalationKind != .platform)
         let reason = stage == .escalated ? run.escalation?.reason : nil
-        let headline = stage == .escalated && run.escalationKind == .platform ? "Esperando la preview"
+        // Lo que espera manda sobre la etapa (gs `waiting`, 3-nov).
+        let waitLine = run.waiting?.line ?? run.escalation?.waitingFix.map { "Esperando el arreglo de main (#\($0))" }
+        let headline = waitLine ?? (stage == .escalated && run.escalationKind == .platform ? "Esperando la preview"
             : needsYou ? reason ?? FactoryFormat.headline(stage)
-            : r.map { FactoryFormat.working($0.role) } ?? FactoryFormat.headline(stage)
+            : r.map { FactoryFormat.working($0.role) } ?? FactoryFormat.headline(stage))
         return .init(
             stage: run.status,
             headline: headline,

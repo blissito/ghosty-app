@@ -139,14 +139,27 @@ struct FactoryEscalation: Decodable, Hashable {
     let actions: [String]?
     /// gs viejo no la manda; null o con otra forma = sin ficha.
     let brief: Brief?
+    /// Los caminos que dejó @check en un escalado `decision` (Teams, 1-nov): se elige uno con
+    /// `act(.choose, option:)`. Vacío = sin opciones (gs viejo o escalado sin ellas).
+    var options: [Option] = []
+    /// Pedido `repo_fix` que arregla main por éste: la persona ya eligió y no le toca (gs, 1-nov).
+    var waitingFix: Int? = nil
 
-    init(kind: String?, reason: String?, points: [String]?, findings: String?, at: String?, actions: [String]?,
-         brief: Brief? = nil) {
-        self.kind = kind; self.reason = reason; self.points = points; self.findings = findings
-        self.at = at; self.actions = actions; self.brief = brief
+    struct Option: Decodable, Hashable, Identifiable {
+        let id: String
+        let label: String
+        /// `build` | `recheck` | `replan` | `close` | `merge_as_is` | `fix_main`.
+        let action: String
+        let brief: String?
     }
 
-    private enum CodingKeys: String, CodingKey { case kind, reason, points, findings, at, actions, brief }
+    init(kind: String?, reason: String?, points: [String]?, findings: String?, at: String?, actions: [String]?,
+         brief: Brief? = nil, options: [Option] = [], waitingFix: Int? = nil) {
+        self.kind = kind; self.reason = reason; self.points = points; self.findings = findings
+        self.at = at; self.actions = actions; self.brief = brief; self.options = options; self.waitingFix = waitingFix
+    }
+
+    private enum CodingKeys: String, CodingKey { case kind, reason, points, findings, at, actions, brief, options, waitingFix }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
@@ -156,18 +169,34 @@ struct FactoryEscalation: Decodable, Hashable {
         at = try c.decodeIfPresent(String.self, forKey: .at)
         actions = try c.decodeIfPresent([String].self, forKey: .actions)
         brief = ((try? c.decodeIfPresent(Brief.self, forKey: .brief)) ?? nil).flatMap { $0.usable ? $0 : nil }
+        options = ((try? c.decodeIfPresent([Option].self, forKey: .options)) ?? nil) ?? []
+        waitingFix = (try? c.decodeIfPresent(Int.self, forKey: .waitingFix)) ?? nil
     }
 
     var type: Kind { kind.flatMap(Kind.init) ?? .decision }
 
     var label: String {
-        switch type {
+        if let waitingFix { return "Esperando arreglo de main #\(waitingFix)" }
+        return switch type {
         case .env:      "Faltan variables"
         case .fix:      "@build lo puede arreglar"
         case .skip:     "No conviene"
         case .decision: "Te toca decidir"
         case .platform: "Esperando preview"
         }
+    }
+}
+
+/// A quién espera el pedido fuera de los botones (gs `waiting`, 3-nov): un rol que le preguntó algo
+/// a la persona (`person`) o el `repo_fix` que arregla main (`fix`).
+struct FactoryWaiting: Decodable, Hashable {
+    let kind: String
+    let role: String?
+    let run: Int?
+    var asked: Bool { kind == "person" }
+    var line: String {
+        if asked { return "\(role.map { "@\($0)" } ?? "La fábrica") te preguntó algo: contesta en el hilo" }
+        return "Esperando el arreglo de main\(run.map { " (#\($0))" } ?? "")"
     }
 }
 
@@ -313,10 +342,11 @@ struct FactoryRun: Identifiable, Decodable, Hashable {
     /// Tope de gasto del pedido (USD) y si está detenido por llegar a él (31-oct; gs viejo no lo manda).
     var budgetUsd: Double? = nil
     var budgetPaused: Bool? = nil
+    var waiting: FactoryWaiting? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, createdAt, updatedAt, durationMin, usd, escalation, previewStatus, slotNote, budgetUsd, budgetPaused
+             loops, createdAt, updatedAt, durationMin, usd, escalation, previewStatus, slotNote, budgetUsd, budgetPaused, waiting
         case serverNeedsYou = "needsYou"
     }
 
@@ -326,7 +356,8 @@ struct FactoryRun: Identifiable, Decodable, Hashable {
     /// Le toca a una persona. gs viejo no lo manda: entonces es la etapa sola.
     var needsYou: Bool { serverNeedsYou ?? (stage.needsYou && escalation?.type != .platform) }
     /// Escaló por una falla de la plataforma: se pinta como trabajo, no como «Te toca».
-    var waitingOnPlatform: Bool { stage == .escalated && escalation?.type == .platform }
+    /// También esperando el arreglo de main (`waitingFix`, 3-nov): sigue sola cuando se mergee.
+    var waitingOnPlatform: Bool { stage == .escalated && (escalation?.type == .platform || escalation?.waitingFix != nil) }
 
     /// «#64» de `https://github.com/o/n/pull/64`.
     var prNumber: String? {
@@ -390,10 +421,11 @@ struct FactoryRunDetail: Decodable {
     var usd: Double? = nil
     var budgetUsd: Double? = nil
     var budgetPaused: Bool? = nil
+    var waiting: FactoryWaiting? = nil
 
     private enum CodingKeys: String, CodingKey {
         case id, title, status, kind, room, thread, repo, branch, pr, preview, previewState, planVersion,
-             loops, updatedAt, plan, plans, events, running, escalation, ci, previewStatus, slotNote, usd, budgetUsd, budgetPaused
+             loops, updatedAt, plan, plans, events, running, escalation, ci, previewStatus, slotNote, usd, budgetUsd, budgetPaused, waiting
         case serverNeedsYou = "needsYou"
     }
 
@@ -643,7 +675,8 @@ enum FactoryAPI {
     /// `retry_preview` pide la preview otra vez (20-oct).
     /// `release` (con `target`) libera el lugar de un ocupante y `notify_admin` le pide un lugar al
     /// dueño/admin: los dos de la tarjeta «Lugar» (21-oct).
-    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close, release, budget
+    /// `choose` (con `option` y, para `merge_as_is`, `confirmMerge`): uno de los caminos de @check (3-nov).
+    enum Action: String { case approve, changes, recheck, env, merge, card, resume, stop, cancel, close, release, budget, choose
         case retryPreview = "retry_preview"
         case notifyAdmin = "notify_admin" }
 
@@ -731,8 +764,11 @@ enum FactoryAPI {
     /// Decide un pedido. `approve` en `plan_review` exige la versión del plan que la persona leyó.
     static func act(_ slug: String, _ id: Int, _ action: Action, version: Int? = nil, note: String? = nil,
                     checkScope: String? = nil, skipPreview: Bool = false, dotenv: String? = nil,
-                    ignore: String? = nil, target: [String: Any]? = nil, usd: Double? = nil) async throws -> ActResult {
+                    ignore: String? = nil, target: [String: Any]? = nil, usd: Double? = nil,
+                    option: String? = nil, confirmMerge: Bool = false) async throws -> ActResult {
         var body: [String: Any] = ["action": action.rawValue]
+        if let option { body["option"] = option }
+        if confirmMerge { body["confirmMerge"] = true }
         // `budget`: el tope nuevo; sin él, gs sube al siguiente escalón.
         if let usd { body["usd"] = usd }
         if let version { body["version"] = version }

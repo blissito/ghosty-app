@@ -42,8 +42,11 @@ struct FactoryRunView: View {
         case budget
         /// Cerrar el PR; con `ignore` (`major`|`dependency`), Dependabot deja de proponerlo.
         case close(String?)
+        /// Uno de los caminos de @check (`choose`); `merge_as_is` pide nombrar los checks en rojo.
+        case choose(FactoryEscalation.Option)
         var id: String {
             switch self {
+            case .choose(let o): "choose-\(o.id)"
             case .retryPreview: "retry-preview"
             case .close(let i): i == nil ? "close" : "close-ignore"
             case .approve(let v): "approve-\(v)"
@@ -87,6 +90,7 @@ struct FactoryRunView: View {
                 statusCard
                 if let notice { noticeBanner(notice) }
                 if let error { errorBanner(error) }
+                if let w = waiting, w.asked { waitingBanner(w) }
                 if stage == .escalated { escalationCard }
                 if let p = previewStuck { previewCard(p) }
                 if let n = slotNote { slotCard(n) }
@@ -102,7 +106,8 @@ struct FactoryRunView: View {
         .scrollIndicators(.hidden)
         .background(Color.gBg.ignoresSafeArea())
         .refreshable { await load() }
-        .safeAreaInset(edge: .bottom) { if (stage.needsYou && brief == nil) || stalled { actionBar } }
+        // Con opciones de @check o esperando el arreglo de main, la tarjeta ya trae todo: sin barra.
+        .safeAreaInset(edge: .bottom) { if (stage.needsYou && brief == nil && options.isEmpty && waitingFix == nil) || stalled { actionBar } }
         .overlay { if let confetti { ConfettiBurst().id(confetti) } }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.gBg, for: .navigationBar)
@@ -135,6 +140,7 @@ struct FactoryRunView: View {
                     case .retryPreview: await act(.retryPreview)
                     case .close(let i): await act(.close, ignore: i)
                     case .budget: await act(.budget)
+                    case .choose(let o): await act(.choose, option: o.id, confirmMerge: o.action == "merge_as_is")
                     }
                 }
             }
@@ -489,6 +495,12 @@ struct FactoryRunView: View {
         .accessibilityIdentifier(id)
     }
 
+    /// Los caminos de @check (Teams, 1-nov). Con ellos se elige uno: «fix»/«replan» sin elegir dan 409.
+    private var options: [FactoryEscalation.Option] { detail?.escalation?.options ?? cached?.escalation?.options ?? [] }
+    /// Ya eligió «Arreglar en main»: espera ese pedido y no hay nada que decidir.
+    private var waitingFix: Int? { detail?.escalation?.waitingFix ?? cached?.escalation?.waitingFix }
+    private var waiting: FactoryWaiting? { detail?.waiting ?? cached?.waiting }
+
     private var escalationKind: FactoryEscalation.Kind { detail?.escalationKind ?? cached?.escalation?.type ?? .decision }
 
     /// Qué significa este escalado y qué lo resuelve, según su tipo (20-oct).
@@ -649,7 +661,21 @@ struct FactoryRunView: View {
                     .foregroundStyle(platform ? Color.gInk3 : Color.gAmber)
                 Text(platform ? "Esperando la preview" : brief != nil ? "Lo que hay que decidir" : "Lo que encontró @check").gCardTitle()
             }
-            if let brief {
+            if let fix = waitingFix {
+                Text("Elegiste arreglarlo en main. Este pedido sigue solo cuando se mergee el #\(fix).")
+                    .gMeta()
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("esperando-fix")
+            } else if !options.isEmpty {
+                if let reason, !reason.isEmpty {
+                    Text(reason)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("motivo")
+                }
+                optionsBlock
+            } else if let brief {
                 briefBlock(brief, reason: reason)
             } else {
                 if let reason, !reason.isEmpty {
@@ -899,6 +925,51 @@ struct FactoryRunView: View {
         .transition(.gIn)
     }
 
+    /// Un botón por camino de @check: «a) …», «b) …». Elegir pasa por confirmar, como en la web.
+    private var optionsBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(options.enumerated()), id: \.element.id) { i, o in
+                Button { confirm = .choose(o) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(o.id).font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(i == 0 ? Color.white : Color.gPrimary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(o.label).font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(i == 0 ? Color.white : Color.gInk)
+                            if let b = o.brief, b != o.label {
+                                Text(b).font(.system(size: 13))
+                                    .foregroundStyle(i == 0 ? Color.white.opacity(0.85) : Color.gInk2)
+                                    .lineLimit(3)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .multilineTextAlignment(.leading)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    .background(i == 0 ? Color.gPrimary : Color.gPrimaryTint,
+                                in: RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                }
+                .buttonStyle(.gPressPrimary)
+                .disabled(busy || detail == nil)
+                .accessibilityIdentifier("opcion-\(o.id)")
+            }
+        }
+    }
+
+    /// Un rol le preguntó algo a la persona (`waiting_person`): se contesta en el hilo del pedido.
+    private func waitingBanner(_ w: FactoryWaiting) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "questionmark.bubble.fill").foregroundStyle(Color.gAmber)
+            Text(w.line).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gInk)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color.gCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityIdentifier("te-pregunto")
+    }
+
     private func errorBanner(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.gDanger)
@@ -1007,6 +1078,7 @@ struct FactoryRunView: View {
         case .retryPreview: "¿Reintentar la preview?"
         case .close(let i): i == nil ? "¿Cerrar el PR?" : "¿Cerrar e ignorar esta versión?"
         case .budget: "¿Subir el tope a \(Self.money(nextBudget))?"
+        case .choose(let o): o.action == "merge_as_is" ? "¿Mergear con checks en rojo?" : "¿\(o.label)?"
         }
     }
 
@@ -1026,7 +1098,14 @@ struct FactoryRunView: View {
             : "Pedido #\(id). Se cierra el PR y Dependabot deja de proponer esta versión mayor."
         case .budget: "Pedido #\(id). Lleva \(Self.money(spentUsd ?? 0)) de \(Self.money(budgetUsd ?? 15)). " +
             (budgetPaused ? "Sigue donde se quedó y se detiene otra vez al llegar a \(Self.money(nextBudget))." : "Se detendrá al llegar a \(Self.money(nextBudget)).")
+        case .choose(let o): o.action == "merge_as_is" ? mergeAsIsMessage : "Pedido #\(id). \(o.brief ?? o.label)"
         }
+    }
+
+    /// Como el segundo clic de la web: se nombra lo que entra en rojo.
+    private var mergeAsIsMessage: String {
+        let red = detail?.ci?.failed.map(\.name) ?? []
+        return "Pedido #\(id). Se mergea así como está" + (red.isEmpty ? "." : ", con en rojo: \(red.joined(separator: ", ")).") + " Queda registrado que lo decidiste tú."
     }
 
     private func confirmAction(_ p: Pending) -> String {
@@ -1040,6 +1119,7 @@ struct FactoryRunView: View {
         case .retryPreview: "Reintentar preview"
         case .close(let i): i == nil ? "Cerrar PR" : "Cerrar e ignorar"
         case .budget: "Subir a \(Self.money(nextBudget))"
+        case .choose(let o): o.action == "merge_as_is" ? "Mergear así" : "Elegir \(o.id)"
         }
     }
 
@@ -1116,7 +1196,8 @@ struct FactoryRunView: View {
     }
 
     private func act(_ action: FactoryAPI.Action, version: Int? = nil, note: String? = nil, checkScope: String? = nil,
-                     skipPreview: Bool = false, ignore: String? = nil, target: [String: Any]? = nil) async {
+                     skipPreview: Bool = false, ignore: String? = nil, target: [String: Any]? = nil,
+                     option: String? = nil, confirmMerge: Bool = false) async {
         busy = true
         defer { busy = false }
         if DemoData.encendido {
@@ -1126,7 +1207,8 @@ struct FactoryRunView: View {
         }
         do {
             let r = try await FactoryAPI.act(slug, id, action, version: version, note: note, checkScope: checkScope,
-                                             skipPreview: skipPreview, ignore: ignore, target: target)
+                                             skipPreview: skipPreview, ignore: ignore, target: target,
+                                             option: option, confirmMerge: confirmMerge)
             let msg: String = switch action {
             case .approve: stage == .escalated ? "@build ya lo está arreglando." : "Firmado: @build empieza a construir."
             case .changes: stage == .escalated ? "@plan ya está rehaciendo el plan." : "Cambios pedidos: @plan prepara otra versión."
@@ -1142,6 +1224,7 @@ struct FactoryRunView: View {
             case .release: r.message ?? "Lugar liberado: el pedido en fila arranca en un minuto."
             case .notifyAdmin: "Le avisamos al admin del espacio."
             case .budget: budgetPaused ? "Tope subido: el pedido sigue." : "Tope subido."
+            case .choose: r.message ?? "Listo: la fábrica sigue por ese camino."
             }
             withAnimation(.snappy) { notice = msg; error = nil }
             if action == .merge { confetti = UUID() }

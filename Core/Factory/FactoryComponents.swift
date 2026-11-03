@@ -26,7 +26,7 @@ struct FactoryTone {
 
     /// Una escalada de plataforma no es una petición: va en gris, no en ámbar.
     static func of(_ s: FactoryStage, _ e: FactoryEscalation?) -> FactoryTone {
-        if s == .escalated, e?.type == .platform { return .init(ink: .gInk3, accent: .gInk4, tint: .gFill) }
+        if s == .escalated, e?.type == .platform || e?.waitingFix != nil { return .init(ink: .gInk3, accent: .gInk4, tint: .gFill) }
         return of(s)
     }
 }
@@ -249,6 +249,11 @@ enum FactoryFormat {
             "critique_timeout": "El crítico del plan no contestó a tiempo",
             "postmortem_requested": "pidió el post mortem",
             "reopened": "reabrió el pedido",
+            "option_chosen": "eligió un camino",
+            "merge_override": "mergeó con checks en rojo",
+            "waiting_fix": "espera el arreglo de main",
+            "merge_without_preview": "mergeó sin preview",
+            "box_courtesy": "prestó un lugar de cortesía",
         ][type] ?? "actualizó el pedido"
     }
 
