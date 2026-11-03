@@ -1059,7 +1059,8 @@ struct ConversationView: View {
             // instante; con las dos salían dos mascotas en la misma pantalla.
             AgentBubble(id: mensaje.id, text: t, tools: tools, trailing: trailing,
                         vivo: esLaQueEscribe(mensaje),
-                        showCopy: mensaje.id == lastReplyID,
+                        // Copiar en TODAS las respuestas, como en /c web (pedido de Brendi, 2-nov).
+                        showCopy: true,
                         tone: store.selectedAgent?.tone ?? .lila,
                         imagen: imagenDelTurno(mensaje, en: mensajesÚnicos).estado,
                         alEditarImagen: { editarImagen($0) },
