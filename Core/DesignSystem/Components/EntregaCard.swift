@@ -150,7 +150,7 @@ struct EntregaCard: View {
 
     /// Al visor: el HTML a un WebView de verdad; lo demás a QuickLook.
     private func abrirEnVisor() {
-        if let live = entrega.liveURL.flatMap(URL.init(string:)) { pagina = OpenHTML(live: live); return }
+        if let live = entrega.livePage { pagina = OpenHTML(live: live); return }
         guard let archivo = conBytes()?.aDisco() else { return }
         if ["html", "htm"].contains(entrega.tipo ?? "") { pagina = OpenHTML(file: archivo) }
         else { compartiendo = archivo }
@@ -162,7 +162,7 @@ struct EntregaCard: View {
     /// en el visor de fotos «un PDF de dos páginas» se veía de una.
     private func abrir() {
         // Un sitio publicado se abre vivo, sin bajar la copia.
-        if entrega.liveURL != nil { abrirEnVisor(); return }
+        if entrega.livePage != nil { abrirEnVisor(); return }
         if entrega.tipo == "pdf" {
             if datos == nil { Task { await bajar(yAbrir: true) } }
             else { abrirEnVisor() }

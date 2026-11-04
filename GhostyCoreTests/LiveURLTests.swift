@@ -36,4 +36,20 @@ final class LiveURLTests: XCTestCase {
         let viejo = #"{"id":"x","agentID":"a","forma":"archivo","titulo":"t","recibida":0}"#
         XCTAssertNil(try JSONDecoder().decode(Delivery.self, from: Data(viejo.utf8)).liveURL)
     }
+
+    /// Un ```eb-file``` cuya `url` YA es la página publicada se abre viva; una liga firmada no.
+    func testLivePageDeEbFile() {
+        var viva = Delivery(id: "v", agentID: "a", forma: .archivo, title: "Reservas", receivedAt: Date(),
+                            url: "https://barberia-el-filo-reservas.ghosty.page/")
+        viva.mime = "text/html"
+        XCTAssertEqual(viva.livePage?.host, "barberia-el-filo-reservas.ghosty.page")
+
+        var firmada = viva
+        firmada.url = "https://bucket.example.com/index.html?X-Amz-Signature=abc"
+        XCTAssertNil(firmada.livePage)
+
+        var foto = viva
+        foto.mime = "image/png"
+        XCTAssertNil(foto.livePage)
+    }
 }

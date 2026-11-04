@@ -66,6 +66,18 @@ struct Delivery: Identifiable, Codable, Equatable, Sendable {
     /// es el index de un sitio del dueño. Se abre ésa y no la copia: el HTML suelto no trae
     /// su CSS/JS relativos ni su backend (`/api`, login). gs la manda como `liveUrl`.
     var liveURL: String?
+
+    /// La página que hay que abrir VIVA, si la hay: la `liveUrl` de gs o, en una entrega HTML
+    /// anunciada por URL (```eb-file``` con la página ya publicada), esa URL cuando no es una
+    /// liga firmada del almacenamiento (ésas traen `X-Amz-…`/`Signature` y son una copia).
+    var livePage: URL? {
+        if let s = liveURL, let u = URL(string: s), u.scheme == "https" { return u }
+        guard ["html", "htm"].contains(tipo ?? ""), let s = url, let u = URL(string: s),
+              u.scheme == "https" else { return nil }
+        let q = (u.query ?? "").lowercased()
+        if q.contains("x-amz-") || q.contains("signature") || q.contains("token=") { return nil }
+        return u
+    }
     /// Sólo en una nota de voz del agente (`eb-audio`): su onda (0…1) y cuánto dura. Es lo
     /// que la pinta como nota de voz —la misma burbuja que las tuyas— y no como archivo.
     var onda: [Float]?
@@ -223,6 +235,9 @@ struct Delivery: Identifiable, Codable, Equatable, Sendable {
         case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": return "xlsx"
         case "text/csv": return "csv"
         case "text/markdown": return "md"
+        // ⚠️ Sin esto una página entregada por URL y con título sin «.html» («Reservas») no
+        // era HTML: iba a QuickLook y salía cruda.
+        case "text/html": return "html"
         default: return nil
         }
     }
