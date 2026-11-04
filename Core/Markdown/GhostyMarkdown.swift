@@ -15,6 +15,8 @@ struct GhostyMarkdown: View {
     var fades: FadesDePalabra? = nil
     /// Toque largo → «Copiar». Se apaga mientras la respuesta entra (ver `TextoAlRitmo`).
     var seleccionable = true
+    /// `false` en las respuestas del agente: su toque largo abre «Seleccionar texto».
+    @Environment(\.markdownSelectable) private var selectableByEnv
 
     /// Saca cada imagen a su PROPIO párrafo.
     ///
@@ -178,7 +180,7 @@ struct GhostyMarkdown: View {
             .markdownInlineImageProvider(.acotada)
         // Toque largo → «Copiar» del párrafo. La respuesta entera la copia el botón
         // de `AgentBubble`.
-        if seleccionable { md.textSelection(.enabled) } else { md.textSelection(.disabled) }
+        if seleccionable && selectableByEnv { md.textSelection(.enabled) } else { md.textSelection(.disabled) }
     }
 
     /// Tamaño del cuerpo de la respuesta. El resto del tema va en `.em` relativo a él.

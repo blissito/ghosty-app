@@ -230,6 +230,9 @@ struct AgentBubble: View {
         [narrated.rest, trailing ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
+    /// Toque largo en la respuesta → «Seleccionar texto» con la selección del sistema.
+    @State private var selecting = false
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
@@ -256,13 +259,18 @@ struct AgentBubble: View {
                     DigestMessageView(digest: digest)
                 } else if let wake = HelpersHeader.split(narrated.rest) {
                     wake.header
-                    if !wake.rest.isEmpty { TextoAlRitmo(id: id, texto: wake.rest, vivo: vivo) }
+                    if !wake.rest.isEmpty {
+                        TextoAlRitmo(id: id, texto: wake.rest, vivo: vivo)
+                            .modifier(LongPressToSelect(enabled: !vivo) { selecting = true })
+                    }
                 } else if !narrated.rest.isEmpty {
                     TextoAlRitmo(id: id, texto: narrated.rest, vivo: vivo)
+                        .modifier(LongPressToSelect(enabled: !vivo) { selecting = true })
                 }
 
                 if let trailing {
                     GhostyMarkdown(markdown: trailing)
+                        .modifier(LongPressToSelect(enabled: !vivo) { selecting = true })
                 }
 
                 // Sólo con el turno terminado, como en /c: a media respuesta no se ofrece nada.
@@ -281,6 +289,7 @@ struct AgentBubble: View {
                 if showCopy, !fullText.isEmpty {
                     HStack(spacing: 0) {
                         CopyButton(text: fullText)
+                        SelectTextButton { selecting = true }
                         if let onRate { RateButtons(rating: rating, onRate: onRate) }
                     }
                     .padding(.leading, -6)
@@ -293,6 +302,29 @@ struct AgentBubble: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $selecting) { SelectTextSheet(markdown: fullText) }
+    }
+}
+
+/// Toque largo → hoja de seleccionar. Sustituye al «Copiar» del bloque, que sólo copiaba el
+/// párrafo entero.
+/// ⚠️ Va como `simultaneousGesture`: un gesto normal en una fila del hilo bloquea el scroll.
+private struct LongPressToSelect: ViewModifier {
+    let enabled: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.markdownSelectable, false)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                    guard enabled else { return }
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    action()
+                },
+                including: enabled ? .all : .subviews)
+            .accessibilityAction(named: "Seleccionar texto") { if enabled { action() } }
     }
 }
 
@@ -332,6 +364,24 @@ private struct CopyButton: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("copy-response")
         .accessibilityLabel(copied ? "Copiado" : "Copiar respuesta")
+    }
+}
+
+/// Abre «Seleccionar texto»: lo mismo que el toque largo, para quien no lo descubre.
+private struct SelectTextButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "text.cursor")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color.gInk3)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("select-text")
+        .accessibilityLabel("Seleccionar texto")
     }
 }
 

@@ -13,7 +13,9 @@ for k,v in json.load(sys.stdin)['devices'].items():
         if x['name'].startswith('iPhone'): print(x['udid']); raise SystemExit")}
 xcodebuild test -project GhostyApp.xcodeproj -scheme GhostyApp \
   -destination "platform=iOS Simulator,id=$SIM" \
-  -derivedDataPath build-sim -clonedSourcePackagesDirPath .spm 2>&1 | tail -5
+  -derivedDataPath build-sim -clonedSourcePackagesDirPath .spm \
+  `# Sin clones del simulador: cada clon pesa GB y llenaron el disco (4-nov).` \
+  -parallel-testing-enabled NO "${@:2}" 2>&1 | tail -5
 R=$(ls -td build-sim/Logs/Test/*.xcresult | head -1)
 rm -rf build-sim/capturas
 xcrun xcresulttool export attachments --path "$R" --output-path build-sim/capturas >/dev/null

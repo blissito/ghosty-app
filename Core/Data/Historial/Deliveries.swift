@@ -62,6 +62,10 @@ struct Delivery: Identifiable, Codable, Equatable, Sendable {
     /// `meta.origen`); `nil` en un archivo de la cuenta = lo subió la persona. Es lo que
     /// separa «Generados» de «Subidos» en Archivos.
     var origen: String?
+    /// La página PUBLICADA (`https://<slug>.ghosty.page` o dominio propio) cuando este archivo
+    /// es el index de un sitio del dueño. Se abre ésa y no la copia: el HTML suelto no trae
+    /// su CSS/JS relativos ni su backend (`/api`, login). gs la manda como `liveUrl`.
+    var liveURL: String?
     /// Sólo en una nota de voz del agente (`eb-audio`): su onda (0…1) y cuánto dura. Es lo
     /// que la pinta como nota de voz —la misma burbuja que las tuyas— y no como archivo.
     var onda: [Float]?
@@ -103,6 +107,7 @@ struct Delivery: Identifiable, Codable, Equatable, Sendable {
                         forma: forma, title: f.titulo ?? f.nombre, receivedAt: f.creado ?? Date(),
                         bytesRemotos: f.bytes, remoteID: f.id)
         e.origen = f.origen
+        e.liveURL = f.liveURL
         if f.mime != "application/octet-stream" { e.mime = f.mime }
         return e
     }
@@ -134,6 +139,7 @@ struct Delivery: Identifiable, Codable, Equatable, Sendable {
         // Las llaves del JSON guardado no cambian aunque cambie el nombre de la propiedad.
         case receivedAt = "recibida", remoteID = "remotoID", sessionID = "sesionID", title = "titulo"
         case onda, segundosDeVoz
+        case liveURL = "liveUrl"
     }
 
     init(from decoder: Decoder) throws {
@@ -151,6 +157,7 @@ struct Delivery: Identifiable, Codable, Equatable, Sendable {
         origen = try c.decodeIfPresent(String.self, forKey: .origen)
         onda = try c.decodeIfPresent([Float].self, forKey: .onda)
         segundosDeVoz = try c.decodeIfPresent(Double.self, forKey: .segundosDeVoz)
+        liveURL = try c.decodeIfPresent(String.self, forKey: .liveURL)
         // Los de siempre, más los del formato viejo: un `entregas.json` escrito antes de
         // esto lleva los bytes dentro, y tirarlos sería perder artefactos que ya tenías.
         if let viejos = try? decoder.container(keyedBy: ClaveVieja.self)
@@ -177,6 +184,7 @@ struct Delivery: Identifiable, Codable, Equatable, Sendable {
         try c.encode(receivedAt, forKey: .receivedAt)
         try c.encodeIfPresent(contenido, forKey: .contenido)
         try c.encodeIfPresent(url, forKey: .url)
+        try c.encodeIfPresent(liveURL, forKey: .liveURL)
         try c.encodeIfPresent(bytesRemotos, forKey: .bytesRemotos)
         try c.encodeIfPresent(remoteID, forKey: .remoteID)
         try c.encodeIfPresent(origen, forKey: .origen)

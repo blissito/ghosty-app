@@ -329,6 +329,8 @@ enum GhostyAPI {
         /// Una descarga/montaje de video (`VideoRun`): el agente la entrega SIEMPRE en el texto
         /// del hilo (```eb-file```), así que no se cose al final.
         var videoRunID: String? = nil
+        /// La página publicada de un index de sitio (`liveUrl`). Ver `Delivery.liveURL`.
+        var liveURL: String? = nil
         /// Tras qué mensaje del historial va (índice del servidor; -1 = arriba). `nil` = gs no
         /// lo sabe (hilo sin horas, gs viejo) y se cose al final como antes.
         var despuesDe: Int? = nil
@@ -564,7 +566,7 @@ enum GhostyAPI {
         return result
     }
 
-    private static func parsearArchivos(_ datos: Data) -> [ArchivoDeSesion]? {
+    static func parsearArchivos(_ datos: Data) -> [ArchivoDeSesion]? {
         guard let j = try? JSONSerialization.jsonObject(with: datos) as? [String: Any],
               let lista = j["files"] as? [[String: Any]]
         else { return nil }
@@ -597,6 +599,7 @@ enum GhostyAPI {
             a.agentID = meta["agentId"] as? String
             a.objectKey = meta["objectKey"] as? String
             a.videoRunID = meta["videoRunId"] as? String
+            a.liveURL = (f["liveUrl"] as? String) ?? (meta["liveUrl"] as? String)
             a.sessionID = f["sessionId"] as? String
             a.creado = parseDate(f["createdAt"] as? String)
             a.despuesDe = f["afterIndex"] as? Int

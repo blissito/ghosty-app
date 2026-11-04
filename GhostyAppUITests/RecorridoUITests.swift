@@ -319,6 +319,32 @@ final class RecorridoUITests: XCTestCase {
         }
     }
 
+    /// Una página HTML entregada se abre en un WebView CON JavaScript (no en QuickLook, que
+    /// la pintaba cruda: «Barbería El Filo», 4-nov). El texto lo escribe el `<script>`.
+    func testPaginaHTMLConJS() {
+        app.terminate()
+        app.launchEnvironment["GHOSTY_DEMO_ENTREGAS"] = "1"
+        app.launchEnvironment["GHOSTY_TAB"] = "artifacts"
+        app.launch()
+        let documentos = app.buttons["pestana-documentos"]
+        XCTAssertTrue(documentos.waitForExistence(timeout: 10), "no salió la pestaña Documentos")
+        documentos.tap()
+        let fila = app.buttons["archivo-demo-pagina"]
+        XCTAssertTrue(fila.waitForExistence(timeout: 3), "la página de la demo no está en Archivos")
+        fila.tap()
+        // La tarjeta abierta debajo de la fila: tocarla abre el visor.
+        let tarjeta = app.staticTexts["entrega-titulo"]
+        XCTAssertTrue(tarjeta.waitForExistence(timeout: 3), "tocar la fila no abrió la tarjeta")
+        foto("32-pagina-tarjeta")
+        tarjeta.tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5), "la página no abrió en un WebView")
+        XCTAssertTrue(app.webViews.staticTexts["JS corriendo"].waitForExistence(timeout: 8),
+                      "la página abrió sin JavaScript")
+        foto("32-pagina-html")
+        app.buttons["html-viewer-close"].tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForNonExistence(timeout: 3), "el visor HTML no cerró")
+    }
+
     func testRecorrido() {
         XCTAssertTrue(app.buttons["nueva-conversacion-lista"].waitForExistence(timeout: 10), "la app no arrancó en la demo")
         foto("01-chats")
@@ -372,6 +398,18 @@ final class RecorridoUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Copiado"].waitForExistence(timeout: 2),
                       "copiar la respuesta no confirmó nada")
         foto("07-bis-copiado")
+
+        // 4-bis-b. Toque largo en la respuesta → «Seleccionar texto» con la selección del
+        //          sistema (un pedacito, no sólo el párrafo entero). Pedido de Brendi, 4-nov.
+        ultima.press(forDuration: 0.8)
+        let selectView = app.textViews["select-text-view"]
+        XCTAssertTrue(selectView.waitForExistence(timeout: 3),
+                      "el toque largo en la respuesta no abrió «Seleccionar texto»")
+        XCTAssertTrue((selectView.value as? String ?? "").contains("Respuesta 12."),
+                      "«Seleccionar texto» no trae la respuesta")
+        foto("07-bis-b-seleccionar")
+        app.buttons["select-text-done"].tap()
+        XCTAssertTrue(selectView.waitForNonExistence(timeout: 3), "«Listo» no cerró «Seleccionar texto»")
 
         // 4-ter. 👎 a la última respuesta: cuenta al tocar, abre «¿Qué faltó?» (opcional) y,
         //        al omitirla, el pulgar se queda relleno. Tocarlo otra vez lo quita.

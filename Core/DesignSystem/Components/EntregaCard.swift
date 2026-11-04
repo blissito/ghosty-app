@@ -14,6 +14,8 @@ import SwiftUI
 struct EntregaCard: View {
     let entrega: Delivery
     @State private var compartiendo: URL?
+    /// Una página HTML va a `HTMLViewer` (WebView con JS), no a QuickLook.
+    @State private var pagina: OpenHTML?
     @State private var mirando: UIImage?
     /// Lo bajado, cuando la entrega vino sólo con URL. Ver `BloqueEbFile`.
     @State private var bajados: Data?
@@ -83,7 +85,7 @@ struct EntregaCard: View {
             falloAlBajar = nil
             if yAbrir {
                 if entrega.tipo != "pdf", let img = DecodificadorDeImagen.imagen(d), entrega.esAudio == false { mirando = img }
-                else { compartiendo = conBytes()?.aDisco() }
+                else { abrirEnVisor() }
             }
         }
     }
@@ -135,10 +137,23 @@ struct EntregaCard: View {
             }
             await bajar(yAbrir: false)
         }
+        .fullScreenCover(item: $pagina) { p in
+            HTMLViewer(file: p.file, live: p.live, title: Self.sinExtension(entrega.title),
+                       baseURL: entrega.url.flatMap(URL.init(string:)),
+                       onClose: { pagina = nil })
+        }
         .fullScreenCover(item: $mirando) { img in
             VisorDeImagen(imagen: img, titulo: entrega.title, archivo: conBytes()?.aDisco(),
                           onCerrar: { mirando = nil })
         }
+    }
+
+    /// Al visor: el HTML a un WebView de verdad; lo demás a QuickLook.
+    private func abrirEnVisor() {
+        if let live = entrega.liveURL.flatMap(URL.init(string:)) { pagina = OpenHTML(live: live); return }
+        guard let archivo = conBytes()?.aDisco() else { return }
+        if ["html", "htm"].contains(entrega.tipo ?? "") { pagina = OpenHTML(file: archivo) }
+        else { compartiendo = archivo }
     }
 
     /// Tocar la tarjeta: una imagen la enseñamos nosotros; lo demás va al visor del
@@ -146,15 +161,17 @@ struct EntregaCard: View {
     /// ⚠️ Un PDF NO se abre como imagen: `imagen` es sólo su portada para la tarjeta, y
     /// en el visor de fotos «un PDF de dos páginas» se veía de una.
     private func abrir() {
+        // Un sitio publicado se abre vivo, sin bajar la copia.
+        if entrega.liveURL != nil { abrirEnVisor(); return }
         if entrega.tipo == "pdf" {
             if datos == nil { Task { await bajar(yAbrir: true) } }
-            else { compartiendo = conBytes()?.aDisco() }
+            else { abrirEnVisor() }
         }
         else if let img = imagen { mirando = img }
         // Sin bytes todavía: se bajan al TOCAR y no al pintar la fila. Bajar un PDF de
         // 20 MB sólo para enseñar un nombre sería peor que no enseñarlo.
         else if datos == nil, entrega.url != nil || entrega.remoteID != nil { Task { await bajar(yAbrir: true) } }
-        else { compartiendo = conBytes()?.aDisco() }
+        else { abrirEnVisor() }
     }
 
     /// Un audio del agente (nota de voz o archivo de audio) como nota de WhatsApp: burbuja
@@ -281,6 +298,7 @@ struct EntregaCard: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.gInk)
                     .lineLimit(1)
+                    .accessibilityIdentifier("entrega-titulo")
                     .truncationMode(.middle)
                 if let falloAlBajar {
                     Text(falloAlBajar).font(.system(size: 12)).foregroundStyle(Color.gDangerInk)

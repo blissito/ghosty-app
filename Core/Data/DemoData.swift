@@ -113,6 +113,17 @@ enum DemoData {
             Delivery(id: "demo-doc", agentID: "demo-1", sessionID: "s-foto", forma: .doc,
                     title: "Resumen del trimestre", receivedAt: Date(),
                     contenido: "# Resumen", datos: nil),
+            // Una página con JS, como las apps que publica el agente: si el visor no corre
+            // JavaScript (QuickLook), el texto de abajo nunca aparece. Ver `HTMLViewer`.
+            Delivery(id: "demo-pagina", agentID: "demo-1", sessionID: "s-foto", forma: .artifact,
+                    title: "Reservas El Filo.html", receivedAt: Date(),
+                    contenido: """
+                    <!doctype html><html><head><meta name="viewport" content="width=device-width">
+                    <style>body{font-family:-apple-system;background:#111;color:#fff;padding:24px}</style>
+                    </head><body><h1>Corte con filo.</h1><p id="estado">Cargando…</p>
+                    <script>document.getElementById('estado').textContent='JS corriendo';</script>
+                    </body></html>
+                    """, datos: nil),
         ]
     }
 
