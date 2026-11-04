@@ -284,12 +284,13 @@ desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
 ## 1.0.17 en revisión (4-nov)
 
-Build 104 (`main` al 71c17781; la 1.0.16 nunca fue a revisión y va dentro) enviada el 4-nov, salida AUTOMÁTICA.
+Build **105** (`main` al 97e12521; la 1.0.16 nunca fue a revisión y va dentro) enviada el 4-nov, salida AUTOMÁTICA.
+La 104 se retiró el mismo día: no abría viva una ```eb-file``` con mime `text/html` y título sin «.html».
 Lleva la computadora del agente, el brief único, Tareas, aprobación con borrador, copiar en todas, la Fábrica del
 3-nov, **seleccionar texto** (toque largo o `AI` → `SelectTextSheet`, `UITextView` con todo seleccionado) y
-**páginas HTML en WKWebView** (`HTMLViewer`; antes QuickLook las pintaba crudas). gs manda `liveUrl` en `/me/files`
-(57df0a37) y se abre la página publicada. Al salir: `suggestBuild` a 104.
-⚠️ La 104 NO abre viva una ```eb-file``` con mime `text/html` y título sin «.html» (la de la barbería de fixtergeek): sigue yendo a QuickLook, como antes. Arreglado en `main` (`text/html` → html y `Delivery.livePage`), va en la siguiente build.
+**páginas HTML en WKWebView** (`HTMLViewer`; antes QuickLook las pintaba crudas). Se abre la página publicada si gs
+manda `liveUrl` en `/me/files` (57df0a37) o si la entrega ya es una URL https que no es liga firmada
+(`Delivery.livePage`). Al salir: `suggestBuild` a 105.
 ⚠️ Pruebas de UI con `-parallel-testing-enabled NO` (ya en `capturas.sh`): los clones del simulador llenan el disco.
 
 ## 1.0.16 (siguiente, SIN subir — 24-oct)
