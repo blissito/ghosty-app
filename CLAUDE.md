@@ -289,7 +289,7 @@ Lleva la computadora del agente, el brief único, Tareas, aprobación con borrad
 3-nov, **seleccionar texto** (toque largo o `AI` → `SelectTextSheet`, `UITextView` con todo seleccionado) y
 **páginas HTML en WKWebView** (`HTMLViewer`; antes QuickLook las pintaba crudas). gs manda `liveUrl` en `/me/files`
 (57df0a37) y se abre la página publicada. Al salir: `suggestBuild` a 104.
-Siguiente build: `Delivery.livePage` también abre viva una ```eb-file``` cuya `url` ya es la página (`*.ghosty.page`).
+⚠️ La 104 NO abre viva una ```eb-file``` con mime `text/html` y título sin «.html» (la de la barbería de fixtergeek): sigue yendo a QuickLook, como antes. Arreglado en `main` (`text/html` → html y `Delivery.livePage`), va en la siguiente build.
 ⚠️ Pruebas de UI con `-parallel-testing-enabled NO` (ya en `capturas.sh`): los clones del simulador llenan el disco.
 
 ## 1.0.16 (siguiente, SIN subir — 24-oct)
