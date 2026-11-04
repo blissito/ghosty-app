@@ -282,6 +282,16 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
+## 1.0.17 en revisión (4-nov)
+
+Build 104 (`main` al 71c17781; la 1.0.16 nunca fue a revisión y va dentro) enviada el 4-nov, salida AUTOMÁTICA.
+Lleva la computadora del agente, el brief único, Tareas, aprobación con borrador, copiar en todas, la Fábrica del
+3-nov, **seleccionar texto** (toque largo o `AI` → `SelectTextSheet`, `UITextView` con todo seleccionado) y
+**páginas HTML en WKWebView** (`HTMLViewer`; antes QuickLook las pintaba crudas). gs manda `liveUrl` en `/me/files`
+(57df0a37) y se abre la página publicada. Al salir: `suggestBuild` a 104.
+Siguiente build: `Delivery.livePage` también abre viva una ```eb-file``` cuya `url` ya es la página (`*.ghosty.page`).
+⚠️ Pruebas de UI con `-parallel-testing-enabled NO` (ya en `capturas.sh`): los clones del simulador llenan el disco.
+
 ## 1.0.16 (siguiente, SIN subir — 24-oct)
 
 «La computadora del agente»: el agente pide ayuda en su navegador (`cloud_browser_ask_human`) → «Te necesito
