@@ -15,6 +15,8 @@ struct DailyDigest: Equatable, Sendable {
     /// 0 = domingo … 6 = sábado, como `Date.getDay()` en gs.
     var days: [Int] = Self.everyDay
     var timeZone = TimeZone.current.identifier
+    /// Día local `AAAA-MM-DD` en que vuelve a salir; `nil` = sin pausa. Regresa sola.
+    var pausedUntil: String?
 
     static let weekdays = [1, 2, 3, 4, 5]
     static let everyDay = [0, 1, 2, 3, 4, 5, 6]
@@ -29,11 +31,36 @@ struct DailyDigest: Equatable, Sendable {
         minute = j["minute"] as? Int ?? 30
         days = (j["days"] as? [Int]).flatMap { $0.isEmpty ? nil : $0.sorted() } ?? Self.everyDay
         timeZone = j["timeZone"] as? String ?? TimeZone.current.identifier
+        pausedUntil = j["pausedUntil"] as? String
+    }
+
+    /// El día local `n` días después de hoy, en la zona del teléfono (la misma que se le manda a gs).
+    static func localDay(after n: Int, from now: Date = Date()) -> String {
+        let cal = Calendar(identifier: .gregorian)
+        return dayFormatter().string(from: cal.date(byAdding: .day, value: n, to: now) ?? now)
+    }
+
+    /// «lunes 9 de noviembre». El día ya es local: no se vuelve a mover de zona.
+    static func pauseLabel(_ day: String) -> String {
+        guard let date = dayFormatter().date(from: day) else { return day }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_MX")
+        f.dateFormat = "EEEE d 'de' MMMM"
+        return f.string(from: date)
+    }
+
+    private static func dayFormatter() -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.dateFormat = "yyyy-MM-dd"
+        return f
     }
 
     /// «7:30 · Todos los días», para el subtítulo del renglón de Perfil.
     var summary: String {
         guard enabled else { return "Apagado" }
+        if let pausedUntil { return "Pausado hasta el \(Self.pauseLabel(pausedUntil))" }
         let hora = String(format: "%d:%02d", hour, minute)
         switch days {
         case Self.weekdays: return "\(hora) · L–V"
@@ -53,6 +80,7 @@ struct DailyDigest: Equatable, Sendable {
         if a.hour != b.hour { p["hour"] = b.hour }
         if a.minute != b.minute { p["minute"] = b.minute }
         if a.days != b.days { p["days"] = b.days }
+        if a.pausedUntil != b.pausedUntil { p["pausedUntil"] = b.pausedUntil ?? NSNull() }
         p["timeZone"] = TimeZone.current.identifier
         return p
     }
@@ -109,6 +137,11 @@ final class DailyDigestStore {
     private(set) var saving = false
     var error: String?
     @ObservationIgnored private var loadedAt: Date?
+    /// Guardados en cola: dos toques rápidos no se pisan. Sólo el más nuevo pinta su resultado.
+    @ObservationIgnored private var confirmed: DailyDigest?
+    @ObservationIgnored private var saveChain: Task<Void, Never>?
+    @ObservationIgnored private var newestSave = 0
+    @ObservationIgnored private var savesInFlight = 0
 
     /// Lo contestado por token (`yes|no|off|on`). Se guarda en el teléfono para que el pie no
     /// vuelva a preguntar al reabrir el hilo.
@@ -123,7 +156,9 @@ final class DailyDigestStore {
         }
         if !force, let loadedAt, Date().timeIntervalSince(loadedAt) < 60 { return }
         do {
-            digest = try await DailyDigestAPI.load()
+            let loaded = try await DailyDigestAPI.load()
+            // Una lectura que llega tarde no pisa un toque que aún se está guardando.
+            if savesInFlight == 0 { digest = loaded }
             loadedAt = Date()
             error = nil
         } catch {
@@ -139,15 +174,35 @@ final class DailyDigestStore {
         guard nuevo != antes else { return }
         digest = nuevo
         if DemoData.encendido { return }
+        if savesInFlight == 0 { confirmed = antes }
+        savesInFlight += 1
+        newestSave += 1
+        let ticket = newestSave
         saving = true
-        defer { saving = false }
-        do {
-            digest = try await DailyDigestAPI.save(DailyDigest.patch(from: antes, to: nuevo))
-            error = nil
-        } catch {
-            digest = antes
-            self.error = (error as? GhostyAPI.Fallo)?.localizedDescription ?? error.localizedDescription
+        let previous = saveChain
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            // Un toque más nuevo lleva también este cambio: sale contra lo último confirmado.
+            guard ticket == self.newestSave, let desde = self.confirmed else { return }
+            do {
+                let guardado = try await DailyDigestAPI.save(DailyDigest.patch(from: desde, to: nuevo))
+                self.confirmed = guardado
+                if ticket == self.newestSave {
+                    self.digest = guardado
+                    self.error = nil
+                }
+            } catch {
+                if ticket == self.newestSave {
+                    self.digest = desde
+                    self.error = (error as? GhostyAPI.Fallo)?.localizedDescription ?? error.localizedDescription
+                }
+            }
         }
+        saveChain = task
+        await task.value
+        savesInFlight -= 1
+        saving = savesInFlight > 0
     }
 
     /// Un toque del pie, sin salir del chat. Devuelve si gs lo tomó.
@@ -158,7 +213,10 @@ final class DailyDigestStore {
         reactions[token] = action
         if !DemoData.encendido { UserDefaults.standard.set(reactions, forKey: Self.reactionsKey) }
         // «Ya no me lo mandes» / «Volver a prenderlo» también cambian el renglón de Perfil.
-        if action == "off" || action == "on" { digest?.enabled = action == "on" }
+        if action == "off" || action == "on" {
+            digest?.enabled = action == "on"
+            digest?.pausedUntil = nil
+        }
         return true
     }
 }
