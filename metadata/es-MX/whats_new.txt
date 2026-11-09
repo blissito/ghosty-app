@@ -1,7 +1,2 @@
-• La computadora de tu agente en tu teléfono: cuando tu agente necesita ayuda en su navegador (un inicio de sesión, un código), te avisa con «Te necesito aquí». Tocas «Tomar el control», lo resuelves con tu dedo y le devuelves el control. También puedes ver su computadora en vivo.
-• Brief de la mañana: a la hora y los días que elijas, tu agente te deja en el chat lo importante del día, con voz si quieres. Se prende y se configura desde Perfil.
-• Tareas de tu agente: desde la conversación ves lo que necesita tu respuesta, lo que está haciendo y lo que viene, y palomeas lo que ya quedó.
-• Aprobaciones más claras: antes de enviar algo a tu nombre, tu agente te enseña el borrador completo para que digas «Enviar» o «Ahora no».
-• Selecciona y copia lo que quieras: deja presionada una respuesta para elegir sólo un pedazo del texto, o copia la respuesta completa con un toque.
-• Las páginas y apps que te hace tu agente se abren completas, con su diseño y funcionando, igual que en la web.
-• Fábrica: cada opción que propone @check tiene su propio botón, y ves cuándo un pedido espera un arreglo en main.
+• Conversaciones más fluidas: el chat ya no se pone pesado mientras tu agente te contesta, aunque la conversación tenga muchos videos y respuestas largas. Además abre más rápido.
+• Brief de la mañana: ahora lo puedes pausar unos días (3 días, 1 o 2 semanas o hasta la fecha que elijas) y reanudarlo cuando quieras.
