@@ -91,8 +91,8 @@ revisión EN CUANTO se apruebe y publique la 1.0.7: `asc.py publicar` → `asc.p
    apagar flags que la revisión va a probar.
 8. **Aprobada**: sale sola. Sólo una versión vieja en MANUAL se queda en `PENDING_DEVELOPER_RELEASE` y
    sale con `python3 scripts/asc.py publicar`.
-9. **Después**: en `/admin/settings` subir `suggestBuild` a la build nueva (aviso que se
-   cierra). `minBuild` sólo si la vieja rompe algo que no se puede parchar en gs.
+9. **Después**: `ghosty app suggest <build nueva>` (CLI 0.100+; aviso que se cierra; `ghosty app ls` dice
+   cómo está). `minBuild` sólo si la vieja rompe algo que no se puede parchar en gs.
 
 ## El núcleo: `Core/` vs `GhostyApp/`
 
@@ -286,7 +286,7 @@ desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
 Build **106** (`main` al 231ee40b) en TestFlight (Alpha) y enviada a revisión el 9-nov, salida AUTOMÁTICA. Lleva el chat
 fluido (de 7 a 60 cuadros/s mientras el agente contesta; ver `AUDITORIA-RENDIMIENTO-CHAT.md`) y la pausa por días del
-brief. La 1.0.17 ya salió: `suggestBuild` quedó en 105 el 9-nov; al salir la 1.0.18, a 106 (es el JSON de «App iOS · Personal» en `/admin/settings`; el CLI no lo edita).
+brief. La 1.0.17 ya salió: `suggestBuild` quedó en 105 el 9-nov; al salir la 1.0.18: `ghosty app suggest 106`.
 ⚠️ `subir-testflight.sh` dio 404 al asignar el grupo justo tras quedar `VALID`: la API tarda unos minutos en aceptar
 la build. Se reintentó a mano (`asc.py asignar`) y entró.
 
