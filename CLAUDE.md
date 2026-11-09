@@ -286,7 +286,7 @@ desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
 Build **106** (`main` al 231ee40b) en TestFlight (Alpha) y enviada a revisión el 9-nov, salida AUTOMÁTICA. Lleva el chat
 fluido (de 7 a 60 cuadros/s mientras el agente contesta; ver `AUDITORIA-RENDIMIENTO-CHAT.md`) y la pausa por días del
-brief. La 1.0.17 ya salió: `suggestBuild` a 105 pendiente; al salir la 1.0.18, a 106.
+brief. La 1.0.17 ya salió: `suggestBuild` quedó en 105 el 9-nov; al salir la 1.0.18, a 106 (es el JSON de «App iOS · Personal» en `/admin/settings`; el CLI no lo edita).
 ⚠️ `subir-testflight.sh` dio 404 al asignar el grupo justo tras quedar `VALID`: la API tarda unos minutos en aceptar
 la build. Se reintentó a mano (`asc.py asignar`) y entró.
 
