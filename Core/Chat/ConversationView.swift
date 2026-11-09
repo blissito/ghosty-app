@@ -14,6 +14,8 @@ struct ConversationView: View {
     @State private var borrador = ""
     /// El re-anclaje pendiente por `.hiloCrecio` (se juntan varios en uno).
     @State private var pendingReanchor: Task<Void, Never>?
+    /// Ya hay un re-anclaje en camino por la respuesta que crece (ver `textoDelUltimo`).
+    @State private var reanclajePedido = false
     @FocusState private var escribiendo: Bool
     @Namespace private var formaDelCompositor
     /// Donde vuela la nota de voz: de la barra de grabación a su burbuja.
@@ -536,18 +538,52 @@ struct ConversationView: View {
     /// dos veces y la de abajo empujaría el hilo).
     private var mensajesVisibles: [Message] {
         let todos = HelpersHeader.fold(mensajesÚnicos)
-        let dentro = Set(todos.compactMap { imagenDelTurno($0, en: todos).entrega })
+        let dentro = Set(imagenesDelTurno(todos).values.compactMap(\.entrega))
         guard !dentro.isEmpty else { return todos }
         return todos.filter { !dentro.contains($0.id) }
+    }
+
+    /// Lo que las filas necesitan de la lista entera, calculado UNA vez por pasada.
+    ///
+    /// ⚠️ Rendimiento (auditoría 9-nov): `visibleAnchor` se preguntaba DENTRO de cada fila y
+    /// rehacía la lista completa (con su `fold`) cada vez, y cada respuesta buscaba su imagen
+    /// con un `firstIndex`: cuadrático en cada trozo de la respuesta viva.
+    private struct VistaDelHilo {
+        let visibles: [Message]
+        /// La caja de imagen de cada respuesta que corrió una herramienta de imagen.
+        let imagenes: [Message.ID: ImagenDelTurno]
+        let ultimaRespuesta: Message.ID?
+        /// Tu mensaje clavado arriba, si está en el hilo (ver `visibleAnchor`).
+        let ancla: String?
+    }
+
+    private var vistaDelHilo: VistaDelHilo {
+        let unicos = mensajesÚnicos
+        let visibles = mensajesVisibles
+        let ancla = store.anclaDelHilo.flatMap { a in visibles.contains(where: { $0.id == a }) ? a : nil }
+        return VistaDelHilo(visibles: visibles,
+                            imagenes: imagenesDelTurno(unicos).compactMapValues(\.estado),
+                            ultimaRespuesta: unicos.last(where: { if case .agent = $0.kind { return true } else { return false } })?.id,
+                            ancla: ancla)
+    }
+
+    /// Las respuestas de `todos` que corrieron una herramienta de imagen, con su caja.
+    private func imagenesDelTurno(_ todos: [Message]) -> [Message.ID: (estado: ImagenDelTurno?, entrega: String?)] {
+        var salida: [Message.ID: (estado: ImagenDelTurno?, entrega: String?)] = [:]
+        for (i, m) in todos.enumerated() {
+            guard case .agent(_, let tools, _) = m.kind, tools?.herramientas.contains(where: \.esImagen) == true
+            else { continue }
+            salida[m.id] = imagenDelTurno(m, en: i, de: todos)
+        }
+        return salida
     }
 
     /// La caja de imagen de una respuesta: si su turno corrió una herramienta de imagen, en
     /// qué va (creando, lista con la entrega del MISMO turno, o fallo), y qué entrega se
     /// revela dentro (esa fila no se pinta suelta).
-    private func imagenDelTurno(_ m: Message, en todos: [Message]) -> (estado: ImagenDelTurno?, entrega: String?) {
+    private func imagenDelTurno(_ m: Message, en i: Int, de todos: [Message]) -> (estado: ImagenDelTurno?, entrega: String?) {
         guard case .agent(_, let tools, _) = m.kind,
-              let h = tools?.herramientas.last(where: \.esImagen),
-              let i = todos.firstIndex(where: { $0.id == m.id }) else { return (nil, nil) }
+              let h = tools?.herramientas.last(where: \.esImagen) else { return (nil, nil) }
         // La entrega de imagen que llegó después de esta respuesta y antes de tu siguiente mensaje.
         for sig in todos[(i + 1)...] {
             if case .user = sig.kind { break }
@@ -648,6 +684,13 @@ struct ConversationView: View {
             pegadoAbajo = a == ultimo || a == Self.fondo
             // Volver abajo con el dedo es volver a seguir el final.
             if pegadoAbajo { siguiendoElFinal = true }
+            // Lo anterior se pide al llegar ARRIBA con el dedo. ⚠️ Antes era el `onAppear` del
+            // centinela, pero en un `VStack` (no perezoso) todo «aparece» al abrir: cada hilo
+            // pedía 30 mensajes más al entrar y se medía dos veces (tirones de 0.2–0.4 s).
+            if !siguiendoElFinal, store.hiloActivo?.hasMoreBefore == true,
+               mensajesÚnicos.prefix(8).contains(where: { $0.id == a }) {
+                Task { await store.loadOlder() }
+            }
         }
         // El dedo manda: arrastrar suelta el «seguir el final».
         // ⚠️ En iOS 18 un `DragGesture` sobre la lista bloquea su scroll (medido con una
@@ -664,7 +707,19 @@ struct ConversationView: View {
         // un `switch`), y animar aquí se ve como un salto del hilo entero al entrar. El
         // ancla ya está en el hilo: sólo hay que volver a ella.
         .onAppear { reanclar(lector) }
-        .onChange(of: textoDelUltimo) { _, _ in seguir() }
+        // ⚠️ Rendimiento (auditoría 9-nov): la respuesta que crece pasaba por `seguir()`, que
+        // son DOS `scrollTo` (uno ya y otro a los 80 ms) por cada trozo del SSE, y cada uno
+        // vuelve a medir el hilo entero. Ahora los trozos que llegan juntos se vuelven UN solo
+        // re-anclaje. Enviar, el botón ↓ y cambiar de hilo siguen por `bajar`, igual que antes.
+        .onChange(of: textoDelUltimo) { _, _ in
+            guard siguiendoElFinal, pegadoAbajo, !reanclajePedido else { return }
+            reanclajePedido = true
+            DispatchQueue.main.async {
+                reanclajePedido = false
+                guard siguiendoElFinal, pegadoAbajo else { return }
+                reanclar(lector)
+            }
+        }
         // Una tarjeta que se midió tarde (video, imagen): si seguías el final, abajo.
         // Se juntan: con decenas de videos midiéndose, cada aviso era un `scrollTo` aparte.
         .onReceive(NotificationCenter.default.publisher(for: .hiloCrecio)) { _ in
@@ -767,6 +822,7 @@ struct ConversationView: View {
     /// El contenido del scroll, aparte: dentro del `body` el compilador no lo tipaba.
     @ViewBuilder
     private func contenidoDelHilo(_ lector: ScrollViewProxy) -> some View {
+                let vista = vistaDelHilo
                 VStack(spacing: 14) {
             if mensajesÚnicos.isEmpty {
                 // ⚠️ Una conversación que YA EXISTE en el servidor y todavía no se ha
@@ -795,10 +851,10 @@ struct ConversationView: View {
             // bloque se DESTRUÍAN y volvían a nacer: el hilo parpadeaba. Lo que va desde tu
             // último mensaje (la «cola», para el aire que lo clava arriba como Claude) se
             // mide ahora con dos marcas: dónde empieza tu mensaje y dónde acaba el pie.
-            ForEach(mensajesVisibles) { mensaje in
-                filaAnimada(mensaje)
+            ForEach(vista.visibles) { mensaje in
+                filaAnimada(mensaje, vista)
                     .background {
-                        if mensaje.id == visibleAnchor {
+                        if mensaje.id == vista.ancla {
                             GeometryReader { g in
                                 Color.clear.preference(key: TailStartKey.self, value: g.frame(in: .named(Self.threadSpace)).minY)
                             }
@@ -818,7 +874,7 @@ struct ConversationView: View {
             // ve.
             // Sin el mensaje ancla en el hilo (se recargó con otros ids) no hay nada que
             // clavar: el aire sería la pantalla entera en blanco.
-            Color.clear.frame(height: visibleAnchor == nil ? 0 : aireDebajo)
+            Color.clear.frame(height: vista.ancla == nil ? 0 : aireDebajo)
             // El fondo de verdad: a donde se baja. Un mensaje largo que crece
             // con el streaming no cambia de id, y «bajar» a un id que ya es
             // el ancla no mueve nada.
@@ -956,7 +1012,6 @@ struct ConversationView: View {
             Spacer()
         }
         .frame(height: 32)
-        .onAppear { Task { await store.loadOlder() } }
     }
     /// A dónde se «sigue el final». Con un mensaje recién mandado que aún cabe con su
     /// respuesta en la pantalla, el final ES ese mensaje arriba: se ancla por su `id` con
@@ -978,8 +1033,8 @@ struct ConversationView: View {
     private var aireDebajo: CGFloat { max(0, altoVisible - altoDeLaCola - 57) }
 
     @ViewBuilder
-    private func filaAnimada(_ mensaje: Message) -> some View {
-        fila(mensaje).id(mensaje.id)
+    private func filaAnimada(_ mensaje: Message, _ vista: VistaDelHilo) -> some View {
+        fila(mensaje, vista).id(mensaje.id)
             // `gin .3s`: todo mensaje NUEVO entra subiendo 8 pt con fade, como el
             // prototipo. Los que ya estaban al abrir el hilo no (ver `yaVistos`), y la
             // animación es de la FILA al nacer, no de cada trozo del streaming.
@@ -1028,10 +1083,6 @@ struct ConversationView: View {
     ///
     /// ⚠️ Los reintentos no son paranoia: dentro de un `LazyVStack` una fila que está
     /// fuera de pantalla **no se ha creado todavía**, y `scrollTo` a algo que no existe no
-    /// La última respuesta del agente: la única que lleva botón de copiar.
-    private var lastReplyID: Message.ID? {
-        mensajesÚnicos.last(where: { if case .agent = $0.kind { return true } else { return false } })?.id
-    }
 
     /// El turno de gs de una respuesta, para votarla. En vivo la burbuja se llama
     /// `turno-<id>` antes de que el mensaje lo traiga puesto.
@@ -1042,11 +1093,12 @@ struct ConversationView: View {
 
     private var textoDelUltimo: Int {
         guard case .agent(let t, _, _) = store.messages.last?.kind else { return 0 }
-        return t.count
+        // `utf8.count` y no `count`: contar caracteres recorre el texto entero en cada pasada.
+        return t.utf8.count
     }
 
     @ViewBuilder
-    private func fila(_ mensaje: Message) -> some View {
+    private func fila(_ mensaje: Message, _ vista: VistaDelHilo) -> some View {
         switch mensaje.kind {
         case .user(let t, let adj, let steer):
             HStack(spacing: 0) {
@@ -1062,7 +1114,7 @@ struct ConversationView: View {
                         // Copiar en TODAS las respuestas, como en /c web (pedido de Brendi, 2-nov).
                         showCopy: true,
                         tone: store.selectedAgent?.tone ?? .lila,
-                        imagen: imagenDelTurno(mensaje, en: mensajesÚnicos).estado,
+                        imagen: vista.imagenes[mensaje.id],
                         alEditarImagen: { editarImagen($0) },
                         rating: turnoDe(mensaje).map { store.rating(of: $0) } ?? 0,
                         onRate: turnoDe(mensaje).map { turn in
@@ -1072,13 +1124,16 @@ struct ConversationView: View {
                             // Avisarle al agente sólo desde la última respuesta: una vieja
                             // abriría un turno fuera de contexto.
                             ConnectOfferCard(connectorID: id, store: store,
-                                             onConnected: mensaje.id == lastReplyID
+                                             onConnected: mensaje.id == vista.ultimaRespuesta
                                                 ? { texto in Task { await store.send(texto) } } : nil,
                                              openIntegrations: {
                                                  store.requestedTab = .perfil
                                                  store.integracionesPedidas = true
                                              })
-                        })
+                        },
+                        esUltima: mensaje.id == vista.ultimaRespuesta)
+            // Las respuestas que no cambiaron no rehacen su `body` con cada trozo de la viva.
+            .equatable()
         case .entrega(let e):
             // En el margen de la respuesta (ya sin columna de avatar): lo entregó él.
             HStack(spacing: 0) {

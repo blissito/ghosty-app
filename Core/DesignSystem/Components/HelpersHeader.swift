@@ -9,17 +9,21 @@ struct HelpersHeader: View {
     let time: String
 
     /// El encabezado y lo que sigue, o `nil` si el texto no es un remate.
+    /// Compiladas una vez: `split` corre en cada pasada de cada respuesta del hilo.
+    private static let headerRE = try? NSRegularExpression(pattern: #"^---\n\*(Terminó (.+?)|Resumen) · ([^*]+)\*\n\n"#)
+    private static let quotedRE = try? NSRegularExpression(pattern: "«([^»]+)»")
+
     static func split(_ text: String) -> (header: HelpersHeader, rest: String)? {
-        let pattern = #"^---\n\*(Terminó (.+?)|Resumen) · ([^*]+)\*\n\n"#
-        guard let re = try? NSRegularExpression(pattern: pattern),
+        // El remate siempre empieza con `---`: sin eso ni se corre la regex.
+        guard text.hasPrefix("---"),
+              let re = headerRE,
               let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let whole = Range(m.range, in: text),
               let timeRange = Range(m.range(at: 3), in: text) else { return nil }
         var titles: [String] = []
         if let listRange = Range(m.range(at: 2), in: text) {
             let list = String(text[listRange])
-            let quoted = try? NSRegularExpression(pattern: "«([^»]+)»")
-            titles = quoted?.matches(in: list, range: NSRange(list.startIndex..., in: list))
+            titles = quotedRE?.matches(in: list, range: NSRange(list.startIndex..., in: list))
                 .compactMap { Range($0.range(at: 1), in: list).map { String(list[$0]) } } ?? []
         }
         let time = String(text[timeRange]).trimmingCharacters(in: .whitespaces)

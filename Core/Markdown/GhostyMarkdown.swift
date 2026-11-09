@@ -15,8 +15,6 @@ struct GhostyMarkdown: View {
     var fades: FadesDePalabra? = nil
     /// Toque largo → «Copiar». Se apaga mientras la respuesta entra (ver `TextoAlRitmo`).
     var seleccionable = true
-    /// `false` en las respuestas del agente: su toque largo abre «Seleccionar texto».
-    @Environment(\.markdownSelectable) private var selectableByEnv
 
     /// Saca cada imagen a su PROPIO párrafo.
     ///
@@ -140,20 +138,51 @@ struct GhostyMarkdown: View {
                     let antes = fades.recientes.last(where: { $0.inicio < p.inicio })
                     let suyas = (antes.map { [$0] } ?? [])
                         + fades.recientes.filter { $0.inicio >= p.inicio && $0.inicio < p.fin }
-                    if #available(iOS 18.0, *) {
-                        pintar(p.texto)
-                            .textRenderer(SweepRenderer(fin: p.fin, recientes: suyas,
-                                                        ahora: suyas.isEmpty ? 0 : fades.ahora))
-                    } else {
-                        pintar(p.texto)
-                    }
+                    BloqueMarkdown(texto: p.texto, seleccionable: seleccionable,
+                                   barrido: (fin: p.fin, recientes: suyas, ahora: suyas.isEmpty ? 0 : fades.ahora))
+                        .equatable()
                 } else {
-                    pintar(p.texto)
+                    BloqueMarkdown(texto: p.texto, seleccionable: seleccionable, barrido: nil)
+                        .equatable()
                         .modifier(EntradaSuave(activa: fades != nil))
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Tamaño del cuerpo de la respuesta. El resto del tema va en `.em` relativo a él.
+    static let cuerpo: CGFloat = 16.5
+}
+
+/// UN bloque del markdown (párrafo, lista, tabla…).
+///
+/// ⚠️ Rendimiento (auditoría 9-nov): `Markdown(texto)` de MarkdownUI parsea al construirse, y
+/// la respuesta viva rehace su `GhostyMarkdown` en cada cuadro del fade (~70 veces/s). Antes
+/// eso re-parseaba TODOS sus bloques en cada cuadro y una respuesta larga bajaba la app a 20
+/// cuadros/s. Aparte y comparable, un bloque que no cambió (mismo texto y sin fade en curso)
+/// no vuelve a construirse.
+private struct BloqueMarkdown: View, Equatable {
+    let texto: String
+    let seleccionable: Bool
+    /// El fade por tramo de la prosa que se escribe (`SweepRenderer`). `nil` = sin barrido.
+    let barrido: (fin: Int, recientes: [PalabraQueEntra], ahora: Double)?
+    /// `false` en las respuestas del agente: su toque largo abre «Seleccionar texto».
+    @Environment(\.markdownSelectable) private var selectableByEnv
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.texto == b.texto && a.seleccionable == b.seleccionable
+            && a.barrido?.fin == b.barrido?.fin && a.barrido?.recientes == b.barrido?.recientes
+            && a.barrido?.ahora == b.barrido?.ahora && (a.barrido == nil) == (b.barrido == nil)
+    }
+
+    var body: some View {
+        if let barrido, #available(iOS 18.0, *) {
+            pintar(texto)
+                .textRenderer(SweepRenderer(fin: barrido.fin, recientes: barrido.recientes, ahora: barrido.ahora))
+        } else {
+            pintar(texto)
+        }
     }
 
     @ViewBuilder
@@ -165,7 +194,7 @@ struct GhostyMarkdown: View {
             // prosa para leer, no interfaz: tu burbuja, el compositor y el chrome siguen en SF.
             .markdownTextStyle {
                 FontFamily(.system(.serif))
-                FontSize(Self.cuerpo)
+                FontSize(GhostyMarkdown.cuerpo)
                 ForegroundColor(.gInk)
             }
             // ⚠️ Las imágenes del markdown salían **a tamaño real**: una foto de 1200 px
@@ -182,9 +211,6 @@ struct GhostyMarkdown: View {
         // de `AgentBubble`.
         if seleccionable && selectableByEnv { md.textSelection(.enabled) } else { md.textSelection(.disabled) }
     }
-
-    /// Tamaño del cuerpo de la respuesta. El resto del tema va en `.em` relativo a él.
-    static let cuerpo: CGFloat = 16.5
 }
 
 extension MarkdownUI.Theme {
@@ -193,14 +219,15 @@ extension MarkdownUI.Theme {
     ///
     /// Se construye por pasos y no encadenado: encadenar los doce bloques hace que el
     /// verificador de tipos de Swift se rinda («unable to type-check in reasonable time»).
-    static var ghosty: MarkdownUI.Theme {
+    /// Construido UNA vez: es igual siempre y antes se rehacía por cada bloque pintado.
+    nonisolated(unsafe) static let ghosty: MarkdownUI.Theme = {
         var t = MarkdownUI.Theme()
         t = inline(t)
         t = encabezados(t)
         t = bloques(t)
         t = tabla(t)
         return t
-    }
+    }()
 
     private static func inline(_ t: MarkdownUI.Theme) -> MarkdownUI.Theme {
         t

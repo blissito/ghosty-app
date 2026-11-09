@@ -24,9 +24,15 @@ struct DigestMessage: Equatable {
 
     /// ¿Es un brief? Tolerante al `---` de arriba, al selector de variación del ☀️ y a que el pie
     /// cambie de palabras: lo que manda es la liga `/brief/r/<token>`.
+    /// Compiladas una vez: se consultan en cada pasada de cada respuesta del hilo.
+    private static let headerRE = try? NSRegularExpression(
+        pattern: #"^\s*(?:---[ \t]*\n)?\s*\*☀\x{FE0F}?\s*Brief de la mañana · ([^*\n]+)\*[ \t]*(?:\n|$)"#)
+    private static let tokenRE = try? NSRegularExpression(pattern: #"/brief/r/([^/?#)\s]+)"#)
+
     static func split(_ text: String) -> DigestMessage? {
-        let header = #"^\s*(?:---[ \t]*\n)?\s*\*☀\x{FE0F}?\s*Brief de la mañana · ([^*\n]+)\*[ \t]*(?:\n|$)"#
-        guard let re = try? NSRegularExpression(pattern: header),
+        // Sin la liga del brief no puede ser un brief: ni se corre la regex.
+        guard text.contains("Brief de la mañana"),
+              let re = headerRE,
               let m = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
               let whole = Range(m.range, in: text),
               let dateR = Range(m.range(at: 1), in: text) else { return nil }
@@ -44,7 +50,7 @@ struct DigestMessage: Equatable {
 
     /// El token de la primera liga `…/brief/r/<token>?a=…` del renglón.
     static func tokenOf(_ line: String) -> String? {
-        guard let re = try? NSRegularExpression(pattern: #"/brief/r/([^/?#)\s]+)"#),
+        guard let re = tokenRE,
               let m = re.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
               let r = Range(m.range(at: 1), in: line) else { return nil }
         return String(line[r])

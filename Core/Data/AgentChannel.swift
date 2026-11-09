@@ -26,7 +26,24 @@ final class ChatThread {
     /// persistidas (título, entregas, visto), que van por agente Y sesión.
     var agenteID = ""
 
-    var mensajes: [Message] = []
+    var mensajes: [Message] = [] { didSet { resumir() } }
+
+    /// Lo que Chats pinta de esta conversación. Guardado aparte de `mensajes` para que la
+    /// lista (que vive DEBAJO del hilo abierto) no rehaga su vista previa con cada trozo de la
+    /// respuesta viva: mientras hay turno, sólo cambia si cambia el número o el último mensaje,
+    /// y al cerrar el turno se pone al día. Auditoría de rendimiento, 9-nov.
+    private(set) var vistaPrevia: ChatPreview?
+    private(set) var sinMensajes = true
+    @ObservationIgnored private var llaveDelResumen = ""
+
+    private func resumir(forzar: Bool = false) {
+        if mensajes.isEmpty != sinMensajes { sinMensajes = mensajes.isEmpty }
+        let llave = "\(mensajes.count)|\(mensajes.last?.id ?? "")"
+        if !forzar, turno != nil, llave == llaveDelResumen { return }
+        llaveDelResumen = llave
+        let nueva = ChatPreview.de(mensajes)
+        if nueva != vistaPrevia { vistaPrevia = nueva }
+    }
 
     /// Respuesta del turno que está escribiéndose ahora. Permite poner un steer antes
     /// de la respuesta que modifica, aunque esa respuesta ya hubiera empezado a crecer.
@@ -51,7 +68,7 @@ final class ChatThread {
         }
     }
 
-    var turno: TurnActivity?
+    var turno: TurnActivity? { didSet { if turno == nil, oldValue != nil { resumir(forzar: true) } } }
     var permisoACP: ACPClient.Permiso?
     var pendingPermission: PermissionRequest?
     var modo = "auto"

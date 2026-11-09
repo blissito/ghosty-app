@@ -107,9 +107,9 @@ struct ChatsView: View {
             let remotas = Dictionary(canal.remoteSessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             for h in canal.threads {
                 // Una conversación nueva sin estrenar no es un chat todavía.
-                if h.sesionID == nil && h.mensajes.isEmpty { continue }
+                if h.sesionID == nil && h.sinMensajes { continue }
                 let fecha = h.sesionID.flatMap { remotas[$0]?.updatedAt }.map { max($0, h.tocado) } ?? h.tocado
-                let previa = h.mensajes.isEmpty ? store.preview(agente.id, h.sesionID) : ChatPreview.de(h.mensajes)
+                let previa = h.sinMensajes ? store.preview(agente.id, h.sesionID) : h.vistaPrevia
                 let sinVer = h.termino != nil && !h.visto
                 rows.append(ChatRow(kind: .open(h), agent: agente, title: h.titulo, date: fecha,
                                   session: h.sesionID, preview: previa,

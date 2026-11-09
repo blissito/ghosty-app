@@ -64,9 +64,12 @@ enum Fuentes {
 
     /// `[texto](url)` con esquema http(s). Las imágenes (`![…](…)`) se saltan: una foto
     /// no es una fuente.
+    private static let enlaceRE = try? NSRegularExpression(pattern: "(!?)\\[([^\\]\\n]*)\\]\\((https?://[^)\\s]+)\\)")
+    private static let urlRE = try? NSRegularExpression(pattern: "https?://[^\\s)\\]\"'<>]+")
+
     private static func enlacesDe(_ texto: String) -> [(String, String?)] {
         var salida: [(String, String?)] = []
-        let patron = try? NSRegularExpression(pattern: "(!?)\\[([^\\]\\n]*)\\]\\((https?://[^)\\s]+)\\)")
+        let patron = enlaceRE
         let rango = NSRange(texto.startIndex..<texto.endIndex, in: texto)
         patron?.enumerateMatches(in: texto, range: rango) { m, _, _ in
             guard let m, let rTexto = Range(m.range(at: 2), in: texto),
@@ -80,7 +83,7 @@ enum Fuentes {
     }
 
     private static func urlsSueltas(_ texto: String) -> [String] {
-        let patron = try? NSRegularExpression(pattern: "https?://[^\\s)\\]\"'<>]+")
+        let patron = urlRE
         let rango = NSRange(texto.startIndex..<texto.endIndex, in: texto)
         var salida: [String] = []
         patron?.enumerateMatches(in: texto, range: rango) { m, _, _ in

@@ -182,7 +182,7 @@ private struct CuadroDeAdjuntoDeVideo: View {
 
 /// La respuesta del agente, como claude.ai: sin burbuja ni avatar, lo que hizo (tarjeta de
 /// pasos) y lo que dijo (markdown serif a lo ancho, 16.5/24).
-struct AgentBubble: View {
+struct AgentBubble: View, Equatable {
     /// El id del mensaje: `TextoAlRitmo` recuerda con él lo ya revelado.
     var id: String = ""
     let text: String
@@ -209,31 +209,54 @@ struct AgentBubble: View {
     /// La tarjeta «Conecta tu …» de cada ` ```gs_connect <id>``` `. `nil` = no se pintan
     /// (la marca igual se quita del texto).
     var connectCard: ((String) -> ConnectOfferCard)? = nil
+    /// ¿Es la última respuesta del hilo? No se pinta: `connectCard` se comporta distinto en
+    /// ella, y sin esto la comparación de abajo no vería el cambio.
+    var esUltima: Bool = false
 
-    /// La respuesta sin las marcas ` ```gs_connect ``` ` y los conectores que ofrecen.
-    private var offers: (ids: [String], rest: String) { ConnectOffers.extract(text) }
+    /// ⚠️ Rendimiento (auditoría 9-nov): sin esto, CADA trozo de la respuesta viva rehacía el
+    /// `body` de TODAS las respuestas viejas del hilo (36 en «VVideos», ~1 000 por segundo) y la
+    /// app bajaba a 7 cuadros/s. Se comparan los datos; las closures no (se rehacen en cada
+    /// pasada del hilo), salvo si existen, y lo que cambia lo que hacen va en `esUltima`.
+    static func == (a: AgentBubble, b: AgentBubble) -> Bool {
+        a.id == b.id && a.text == b.text && a.tools == b.tools && a.trailing == b.trailing
+            && a.vivo == b.vivo && a.showCopy == b.showCopy && a.tone == b.tone
+            && a.imagen == b.imagen && a.rating == b.rating && a.esUltima == b.esUltima
+            && (a.alEditarImagen == nil) == (b.alEditarImagen == nil)
+            && (a.onRate == nil) == (b.onRate == nil)
+            && (a.connectCard == nil) == (b.connectCard == nil)
+    }
 
-    private var fuentes: [Fuente] {
+    /// Lo que sale del texto, calculado UNA vez por pasada (antes cada propiedad volvía a
+    /// partir el texto, seis veces por `body`).
+    private struct Partes {
+        /// Los conectores que ofrece (` ```gs_connect ``` `).
+        let offers: [String]
+        /// La narración entre herramientas y la respuesta. Ver `AgentNarration`.
+        let steps: [String]
+        let rest: String
+        let fuentes: [Fuente]
+        /// Lo que se copia es la respuesta, no los pasos.
+        let fullText: String
+    }
+
+    private var partes: Partes {
+        let offers = ConnectOffers.extract(text)
+        let narrated = AgentNarration.split(offers.rest, cuts: tools?.narrationCuts ?? [])
         // Las ligas del pie del brief no son fuentes.
-        if DigestMessage.split(text) != nil { return [] }
-        return Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
-                   herramientas: tools?.herramientas ?? [])
-    }
-
-    /// La respuesta separada de su narración. Ver `AgentNarration`.
-    private var narrated: (steps: [String], rest: String) {
-        AgentNarration.split(offers.rest, cuts: tools?.narrationCuts ?? [])
-    }
-
-    /// Lo que se copia es la respuesta, no los pasos.
-    private var fullText: String {
-        [narrated.rest, trailing ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let fuentes = DigestMessage.split(text) != nil ? []
+            : Fuentes.de(texto: [text, trailing ?? ""].joined(separator: "\n"),
+                         herramientas: tools?.herramientas ?? [])
+        let fullText = [narrated.rest, trailing ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        return Partes(offers: offers.ids, steps: narrated.steps, rest: narrated.rest,
+                      fuentes: fuentes, fullText: fullText)
     }
 
     /// Toque largo en la respuesta → «Seleccionar texto» con la selección del sistema.
     @State private var selecting = false
 
     var body: some View {
+        let p = partes
+        let narrated = (steps: p.steps, rest: p.rest)
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
                 // Los pasos van ARRIBA de la respuesta porque es el orden real: primero
@@ -275,20 +298,20 @@ struct AgentBubble: View {
 
                 // Sólo con el turno terminado, como en /c: a media respuesta no se ofrece nada.
                 if !vivo, let connectCard {
-                    ForEach(offers.ids, id: \.self) { id in connectCard(id) }
+                    ForEach(p.offers, id: \.self) { id in connectCard(id) }
                 }
 
                 // Debajo de todo, como en Claude: lo que leyó para contestar.
-                BarraDeFuentes(fuentes: fuentes)
+                BarraDeFuentes(fuentes: p.fuentes)
 
                 // Copiar la respuesta entera. Sólo cuando ya terminó: copiar media
                 // respuesta que sigue creciendo no sirve de nada.
                 // ⚠️ Su sitio se RESERVA mientras escribe (invisible): si apareciera al
                 // terminar, la respuesta crecería justo al final y el hilo daría un brinco.
                 // El 👍/👎 va en la misma fila y con la misma reserva.
-                if showCopy, !fullText.isEmpty {
+                if showCopy, !p.fullText.isEmpty {
                     HStack(spacing: 0) {
-                        CopyButton(text: fullText)
+                        CopyButton(text: p.fullText)
                         SelectTextButton { selecting = true }
                         if let onRate { RateButtons(rating: rating, onRate: onRate) }
                     }
@@ -302,7 +325,7 @@ struct AgentBubble: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(isPresented: $selecting) { SelectTextSheet(markdown: fullText) }
+        .sheet(isPresented: $selecting) { SelectTextSheet(markdown: p.fullText) }
     }
 }
 
