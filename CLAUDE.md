@@ -282,6 +282,14 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
+## 1.0.18 en revisión (9-nov)
+
+Build **106** (`main` al 231ee40b) en TestFlight (Alpha) y enviada a revisión el 9-nov, salida AUTOMÁTICA. Lleva el chat
+fluido (de 7 a 60 cuadros/s mientras el agente contesta; ver `AUDITORIA-RENDIMIENTO-CHAT.md`) y la pausa por días del
+brief. La 1.0.17 ya salió: `suggestBuild` a 105 pendiente; al salir la 1.0.18, a 106.
+⚠️ `subir-testflight.sh` dio 404 al asignar el grupo justo tras quedar `VALID`: la API tarda unos minutos en aceptar
+la build. Se reintentó a mano (`asc.py asignar`) y entró.
+
 ## 1.0.17 en revisión (4-nov)
 
 Build **105** (`main` al 97e12521; la 1.0.16 nunca fue a revisión y va dentro) enviada el 4-nov, salida AUTOMÁTICA.
