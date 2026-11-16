@@ -1,2 +1,1 @@
-• Conversaciones más fluidas: el chat ya no se pone pesado mientras tu agente te contesta, aunque la conversación tenga muchos videos y respuestas largas. Además abre más rápido.
-• Brief de la mañana: ahora lo puedes pausar unos días (3 días, 1 o 2 semanas o hasta la fecha que elijas) y reanudarlo cuando quieras.
+• Avisos: la campanita de Chats ahora guarda tus notificaciones de los últimos 30 días y marca arriba lo que tienes pendiente de ventas, con su número en la campanita.
