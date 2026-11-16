@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Una línea de «Actividad»: algo que pasó mientras no mirabas.
 struct ActivityItem: Identifiable {
-    enum Kind { case permission, reply, delivery, factory }
+    enum Kind { case permission, reply, delivery, factory, notice }
     let id: String
     let kind: Kind
     /// `nil` sólo en los pedidos de la Fábrica: son del espacio, no de un agente.
@@ -15,6 +15,10 @@ struct ActivityItem: Identifiable {
     var symbol: String?
     /// El pedido de la Fábrica que espera tu decisión (firmar, decidir, mergear).
     var factoryRoute: FactoryRoute?
+    /// El aviso guardado en gs (historial de push). Tocarlo hace lo mismo que tocar el push.
+    var notice: NoticeItem?
+    /// Pendiente según gs (ventas urgentes sin atender): va arriba con su marca.
+    var pending = false
 }
 
 /// Lo que va en «Actividad», sacado del estado que YA tiene el teléfono.
@@ -32,10 +36,15 @@ enum ActivityFeed {
         var waiting: [ActivityItem] = []
         var replies: [ActivityItem] = []
         var deliveries: [ActivityItem] = []
-        var isEmpty: Bool { waiting.isEmpty && replies.isEmpty && deliveries.isEmpty }
-        /// Lo que pide atención: el punto de la campanita. Las entregas no cuentan, no
-        /// tienen «leído».
-        var needsAttention: Bool { !waiting.isEmpty || !replies.isEmpty }
+        /// Los push de los últimos 30 días que ya no esperan nada (`NoticeHistory`).
+        var history: [ActivityItem] = []
+        /// Cuántos avisos de gs siguen pendientes, sin contar permisos (ésos ya están en `waiting`).
+        var serverPending = 0
+        var isEmpty: Bool { waiting.isEmpty && replies.isEmpty && deliveries.isEmpty && history.isEmpty }
+        /// El número de la campanita: lo que te espera en vivo + lo pendiente en gs. Las
+        /// entregas y el historial no cuentan, no tienen «leído».
+        var attentionCount: Int { waiting.filter { !$0.pending }.count + replies.count + serverPending }
+        var needsAttention: Bool { attentionCount > 0 }
     }
 
     static func sections(_ store: LiveAgentStore, now: Date = Date()) -> Sections {
@@ -63,6 +72,25 @@ enum ActivityFeed {
         s.replies.sort { $0.date > $1.date }
 
         let agents = Dictionary(store.agents.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+        // El historial de push de gs. Lo pendiente sube a «Te espera», debajo de lo vivo;
+        // los permisos pendientes NO se repiten: el feed en vivo ya los trae.
+        let history = NoticeHistory.shared
+        s.serverPending = history.pendingNonPermission
+        for n in history.items {
+            let agent = n.agentID.flatMap { agents[$0] }
+            let item = ActivityItem(id: "n-\(n.id)", kind: .notice, agent: agent, sessionID: n.sessionID,
+                                    title: n.title, detail: n.body.isEmpty ? (agent?.name ?? "") : n.body,
+                                    date: n.date,
+                                    // Una respuesta de un agente conocido lleva su cara; lo demás, su símbolo.
+                                    symbol: n.kind == "reply" && agent != nil ? nil : n.symbol,
+                                    notice: n, pending: n.pending)
+            if n.pending {
+                if n.kind != "permission" { s.waiting.append(item) }
+            } else {
+                s.history.append(item)
+            }
+        }
         // Lo que llegó en vivo y lo de la cuenta pueden ser LA MISMA entrega con dos ids
         // distintos (la de la cuenta trae el id del archivo): se juntan por agente,
         // conversación y título.
@@ -101,41 +129,49 @@ enum ActivityFeed {
     }
 }
 
-/// La campanita de Chats. Sin número: un punto de la marca cuando algo te espera.
+/// La campanita de Chats: el número de lo que te espera (en vivo + pendiente en gs).
 struct ActivityBell: View {
     let store: LiveAgentStore
     @Binding var isPresented: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let attention = ActivityFeed.sections(store).needsAttention
+        let count = ActivityFeed.sections(store).attentionCount
+        let attention = count > 0
         Button { isPresented = true } label: {
             Image(systemName: "bell")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Color.gInk)
-                .symbolEffect(.bounce, value: attention)
+                .symbolEffect(.bounce, value: reduceMotion ? false : attention)
                 .frame(width: 44, height: 44)
                 .contentShape(Circle())
                 .cristalCircular()
                 .overlay(alignment: .topTrailing) {
                     if attention {
-                        Circle()
-                            .fill(Color.gPrimary)
-                            .frame(width: 8, height: 8)
-                            .overlay(Circle().stroke(Color.gBg, lineWidth: 1.5))
-                            .offset(x: -9, y: 9)
+                        Text(count > 99 ? "99+" : "\(count)")
+                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(Color.gPrimary, in: Capsule())
+                            .overlay(Capsule().stroke(Color.gBg, lineWidth: 1.5))
+                            .offset(x: -4, y: 5)
                             .transition(.scale.combined(with: .opacity))
                     }
                 }
-                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: attention)
+                .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.7), value: count)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(attention ? "Actividad, hay algo nuevo" : "Actividad")
+        .accessibilityLabel(attention ? "Avisos, \(count) pendientes" : "Avisos")
         .accessibilityIdentifier("chats-actividad")
+        // El número sale de gs desde que se pinta Chats, no sólo al abrir la hoja.
+        .task { await NoticeHistory.shared.refresh() }
     }
 }
 
-/// «Actividad»: permisos que esperan, respuestas sin ver y entregas recientes. Tocar una
-/// línea cierra la hoja y abre su conversación; abrir la hoja no marca nada como leído.
+/// «Avisos»: permisos y ventas que esperan, respuestas sin ver, entregas recientes y el
+/// historial de push de 30 días. Tocar una línea cierra la hoja y la abre igual que el push;
+/// abrir la hoja no marca nada como leído.
 struct ActivitySheet: View {
     let store: LiveAgentStore
     /// Se eligió una línea: quien presenta cierra la hoja y entra al hilo.
@@ -145,7 +181,7 @@ struct ActivitySheet: View {
         let s = ActivityFeed.sections(store)
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("Actividad")
+                Text("Avisos")
                     .font(.system(size: 24, weight: .bold))
                     .tracking(-0.3)
                     .foregroundStyle(Color.gInk)
@@ -156,6 +192,7 @@ struct ActivitySheet: View {
                     section("Te espera", s.waiting)
                     section("Nuevo", s.replies)
                     section("Entregas", s.deliveries)
+                    section("Últimos 30 días", s.history)
                 }
             }
             .padding(.horizontal, Theme.Space.screenH)
@@ -164,6 +201,8 @@ struct ActivitySheet: View {
         .scrollIndicators(.hidden)
         .background(Color.gBg)
         .accessibilityIdentifier("hoja-actividad")
+        .task { await NoticeHistory.shared.refresh() }
+        .refreshable { await NoticeHistory.shared.refresh() }
     }
 
     @ViewBuilder
@@ -178,7 +217,7 @@ struct ActivitySheet: View {
                 ForEach(items) { item in
                     Button { onOpen(item) } label: { row(item) }
                         .buttonStyle(.plain)
-                        .disabled(item.sessionID == nil && item.factoryRoute == nil)
+                        .disabled(item.sessionID == nil && item.factoryRoute == nil && item.notice == nil)
                         .accessibilityIdentifier("actividad-\(item.id)")
                 }
             }
@@ -190,15 +229,27 @@ struct ActivitySheet: View {
             leading(item)
                 .frame(width: 36, height: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.gInk)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(item.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.gInk)
+                        .lineLimit(1)
+                    if item.pending {
+                        Text("Pendiente")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.gAmberInk)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color.gAmberTint, in: Capsule())
+                            .fixedSize()
+                    }
+                }
                 Text(item.detail)
                     .font(.system(size: 14))
                     .foregroundStyle(item.kind == .permission ? Color.gDangerInk
-                                     : item.kind == .factory ? Color.gAmberInk : Color.gInk3)
-                    .lineLimit(1)
+                                     : item.kind == .factory || item.notice?.urgent == true ? Color.gAmberInk
+                                     : Color.gInk3)
+                    .lineLimit(item.kind == .notice ? 2 : 1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if item.date > .distantPast {
@@ -216,11 +267,14 @@ struct ActivitySheet: View {
     @ViewBuilder
     private func leading(_ item: ActivityItem) -> some View {
         if let symbol = item.symbol {
+            // Lo urgente de ventas, en el ámbar de «te toca»; lo demás, en la marca.
+            let urgent = item.pending || item.notice?.urgent == true
             Image(systemName: symbol)
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color.gPrimary)
+                .foregroundStyle(urgent ? Color.gAmberInk : Color.gPrimary)
                 .frame(width: 36, height: 36)
-                .background(Color.gPrimaryRing, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(urgent ? Color.gAmberTint : Color.gPrimaryRing,
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         } else if item.kind == .factory {
             // El ícono de la pestaña Fábrica, en el ámbar de «te toca».
             GhostyIcons.fabrica.dibujo(.gAmberInk, size: 20)
@@ -249,7 +303,7 @@ struct ActivitySheet: View {
             Text("Todo al día")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.gInk)
-            Text("Aquí verás lo que tus agentes te pidan o te entreguen.")
+            Text("Aquí verás cada aviso de los últimos 30 días: lo que tus agentes te pidan, te entreguen o te avisen de ventas.")
                 .font(.system(size: 14))
                 .foregroundStyle(Color.gInk3)
                 .multilineTextAlignment(.center)

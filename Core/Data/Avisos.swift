@@ -28,6 +28,64 @@ enum Avisos {
         UNUserNotificationCenter.current().delegate = delegado
     }
 
+    /// A dónde lleva un aviso. La ÚNICA ruta: la usan el toque del push y la fila del hilo
+    /// «Avisos» (`NoticeItem.payload`), para que las dos nunca lleven a sitios distintos.
+    static func openNotice(_ info: [AnyHashable: Any]) {
+        let https: (Any?) -> URL? = { ($0 as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil } }
+        // Aviso con destino explícito (`link`, gs `app/lib/push/factory-link.ts`): hoy, un
+        // hilo de la Fábrica en Teams. Gana a todo lo demás: la conversación vive en Teams,
+        // no en gs, y abrirla como chat dejaba un hilo nuevo y vacío (1-nov). Si ya se sabe
+        // que no tienes ese espacio de la Fábrica, se abre Teams en el navegador (`url`).
+        if let link = GhostyLink(string: info["link"] as? String) {
+            let fallback = https(info["url"])
+            let f = FactoryStore.shared
+            let missingSpace = link.factorySpace.map { space in f.loaded && !f.spaces.contains { $0.slug == space } } ?? false
+            #if canImport(UIKit) && !GHOSTY_EXTENSION
+            if missingSpace, let fallback { UIApplication.shared.open(fallback); return }
+            #endif
+            LiveAgentStore.compartido.openLink(link)
+            return
+        }
+        // Aviso de VENTAS (cliente sin respuesta, escalado, etapa): no es un chat de
+        // agente, es una tarjeta del tablero. La app no tiene tablero, así que se abre
+        // la tarjeta en el navegador (gs manda la liga en `url`). Antes el toque no hacía nada.
+        if (info["tipo"] as? String) == "crm", let url = https(info["url"]) {
+            #if canImport(UIKit) && !GHOSTY_EXTENSION
+            UIApplication.shared.open(url)
+            #endif
+            return
+        }
+        // `agentID` lo pone el aviso local; `agentId` el push del servidor. Se aceptan
+        // los dos en vez de obligar a nadie a cambiar de nombre.
+        guard let id = (info["agentID"] as? String) ?? (info["agentId"] as? String) else {
+            // Sin agente pero con liga (una novedad, un aviso de la cuenta): a la liga.
+            #if canImport(UIKit) && !GHOSTY_EXTENSION
+            if let url = https(info["url"]) { UIApplication.shared.open(url) }
+            #endif
+            return
+        }
+        // ⚠️ Y el `thread-id` de APNs como respaldo: es lo que agrupa los avisos por
+        // conversación, así que lleva el mismo `sessionId` aunque el payload no repita
+        // el campo. Sin esto, un aviso sin `sessionId` te dejaba en la conversación que
+        // tuvieras abierta — y parecía que el aviso era de ésa.
+        let hilo = (info["aps"] as? [String: Any])?["thread-id"] as? String
+        let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String) ?? hilo
+        // Aviso de TEAMS viejo (gs ya no manda `tipo: "teams"`, 1-nov): si el agente no es
+        // tuyo, se va a la liga (`url`). Se queda por los avisos ya entregados.
+        let respaldo = (info["tipo"] as? String) == "teams" ? https(info["url"]) : nil
+        if let sesion { LiveAgentStore.compartido.open(agent: id, session: sesion, fallback: respaldo) }
+        else { LiveAgentStore.compartido.seleccionar(id) }
+        // El agente pidió ayuda en su navegador (`cloud_browser_ask_human`): además de abrir la
+        // conversación, un toque abre la toma. Contrato en `COMPUTADORA-DEL-AGENTE.md`.
+        if (info["kind"] as? String) == "browser_help", let sesion,
+           let navegador = info["browserSessionId"] as? String, !navegador.isEmpty {
+            // `instructions` es el nombre acordado con Android; `needsHuman` por si gs repite el del frame.
+            let texto = (info["instructions"] as? String) ?? (info["needsHuman"] as? String)
+            AgentComputerStore.shared.openFromPush(agent: id, conversation: sesion,
+                                                   browserSessionID: navegador, text: texto)
+        }
+    }
+
     /// Se pide la PRIMERA vez que dejas a un agente trabajando y te vas con otro, no al
     /// arrancar: ahí no hay contexto y el permiso se rechaza.
     static func pedirPermisoSiHaceFalta() {
@@ -258,6 +316,8 @@ enum Avisos {
                 let s = LiveAgentStore.compartido
                 return (s.hiloActivo?.sesionID, s.canalActivo?.cuenta.id)
             }
+            // Llegó un aviso: el hilo «Avisos» lo trae ya (lo veas o no en pantalla).
+            Task { @MainActor in await NoticeHistory.shared.refresh() }
             if let sesion, sesion == mirandoSesion, agente == nil || agente == mirandoAgente { return [] }
             return [.banner, .sound]
         }
@@ -269,61 +329,9 @@ enum Avisos {
             // equivocada no deja rastro de por qué, y la diferencia entre «no venía el
             // id» y «venía y lo busqué mal» son dos arreglos distintos.
             EasyBitsClient.diag("[push] tocado: \(info.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " "))")
-            // Aviso con destino explícito (`link`, gs `app/lib/push/factory-link.ts`): hoy, un
-            // hilo de la Fábrica en Teams. Gana a todo lo demás: la conversación vive en Teams,
-            // no en gs, y abrirla como chat dejaba un hilo nuevo y vacío (1-nov). Si ya se sabe
-            // que no tienes ese espacio de la Fábrica, se abre Teams en el navegador (`url`).
-            if let link = GhostyLink(string: info["link"] as? String) {
-                let fallback = (info["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
-                await MainActor.run {
-                    let f = FactoryStore.shared
-                    let missingSpace = link.factorySpace.map { space in f.loaded && !f.spaces.contains { $0.slug == space } } ?? false
-                    #if canImport(UIKit) && !GHOSTY_EXTENSION
-                    if missingSpace, let fallback { UIApplication.shared.open(fallback); return }
-                    #endif
-                    LiveAgentStore.compartido.openLink(link)
-                }
-                return
-            }
-            // Aviso de VENTAS (cliente sin respuesta, escalado, etapa): no es un chat de
-            // agente, es una tarjeta del tablero. La app no tiene tablero, así que se abre
-            // la tarjeta en el navegador (gs manda la liga en `url`). Antes el toque no hacía nada.
-            if (info["tipo"] as? String) == "crm",
-               let s = info["url"] as? String, let url = URL(string: s), url.scheme == "https" {
-                #if canImport(UIKit) && !GHOSTY_EXTENSION
-                await MainActor.run { UIApplication.shared.open(url) }
-                #endif
-                return
-            }
-            // `agentID` lo pone el aviso local; `agentId` el push del servidor. Se aceptan
-            // los dos en vez de obligar a nadie a cambiar de nombre.
-            guard let id = (info["agentID"] as? String) ?? (info["agentId"] as? String)
-            else { return }
-            // ⚠️ Y el `thread-id` de APNs como respaldo: es lo que agrupa los avisos por
-            // conversación, así que lleva el mismo `sessionId` aunque el payload no repita
-            // el campo. Sin esto, un aviso sin `sessionId` te dejaba en la conversación que
-            // tuvieras abierta — y parecía que el aviso era de ésa.
-            let hilo = (info["aps"] as? [String: Any])?["thread-id"] as? String
-            let sesion = (info["sesion"] as? String) ?? (info["sessionId"] as? String) ?? hilo
-            // Aviso de TEAMS viejo (gs ya no manda `tipo: "teams"`, 1-nov): si el agente no es
-            // tuyo, se va a la liga (`url`). Se queda por los avisos ya entregados.
-            let respaldo = (info["tipo"] as? String) == "teams"
-                ? (info["url"] as? String).flatMap(URL.init(string:)).flatMap { $0.scheme == "https" ? $0 : nil }
-                : nil
             await MainActor.run {
-                if let sesion { LiveAgentStore.compartido.open(agent: id, session: sesion, fallback: respaldo) }
-                else { LiveAgentStore.compartido.seleccionar(id) }
-            }
-            // El agente pidió ayuda en su navegador (`cloud_browser_ask_human`): además de abrir la
-            // conversación, un toque abre la toma. Contrato en `COMPUTADORA-DEL-AGENTE.md`.
-            if (info["kind"] as? String) == "browser_help", let sesion,
-               let navegador = info["browserSessionId"] as? String, !navegador.isEmpty {
-                // `instructions` es el nombre acordado con Android; `needsHuman` por si gs repite el del frame.
-                let texto = (info["instructions"] as? String) ?? (info["needsHuman"] as? String)
-                await MainActor.run {
-                    AgentComputerStore.shared.openFromPush(agent: id, conversation: sesion,
-                                                           browserSessionID: navegador, text: texto)
-                }
+                Avisos.openNotice(info)
+                Task { await NoticeHistory.shared.refresh() }
             }
         }
     }

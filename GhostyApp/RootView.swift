@@ -203,6 +203,8 @@ struct RootView: View {
             #endif
             guard nueva == .active else { return }
             Task { await store.volverDelFondo() }
+            // El hilo «Avisos» (y el número de la campanita) al día al volver.
+            Task { await NoticeHistory.shared.refresh() }
             // La bandera `syncV2` puede llegar con la config: entonces se prende el stream.
             Task { await AppConfig.shared.refresh(); store.startAccountEvents() }
         }

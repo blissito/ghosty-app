@@ -234,6 +234,12 @@ struct ChatsView: View {
                     store.requestedTab = .fabrica
                     return
                 }
+                if let notice = item.notice {
+                    // Un aviso guardado: la misma ruta que tocar su push.
+                    showActivity = false
+                    Avisos.openNotice(notice.payload)
+                    return
+                }
                 guard let session = item.sessionID, let agent = item.agent else { return }
                 showActivity = false
                 // Lo mismo que tocar un aviso: cambia de agente, marca leído y entra al hilo.
