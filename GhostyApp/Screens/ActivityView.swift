@@ -79,8 +79,21 @@ enum ActivityFeed {
         s.serverPending = history.pendingNonPermission
         for n in history.items {
             let agent = n.agentID.flatMap { agents[$0] }
+            // Una respuesta trae de título el nombre del agente y el tema en la 1a línea del cuerpo:
+            // en la lista todas decían «Ghosty Horeca». Arriba va el tema; abajo, quién y qué dijo.
+            // Sólo si el título ES el agente: el brief («☀️ Brief de la mañana») ya dice qué es.
+            var title = n.title
+            var detail = n.body.isEmpty ? (agent?.name ?? "") : n.body
+            if n.kind == "reply", agent?.name == n.title, let cut = n.body.firstIndex(of: "\n") {
+                let topic = n.body[..<cut].trimmingCharacters(in: .whitespaces)
+                let text = n.body[n.body.index(after: cut)...].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !topic.isEmpty {
+                    title = topic
+                    detail = "\(n.title) · \(text)"
+                }
+            }
             let item = ActivityItem(id: "n-\(n.id)", kind: .notice, agent: agent, sessionID: n.sessionID,
-                                    title: n.title, detail: n.body.isEmpty ? (agent?.name ?? "") : n.body,
+                                    title: title, detail: detail,
                                     date: n.date,
                                     // Una respuesta de un agente conocido lleva su cara; lo demás, su símbolo.
                                     symbol: n.kind == "reply" && agent != nil ? nil : n.symbol,
@@ -191,8 +204,10 @@ struct ActivitySheet: View {
                 } else {
                     section("Te espera", s.waiting)
                     section("Nuevo", s.replies)
-                    section("Entregas", s.deliveries)
+                    // Los avisos antes que las entregas: con muchos archivos, el brief y los
+                    // avisos de Ventas quedaban hasta abajo y nadie los encontraba (Mariana, 19-nov).
                     section("Últimos 30 días", s.history)
+                    section("Entregas", s.deliveries)
                 }
             }
             .padding(.horizontal, Theme.Space.screenH)

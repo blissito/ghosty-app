@@ -1,1 +1,1 @@
-• Avisos: la campanita de Chats ahora guarda tus notificaciones de los últimos 30 días y marca arriba lo que tienes pendiente de ventas, con su número en la campanita.
+Avisos más claros: cada aviso dice de qué conversación viene, y los avisos aparecen antes que tus archivos entregados para que no se pierdan.
