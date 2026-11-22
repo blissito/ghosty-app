@@ -29,6 +29,22 @@ struct DevEvent: Identifiable, Hashable {
     static func == (a: DevEvent, b: DevEvent) -> Bool { a.seq == b.seq && a.kind == b.kind }
     func hash(into h: inout Hasher) { h.combine(seq) }
 
+    /// Una fila de Actividad: el evento más reciente de una racha igual (mismo tipo y commit).
+    struct Group: Identifiable { let event: DevEvent; let count: Int; var id: Int { event.seq } }
+
+    /// Junta los consecutivos iguales («Smoke en verde ×5»). Recibe los eventos en el orden en que se pintan.
+    static func grouped<S: Sequence>(_ events: S) -> [Group] where S.Element == DevEvent {
+        var out: [Group] = []
+        for e in events {
+            if let last = out.last, last.event.kind == e.kind, last.event.commit == e.commit {
+                out[out.count - 1] = Group(event: last.event, count: last.count + 1)
+            } else {
+                out.append(Group(event: e, count: 1))
+            }
+        }
+        return out
+    }
+
     /// Cómo se lee en Actividad.
     var label: String {
         switch kind {

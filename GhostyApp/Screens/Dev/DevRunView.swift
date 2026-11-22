@@ -118,10 +118,13 @@ struct DevRunView: View {
 
     // MARK: Encabezado
 
+    /// En Conversación el encabezado se compacta (título en una línea, sin nota): ahí lo que importa es el hilo.
     @ViewBuilder private func header(_ run: DevRun) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(run.repo).font(.system(size: 13, weight: .medium)).foregroundStyle(Color.gInk3)
-            Text(run.title).font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk).lineLimit(2)
+        let compact = tab == .chat
+        VStack(alignment: .leading, spacing: compact ? 8 : 10) {
+            if !compact { Text(run.repo).font(.system(size: 13, weight: .medium)).foregroundStyle(Color.gInk3) }
+            Text(run.title).font(.system(size: compact ? 17 : 20, weight: .bold)).foregroundStyle(Color.gInk)
+                .lineLimit(compact ? 1 : 2)
             HStack(spacing: 8) {
                 DevPhaseChip(run: run)
                 if run.isLive, run.rounds > 0 { Text("vuelta \(run.rounds) de 3").gMeta().foregroundStyle(Color.gInk3) }
@@ -130,10 +133,18 @@ struct DevRunView: View {
                 Spacer(minLength: 0)
                 if run.isLive, run.pr != nil { mergeButton(run) }
             }
-            DevStageBar(run: run).padding(.top, 4)
-            if let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2).lineLimit(2) }
+            DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
+            if let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(1) }
+            if !compact, let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2).lineLimit(2) }
         }
         .padding(.top, 2)
+    }
+
+    /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).
+    private func mergeBlocker(_ run: DevRun) -> String? {
+        guard run.isLive, run.pr != nil, !run.canMerge else { return nil }
+        if run.tone == .needsYou { return tab == .chat ? "El agente te preguntó algo: contéstale aquí abajo." : "El agente te preguntó algo: contéstale en Conversación." }
+        return "Merge se activa con CI y revisión en verde."
     }
 
     private func deployPill(_ d: (text: String, ok: Bool?)) -> some View {
@@ -366,9 +377,11 @@ struct DevRunView: View {
             Text("Sin actividad todavía.").gBody().foregroundStyle(Color.gInk3).padding(.vertical, 20)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(run.events.reversed()) { e in
+                ForEach(DevEvent.grouped(run.events.reversed())) { g in
+                    let e = g.event
                     HStack(alignment: .firstTextBaseline) {
                         Text(e.label).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk)
+                        if g.count > 1 { Text("×\(g.count)").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk3) }
                         if let c = e.commit { Text(String(c.prefix(7))).font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.gInk3) }
                         Spacer()
                         Text(DevDate.ago(e.at)).gMeta().foregroundStyle(Color.gInk3)
@@ -389,8 +402,10 @@ struct DevRunView: View {
         Button { Task { await act("merge") } } label: {
             Text("Merge").font(.system(size: 14, weight: .semibold))
                 .padding(.horizontal, 16).padding(.vertical, 7)
-                .foregroundStyle(run.canMerge ? Color.white : Color.gInk4)
-                .background(run.canMerge ? Color.gPrimary : Color.gFill, in: Capsule())
+                .foregroundStyle(run.canMerge ? Color.white : Color.gInk3)
+                .background(run.canMerge ? Color.gPrimary : Color.clear, in: Capsule())
+                // Apagado se lee como botón (borde), no como mancha gris; el porqué va bajo las etapas.
+                .overlay(Capsule().stroke(run.canMerge ? Color.clear : Color.gSeparator, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(!run.canMerge || sending)

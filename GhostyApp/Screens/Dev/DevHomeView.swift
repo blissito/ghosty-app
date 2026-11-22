@@ -55,6 +55,8 @@ struct DevPhaseChip: View {
 /// lo que falta en gris; con el merge hecho, toda la barra en lila.
 struct DevStageBar: View {
     let run: DevRun
+    /// Sin etiquetas: sólo las barras (encabezado de Conversación).
+    var compact = false
     var body: some View {
         let at = run.stage.rawValue
         let merged = run.phase == "merged"
@@ -67,10 +69,10 @@ struct DevStageBar: View {
                     Capsule()
                         .fill(merged ? Color.gPrimaryLight : done ? Color.gGreen : now ? run.tone.accent : Color.gFillStrong)
                         .frame(height: 6)
-                    Text(s.label)
+                    if !compact { Text(s.label)
                         .font(.system(size: 11, weight: now ? .bold : .medium))
                         .foregroundStyle(now ? run.tone.ink : done ? Color.gInk2 : Color.gInk4)
-                        .lineLimit(1)
+                        .lineLimit(1) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
