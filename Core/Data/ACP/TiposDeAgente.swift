@@ -173,7 +173,7 @@ enum ACPClient {
         let titulo = (u["title"] as? String) ?? "herramienta"
         // `gs_compact`: gs compacta la memoria del hilo en vivo; el nombre crudo no dice nada.
         if titulo.contains("gs_compact") {
-            return Herramienta(id: id, titulo: "Compactando la memoria…", clase: .think, estado: estado,
+            return Herramienta(id: id, titulo: Self.compactTitle(estado), clase: .think, estado: estado,
                                salida: nil, donde: nil, detalle: nil)
         }
         return Herramienta(
@@ -184,6 +184,11 @@ enum ACPClient {
             salida: Self.salidaDe(u["content"]),
             donde: donde,
             detalle: u["detalle"] as? String)
+    }
+
+    /// El paso de memoria dice lo que pasa: en gerundio mientras corre, en pasado al terminar.
+    nonisolated static func compactTitle(_ estado: Herramienta.Estado) -> String {
+        estado == .corriendo ? "Compactando la memoria…" : "Compacté la memoria"
     }
 
     /// Respaldo para una herramienta que gs todavía no nombra: nunca el nombre crudo.

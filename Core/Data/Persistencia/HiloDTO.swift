@@ -88,7 +88,9 @@ struct HerramientaGuardada: Codable {
 
     var herramienta: Herramienta {
         // Lo guardado antes de que gs nombrara la herramienta: tampoco crudo.
-        Herramienta(id: id, titulo: ACPClient.legible(titulo), clase: Herramienta.Clase(clase),
+        // Y el de memoria guardado en gerundio aunque ya había terminado.
+        Herramienta(id: id, titulo: titulo == "Compactando la memoria…" ? ACPClient.compactTitle(.hecha) : ACPClient.legible(titulo),
+                    clase: Herramienta.Clase(clase),
                     estado: estado == "fallida" ? .fallida : .hecha,
                     salida: salida, donde: donde, detalle: detalle)
     }
