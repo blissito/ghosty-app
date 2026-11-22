@@ -129,6 +129,18 @@ final class DevUITests: XCTestCase {
         shot("e2-vacio-todos")
     }
 
+    /// Uno que alguien trabaja en su terminal (issue con `ghosty-dev:en-curso`): sale arriba de la lista.
+    func testDevLocal() {
+        app.launch()
+        let tab = app.buttons["tab-dev"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20))
+        tab.tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-local-'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no salió el pendiente de terminal")
+        Thread.sleep(forTimeInterval: 1.5)
+        shot("l1-lista-con-terminal")
+    }
+
     /// Recién creado: sin PR, sin cambios. Nada de Merge; los vacíos dicen qué falta.
     func testDevFresh() {
         app.launchEnvironment["GHOSTY_DEV"] = ProcessInfo.processInfo.environment["DEV_FRESH_RUN"] ?? "cmwrzl40100qvge8aizjsko19"
