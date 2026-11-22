@@ -111,15 +111,50 @@ struct DevRunRow: View {
     }
 }
 
+/// Fila de un pendiente que alguien trabaja en su terminal: misma tarjeta, sin etapas (gs no las conoce).
+struct DevLocalRunRow: View {
+    let run: DevLocalRun
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center) {
+                Label(run.repo, systemImage: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Color.gInk3).lineLimit(1)
+                Spacer(minLength: 8)
+                Label(run.phaseLabel, systemImage: "terminal")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk2)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Color.gFill, in: Capsule())
+            }
+            Text(run.title).gCardTitle().foregroundStyle(Color.gInk).multilineTextAlignment(.leading)
+            HStack(spacing: 4) {
+                Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk3)
+            }
+        }
+        .padding(Theme.Space.cardH)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .ghostyCard()
+    }
+
+    private var subtitle: String {
+        var parts = [run.pr.map { "PR #\($0)" } ?? "Issue #\(run.issue)"]
+        parts.append(run.writer.map { "en su terminal · @\($0)" } ?? "en una terminal")
+        parts.append(DevDate.ago(run.updatedAt))
+        return parts.joined(separator: " · ")
+    }
+}
+
 struct DevHomeView: View {
     /// Hay un pendiente abierto: `RootView` esconde la barra.
     @Binding var inRun: Bool
     @State private var store = DevStore.shared
     @State private var path: [String] = []
     @State private var showClosed = false
+    @Environment(\.openURL) private var openURL
 
     private var visible: [DevRun] { store.runs.filter { showClosed || $0.isLive } }
-    private var liveCount: Int { store.runs.filter(\.isLive).count }
+    private var liveCount: Int { store.runs.filter(\.isLive).count + store.local.count }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -178,12 +213,18 @@ struct DevHomeView: View {
             VStack(spacing: 12) { ForEach(0..<3, id: \.self) { _ in RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color.gFill).frame(height: 120) } }
         } else if let err = store.error {
             EmptyState(icon: "exclamationmark.triangle", title: err, detail: "Desliza hacia abajo para reintentar.")
-        } else if visible.isEmpty {
+        } else if visible.isEmpty && store.local.isEmpty {
             EmptyState(icon: "chevron.left.forwardslash.chevron.right",
                        title: showClosed ? "Todavía no hay pendientes" : "Nada en curso",
                        detail: "Pídele a tu agente un cambio en tu repo y aquí verás cómo avanza: código, CI, revisión y merge.")
         } else {
             LazyVStack(spacing: 12) {
+                // Los de la terminal van primero: siempre están vivos y no tienen otra vista.
+                ForEach(store.local) { run in
+                    Button { if let u = run.openURL { openURL(u) } } label: { DevLocalRunRow(run: run) }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("dev-local-\(run.id)")
+                }
                 ForEach(visible) { run in
                     Button { path.append(run.id) } label: { DevRunRow(run: run) }
                         .buttonStyle(.plain)

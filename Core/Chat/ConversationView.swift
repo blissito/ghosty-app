@@ -747,6 +747,9 @@ struct ConversationView: View {
         }
         // Cambiar de conversación es una pantalla nueva: empieza por el final.
         .onChange(of: hiloVisible) { _, _ in irAbajo() }
+        // Aparecer también es una pantalla nueva (volver a la pestaña Conversación de un pendiente):
+        // sin esto bajaba antes de que cargaran las imágenes y, al crecer, se quedaba a media altura.
+        .onAppear { irAbajo() }
         // ⚠️ Al cerrar el turno el ancla NO se suelta: el par pregunta/respuesta se queda
         // tal como se generó. Soltarla recogía el aire y el hilo se reajustaba al final
         // —la pregunta se iba por arriba justo al terminar de leer—. La cambia el

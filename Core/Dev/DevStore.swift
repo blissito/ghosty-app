@@ -249,6 +249,37 @@ struct DevSmoke {
     }
 }
 
+/// Un pendiente que alguien trabaja en SU terminal con ghosty-dev (Claude Code, Cursor, Codex).
+/// Vive en el issue de GitHub: gs no tiene su detalle ni su chat, así que tocarlo abre GitHub.
+struct DevLocalRun: Identifiable {
+    let id: String
+    let repo: String
+    let issue: Int
+    let title: String
+    let url: URL?
+    let writer: String?
+    let phase: String  // "working" | "waiting_ci"
+    let pr: Int?
+    let prURL: URL?
+    let updatedAt: Date
+
+    /// Lo que se abre al tocarlo: el PR si ya existe, si no el issue.
+    var openURL: URL? { prURL ?? url }
+    var phaseLabel: String { phase == "waiting_ci" ? "Esperando CI" : "Trabajando" }
+
+    static func from(json j: [String: Any]) -> DevLocalRun? {
+        guard let id = j["id"] as? String, let repo = j["repo"] as? String else { return nil }
+        return DevLocalRun(id: id, repo: repo, issue: j["issue"] as? Int ?? 0,
+                           title: j["title"] as? String ?? "Pendiente",
+                           url: (j["url"] as? String).flatMap(URL.init(string:)),
+                           writer: j["writer"] as? String,
+                           phase: j["phase"] as? String ?? "working",
+                           pr: j["pr"] as? Int,
+                           prURL: (j["prUrl"] as? String).flatMap(URL.init(string:)),
+                           updatedAt: DevDate.parse(j["updatedAt"] as? String) ?? .distantPast)
+    }
+}
+
 enum DevDate {
     static func parse(_ s: String?) -> Date? {
         guard let s else { return nil }
@@ -284,7 +315,9 @@ final class DevStore {
     /// ¿La GitHub App de gs llega a algún repo tuyo? `nil` = todavía no se sabe.
     private(set) var hasGitHub: Bool?
     /// La pestaña sale sólo con GitHub conectado (con al menos un repo) o con pendientes que ver (bliss, 22-nov).
-    var available: Bool { hasGitHub == true || !runs.isEmpty }
+    var available: Bool { hasGitHub == true || !runs.isEmpty || !local.isEmpty }
+    /// Los que se trabajan en la terminal de alguien (siempre vivos: gs sólo manda los abiertos).
+    private(set) var local: [DevLocalRun] = []
 
     /// Lo que decide si la pestaña existe: repos de la GitHub App + la lista. Falla callado.
     func refreshAvailability() async {
@@ -302,6 +335,7 @@ final class DevStore {
             // La lista llega como arreglo (CLI) o como `{ runs }`.
             let list = (j as? [[String: Any]]) ?? ((j as? [String: Any])?["runs"] as? [[String: Any]]) ?? []
             runs = list.compactMap(DevRun.from(json:))
+            local = (((j as? [String: Any])?["local"] as? [[String: Any]]) ?? []).compactMap(DevLocalRun.from(json:))
             error = nil
         } catch {
             if !loaded { self.error = "No pude cargar tus pendientes." }
