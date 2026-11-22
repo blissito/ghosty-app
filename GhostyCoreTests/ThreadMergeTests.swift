@@ -119,4 +119,16 @@ final class ThreadMergeSteerTests: XCTestCase {
         XCTAssertEqual(merged[1].seq, 2)
     }
 
+
+    /// Lo guardado con el nombre crudo («Box create») toma el título que manda gs; la salida local se queda.
+    func testServerRenamesStoredSteps() {
+        let old = Herramienta(id: "c1", titulo: "Box create", clase: .other, estado: .hecha, salida: "ok", donde: nil, detalle: nil)
+        let other = Herramienta(id: "c2", titulo: "Dev run ask", clase: .other, estado: .hecha, salida: nil, donde: nil, detalle: nil)
+        let local = [Message(id: "a", kind: .agent(text: "listo", tools: ToolRun(herramientas: [old, other]), trailing: nil), seq: 2)]
+        let fresh = Herramienta(id: "c1", titulo: "Trabajé en la caja", clase: .other, estado: .hecha, salida: nil, donde: nil, detalle: nil)
+        let page = [Message(id: "s2", kind: .agent(text: "listo", tools: ToolRun(herramientas: [fresh]), trailing: nil), seq: 2)]
+        guard case .agent(_, let tools?, _) = ThreadMerge.merge(local, with: page)[0].kind else { return XCTFail() }
+        XCTAssertEqual(tools.herramientas.map(\.titulo), ["Trabajé en la caja", "Dev run ask"])
+        XCTAssertEqual(tools.herramientas[0].salida, "ok")
+    }
 }

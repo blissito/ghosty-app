@@ -87,11 +87,27 @@ enum ThreadMerge {
             m.kind = .user(text, adjuntos: adjuntos.isEmpty ? serverAdjuntos : adjuntos, steer: steer)
         case (.agent(_, let tools, let trailing), .agent(let text, let serverTools, let serverTrailing)):
             // Las herramientas que vimos correr valen más que la narración reconstruida.
-            m.kind = .agent(text: text, tools: tools ?? serverTools, trailing: serverTrailing ?? trailing)
+            // Pero el NOMBRE de cada paso lo pone gs: lo guardado con «Box create» toma el de ahora.
+            let merged = tools.map { local in serverTools.map { relabel(local, from: $0) } ?? local } ?? serverTools
+            m.kind = .agent(text: text, tools: merged, trailing: serverTrailing ?? trailing)
         default:
             break
         }
         return m
+    }
+
+    /// Las herramientas locales con el título que manda gs para el mismo paso (mismo `id`,
+    /// el `toolCallId`). Salida, estado y orden se quedan locales.
+    static func relabel(_ local: ToolRun, from server: ToolRun) -> ToolRun {
+        let byID = Dictionary(server.herramientas.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        var out = local
+        out.herramientas = local.herramientas.map { h in
+            guard let s = byID[h.id], !s.titulo.isEmpty else { return h }
+            var h = h
+            h.titulo = s.titulo
+            return h
+        }
+        return out
     }
 
     /// Detrás del último con `seq` menor y de lo local que llegó después de él (una entrega);

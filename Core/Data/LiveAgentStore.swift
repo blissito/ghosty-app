@@ -3443,7 +3443,9 @@ extension LiveAgentStore {
         // ⚠️ Una vez por hilo, la página entera aunque ya esté guardado: lo guardado antes del
         // 18-oct perdió las tarjetas de entrega al fundirse (`ThreadMerge` regla 6) y un delta
         // vacío no trae archivos, así que nunca volvían.
-        let repairKey = "threadDeliveriesRepair1.\(agent).\(sid)"
+        // `StepNames1` (22-nov): lo guardado con el nombre crudo del paso («Box create») vuelve
+        // a pasar una vez por gs para tomar el título de ahora (`ThreadMerge.relabel`).
+        let repairKey = "threadDeliveriesRepair1.StepNames1.\(agent).\(sid)"
         let needsRepair = !UserDefaults.standard.bool(forKey: repairKey)
         let knownSeq = meta?.epoch == nil || needsRepair ? nil : hilo.mensajes.compactMap(\.seq).max()
         // Un hilo recortado en la caché (sus últimos 20) tiene más arriba: sin esto se quedaba
