@@ -6,7 +6,8 @@ enum GhostyTab: String, CaseIterable, Identifiable {
     // entendiendo el gancho `GHOSTY_TAB`, que abre la hoja del historial.
     // Integraciones dejó de ser pestaña (2026-10-01): vive en Perfil y su lugar es Memorias.
     // Fábrica (19-oct): sólo aparece si algún espacio tuyo tiene pedidos (`RootView.pestanas`).
-    case chat, artifacts, memorias, perfil, fabrica
+    // Dev (22-nov): los pendientes en la nube de gs; reemplaza a Fábrica en la barra (bliss).
+    case chat, artifacts, memorias, perfil, fabrica, dev
     var id: String { rawValue }
 
     var label: String {
@@ -16,6 +17,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
         case .memorias:   return "Memorias"
         case .perfil:     return "Perfil"
         case .fabrica:    return "Fábrica"
+        case .dev:        return "Dev"
         }
     }
 
@@ -26,6 +28,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
         case .memorias:   return GhostyIcons.memorias
         case .perfil:     return GhostyIcons.perfil
         case .fabrica:    return GhostyIcons.fabrica
+        case .dev:        return GhostyIcons.fabrica
         }
     }
 }

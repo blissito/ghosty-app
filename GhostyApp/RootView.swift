@@ -16,6 +16,9 @@ struct RootView: View {
     @State private var fabrica = FactoryStore.shared
     /// Dentro de un pedido la barra se va (como dentro de un hilo): abajo van sus botones.
     @State private var fabricaEnPedido = false
+    /// Dentro de un pendiente de Dev la barra también se va.
+    @State private var devEnPendiente = false
+    @State private var dev = DevStore.shared
     /// Perfil como hoja: sólo desde el fallo de conexión (la barra no está ahí).
     @State private var ajustes = false
     /// El detalle del uso dentro de Perfil (`DetalleDeUso`). Lo abre la tarjeta del plan
@@ -89,10 +92,10 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if case .lista = store.conexion, !(tab == .chat && inThread), !(tab == .fabrica && fabricaEnPedido) {
+            if case .lista = store.conexion, !(tab == .chat && inThread), !(tab == .fabrica && fabricaEnPedido), !(tab == .dev && devEnPendiente) {
                 GhostyTabBar(selection: $tab, tabs: pestanas,
                              puntos: store.unreadChats > 0 ? [.chat] : [],
-                             conteos: [.fabrica: fabrica.needsYouCount],
+                             conteos: [.fabrica: fabrica.needsYouCount, .dev: dev.needsYouCount],
                              agente: store.selectedAgent,
                              agenteAbierto: showAgentPicker,
                              onAgente: { showAgentPicker = true })
@@ -343,8 +346,9 @@ struct RootView: View {
         // al avatar del agente, que va a la derecha.
         // Fábrica (19-oct): sólo con pedidos en algún espacio tuyo; mientras carga la primera vez se
         // conserva si ya estás en ella (gancho `GHOSTY_TAB=fabrica`), para no echarte a Chats.
-        let conFabrica = fabrica.available || (!fabrica.loaded && tab == .fabrica)
-        return [.perfil, .memorias, .artifacts] + (conFabrica ? [.fabrica] : []) + [.chat]
+        // Dev reemplaza a Fábrica en la barra (bliss, 22-nov): siempre visible; su vacío explica qué es.
+        // La Fábrica sigue en código (y en su gancho `GHOSTY_TAB=fabrica`), sólo sale de la barra.
+        return [.perfil, .memorias, .artifacts, .dev] + (tab == .fabrica ? [.fabrica] : []) + [.chat]
     }
 
     private func openAppURL(_ url: URL) {
@@ -416,6 +420,9 @@ struct RootView: View {
                 case .fabrica:
                     FactoryHomeView(openRoute: Self.pedidoDelGancho, inRun: $fabricaEnPedido)
                         .safeAreaPadding(.bottom, fabricaEnPedido ? 0 : holguraDeLaBarra + 12)
+                case .dev:
+                    DevHomeView(inRun: $devEnPendiente)
+                        .safeAreaPadding(.bottom, devEnPendiente ? 0 : holguraDeLaBarra + 12)
                 case .memorias:
                     MemoriasView(store: store)
                         .safeAreaPadding(.bottom, holguraDeLaBarra + 12)
