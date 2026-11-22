@@ -271,8 +271,19 @@ struct DevRunView: View {
         case "running": ("Revisando", nil)
         default: ("Todavía no se revisa", nil)
         }
-        let evidence: (String, Bool?) = sh.evidence ? ("En el PR", true) : ("Aún no se publica", nil)
-        let preview: (String, Bool?) = switch sh.previewState {
+        // Los checks del commit actual mandan sobre la ficha: que nada diga verde/rojo contra ellos
+        // (#76 de Formmy, 22-nov: «evidencia en el PR» con la puerta corriendo, «falló» con Preview neutral).
+        let checks = detail?.checks ?? []
+        let gate = checks.first { $0.name == "ghosty-dev/evidencia" }?.state
+        let previewCheck = checks.first { $0.name == "Ghosty · Preview" }?.state
+        let evidence: (String, Bool?) = switch gate {
+        case "failure": ("Evidencia en rojo", false)
+        case "success": ("En el PR", true)
+        case .some: ("Falta la evidencia", nil)
+        case nil: sh.evidence ? ("En el PR", true) : ("Aún no se publica", nil)
+        }
+        let preview: (String, Bool?) = switch previewCheck == "neutral" || previewCheck == "skipped" ? "na" : sh.previewState {
+        case "na": ("No aplica", nil)
         case "ready": ("Lista", true)
         case "failed": ("Falló", false)
         case "building": ("Armándose", nil)
