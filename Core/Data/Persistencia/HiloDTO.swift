@@ -87,7 +87,8 @@ struct HerramientaGuardada: Codable {
     }
 
     var herramienta: Herramienta {
-        Herramienta(id: id, titulo: titulo, clase: Herramienta.Clase(clase),
+        // Lo guardado antes de que gs nombrara la herramienta: tampoco crudo.
+        Herramienta(id: id, titulo: ACPClient.legible(titulo), clase: Herramienta.Clase(clase),
                     estado: estado == "fallida" ? .fallida : .hecha,
                     salida: salida, donde: donde, detalle: detalle)
     }

@@ -178,12 +178,31 @@ enum ACPClient {
         }
         return Herramienta(
             id: id,
-            titulo: titulo,
+            titulo: Self.legible(titulo),
             clase: .init(u["kind"] as? String),
             estado: estado,
             salida: Self.salidaDe(u["content"]),
             donde: donde,
             detalle: u["detalle"] as? String)
+    }
+
+    /// Respaldo para una herramienta que gs todavía no nombra: nunca el nombre crudo.
+    /// `mcp__ghosty__dev_run_ask` → «Dev run ask»; `mcp__mailmask__send_email` → «Mailmask: send email»;
+    /// `gs_box_exec · x` → «Box exec · x». Lo que ya viene en español pasa tal cual. (Igual que
+    /// `mcpToolTitle` de gs.)
+    nonisolated static func legible(_ raw: String) -> String {
+        let parts = raw.components(separatedBy: " · ")
+        var name = parts[0]
+        let cap: (String) -> String = { $0.prefix(1).uppercased() + $0.dropFirst() }
+        if let m = name.wholeMatch(of: /mcp__(\w+?)__(\w+)/) {
+            let tool = String(m.2).replacingOccurrences(of: "_", with: " ")
+            name = m.1.lowercased() == "ghosty" ? cap(tool) : "\(cap(String(m.1)).replacingOccurrences(of: "_", with: " ")): \(tool)"
+        } else if name.wholeMatch(of: /gs_[a-z_]+/) != nil {
+            name = cap(String(name.dropFirst(3)).replacingOccurrences(of: "_", with: " "))
+        } else {
+            return raw
+        }
+        return ([name] + parts.dropFirst()).joined(separator: " · ")
     }
 
     /// Un hash que vale lo mismo en todos los arranques.
