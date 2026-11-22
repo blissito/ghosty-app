@@ -273,6 +273,21 @@ final class DevStore {
 
     var needsYouCount: Int { runs.filter { $0.tone == .needsYou }.count }
 
+    /// ¿La GitHub App de gs llega a algún repo tuyo? `nil` = todavía no se sabe.
+    private(set) var hasGitHub: Bool?
+    /// La pestaña sale sólo con GitHub conectado (con al menos un repo) o con pendientes que ver (bliss, 22-nov).
+    var available: Bool { hasGitHub == true || !runs.isEmpty }
+
+    /// Lo que decide si la pestaña existe: repos de la GitHub App + la lista. Falla callado.
+    func refreshAvailability() async {
+        if let j = try? await request("api/v2/me/dev-runs/repos") as? [String: Any] {
+            hasGitHub = (j["installed"] as? Bool) == true && !((j["repos"] as? [Any]) ?? []).isEmpty
+        } else if hasGitHub == nil {
+            hasGitHub = false
+        }
+        await refresh()
+    }
+
     func refresh() async {
         do {
             let j = try await request("api/v2/me/dev-runs", query: [URLQueryItem(name: "all", value: "1")])
@@ -305,7 +320,8 @@ final class DevStore {
             let text = (m["text"] as? String) ?? (m["content"] as? String) ?? ""
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             // El despertador de la plataforma (el brief del escritor) no es algo que dijo la persona.
-            if text.hasPrefix("⏰ Turno programado") { return nil }
+            // Viejos: el brief largo; nuevos: «Empieza el pendiente #N…».
+            if text.hasPrefix("⏰ Turno programado") || text.hasPrefix("Empieza el pendiente #") { return nil }
             let role = m["role"] as? String ?? "agent"
             return DevMessage(id: (m["id"] as? String) ?? "\(m["seq"] as? Int ?? i)", fromAgent: role != "user", text: text)
         }

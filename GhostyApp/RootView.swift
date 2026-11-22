@@ -230,7 +230,10 @@ struct RootView: View {
         // ¿Hay fábrica? Al volver al frente y al cambiar de cuenta (cuántos agentes ve).
         // Best-effort: sin sesión falla callado y la pestaña simplemente no sale.
         .task(id: "\(fase)-\(store.agents.count)") {
-            if fase == .active, !store.agents.isEmpty { await fabrica.refresh(force: false) }
+            if fase == .active, !store.agents.isEmpty {
+                await fabrica.refresh(force: false)
+                await dev.refreshAvailability()
+            }
         }
         .task {
             // Lo primero, y barato: tirar las imágenes viejas del caché de disco.
@@ -346,9 +349,10 @@ struct RootView: View {
         // al avatar del agente, que va a la derecha.
         // Fábrica (19-oct): sólo con pedidos en algún espacio tuyo; mientras carga la primera vez se
         // conserva si ya estás en ella (gancho `GHOSTY_TAB=fabrica`), para no echarte a Chats.
-        // Dev reemplaza a Fábrica en la barra (bliss, 22-nov): siempre visible; su vacío explica qué es.
-        // La Fábrica sigue en código (y en su gancho `GHOSTY_TAB=fabrica`), sólo sale de la barra.
-        return [.perfil, .memorias, .artifacts, .dev] + (tab == .fabrica ? [.fabrica] : []) + [.chat]
+        // Dev reemplaza a Fábrica en la barra (bliss, 22-nov). Sólo con GitHub conectado o pendientes que ver;
+        // se conserva si ya estás en ella (gancho `GHOSTY_TAB=dev`). La Fábrica sigue en código, fuera de la barra.
+        let conDev = dev.available || tab == .dev
+        return [.perfil, .memorias, .artifacts] + (conDev ? [.dev] : []) + (tab == .fabrica ? [.fabrica] : []) + [.chat]
     }
 
     private func openAppURL(_ url: URL) {

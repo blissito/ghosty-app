@@ -21,25 +21,36 @@ struct DevRunView: View {
     var body: some View {
         Group {
             if let run {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                // Los datos del pendiente y las pestañas quedan fijos arriba; sólo se desplaza el contenido.
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 12) {
                         header(run)
                         Picker("Vista", selection: $tab) {
                             ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                         }
                         .pickerStyle(.segmented)
-                        switch tab {
-                        case .chat: chatTab(run)
-                        case .changes: changesTab
-                        case .checks: checksTab(run)
-                        case .activity: activityTab(run)
-                        }
                     }
                     .padding(.horizontal, Theme.Space.screenH)
-                    .padding(.bottom, 24)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 14) {
+                                switch tab {
+                                case .chat: chatTab(run)
+                                case .changes: changesTab
+                                case .checks: checksTab(run)
+                                case .activity: activityTab(run)
+                                }
+                            }
+                            .padding(.horizontal, Theme.Space.screenH)
+                            .padding(.bottom, 24)
+                        }
+                        .scrollIndicators(.hidden)
+                        .refreshable { await store.loadDetail(id) }
+                        // Como un chat: la conversación abre en lo último, no en el primer mensaje.
+                        .onChange(of: store.messages[id]?.count ?? 0, initial: true) { _, _ in scrollToEnd(proxy) }
+                        .onChange(of: tab) { _, t in if t == .chat { scrollToEnd(proxy) } }
+                    }
                 }
-                .scrollIndicators(.hidden)
-                .refreshable { await store.loadDetail(id) }
                 .safeAreaInset(edge: .bottom) { bottomBar(run) }
             } else {
                 FlameLoading().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -78,7 +89,7 @@ struct DevRunView: View {
     @ViewBuilder private func header(_ run: DevRun) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(run.repo).font(.system(size: 13, weight: .medium)).foregroundStyle(Color.gInk3)
-            Text(run.title).font(.system(size: 24, weight: .bold)).foregroundStyle(Color.gInk)
+            Text(run.title).font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk).lineLimit(2)
             HStack(spacing: 8) {
                 DevPhaseChip(run: run)
                 if run.isLive, run.rounds > 0 { Text("vuelta \(run.rounds) de 3").gMeta().foregroundStyle(Color.gInk3) }
@@ -88,7 +99,7 @@ struct DevRunView: View {
             DevStageBar(run: run).padding(.top, 4)
             if let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2) }
         }
-        .padding(.top, 6)
+        .padding(.top, 2)
     }
 
     private func deployPill(_ d: (text: String, ok: Bool?)) -> some View {
@@ -110,6 +121,7 @@ struct DevRunView: View {
                 ForEach(msgs.suffix(40)) { m in bubble(m) }
             }
         }
+        Color.clear.frame(height: 1).id("chat-end")
         if !run.isLive {
             Text("El pendiente ya cerró: aquí sólo se lee lo que habló el agente.").gCaption().foregroundStyle(Color.gInk3)
                 .frame(maxWidth: .infinity).padding(.top, 8)
@@ -125,6 +137,15 @@ struct DevRunView: View {
                 .background(m.fromAgent ? Color.gBubbleAgent : Color.gBubbleUser, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble))
                 .textSelection(.enabled)
             if m.fromAgent { Spacer(minLength: 40) }
+        }
+    }
+
+    private func scrollToEnd(_ proxy: ScrollViewProxy) {
+        guard tab == .chat, !(store.messages[id] ?? []).isEmpty else { return }
+        // Un respiro para que el contenido se mida antes de bajar.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(60))
+            proxy.scrollTo("chat-end", anchor: .bottom)
         }
     }
 
