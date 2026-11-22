@@ -161,7 +161,8 @@ struct DevRunView: View {
     /// es decirle algo al pendiente: gs lo pasa por `tell` (`onPersonMessage`).
     @ViewBuilder private func chatTab(_ run: DevRun) -> some View {
         if devFocus != nil {
-            ConversationView(store: chats, onOpenSheet: {}, embedded: true, placeholder: "Dile al agente qué ajustar…")
+            ConversationView(store: chats, onOpenSheet: {}, embedded: true, placeholder: "Dile al agente qué ajustar…",
+                             readOnlyNote: run.isLive ? nil : "El pendiente ya cerró: aquí sólo se lee lo que habló el agente.")
         } else {
             Text(detail == nil ? "Cargando…" : "Esta conversación es de un agente que no está en tu cuenta.")
                 .gBody().foregroundStyle(Color.gInk3)

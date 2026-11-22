@@ -14,6 +14,8 @@ struct ConversationView: View {
     /// sin la cabecera del agente, sin «Seguir en un chat nuevo» (el hilo es fijo) y con su propio texto guía.
     var embedded = false
     var placeholder: String? = nil
+    /// En vez del compositor, este aviso (sólo lectura: un pendiente que ya cerró).
+    var readOnlyNote: String? = nil
 
     @State private var borrador = ""
     /// El re-anclaje pendiente por `.hiloCrecio` (se juntan varios en uno).
@@ -226,7 +228,15 @@ struct ConversationView: View {
             }
             #endif
 
-            compositor
+            Group {
+                if let note = readOnlyNote {
+                    Text(note).gMeta().foregroundStyle(Color.gInk3)
+                        .frame(maxWidth: .infinity).multilineTextAlignment(.center)
+                        .padding(.horizontal, 16).padding(.vertical, 14)
+                } else {
+                    compositor
+                }
+            }
                 // Venir de «Nueva conversación» abre el teclado: si te llevan a una
                 // conversación vacía, lo siguiente que vas a hacer es escribir.
                 .onChange(of: store.pedirTeclado) { _, quiere in
