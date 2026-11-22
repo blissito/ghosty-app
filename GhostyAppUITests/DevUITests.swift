@@ -32,7 +32,8 @@ final class DevUITests: XCTestCase {
         let all = app.buttons["Todos"]
         if all.exists { all.tap(); Thread.sleep(forTimeInterval: 1); shot("d2-todos") }
 
-        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-run-'")).firstMatch
+        // Uno con conversación larga (para probar «ir abajo»): el #139 de mailmask.
+        let row = app.buttons["dev-run-cmwruyl0w09m4g868bnhazyqk"]
         XCTAssertTrue(row.waitForExistence(timeout: 15), "la lista no enseña ningún pendiente")
         row.tap()
         // Al abrir tiene que estar ya abajo: si saliera arriba, el botón «ir abajo» estaría a la vista.
@@ -100,6 +101,46 @@ final class DevUITests: XCTestCase {
                 shot("c\(tag)\(n)-\(label)")
             }
             app.terminate()
+        }
+    }
+
+    /// Tocar el aviso de un pendiente abre su detalle en Dev, no un chat nuevo.
+    func testNoticeOpensRun() {
+        app.launchEnvironment["GHOSTY_TAB"] = "chat"
+        app.launchEnvironment["GHOSTY_NOTICE_DEVRUN"] = "cmwruyl0w09m4g868bnhazyqk"
+        app.launch()
+        XCTAssertTrue(app.buttons["Conversación"].waitForExistence(timeout: 20), "el aviso no abrió el pendiente")
+        XCTAssertTrue(app.navigationBars["PR #139"].exists || app.staticTexts["PR #139"].exists, "abrió otro pendiente")
+        Thread.sleep(forTimeInterval: 2)
+        shot("n1-aviso-abre-pendiente")
+    }
+
+    /// Sin pendientes: el vacío explica qué es Dev, en «Activos» y en «Todos».
+    func testDevEmpty() {
+        app.launchEnvironment["GHOSTY_DEV_EMPTY"] = "1"
+        app.launch()
+        let tab = app.buttons["tab-dev"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20), "con GitHub conectado la pestaña sale aunque no haya pendientes")
+        tab.tap()
+        Thread.sleep(forTimeInterval: 2.5)
+        shot("e1-vacio-activos")
+        app.buttons["Todos"].tap()
+        Thread.sleep(forTimeInterval: 1)
+        shot("e2-vacio-todos")
+    }
+
+    /// Recién creado: sin PR, sin cambios. Nada de Merge; los vacíos dicen qué falta.
+    func testDevFresh() {
+        app.launchEnvironment["GHOSTY_DEV"] = ProcessInfo.processInfo.environment["DEV_FRESH_RUN"] ?? "cmwrzl40100qvge8aizjsko19"
+        app.launch()
+        XCTAssertTrue(app.buttons["Conversación"].waitForExistence(timeout: 20), "no abrió el pendiente")
+        Thread.sleep(forTimeInterval: 4)
+        shot("f1-conversacion")
+        XCTAssertFalse(app.buttons["Merge"].exists, "sin PR no hay Merge")
+        for (label, n) in [("Cambios", 2), ("Verificación", 3), ("Actividad", 4)] {
+            app.buttons[label].tap()
+            Thread.sleep(forTimeInterval: 1.5)
+            shot("f\(n)-\(label)")
         }
     }
 }

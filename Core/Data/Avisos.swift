@@ -55,6 +55,18 @@ enum Avisos {
             #endif
             return
         }
+        // Aviso de un PENDIENTE de Desarrollo (gs `dev-runs` → `notify`): abre su detalle en Dev.
+        // Trae `agentId` (el agente de origen), así que sin esto caía abajo y abría un chat nuevo y
+        // vacío llamado como su `thread-id` (`dev-run:<id>`).
+        let thread = (info["aps"] as? [String: Any])?["thread-id"] as? String
+        if let runID = (info["devRunId"] as? String) ?? thread.flatMap({ $0.hasPrefix("dev-run:") ? String($0.dropFirst(8)) : nil }),
+           !runID.isEmpty {
+            #if !GHOSTY_EXTENSION
+            DevStore.shared.pendingRunID = runID
+            LiveAgentStore.compartido.requestedTab = .dev
+            #endif
+            return
+        }
         // `agentID` lo pone el aviso local; `agentId` el push del servidor. Se aceptan
         // los dos en vez de obligar a nadie a cambiar de nombre.
         guard let id = (info["agentID"] as? String) ?? (info["agentId"] as? String) else {

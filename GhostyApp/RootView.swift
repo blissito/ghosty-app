@@ -236,6 +236,15 @@ struct RootView: View {
             }
         }
         .task {
+            // Gancho: `GHOSTY_NOTICE_DEVRUN=<id>` simula tocar el aviso de ese pendiente (con el
+            // `agentId` de origen que manda gs), para probar que abre Dev y no un chat vacío.
+            if let run = Gancho.valor("GHOSTY_NOTICE_DEVRUN"), !run.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(2))
+                    Avisos.openNotice(["agentId": store.selectedAgentID, "devRunId": run,
+                                       "aps": ["thread-id": "dev-run:\(run)"]])
+                }
+            }
             // Lo primero, y barato: tirar las imágenes viejas del caché de disco.
             CacheDeImagenes.purgar()
             GrupoDeApp.espejarConsentimiento()

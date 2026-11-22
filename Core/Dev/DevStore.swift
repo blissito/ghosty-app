@@ -160,17 +160,44 @@ struct DevDetail {
     var deletions = 0
     var checksState: String?
     var checks: [Check] = []
-    var previewPhase: String?
-    var previewURL: URL?
     var deploy: [String: Any]?
     var networkMode: String?
     var denied: [Denied] = []
     var writerAgentID: String?
     var writerSessionID: String?
     var writerName: String?
+    /// La mesa de trabajo de gs (`ficha`): la misma que ven el escritor, GitHub y Teams. Los estados
+    /// (ci, review, smoke, evidence, preview) se leen de aquí; el cliente no los deduce.
+    var sheet: Sheet?
+
+    struct Sheet {
+        /// ok | bad | running | none
+        var ci = "none", review = "none", smoke = "none"
+        var evidence = false
+        /// ready | building | failed | none
+        var previewState = "none"
+        var previewURL: URL?
+        var previewError: String?
+        /// Lo que la persona pidió desde el último push y sigue abierto.
+        var asks: [String] = []
+    }
 
     static func from(json j: [String: Any]) -> DevDetail {
         var d = DevDetail()
+        if let f = j["ficha"] as? [String: Any] {
+            var sh = Sheet()
+            sh.ci = f["ci"] as? String ?? "none"
+            sh.review = f["review"] as? String ?? "none"
+            sh.smoke = f["smoke"] as? String ?? "none"
+            sh.evidence = f["evidence"] as? Bool ?? false
+            if let p = f["preview"] as? [String: Any] {
+                sh.previewState = p["state"] as? String ?? "none"
+                sh.previewURL = (p["url"] as? String).flatMap(URL.init(string:))
+                sh.previewError = p["error"] as? String
+            }
+            sh.asks = f["asks"] as? [String] ?? []
+            d.sheet = sh
+        }
         if let c = j["changes"] as? [String: Any] {
             d.additions = c["additions"] as? Int ?? 0
             d.deletions = c["deletions"] as? Int ?? 0
@@ -186,10 +213,6 @@ struct DevDetail {
                 guard let n = $0["name"] as? String else { return nil }
                 return Check(name: n, state: $0["state"] as? String ?? "none", url: ($0["url"] as? String).flatMap(URL.init(string:)), ghosty: $0["ghosty"] as? Bool ?? false)
             }
-        }
-        if let p = j["preview"] as? [String: Any] {
-            d.previewPhase = p["phase"] as? String
-            d.previewURL = (p["link"] as? String).flatMap(URL.init(string:))
         }
         d.deploy = j["deploy"] as? [String: Any]
         if let n = j["network"] as? [String: Any] {
@@ -334,8 +357,10 @@ final class DevStore {
             let j = try await request("api/v2/me/dev-runs", query: [URLQueryItem(name: "all", value: "1")])
             // La lista llega como arreglo (CLI) o como `{ runs }`.
             let list = (j as? [[String: Any]]) ?? ((j as? [String: Any])?["runs"] as? [[String: Any]]) ?? []
-            runs = list.compactMap(DevRun.from(json:))
-            local = (((j as? [String: Any])?["local"] as? [[String: Any]]) ?? []).compactMap(DevLocalRun.from(json:))
+            // Gancho: `GHOSTY_DEV_EMPTY=1` pinta la lista sin pendientes (para revisar el vacío).
+            let empty = Gancho.encendido("GHOSTY_DEV_EMPTY")
+            runs = empty ? [] : list.compactMap(DevRun.from(json:))
+            local = empty ? [] : (((j as? [String: Any])?["local"] as? [[String: Any]]) ?? []).compactMap(DevLocalRun.from(json:))
             error = nil
         } catch {
             if !loaded { self.error = "No pude cargar tus pendientes." }

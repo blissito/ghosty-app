@@ -22,6 +22,7 @@ struct DevRunView: View {
 
     private var title: String {
         if let pr = run?.pr { return "PR #\(pr)" }
+        if let issue = run?.issue, issue > 0 { return "Issue #\(issue)" }
         return "Pendiente"
     }
 
@@ -59,7 +60,7 @@ struct DevRunView: View {
         if let run {
             Menu {
                 if let u = run.prURL { Button("Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
-                if let u = detail?.previewURL, detail?.previewPhase == "ready" { Button("Ver la vista previa", systemImage: "safari") { openURL(u) } }
+                if let sh = detail?.sheet, sh.previewState == "ready", let u = sh.previewURL { Button("Ver la vista previa", systemImage: "safari") { openURL(u) } }
                 if run.isLive { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
             } label: { Image(systemName: "ellipsis.circle") }
         }
@@ -251,19 +252,28 @@ struct DevRunView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Los cuatro estados salen de la ficha de gs (`detail.sheet`), nunca de deducir eventos aquí.
     private func statusGrid(_ run: DevRun) -> some View {
-        let kinds = run.events.map(\.kind)
-        let lastPush = kinds.lastIndex(of: "pushed") ?? -1
-        let after = Array(kinds.dropFirst(lastPush + 1))
-        let ci: (String, Bool?) = after.contains("ci_red") ? ("En rojo", false) : after.contains("ci_green") ? ("En verde", true) : run.pr == nil ? ("Sin PR todavía", nil) : ("Corriendo", nil)
+        let sh = detail?.sheet ?? DevDetail.Sheet()
         let findings = run.events.last(where: { $0.kind == "review_findings" }).flatMap { ($0.data["findings"] as? [Any])?.count }
-        let review: (String, Bool?) = after.contains("review_findings") ? ("\(findings ?? 1) \(findings == 1 ? "hallazgo" : "hallazgos")", false) : after.contains("review_clean") ? ("Sin hallazgos", true) : ("Todavía no se revisa", nil)
-        let evidence: (String, Bool?) = kinds.contains("evidence") ? ("En el PR", true) : ("Aún no se publica", nil)
-        let preview: (String, Bool?) = switch detail?.previewPhase {
+        let ci: (String, Bool?) = switch sh.ci {
+        case "ok": ("En verde", true)
+        case "bad": ("En rojo", false)
+        case "running": ("Corriendo", nil)
+        default: (run.pr == nil ? "Sin PR todavía" : "Sin correr", nil)
+        }
+        let review: (String, Bool?) = switch sh.review {
+        case "ok": ("Sin hallazgos", true)
+        case "bad": ("\(findings ?? 1) \(findings == 1 ? "hallazgo" : "hallazgos")", false)
+        case "running": ("Revisando", nil)
+        default: ("Todavía no se revisa", nil)
+        }
+        let evidence: (String, Bool?) = sh.evidence ? ("En el PR", true) : ("Aún no se publica", nil)
+        let preview: (String, Bool?) = switch sh.previewState {
         case "ready": ("Lista", true)
         case "failed": ("Falló", false)
-        case .some: ("Armándose", nil)
-        case nil: ("Sin vista previa", nil)
+        case "building": ("Armándose", nil)
+        default: ("Sin vista previa", nil)
         }
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             statusTile("CI", ci)

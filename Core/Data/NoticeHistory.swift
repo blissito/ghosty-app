@@ -13,6 +13,8 @@ struct NoticeItem: Identifiable, Equatable, Sendable {
     let url: String?
     let agentID: String?
     let sessionID: String?
+    /// Aviso de un pendiente de Desarrollo: tocarlo abre el pendiente en Dev.
+    var devRunID: String? = nil
     let conversationID: String?
     let namespace: String?
     let urgent: Bool
@@ -39,6 +41,7 @@ struct NoticeItem: Identifiable, Equatable, Sendable {
         if let url { info["url"] = url }
         if let agentID { info["agentId"] = agentID }
         if let sessionID { info["sessionId"] = sessionID }
+        if let devRunID { info["devRunId"] = devRunID }
         return info
     }
 
@@ -46,11 +49,13 @@ struct NoticeItem: Identifiable, Equatable, Sendable {
         guard let id = j["id"] as? String,
               let at = j["at"] as? String, let date = parseDate(at) else { return nil }
         func text(_ k: String) -> String? { (j[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
-        return NoticeItem(id: id, kind: text("kind") ?? "aviso", title: text("title") ?? "Aviso",
-                          body: text("body") ?? "", date: date, url: text("url"),
-                          agentID: text("agentId"), sessionID: text("sessionId"),
-                          conversationID: text("conversationId"), namespace: text("namespace"),
-                          urgent: j["urgent"] as? Bool ?? false, pending: j["pending"] as? Bool ?? false)
+        var item = NoticeItem(id: id, kind: text("kind") ?? "aviso", title: text("title") ?? "Aviso",
+                              body: text("body") ?? "", date: date, url: text("url"),
+                              agentID: text("agentId"), sessionID: text("sessionId"),
+                              conversationID: text("conversationId"), namespace: text("namespace"),
+                              urgent: j["urgent"] as? Bool ?? false, pending: j["pending"] as? Bool ?? false)
+        item.devRunID = text("devRunId")
+        return item
     }
 
     private static func parseDate(_ s: String) -> Date? {
