@@ -18,6 +18,8 @@ struct DevRunView: View {
     enum Tab: String, CaseIterable { case chat = "Conversación", changes = "Cambios", checks = "Verificación", activity = "Actividad" }
 
     private var run: DevRun? { store.full[id] ?? store.runs.first { $0.id == id } }
+    /// El turno del escritor sigue vivo (el mismo dato que pinta ■ en el chat).
+    private var writerBusy: Bool { devFocus?.devThread.trabajando == true }
     private var detail: DevDetail? { store.details[id] }
 
     private var title: String {
@@ -127,7 +129,7 @@ struct DevRunView: View {
             Text(run.title).font(.system(size: compact ? 17 : 20, weight: .bold)).foregroundStyle(Color.gInk)
                 .lineLimit(compact ? 1 : 2)
             HStack(spacing: 8) {
-                DevPhaseChip(run: run)
+                DevPhaseChip(run: run, writerBusy: writerBusy)
                 if run.isLive, run.rounds > 0 { Text("vuelta \(run.rounds) de 3").gMeta().foregroundStyle(Color.gInk3) }
                 // El deploy existe sólo después del merge.
                 if run.phase == "merged", let d = detail?.deployLabel { deployPill(d) }
@@ -144,6 +146,7 @@ struct DevRunView: View {
     /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).
     private func mergeBlocker(_ run: DevRun) -> String? {
         guard run.isLive, run.pr != nil, !run.canMerge else { return nil }
+        if writerBusy, run.tone == .working { return "El agente sigue trabajando; el CI corre mientras." }
         if run.tone == .needsYou { return tab == .chat ? "El agente te preguntó algo: contéstale aquí abajo." : "El agente te preguntó algo: contéstale en Conversación." }
         return "Merge se activa con CI y revisión en verde."
     }

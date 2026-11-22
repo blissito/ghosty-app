@@ -39,11 +39,14 @@ extension DevRun.Tone {
 /// La pastilla de fase: punto (late si va trabajando o te necesita) + nombre.
 struct DevPhaseChip: View {
     let run: DevRun
+    /// El turno del escritor sigue vivo. gs pasa a «Esperando el CI» al subir el commit aunque el agente
+    /// siga trabajando (PR #139, 22-nov): mientras su turno no cierre, la pastilla dice «Trabajando».
+    var writerBusy = false
     var body: some View {
         let t = run.tone
         HStack(spacing: 2) {
             PulsingDot(color: t.accent, active: t == .working || t == .needsYou, size: 6).padding(.leading, -2)
-            Text(run.phaseLabel).gChip().foregroundStyle(t.ink)
+            Text(writerBusy && t == .working ? "Trabajando" : run.phaseLabel).gChip().foregroundStyle(t.ink)
         }
         .padding(.trailing, 10).padding(.leading, 4).padding(.vertical, 3)
         .background(t.tint, in: Capsule())
