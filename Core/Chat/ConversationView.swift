@@ -10,6 +10,10 @@ struct ConversationView: View {
     var onVolver: (() -> Void)? = nil
     /// Mantener presionado el agente de la cabecera: «Cambiar de agente».
     var onCambiarAgente: (() -> Void)? = nil
+    /// El hilo va dentro de otra pantalla que ya dice qué es (la conversación de un pendiente en Dev):
+    /// sin la cabecera del agente, sin «Seguir en un chat nuevo» (el hilo es fijo) y con su propio texto guía.
+    var embedded = false
+    var placeholder: String? = nil
 
     @State private var borrador = ""
     /// El re-anclaje pendiente por `.hiloCrecio` (se juntan varios en uno).
@@ -113,7 +117,7 @@ struct ConversationView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let agente = store.selectedAgent {
+            if !embedded, let agente = store.selectedAgent {
                 AgentHeader(agent: agente, estado: store.estado(de: agente.id),
                             onTap: { escribiendo = false; onOpenSheet() },
                             onMantener: onCambiarAgente.map { f in { escribiendo = false; f() } },
@@ -1185,7 +1189,7 @@ struct ConversationView: View {
     /// propio icono aquí.
     private var compositor: some View {
         VStack(spacing: 8) {
-            if let h = store.hiloActivo, h.largo, let sid = h.sesionID,
+            if !embedded, let h = store.hiloActivo, h.largo, let sid = h.sesionID,
                !largosOcultos.contains(ChatsFavoritos.llave(h.agenteID, sid)) {
                 avisoDeHiloLargo(h, llave: ChatsFavoritos.llave(h.agenteID, sid))
             }
@@ -1638,7 +1642,7 @@ struct ConversationView: View {
                 }
                 .overlay(alignment: .topLeading) {
                     if borrador.isEmpty {
-                        Text(store.currentTurn == nil ? "Pídeme algo o encárgame una tarea" : "Dime algo más…")
+                        Text(store.currentTurn == nil ? (placeholder ?? "Pídeme algo o encárgame una tarea") : "Dime algo más…")
                             .font(.system(size: 16))
                             .foregroundStyle(Color.gInk4)
                             .lineLimit(1)

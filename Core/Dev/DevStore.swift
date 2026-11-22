@@ -233,13 +233,6 @@ struct DevSmoke {
     }
 }
 
-/// Un mensaje del hilo del escritor (`dev:<runId>`).
-struct DevMessage: Identifiable {
-    let id: String
-    let fromAgent: Bool
-    let text: String
-}
-
 enum DevDate {
     static func parse(_ s: String?) -> Date? {
         guard let s else { return nil }
@@ -267,7 +260,6 @@ final class DevStore {
     /// Detalles ya leídos: abrir un pendiente pinta lo de la vez pasada y luego refresca (como la web).
     private(set) var details: [String: DevDetail] = [:]
     private(set) var full: [String: DevRun] = [:]
-    private(set) var messages: [String: [DevMessage]] = [:]
     /// Abrir un pendiente desde fuera (push del escritor).
     var pendingRunID: String?
 
@@ -309,22 +301,6 @@ final class DevStore {
         }
         let d = DevDetail.from(json: j)
         details[id] = d
-        if let a = d.writerAgentID, let s = d.writerSessionID { await loadMessages(run: id, agent: a, session: s) }
-    }
-
-    private func loadMessages(run: String, agent: String, session: String) async {
-        // Sin codificar a mano: `appendingPathComponent` ya escapa, y un `%3A` previo saldría como `%253A`.
-        guard let j = try? await request("api/v2/me/agents/\(agent)/conversations/\(session)/messages", query: [URLQueryItem(name: "limit", value: "100")]) as? [String: Any] else { return }
-        let list = (j["messages"] as? [[String: Any]]) ?? (j["items"] as? [[String: Any]]) ?? []
-        messages[run] = list.enumerated().compactMap { i, m in
-            let text = (m["text"] as? String) ?? (m["content"] as? String) ?? ""
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            // El despertador de la plataforma (el brief del escritor) no es algo que dijo la persona.
-            // Viejos: el brief largo; nuevos: «Empieza el pendiente #N…».
-            if text.hasPrefix("⏰ Turno programado") || text.hasPrefix("Empieza el pendiente #") { return nil }
-            let role = m["role"] as? String ?? "agent"
-            return DevMessage(id: (m["id"] as? String) ?? "\(m["seq"] as? Int ?? i)", fromAgent: role != "user", text: text)
-        }
     }
 
     /// `merge` | `resume` (con nota) | `stop`. Devuelve el error para la UI, `nil` si salió.

@@ -37,6 +37,20 @@ final class DevUITests: XCTestCase {
         row.tap()
         Thread.sleep(forTimeInterval: 5)
         shot("d3-conversacion")
+        // Es el chat de la app: abre abajo y, al subir a releer, sale «ir abajo» y funciona.
+        // Deslizar SOBRE el hilo (la mitad baja), no sobre el encabezado fijo.
+        for _ in 0..<3 {
+            let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+            from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        }
+        Thread.sleep(forTimeInterval: 1)
+        let down = app.buttons["ir-abajo"]
+        XCTAssertTrue(down.waitForExistence(timeout: 5), "al subir no salió el botón para bajar")
+        shot("d3b-releyendo")
+        down.tap()
+        Thread.sleep(forTimeInterval: 1.5)
+        XCTAssertFalse(down.exists, "el botón para bajar sigue ahí después de bajar")
+        shot("d3c-abajo")
         XCTAssertFalse(tab.isHittable, "la barra sigue encima del pendiente")
 
         for (label, name) in [("Cambios", "d4-cambios"), ("Verificación", "d5-verificacion"), ("Actividad", "d7-actividad")] {

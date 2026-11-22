@@ -7,10 +7,12 @@ struct DevRunView: View {
     @State private var store = DevStore.shared
     // Gancho: `GHOSTY_DEV_TAB=changes|checks|activity` abre esa pestaña.
     @State private var tab: Tab = Tab.allCases.first { "\($0)" == Gancho.valor("GHOSTY_DEV_TAB") } ?? .chat
-    @State private var note = ""
     @State private var sending = false
     @State private var notice: String?
     @State private var confirmStop = false
+    @State private var chats = LiveAgentStore.compartido
+    /// El hilo `dev:<id>` enfocado en el store de chats; al salir se regresa a lo de antes.
+    @State private var devFocus: LiveAgentStore.DevFocus?
     @Environment(\.openURL) private var openURL
 
     enum Tab: String, CaseIterable { case chat = "Conversación", changes = "Cambios", checks = "Verificación", activity = "Actividad" }
@@ -18,62 +20,23 @@ struct DevRunView: View {
     private var run: DevRun? { store.full[id] ?? store.runs.first { $0.id == id } }
     private var detail: DevDetail? { store.details[id] }
 
+    private var title: String {
+        if let pr = run?.pr { return "PR #\(pr)" }
+        return "Pendiente"
+    }
+
+    private var noticeShown: Binding<Bool> {
+        Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })
+    }
+
     var body: some View {
-        Group {
-            if let run {
-                // Los datos del pendiente y las pestañas quedan fijos arriba; sólo se desplaza el contenido.
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        header(run)
-                        Picker("Vista", selection: $tab) {
-                            ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    .padding(.horizontal, Theme.Space.screenH)
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 14) {
-                                switch tab {
-                                case .chat: chatTab(run)
-                                case .changes: changesTab
-                                case .checks: checksTab(run)
-                                case .activity: activityTab(run)
-                                }
-                            }
-                            .padding(.horizontal, Theme.Space.screenH)
-                            .padding(.bottom, 24)
-                        }
-                        .scrollIndicators(.hidden)
-                        .refreshable { await store.loadDetail(id) }
-                        // Como un chat: la conversación abre en lo último, no en el primer mensaje.
-                        .onChange(of: store.messages[id]?.count ?? 0, initial: true) { _, _ in scrollToEnd(proxy) }
-                        .onChange(of: tab) { _, t in if t == .chat { scrollToEnd(proxy) } }
-                    }
-                }
-                .safeAreaInset(edge: .bottom) { bottomBar(run) }
-            } else {
-                FlameLoading().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .background(Color.gBg.ignoresSafeArea())
-        .navigationTitle(run?.pr.map { "PR #\($0)" } ?? "Pendiente")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let run {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        if let u = run.prURL { Button("Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
-                        if let u = detail?.previewURL, detail?.previewPhase == "ready" { Button("Ver la vista previa", systemImage: "safari") { openURL(u) } }
-                        if run.isLive { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
-                    } label: { Image(systemName: "ellipsis.circle") }
-                }
-            }
-        }
+        framed
         .confirmationDialog("¿Detener este pendiente?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Detener", role: .destructive) { Task { await act("stop") } }
         } message: { Text("El agente deja de trabajar en él. El PR se queda como está.") }
-        .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) { Button("OK", role: .cancel) {} }
+        .alert(notice ?? "", isPresented: noticeShown) { Button("OK", role: .cancel) {} }
+        .task(id: detail?.writerSessionID) { focusWriter() }
+        .onDisappear { releaseWriter() }
         .task(id: id) {
             await store.loadDetail(id)
             // Mientras esté vivo, se refresca solo (como la web): cada 15 s.
@@ -82,6 +45,75 @@ struct DevRunView: View {
                 await store.loadDetail(id)
             }
         }
+    }
+
+    private var framed: some View {
+        content
+            .background(Color.gBg.ignoresSafeArea())
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { moreMenu } }
+    }
+
+    @ViewBuilder private var moreMenu: some View {
+        if let run {
+            Menu {
+                if let u = run.prURL { Button("Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
+                if let u = detail?.previewURL, detail?.previewPhase == "ready" { Button("Ver la vista previa", systemImage: "safari") { openURL(u) } }
+                if run.isLive { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
+            } label: { Image(systemName: "ellipsis.circle") }
+        }
+    }
+
+    private func focusWriter() {
+        guard devFocus == nil, let a = detail?.writerAgentID, let sid = detail?.writerSessionID else { return }
+        devFocus = chats.focusDevThread(agent: a, session: sid)
+    }
+
+    private func releaseWriter() {
+        guard let f = devFocus else { return }
+        chats.releaseDevThread(f)
+        devFocus = nil
+    }
+
+    @ViewBuilder private var content: some View {
+        if let run {
+            // Los datos del pendiente y las pestañas quedan fijos arriba; sólo se desplaza el contenido.
+            VStack(alignment: .leading, spacing: 12) {
+                pinnedTop(run)
+                if tab == .chat { chatTab(run) } else { scrollingTab(run) }
+            }
+        } else {
+            FlameLoading().frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func pinnedTop(_ run: DevRun) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header(run)
+            Picker("Vista", selection: $tab) {
+                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, Theme.Space.screenH)
+    }
+
+    private func scrollingTab(_ run: DevRun) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                switch tab {
+                case .chat: EmptyView()
+                case .changes: changesTab
+                case .checks: checksTab(run)
+                case .activity: activityTab(run)
+                }
+            }
+            .padding(.horizontal, Theme.Space.screenH)
+            .padding(.bottom, 24)
+        }
+        .scrollIndicators(.hidden)
+        .refreshable { await store.loadDetail(id) }
     }
 
     // MARK: Encabezado
@@ -95,9 +127,11 @@ struct DevRunView: View {
                 if run.isLive, run.rounds > 0 { Text("vuelta \(run.rounds) de 3").gMeta().foregroundStyle(Color.gInk3) }
                 // El deploy existe sólo después del merge.
                 if run.phase == "merged", let d = detail?.deployLabel { deployPill(d) }
+                Spacer(minLength: 0)
+                if run.isLive, run.pr != nil { mergeButton(run) }
             }
             DevStageBar(run: run).padding(.top, 4)
-            if let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2) }
+            if let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2).lineLimit(2) }
         }
         .padding(.top, 2)
     }
@@ -112,40 +146,15 @@ struct DevRunView: View {
 
     // MARK: Conversación
 
+    /// El MISMO chat de la app (`ConversationView`): scroll, botón para bajar, adjuntos, voz. Escribir ahí
+    /// es decirle algo al pendiente: gs lo pasa por `tell` (`onPersonMessage`).
     @ViewBuilder private func chatTab(_ run: DevRun) -> some View {
-        let msgs = store.messages[id] ?? []
-        if msgs.isEmpty {
-            Text(detail == nil ? "Cargando…" : "El agente todavía no ha escrito nada.").gBody().foregroundStyle(Color.gInk3).padding(.vertical, 20)
+        if devFocus != nil {
+            ConversationView(store: chats, onOpenSheet: {}, embedded: true, placeholder: "Dile al agente qué ajustar…")
         } else {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(msgs.suffix(40)) { m in bubble(m) }
-            }
-        }
-        Color.clear.frame(height: 1).id("chat-end")
-        if !run.isLive {
-            Text("El pendiente ya cerró: aquí sólo se lee lo que habló el agente.").gCaption().foregroundStyle(Color.gInk3)
-                .frame(maxWidth: .infinity).padding(.top, 8)
-        }
-    }
-
-    private func bubble(_ m: DevMessage) -> some View {
-        HStack {
-            if !m.fromAgent { Spacer(minLength: 40) }
-            Text(LocalizedStringKey(m.text))
-                .gBody().foregroundStyle(Color.gInkBody)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(m.fromAgent ? Color.gBubbleAgent : Color.gBubbleUser, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble))
-                .textSelection(.enabled)
-            if m.fromAgent { Spacer(minLength: 40) }
-        }
-    }
-
-    private func scrollToEnd(_ proxy: ScrollViewProxy) {
-        guard tab == .chat, !(store.messages[id] ?? []).isEmpty else { return }
-        // Un respiro para que el contenido se mida antes de bajar.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(60))
-            proxy.scrollTo("chat-end", anchor: .bottom)
+            Text(detail == nil ? "Cargando…" : "Esta conversación es de un agente que no está en tu cuenta.")
+                .gBody().foregroundStyle(Color.gInk3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -375,37 +384,17 @@ struct DevRunView: View {
 
     // MARK: Abajo: la caja y Merge
 
-    @ViewBuilder private func bottomBar(_ run: DevRun) -> some View {
-        if run.isLive {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    TextField("Dile al agente qué ajustar…", text: $note, axis: .vertical)
-                        .lineLimit(1...4)
-                        .font(.system(size: 16))
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                    Button { Task { await send(note) } } label: {
-                        Image(systemName: "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 38, height: 38).background(note.trimmingCharacters(in: .whitespaces).isEmpty ? Color.gInk4 : Color.gPrimary, in: Circle())
-                    }
-                    .disabled(note.trimmingCharacters(in: .whitespaces).isEmpty || sending)
-                    .padding(.trailing, 6)
-                }
-                .background(Color.gCard, in: RoundedRectangle(cornerRadius: Theme.Radius.pill))
-                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.pill).stroke(Color.gSeparator, lineWidth: 1))
-                if run.pr != nil {
-                    Button { Task { await act("merge") } } label: {
-                        Text("Merge").font(.system(size: 16, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .foregroundStyle(run.canMerge ? Color.white : Color.gInk4)
-                            .background(run.canMerge ? Color.gPrimary : Color.gFill, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!run.canMerge || sending)
-                    if !run.canMerge { Text("Se activa con CI y revisión en verde").gCaption().foregroundStyle(Color.gInk3) }
-                }
-            }
-            .padding(.horizontal, Theme.Space.screenH).padding(.top, 8).padding(.bottom, 6)
-            .background(Color.gBg)
+    /// Merge sólo con `canMerge` de gs; apagado dice por qué.
+    private func mergeButton(_ run: DevRun) -> some View {
+        Button { Task { await act("merge") } } label: {
+            Text("Merge").font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 16).padding(.vertical, 7)
+                .foregroundStyle(run.canMerge ? Color.white : Color.gInk4)
+                .background(run.canMerge ? Color.gPrimary : Color.gFill, in: Capsule())
         }
+        .buttonStyle(.plain)
+        .disabled(!run.canMerge || sending)
+        .accessibilityHint(run.canMerge ? "" : "Se activa con CI y revisión en verde")
     }
 
     // MARK: Acciones
@@ -418,7 +407,7 @@ struct DevRunView: View {
         // `tell`: la entrada única de gs (decide qué hacer según la fase). Mientras no esté en prod, `resume`.
         var err = await store.act(id, op: "tell", note: t)
         if let e = err, e.contains("op:") || e.contains("bad_request") { err = await store.act(id, op: "resume", note: t) }
-        if let err { notice = err } else { note = ""; tab = .chat }
+        if let err { notice = err } else { tab = .chat }
     }
 
     private func act(_ op: String) async {
