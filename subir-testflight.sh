@@ -70,9 +70,11 @@ echo "el .ipa lleva versión $VERSION, build $DENTRO, manifiesto de privacidad �
 # has been reached. Please wait 1 day and try again.» Apple tiene un TOPE DIARIO de subidas
 # por app y ese día se agotó con 21 builds. Cuatro horas creyendo que Apple iba lento, y
 # dos diagnósticos equivocados, por no preguntar antes de mandar.
+# ⚠️ Con avisos (p. ej. 90725, SDK viejo) Apple escribe «No errors, 1 warnings, validating…»:
+# el grep viejo pedía «No errors validating» literal y daba por rechazado un paquete válido.
 echo "validando el paquete…"
 if ! xcrun altool --validate-app -f build/ipa/GhostyApp.ipa -t ios \
-     --apiKey "$KEY" --apiIssuer "$ISS" 2>&1 | tee /tmp/gs-validate.log | grep -q "No errors validating"; then
+     --apiKey "$KEY" --apiIssuer "$ISS" 2>&1 | tee /tmp/gs-validate.log | grep -qE "No errors(,| validating)|VERIFY SUCCEEDED"; then
   echo "✗ Apple rechazó el paquete al validarlo. Motivo:" >&2
   grep -iE "ERROR: \[altool|detail :" /tmp/gs-validate.log | head -3 >&2
   exit 1
