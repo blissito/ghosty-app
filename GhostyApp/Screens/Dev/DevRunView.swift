@@ -17,7 +17,7 @@ struct DevRunView: View {
 
     enum Tab: String, CaseIterable { case chat = "Conversación", changes = "Cambios", checks = "Verificación", activity = "Actividad" }
 
-    private var run: DevRun? { store.full[id] ?? store.runs.first { $0.id == id } }
+    private var run: DevRun? { store.full[id] ?? store.row(id) }
     /// El turno del escritor sigue vivo (el mismo dato que pinta ■ en el chat).
     private var writerBusy: Bool { devFocus?.devThread.trabajando == true }
     private var detail: DevDetail? { store.details[id] }
@@ -61,9 +61,9 @@ struct DevRunView: View {
     @ViewBuilder private var moreMenu: some View {
         if let run {
             Menu {
-                if let u = run.prURL { Button("Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
+                if let u = run.prURL { Button(run.isPR && run.readyToMerge ? "Hacer merge en GitHub" : "Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
                 if let sh = detail?.sheet, sh.previewState == "ready", let u = sh.previewURL { Button("Ver la vista previa", systemImage: "safari") { openURL(u) } }
-                if run.isLive { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
+                if run.isLive, !run.isPR { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
             } label: { Image(systemName: "ellipsis.circle") }
         }
     }
@@ -95,7 +95,7 @@ struct DevRunView: View {
         VStack(alignment: .leading, spacing: 12) {
             header(run)
             Picker("Vista", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Tab.allCases, id: \.self) { Text($0 == .chat && run.isPR ? "Comentarios" : $0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
         }
@@ -134,7 +134,7 @@ struct DevRunView: View {
                 // El deploy existe sólo después del merge.
                 if run.phase == "merged", let d = detail?.deployLabel { deployPill(d) }
                 Spacer(minLength: 0)
-                if run.isLive, run.pr != nil { mergeButton(run) }
+                if run.isLive, run.pr != nil { if run.isPR { githubMergeButton(run) } else { mergeButton(run) } }
             }
             DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
             if let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(1) }
@@ -145,7 +145,7 @@ struct DevRunView: View {
 
     /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).
     private func mergeBlocker(_ run: DevRun) -> String? {
-        guard run.isLive, run.pr != nil, !run.canMerge else { return nil }
+        guard run.isLive, run.pr != nil, !run.canMerge, !run.isPR else { return nil }
         if writerBusy, run.tone == .working { return "El agente sigue trabajando; el CI corre mientras." }
         if run.tone == .needsYou { return tab == .chat ? "El agente te preguntó algo: contéstale aquí abajo." : "El agente te preguntó algo: contéstale en Conversación." }
         return "Merge se activa con CI y revisión en verde."
@@ -164,7 +164,11 @@ struct DevRunView: View {
     /// El MISMO chat de la app (`ConversationView`): scroll, botón para bajar, adjuntos, voz. Escribir ahí
     /// es decirle algo al pendiente: gs lo pasa por `tell` (`onPersonMessage`).
     @ViewBuilder private func chatTab(_ run: DevRun) -> some View {
-        if devFocus != nil {
+        if run.isPR {
+            ScrollView { commentsTab.padding(.horizontal, Theme.Space.screenH).padding(.bottom, 24) }
+                .scrollIndicators(.hidden)
+                .refreshable { await store.loadDetail(id) }
+        } else if devFocus != nil {
             ConversationView(store: chats, onOpenSheet: {}, embedded: true, placeholder: "Dile al agente qué ajustar…",
                              readOnlyNote: run.isLive ? nil : "El pendiente ya cerró: aquí sólo se lee lo que habló el agente.")
         } else {
@@ -172,6 +176,38 @@ struct DevRunView: View {
                 .gBody().foregroundStyle(Color.gInk3)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// Un PR sin DevRun no tiene chat con un agente: aquí van sus comentarios (revisión de Ghosty, personas, bots).
+    @ViewBuilder private var commentsTab: some View {
+        if let d = detail, !d.thread.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(d.thread) { c in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(c.by.replacingOccurrences(of: "[bot]", with: "")).font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.gInk2)
+                            Spacer()
+                            if let at = c.at { Text(DevDate.ago(at)).gMeta().foregroundStyle(Color.gInk3) }
+                        }
+                        GhostyMarkdown(markdown: Self.plainComment(c.text))
+                    }
+                    .padding(Theme.Space.cardH)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .ghostyCard()
+                }
+            }
+        } else {
+            Text(detail == nil ? "Cargando…" : "El PR no tiene comentarios.").gBody().foregroundStyle(Color.gInk3).padding(.vertical, 20)
+        }
+    }
+
+    /// Los comentarios de GitHub traen HTML que el markdown no pinta: marcas ocultas (`<!-- … -->`) y
+    /// plegables (`<details><summary>`). Se quitan las marcas y el plegable queda como texto normal.
+    static func plainComment(_ t: String) -> String {
+        var s = t.replacingOccurrences(of: "<!--[\\s\\S]*?-->", with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: "<summary>([\\s\\S]*?)</summary>", with: "**$1**", options: .regularExpression)
+        s = s.replacingOccurrences(of: "</?(details|sub|sup|br|p|div)[^>]*>", with: "", options: [.regularExpression, .caseInsensitive])
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: Cambios
@@ -258,7 +294,7 @@ struct DevRunView: View {
     /// Los cuatro estados salen de la ficha de gs (`detail.sheet`), nunca de deducir eventos aquí.
     private func statusGrid(_ run: DevRun) -> some View {
         let sh = detail?.sheet ?? DevDetail.Sheet()
-        let findings = run.events.last(where: { $0.kind == "review_findings" }).flatMap { ($0.data["findings"] as? [Any])?.count }
+        let findings = detail?.findings ?? run.events.last(where: { $0.kind == "review_findings" }).flatMap { ($0.data["findings"] as? [Any])?.count }
         let ci: (String, Bool?) = switch sh.ci {
         case "ok": ("En verde", true)
         case "bad": ("En rojo", false)
@@ -435,6 +471,18 @@ struct DevRunView: View {
         .buttonStyle(.plain)
         .disabled(!run.canMerge || sending)
         .accessibilityHint(run.canMerge ? "" : "Se activa con CI y revisión en verde")
+    }
+
+    /// PR sin DevRun: gs no hace su merge; listo, el botón lleva a GitHub.
+    @ViewBuilder private func githubMergeButton(_ run: DevRun) -> some View {
+        if run.readyToMerge, let u = run.prURL {
+            Button { openURL(u) } label: {
+                Label("Merge en GitHub", systemImage: "arrow.up.right").font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 7)
+                    .foregroundStyle(.white).background(Color.gPrimary, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: Acciones

@@ -98,9 +98,17 @@ struct DevRun: Identifiable, Hashable {
     var serverStage: Int?
     var serverCanMerge: Bool?
 
+    /// Un PR sin DevRun (escrito en una terminal o por una persona): tarjeta `prs` de gs, id `pr:<repo>#<n>`.
+    /// No tiene chat ni Merge desde aquí: el merge se hace en GitHub.
+    var isPR = false
+    /// Lo que gs dice que pasa ahora en ese PR (`status` de la tarjeta): «CI falló: Prueba en vivo».
+    var statusLabel: String?
+    /// not_started | in_progress | needs_action | failed | ready | done
+    var statusCategory: String?
+
     /// CI y revisión en verde y sólo falta tu merge.
-    var readyToMerge: Bool { serverReady ?? false }
-    var canMerge: Bool { serverCanMerge ?? readyToMerge }
+    var readyToMerge: Bool { isPR ? isLive && (statusCategory == "ready" || serverReady == true) : (serverReady ?? false) }
+    var canMerge: Bool { isPR ? false : (serverCanMerge ?? readyToMerge) }
 
     /// En cuál de las cuatro etapas va. Sin dato de gs (la lista), una aproximación por fase.
     var stage: DevStage {
@@ -114,11 +122,30 @@ struct DevRun: Identifiable, Hashable {
     }
 
     /// El nombre de la fase para la pastilla (el `estado` de gs, salvo «listo»).
-    var phaseLabel: String { readyToMerge ? "Listo para merge" : estado }
+    var phaseLabel: String {
+        if readyToMerge { return "Listo para merge" }
+        guard isPR else { return estado }
+        switch statusCategory {
+        case "failed": return "Falló"
+        case "needs_action": return "Te necesita"
+        case "done": return "Merge hecho"
+        case "not_started": return isLive ? "En espera" : "Cerrado"
+        default: return "En curso"
+        }
+    }
 
     enum Tone { case working, needsYou, ready, merged, failed, closed }
     var tone: Tone {
         if readyToMerge { return .ready }
+        if isPR, let c = statusCategory {
+            switch c {
+            case "failed": return .failed
+            case "needs_action": return .needsYou
+            case "done": return .merged
+            case "not_started": return isLive ? .working : .closed
+            default: return .working
+            }
+        }
         switch phase {
         case "needs_person": return .needsYou
         case "merged": return .merged
@@ -142,8 +169,27 @@ struct DevRun: Identifiable, Hashable {
                       note: (j["note"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                       createdAt: DevDate.parse(j["createdAt"] as? String) ?? .now,
                       updatedAt: DevDate.parse(j["updatedAt"] as? String) ?? .now, events: events,
-                      serverReady: j["ready"] as? Bool, serverStage: j["stage"] as? Int, serverCanMerge: j["canMerge"] as? Bool)
+                      serverReady: j["ready"] as? Bool, serverStage: j["stage"] as? Int, serverCanMerge: j["canMerge"] as? Bool,
+                      isPR: (j["kind"] as? String) == "pr")
     }
+
+    /// Una tarjeta `prs` de la lista: PR abierto (o recién cerrado) sin DevRun vivo.
+    static func from(card j: [String: Any]) -> DevRun? {
+        guard let id = j["id"] as? String, let repo = j["repo"] as? String, let pr = j["pr"] as? Int else { return nil }
+        let closed = j["closed"] as? [String: Any]
+        let status = j["status"] as? [String: Any]
+        let updated = DevDate.parse(j["updatedAt"] as? String) ?? .distantPast
+        return DevRun(id: id, repo: repo, issue: j["issue"] as? Int, title: j["title"] as? String ?? "PR #\(pr)",
+                      phase: closed == nil ? "pr_open" : ((closed?["merged"] as? Bool) == true ? "merged" : "stopped"),
+                      estado: status?["label"] as? String ?? "", pr: pr, prURL: (j["url"] as? String).flatMap(URL.init(string:)),
+                      commit: (j["sha"] as? String).map { String($0.prefix(7)) }, rounds: 0, note: nil,
+                      createdAt: updated, updatedAt: updated,
+                      serverStage: j["stage"] as? Int, isPR: true,
+                      statusLabel: status?["label"] as? String, statusCategory: status?["category"] as? String)
+    }
+
+    /// El id de la tarjeta de un PR (el mismo que arma gs en `prCardId`).
+    static func prID(repo: String, pr: Int) -> String { "pr:\(repo.lowercased())#\(pr)" }
 }
 
 /// Lo que sólo trae `?detail=1`: cambios, checks, vista previa, deploy, red y el escritor.
@@ -166,6 +212,11 @@ struct DevDetail {
     var writerAgentID: String?
     var writerSessionID: String?
     var writerName: String?
+    /// Comentarios del PR (sólo PRs sin DevRun: no hay chat con un agente).
+    var thread: [Comment] = []
+    /// Hallazgos de la revisión de Ghosty en el commit actual (PRs sin DevRun).
+    var findings: Int?
+    struct Comment: Identifiable { let id: Int; let by: String; let bot: Bool; let text: String; let at: Date? }
     /// La mesa de trabajo de gs (`ficha`): la misma que ven el escritor, GitHub y Teams. Los estados
     /// (ci, review, smoke, evidence, preview) se leen de aquí; el cliente no los deduce.
     var sheet: Sheet?
@@ -222,6 +273,26 @@ struct DevDetail {
             d.denied = (n["denied"] as? [[String: Any]] ?? []).compactMap {
                 guard let h = $0["host"] as? String, !h.isEmpty, seen.insert(h).inserted else { return nil }
                 return Denied(host: h, count: $0["count"] as? Int ?? 1)
+            }
+        }
+        // Un PR sin DevRun no trae ficha: sus cuatro estados salen de los checks, la revisión y la vista previa.
+        if d.sheet == nil, (j["kind"] as? String) == "pr" {
+            var sh = Sheet()
+            sh.ci = switch d.checksState { case "success": "ok"; case "failure", "error": "bad"; case "pending": "running"; default: "none" }
+            if let r = j["review"] as? [String: Any] {
+                let n = (r["findings"] as? [Any])?.count ?? 0
+                d.findings = n
+                sh.review = switch r["state"] as? String { case "clean": "ok"; case "findings": "bad"; case "running", "pending": "running"; default: n > 0 ? "bad" : "none" }
+            }
+            if let p = j["previewInfo"] as? [String: Any] {
+                sh.previewState = p["state"] as? String ?? "none"
+                sh.previewError = p["note"] as? String
+            }
+            sh.previewURL = ((j["preview"] as? [String: Any])?["link"] as? String).flatMap(URL.init(string:))
+            d.sheet = sh
+            d.thread = (j["thread"] as? [[String: Any]] ?? []).compactMap {
+                guard let id = $0["id"] as? Int, let t = $0["text"] as? String else { return nil }
+                return Comment(id: id, by: $0["by"] as? String ?? "", bot: $0["bot"] as? Bool ?? false, text: t, at: DevDate.parse($0["at"] as? String))
             }
         }
         if let w = j["writer"] as? [String: Any] {
@@ -288,7 +359,15 @@ struct DevLocalRun: Identifiable {
 
     /// Lo que se abre al tocarlo: el PR si ya existe, si no el issue.
     var openURL: URL? { prURL ?? url }
-    var phaseLabel: String { phase == "waiting_ci" ? "Esperando CI" : "Trabajando" }
+    var phaseLabel: String {
+        switch phase {
+        case "waiting_ci": "Esperando CI"
+        case "working": "Trabajando"
+        default: "En cola"
+        }
+    }
+    /// Con PR, se abre su detalle dentro de la app; sin PR sólo existe el issue en GitHub.
+    var prID: String? { pr.map { DevRun.prID(repo: repo, pr: $0) } }
 
     static func from(json j: [String: Any]) -> DevLocalRun? {
         guard let id = j["id"] as? String, let repo = j["repo"] as? String else { return nil }
@@ -325,6 +404,8 @@ final class DevStore {
     static let shared = DevStore()
 
     private(set) var runs: [DevRun] = []
+    /// PRs sin DevRun vivo (los de una terminal o de una persona), con su detalle dentro de la app.
+    private(set) var prs: [DevRun] = []
     private(set) var loaded = false
     private(set) var error: String?
     /// Detalles ya leídos: abrir un pendiente pinta lo de la vez pasada y luego refresca (como la web).
@@ -338,7 +419,7 @@ final class DevStore {
     /// ¿La GitHub App de gs llega a algún repo tuyo? `nil` = todavía no se sabe.
     private(set) var hasGitHub: Bool?
     /// La pestaña sale sólo con GitHub conectado (con al menos un repo) o con pendientes que ver (bliss, 22-nov).
-    var available: Bool { hasGitHub == true || !runs.isEmpty || !local.isEmpty }
+    var available: Bool { hasGitHub == true || !runs.isEmpty || !prs.isEmpty || !local.isEmpty }
     /// Los que se trabajan en la terminal de alguien (siempre vivos: gs sólo manda los abiertos).
     private(set) var local: [DevLocalRun] = []
 
@@ -361,6 +442,7 @@ final class DevStore {
             let empty = Gancho.encendido("GHOSTY_DEV_EMPTY")
             runs = empty ? [] : list.compactMap(DevRun.from(json:))
             local = empty ? [] : (((j as? [String: Any])?["local"] as? [[String: Any]]) ?? []).compactMap(DevLocalRun.from(json:))
+            prs = empty ? [] : (((j as? [String: Any])?["prs"] as? [[String: Any]]) ?? []).compactMap(DevRun.from(card:))
             error = nil
         } catch {
             if !loaded { self.error = "No pude cargar tus pendientes." }
@@ -368,9 +450,24 @@ final class DevStore {
         loaded = true
     }
 
+    /// Un pendiente de la lista, de cualquier tipo.
+    func row(_ id: String) -> DevRun? { runs.first { $0.id == id } ?? prs.first { $0.id == id } }
+
     func loadDetail(_ id: String) async {
-        guard let j = try? await request("api/v2/me/dev-runs/\(id)", query: [URLQueryItem(name: "detail", value: "1")]) as? [String: Any] else { return }
-        if let run = DevRun.from(json: j) {
+        let path: String
+        if id.hasPrefix("pr:"), let hash = id.lastIndex(of: "#") {
+            // `pr:<owner>/<name>#<n>` → `pr/<owner>/<name>/<n>` (mismo detalle que la web `/c/dev/pr/...`).
+            path = "api/v2/me/dev-runs/pr/\(id[id.index(id.startIndex, offsetBy: 3)..<hash])/\(id[id.index(after: hash)...])"
+        } else {
+            path = "api/v2/me/dev-runs/\(id)"
+        }
+        guard let j = try? await request(path, query: [URLQueryItem(name: "detail", value: "1")]) as? [String: Any] else { return }
+        if var run = DevRun.from(json: j) {
+            // El detalle de un PR no trae el «qué pasa ahora» de la tarjeta: se conserva el de la lista.
+            if run.isPR, let card = prs.first(where: { $0.id == id }) {
+                run.statusLabel = card.statusLabel
+                run.statusCategory = card.statusCategory
+            }
             full[id] = run
             if let i = runs.firstIndex(where: { $0.id == id }) { runs[i] = run }
         }

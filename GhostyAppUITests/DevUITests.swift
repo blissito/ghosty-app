@@ -141,6 +141,30 @@ final class DevUITests: XCTestCase {
         shot("l1-lista-con-terminal")
     }
 
+    /// Un PR sin DevRun (de una terminal): sale en la lista y se abre DENTRO de la app con sus pestañas.
+    /// `TEST_RUNNER_DEV_PR=pr:<repo>#<n>`; sin él, el primero que haya.
+    func testDevPR() {
+        app.launch()
+        let tab = app.buttons["tab-dev"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20))
+        tab.tap()
+        Thread.sleep(forTimeInterval: 3)
+        shot("p1-lista")
+        let want = ProcessInfo.processInfo.environment["DEV_PR"] ?? ""
+        let row = want.isEmpty ? app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-run-pr:'")).firstMatch : app.buttons["dev-run-\(want)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "no salió ningún PR en la lista")
+        row.tap()
+        XCTAssertTrue(app.buttons["Comentarios"].waitForExistence(timeout: 20), "el PR no se abrió dentro de la app")
+        Thread.sleep(forTimeInterval: 3)
+        shot("p2-comentarios")
+        XCTAssertFalse(app.buttons["Merge"].exists, "un PR sin DevRun no hace merge desde la app")
+        for (label, n) in [("Cambios", 3), ("Verificación", 4)] {
+            app.buttons[label].tap()
+            Thread.sleep(forTimeInterval: 1.5)
+            shot("p\(n)-\(label)")
+        }
+    }
+
     /// Recién creado: sin PR, sin cambios. Nada de Merge; los vacíos dicen qué falta.
     func testDevFresh() {
         app.launchEnvironment["GHOSTY_DEV"] = ProcessInfo.processInfo.environment["DEV_FRESH_RUN"] ?? "cmwrzl40100qvge8aizjsko19"

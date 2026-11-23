@@ -107,6 +107,8 @@ struct DevRunRow: View {
     private var subtitle: String {
         var parts: [String] = []
         if let pr = run.pr { parts.append("PR #\(pr)") }
+        // PR sin DevRun: lo que pasa ahora («CI falló: Prueba en vivo»), si dice más que la pastilla.
+        if run.isPR, let s = run.statusLabel, s != run.phaseLabel { parts.append(s) }
         if run.isLive, run.rounds > 0 { parts.append("vuelta \(run.rounds) de 3") }
         if run.phase == "merged" { parts.append("Merge \(DevDate.ago(run.updatedAt))") }
         else { parts.append(DevDate.ago(run.updatedAt)) }
@@ -132,7 +134,7 @@ struct DevLocalRunRow: View {
             HStack(spacing: 4) {
                 Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk3)
+                Image(systemName: run.pr == nil ? "arrow.up.right" : "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk3)
             }
         }
         .padding(Theme.Space.cardH)
@@ -156,8 +158,16 @@ struct DevHomeView: View {
     @State private var showClosed = false
     @Environment(\.openURL) private var openURL
 
-    private var visible: [DevRun] { store.runs.filter { showClosed || $0.isLive } }
-    private var liveCount: Int { store.runs.filter(\.isLive).count + store.local.count }
+    /// Los de la nube y los PRs (de terminal o de una persona) juntos, lo más reciente arriba, como la web.
+    private var visible: [DevRun] {
+        (store.runs + store.prs).filter { showClosed || $0.isLive }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+    /// Los de terminal que ya tienen PR salen como su tarjeta de PR; aquí quedan sólo los que todavía no lo abren.
+    private var localOnly: [DevLocalRun] {
+        let shown = Set(store.prs.map(\.id))
+        return store.local.filter { $0.prID.map { !shown.contains($0) } ?? true }
+    }
+    private var liveCount: Int { visible.count(where: \.isLive) + localOnly.count }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -216,22 +226,29 @@ struct DevHomeView: View {
             VStack(spacing: 12) { ForEach(0..<3, id: \.self) { _ in RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color.gFill).frame(height: 120) } }
         } else if let err = store.error {
             EmptyState(icon: "exclamationmark.triangle", title: err, detail: "Desliza hacia abajo para reintentar.")
-        } else if visible.isEmpty && store.local.isEmpty {
+        } else if visible.isEmpty && localOnly.isEmpty {
             EmptyState(icon: "chevron.left.forwardslash.chevron.right",
                        title: showClosed ? "Todavía no hay pendientes" : "Nada en curso",
                        detail: "Pídele a tu agente un cambio en tu repo y aquí verás cómo avanza: código, CI, revisión y merge.")
         } else {
             LazyVStack(spacing: 12) {
-                // Los de la terminal van primero: siempre están vivos y no tienen otra vista.
-                ForEach(store.local) { run in
-                    Button { if let u = run.openURL { openURL(u) } } label: { DevLocalRunRow(run: run) }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("dev-local-\(run.id)")
-                }
                 ForEach(visible) { run in
                     Button { path.append(run.id) } label: { DevRunRow(run: run) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("dev-run-\(run.id)")
+                }
+                // Issues que alguien tomó en su terminal y todavía no tienen PR: gs sólo sabe su título,
+                // así que van al final y abren el issue. Con PR se abren dentro de la app.
+                if !localOnly.isEmpty {
+                    Text("En una terminal").gSectionTitle().foregroundStyle(Color.gInk2).padding(.top, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(localOnly) { run in
+                        Button {
+                            if let id = run.prID { path.append(id) } else if let u = run.openURL { openURL(u) }
+                        } label: { DevLocalRunRow(run: run) }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("dev-local-\(run.id)")
+                    }
                 }
             }
         }
