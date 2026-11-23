@@ -1,1 +1,1 @@
-Nueva pestaña Dev: sigue los cambios que tu agente hace en tus repos (código, CI, revisión y merge) y háblale desde ahí. Avisos más claros: cada aviso dice de qué conversación viene.
+Nueva pestaña Desarrollo: sigue lo que tu agente hace en tus repos (issue, PR, CI, revisión y merge), filtra por repo y háblale desde ahí. Ya no dice «listo para merge» cuando el CI sigue corriendo. Avisos más claros: cada aviso dice de qué conversación viene.

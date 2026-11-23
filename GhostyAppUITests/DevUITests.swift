@@ -88,7 +88,7 @@ final class DevUITests: XCTestCase {
         if all.exists { all.tap(); Thread.sleep(forTimeInterval: 1); shot("d2-todos") }
 
         // Uno con conversación larga (para probar «ir abajo»): el #139 de mailmask.
-        let row = app.buttons["dev-run-cmwruyl0w09m4g868bnhazyqk"]
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS '#139'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15), "la lista no enseña ningún pendiente")
         row.tap()
         // Al abrir tiene que estar ya abajo: si saliera arriba, el botón «ir abajo» estaría a la vista.
