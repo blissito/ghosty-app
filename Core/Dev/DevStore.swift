@@ -83,6 +83,8 @@ struct DevRun: Identifiable, Hashable {
     let commit: String?
     let rounds: Int
     let note: String?
+    /// El PR que bloquea a este run (`phase == "blocked"`, «Esperando #N»).
+    var blockedBy: Int? = nil
     let createdAt: Date
     let updatedAt: Date
     var events: [DevEvent] = []
@@ -177,7 +179,15 @@ struct DevRun: Identifiable, Hashable {
                       updatedAt: DevDate.parse(j["updatedAt"] as? String) ?? .now, events: events,
                       serverReady: j["ready"] as? Bool, serverStage: j["stage"] as? Int, serverCanMerge: j["canMerge"] as? Bool,
                       isPR: (j["kind"] as? String) == "pr")
+        .withBlockedBy((j["blockedBy"] as? [String: Any])?["pr"] as? Int)
     }
+
+    fileprivate func withBlockedBy(_ n: Int?) -> DevRun { var r = self; r.blockedBy = n; return r }
+
+    /// Detenido con su PR todavía abierto: se puede retomar (`reopen`, misma rama, caja nueva).
+    var canReopen: Bool { phase == "stopped" && pr != nil && !isPR }
+    /// Esperando a otro PR: se puede soltar la espera sin cerrarlo (`resume` sin nota).
+    var isBlocked: Bool { phase == "blocked" }
 
     /// Una tarjeta `prs` de la lista: PR abierto (o recién cerrado) sin DevRun vivo.
     static func from(card j: [String: Any]) -> DevRun? {

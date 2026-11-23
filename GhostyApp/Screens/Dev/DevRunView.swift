@@ -134,7 +134,9 @@ struct DevRunView: View {
                 // El deploy existe sólo después del merge.
                 if run.phase == "merged", let d = detail?.deployLabel { deployPill(d) }
                 Spacer(minLength: 0)
-                if run.isLive, run.pr != nil { if run.isPR { githubMergeButton(run) } else { mergeButton(run) } }
+                if run.isBlocked { pillButton("Seguir sin esperar") { Task { await act("resume") } } }
+                else if run.canReopen { pillButton("Reabrir") { Task { await act("reopen") } } }
+                else if run.isLive, run.pr != nil { if run.isPR { githubMergeButton(run) } else { mergeButton(run) } }
             }
             linkChips(run)
             DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
@@ -168,6 +170,7 @@ struct DevRunView: View {
 
     /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).
     private func mergeBlocker(_ run: DevRun) -> String? {
+        if run.isBlocked { return run.blockedBy.map { "Esperando el PR #\($0). «Seguir sin esperar» no lo cierra." } ?? "Esperando a otro PR." }
         guard run.isLive, run.pr != nil, !run.canMerge, !run.isPR else { return nil }
         // Lo que de verdad frena el merge: un check del commit en rojo o corriendo (antes decía «te preguntó algo»).
         if let blocking = detail?.checks.filter({ ["failure", "error", "pending"].contains($0.state) }), !blocking.isEmpty {
@@ -503,6 +506,15 @@ struct DevRunView: View {
         .buttonStyle(.plain)
         .disabled(!run.canMerge || sending)
         .accessibilityHint(run.canMerge ? "" : "Se activa con CI y revisión en verde")
+    }
+
+    private func pillButton(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize()
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .foregroundStyle(.white).background(Color.gPrimary, in: Capsule())
+        }
+        .buttonStyle(.plain).disabled(sending)
     }
 
     /// PR sin DevRun: gs no hace su merge; listo, el botón lleva a GitHub.
