@@ -140,7 +140,7 @@ struct DevRunView: View {
             }
             linkChips(run)
             DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
-            if let ask = run.asked { askCard(ask) }
+            if let ask = run.asked { askCard(ask, run: run) }
             if run.asked == nil, let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(1) }
             if !compact, let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2).lineLimit(2) }
         }
@@ -170,7 +170,7 @@ struct DevRunView: View {
     }
 
     /// La pregunta del escritor: con opciones, un botón por opción (una línea cada uno); tocar = contestarla.
-    private func askCard(_ ask: DevAsk) -> some View {
+    private func askCard(_ ask: DevAsk, run: DevRun) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(ask.question).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk)
                 .lineLimit(tab == .chat ? 3 : 6).fixedSize(horizontal: false, vertical: true)
@@ -188,6 +188,21 @@ struct DevRunView: View {
                     }
                 }
             }
+            // Como la web: dejar que el agente decida, o cerrar el pendiente.
+            HStack(spacing: 14) {
+                Button { Task { await send(DevAsk.decideForMe) } } label: {
+                    Text("Decide tú").font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize().foregroundStyle(Color.gInk2)
+                }
+                .buttonStyle(.plain).disabled(sending).accessibilityIdentifier("dev-ask-decide")
+                if run.isLive, !run.isPR {
+                    Button { confirmStop = true } label: {
+                        Text("Cerrar").font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize().foregroundStyle(Color.gDangerInk)
+                    }
+                    .buttonStyle(.plain).disabled(sending).accessibilityIdentifier("dev-ask-close")
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 2)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

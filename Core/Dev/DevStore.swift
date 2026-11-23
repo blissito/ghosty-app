@@ -77,8 +77,14 @@ struct DevAsk: Hashable {
     let options: [String]
     let reason: String?
 
-    static func from(json j: Any?) -> DevAsk? {
-        guard let d = j as? [String: Any], let q = (d["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty else { return nil }
+    /// Lo que se manda con «Decide tú» (el mismo texto que la web).
+    static let decideForMe = "No quiero decidir esto: decide tú con tu mejor criterio, dime qué elegiste y sigue."
+
+    /// `question` puede venir nulo (p. ej. «se detuvo»): entonces la pregunta es la nota del run.
+    static func from(json j: Any?, note: String? = nil) -> DevAsk? {
+        guard let d = j as? [String: Any] else { return nil }
+        let given = (d["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let q = (given?.isEmpty == false ? given : nil) ?? note ?? "El agente espera tu respuesta."
         // Las opciones llegan como textos o como `{id, label}`; sin duplicados ni vacías.
         var seen = Set<String>()
         let opts = (d["options"] as? [Any] ?? []).compactMap { o -> String? in
@@ -206,7 +212,7 @@ struct DevRun: Identifiable, Hashable {
                       serverReady: j["ready"] as? Bool, serverStage: j["stage"] as? Int, serverCanMerge: j["canMerge"] as? Bool,
                       isPR: (j["kind"] as? String) == "pr")
         .withBlockedBy((j["blockedBy"] as? [String: Any])?["pr"] as? Int)
-        .withAsked(DevAsk.from(json: j["asked"]))
+        .withAsked(DevAsk.from(json: j["asked"], note: (j["note"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
     }
 
     fileprivate func withAsked(_ a: DevAsk?) -> DevRun { var r = self; r.asked = a; return r }
