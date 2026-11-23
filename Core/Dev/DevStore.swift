@@ -71,6 +71,25 @@ struct DevEvent: Identifiable, Hashable {
     }
 }
 
+/// La pregunta que el escritor dejó sin responder (`asked` de gs, fase `needs_person`): con opciones salen como botones.
+struct DevAsk: Hashable {
+    let question: String
+    let options: [String]
+    let reason: String?
+
+    static func from(json j: Any?) -> DevAsk? {
+        guard let d = j as? [String: Any], let q = (d["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !q.isEmpty else { return nil }
+        // Las opciones llegan como textos o como `{id, label}`; sin duplicados ni vacías.
+        var seen = Set<String>()
+        let opts = (d["options"] as? [Any] ?? []).compactMap { o -> String? in
+            let t = (o as? String) ?? ((o as? [String: Any]).flatMap { ($0["label"] ?? $0["name"] ?? $0["text"]) as? String })
+            guard let t = t?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, seen.insert(t).inserted else { return nil }
+            return t
+        }
+        return DevAsk(question: q, options: opts, reason: d["reason"] as? String)
+    }
+}
+
 struct DevRun: Identifiable, Hashable {
     let id: String
     let repo: String
@@ -85,6 +104,8 @@ struct DevRun: Identifiable, Hashable {
     let note: String?
     /// El PR que bloquea a este run (`phase == "blocked"`, «Esperando #N»).
     var blockedBy: Int? = nil
+    /// La pregunta pendiente del escritor, con sus opciones.
+    var asked: DevAsk? = nil
     let createdAt: Date
     let updatedAt: Date
     var events: [DevEvent] = []
@@ -93,7 +114,7 @@ struct DevRun: Identifiable, Hashable {
     static func == (a: DevRun, b: DevRun) -> Bool {
         a.id == b.id && a.phase == b.phase && a.updatedAt == b.updatedAt && a.events.count == b.events.count
             && a.estado == b.estado && a.serverReady == b.serverReady && a.serverCanMerge == b.serverCanMerge
-            && a.serverStage == b.serverStage && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy
+            && a.serverStage == b.serverStage && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy && a.asked == b.asked
     }
     func hash(into h: inout Hasher) { h.combine(id) }
 
@@ -185,7 +206,10 @@ struct DevRun: Identifiable, Hashable {
                       serverReady: j["ready"] as? Bool, serverStage: j["stage"] as? Int, serverCanMerge: j["canMerge"] as? Bool,
                       isPR: (j["kind"] as? String) == "pr")
         .withBlockedBy((j["blockedBy"] as? [String: Any])?["pr"] as? Int)
+        .withAsked(DevAsk.from(json: j["asked"]))
     }
+
+    fileprivate func withAsked(_ a: DevAsk?) -> DevRun { var r = self; r.asked = a; return r }
 
     fileprivate func withBlockedBy(_ n: Int?) -> DevRun { var r = self; r.blockedBy = n; return r }
 
@@ -484,6 +508,12 @@ final class DevStore {
             // Gancho: `GHOSTY_DEV_EMPTY=1` pinta la lista sin pendientes (para revisar el vacío).
             let empty = Gancho.encendido("GHOSTY_DEV_EMPTY")
             runs = empty ? [] : list.compactMap(DevRun.from(json:))
+            // Gancho: `GHOSTY_DEV_ASK=1` le pone una pregunta con opciones al primer pendiente que te necesita
+            // (hasta que gs mande `asked` real; sirve para ver los botones en el teléfono).
+            if Gancho.encendido("GHOSTY_DEV_ASK"), let i = runs.firstIndex(where: { $0.tone == .needsYou && $0.asked == nil }) {
+                runs[i].asked = Self.demoAsk
+                demoAskID = runs[i].id
+            }
             local = empty ? [] : (((j as? [String: Any])?["local"] as? [[String: Any]]) ?? []).compactMap(DevLocalRun.from(json:))
             prs = empty ? [] : (((j as? [String: Any])?["prs"] as? [[String: Any]]) ?? []).compactMap(DevRun.from(card:))
             error = nil
@@ -495,6 +525,11 @@ final class DevStore {
         let ready = (runs + prs).filter { $0.isLive && $0.readyToMerge }.map(\.id)
         for id in ready.prefix(8) { await loadDetail(id) }
     }
+
+    private static let demoAsk = DevAsk(question: "¿Esto lo mergeo a main o lo dejo en la rama para que lo veas primero?",
+                                        options: ["Merge a main", "Dejarlo en la rama", "Cerrar sin PR"], reason: nil)
+    /// Pendiente al que el gancho `GHOSTY_DEV_ASK` le puso la pregunta de prueba.
+    private var demoAskID: String?
 
     /// Un pendiente de la lista, de cualquier tipo.
     func row(_ id: String) -> DevRun? { runs.first { $0.id == id } ?? prs.first { $0.id == id } }
@@ -525,6 +560,7 @@ final class DevStore {
                 if run.estado.lowercased().contains("listo") { run.estado = "Esperando el CI" }
                 if (run.serverStage ?? 0) > DevStage.ci.rawValue { run.serverStage = DevStage.ci.rawValue }
             }
+            if id == demoAskID { run.asked = Self.demoAsk }
             full[id] = run
             if let i = runs.firstIndex(where: { $0.id == id }) { runs[i] = run }
             else if let i = prs.firstIndex(where: { $0.id == id }) {

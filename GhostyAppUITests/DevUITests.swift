@@ -76,6 +76,30 @@ final class DevUITests: XCTestCase {
         shot("m2-despues")
     }
 
+    /// Pregunta con opciones (gancho `GHOSTY_DEV_ASK`): lista y detalle del primer pendiente que te necesita. Sólo mira.
+    func testPreguntaConOpciones() {
+        app.launchEnvironment["GHOSTY_DEV_ASK"] = "1"
+        app.launch()
+        let tab = app.buttons["tab-dev"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20))
+        tab.tap()
+        Thread.sleep(forTimeInterval: 4)
+        shot("p1-lista")
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-run-'"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+        for k in 0..<min(rows.count, 4) {
+            let r = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-run-'")).element(boundBy: k)
+            r.tap()
+            Thread.sleep(forTimeInterval: 3)
+            if app.otherElements["dev-ask"].exists || app.staticTexts["¿Esto lo mergeo a main o lo dejo en la rama para que lo veas primero?"].exists {
+                shot("p2-detalle-con-pregunta"); return
+            }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            Thread.sleep(forTimeInterval: 1.5)
+        }
+        XCTFail("ningún detalle mostró la pregunta")
+    }
+
     func testDevLive() {
         app.launch()
         let tab = app.buttons["tab-dev"]

@@ -140,7 +140,8 @@ struct DevRunView: View {
             }
             linkChips(run)
             DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
-            if let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(1) }
+            if let ask = run.asked { askCard(ask) }
+            if run.asked == nil, let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(1) }
             if !compact, let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2).lineLimit(2) }
         }
         .padding(.top, 2)
@@ -166,6 +167,32 @@ struct DevRunView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    /// La pregunta del escritor: con opciones, un botón por opción (una línea cada uno); tocar = contestarla.
+    private func askCard(_ ask: DevAsk) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(ask.question).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk)
+                .lineLimit(tab == .chat ? 3 : 6).fixedSize(horizontal: false, vertical: true)
+            if !ask.options.isEmpty {
+                FlowLayout(spacing: 8) {
+                    ForEach(ask.options, id: \.self) { o in
+                        Button { Task { await send(o) } } label: {
+                            Text(o).font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize()
+                                .padding(.horizontal, 12).padding(.vertical, 7)
+                                .foregroundStyle(Color.gPrimaryPressed)
+                                .background(Color.gPrimaryTint, in: Capsule())
+                                .overlay(Capsule().stroke(Color.gPrimaryLight, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain).disabled(sending)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.gAmberTint, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("dev-ask")
     }
 
     /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).

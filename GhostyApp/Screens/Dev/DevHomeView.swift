@@ -102,6 +102,7 @@ struct DevRunRow: View {
                 Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
+            if let q = run.asked?.question { Text(q).font(.system(size: 13)).foregroundStyle(Color.gAmberInk).lineLimit(1) }
             DevStageBar(run: run).padding(.top, 2)
         }
         .padding(Theme.Space.cardH)
