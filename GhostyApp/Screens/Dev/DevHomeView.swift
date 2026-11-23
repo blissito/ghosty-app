@@ -96,7 +96,12 @@ struct DevRunRow: View {
                 DevPhaseChip(run: run)
             }
             Text(run.title).gCardTitle().foregroundStyle(Color.gInk).multilineTextAlignment(.leading)
-            Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(2)
+            HStack(spacing: 6) {
+                if let n = run.issue, n > 0 { refChip("Issue #\(n)", "exclamationmark.circle") }
+                if let pr = run.pr { refChip("PR #\(pr)", "arrow.triangle.pull") }
+                Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(1).minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
             DevStageBar(run: run).padding(.top, 2)
         }
         .padding(Theme.Space.cardH)
@@ -104,9 +109,14 @@ struct DevRunRow: View {
         .ghostyCard()
     }
 
+    private func refChip(_ text: String, _ icon: String) -> some View {
+        Label(text, systemImage: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk2)
+            .lineLimit(1).fixedSize()
+            .padding(.horizontal, 9).padding(.vertical, 4).background(Color.gFill, in: Capsule())
+    }
+
     private var subtitle: String {
         var parts: [String] = []
-        if let pr = run.pr { parts.append("PR #\(pr)") }
         // PR sin DevRun: lo que pasa ahora («CI falló: Prueba en vivo»), si dice más que la pastilla.
         if run.isPR, let s = run.statusLabel, s != run.phaseLabel { parts.append(s) }
         if run.isLive, run.rounds > 0 { parts.append("vuelta \(run.rounds) de 3") }
@@ -156,17 +166,19 @@ struct DevHomeView: View {
     @State private var store = DevStore.shared
     @State private var path: [String] = []
     @State private var showClosed = false
+    @State private var onlyNeedsYou = false
     @Environment(\.openURL) private var openURL
 
     /// Los de la nube y los PRs (de terminal o de una persona) juntos, lo más reciente arriba, como la web.
     private var visible: [DevRun] {
-        (store.runs + store.prs).filter { showClosed || $0.isLive }.sorted { $0.updatedAt > $1.updatedAt }
+        (store.runs + store.prs).filter { (showClosed || $0.isLive) && (!onlyNeedsYou || $0.tone == .needsYou) }.sorted { $0.updatedAt > $1.updatedAt }
     }
     /// Los de terminal que ya tienen PR salen como su tarjeta de PR; aquí quedan sólo los que todavía no lo abren.
     private var localOnly: [DevLocalRun] {
         let shown = Set(store.prs.map(\.id))
         return store.local.filter { $0.prID.map { !shown.contains($0) } ?? true }
     }
+    private var needsYouCount: Int { (store.runs + store.prs).count { $0.isLive && $0.tone == .needsYou } }
     private var liveCount: Int { visible.count(where: \.isLive) + localOnly.count }
 
     var body: some View {
@@ -205,8 +217,9 @@ struct DevHomeView: View {
 
     private var filters: some View {
         HStack(spacing: 8) {
-            chip("Activos \(liveCount)", on: !showClosed) { showClosed = false }
-            chip("Todos", on: showClosed) { showClosed = true }
+            chip("Activos \(liveCount)", on: !showClosed && !onlyNeedsYou) { showClosed = false; onlyNeedsYou = false }
+            if needsYouCount > 0 { chip("Te necesitan \(needsYouCount)", on: onlyNeedsYou) { showClosed = false; onlyNeedsYou = true } }
+            chip("Todos", on: showClosed) { showClosed = true; onlyNeedsYou = false }
         }
     }
 

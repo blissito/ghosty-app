@@ -136,11 +136,34 @@ struct DevRunView: View {
                 Spacer(minLength: 0)
                 if run.isLive, run.pr != nil { if run.isPR { githubMergeButton(run) } else { mergeButton(run) } }
             }
+            linkChips(run)
             DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
             if let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(1) }
             if !compact, let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2).lineLimit(2) }
         }
         .padding(.top, 2)
+    }
+
+    /// Issue, PR y vista previa a la vista (antes sólo estaban en el menú ⋯).
+    @ViewBuilder private func linkChips(_ run: DevRun) -> some View {
+        let preview: URL? = detail?.sheet?.previewState == "ready" ? detail?.sheet?.previewURL : nil
+        let links: [(String, String, URL)] = [
+            run.issue.flatMap { n in run.issueURL.map { ("Issue #\(n)", "exclamationmark.circle", $0) } },
+            run.pr.flatMap { n in run.prURL.map { ("PR #\(n)", "arrow.triangle.pull", $0) } },
+            preview.map { ("Vista previa", "safari", $0) },
+        ].compactMap { $0 }
+        if !links.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(links, id: \.0) { l in
+                    Button { openURL(l.2) } label: {
+                        Label(l.0, systemImage: l.1).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk2)
+                            .padding(.horizontal, 10).padding(.vertical, 5).background(Color.gFill, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).
@@ -348,7 +371,7 @@ struct DevRunView: View {
     }
 
     private func smokeCard(_ s: DevSmoke, run: DevRun) -> some View {
-        let problems = s.failedSteps + s.issues.map(\.what)
+        let problems = s.problems
         return card("Ghosty · Smoke", badge: problems.isEmpty ? nil : ("\(problems.count) \(problems.count == 1 ? "falla" : "fallas")", .gDangerInk, .gDangerTint)) {
             if problems.isEmpty {
                 Label("La vista previa respondió bien.", systemImage: "checkmark.circle.fill").font(.system(size: 14)).foregroundStyle(Color.gGreenInk)
@@ -358,11 +381,12 @@ struct DevRunView: View {
                         Label(p, systemImage: "exclamationmark.triangle.fill").font(.system(size: 14)).foregroundStyle(Color.gInk2)
                             .labelStyle(.titleAndIcon).symbolRenderingMode(.multicolor)
                     }
+                    if problems.count > 6 { Text("+\(problems.count - 6) más").gMeta().foregroundStyle(Color.gInk3) }
                     if run.isLive {
                         Button {
                             Task { await send("Arregla lo que encontró el smoke en la vista previa:\n" + problems.prefix(10).map { "- \($0)" }.joined(separator: "\n")) }
                         } label: {
-                            Text("Pedir arreglo al agente").font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
+                            Text("Pedir arreglo al agente").font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8).frame(maxWidth: .infinity).padding(.vertical, 11)
                                 .foregroundStyle(.white).background(Color.gPrimary, in: Capsule())
                         }
                         .buttonStyle(.plain).disabled(sending).padding(.top, 4)

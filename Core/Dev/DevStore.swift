@@ -188,6 +188,12 @@ struct DevRun: Identifiable, Hashable {
                       statusLabel: status?["label"] as? String, statusCategory: status?["category"] as? String)
     }
 
+    /// El issue en GitHub (`repo` llega como `owner/nombre`).
+    var issueURL: URL? {
+        guard let n = issue, n > 0, repo.contains("/") else { return nil }
+        return URL(string: "https://github.com/\(repo)/issues/\(n)")
+    }
+
     /// El id de la tarjeta de un PR (el mismo que arma gs en `prCardId`).
     static func prID(repo: String, pr: Int) -> String { "pr:\(repo.lowercased())#\(pr)" }
 }
@@ -328,6 +334,8 @@ struct DevSmoke {
     let green: Bool
     let issues: [DevDetail.SmokeIssue]
     let failedSteps: [String]
+    /// Problemas ya redactados para pintar: pasos fallidos y fallas de la página con su ruta.
+    var problems: [String] { failedSteps + issues.map { i in i.whereText.map { "\(i.what) · \($0)" } ?? i.what } }
     let lighthouse: DevDetail.Lighthouse?
 
     static func latest(in events: [DevEvent]) -> DevSmoke? {
