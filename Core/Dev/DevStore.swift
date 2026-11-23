@@ -262,7 +262,8 @@ struct DevDetail {
             d.checksState = c["state"] as? String
             d.checks = (c["checks"] as? [[String: Any]] ?? []).compactMap {
                 guard let n = $0["name"] as? String else { return nil }
-                return Check(name: n, state: $0["state"] as? String ?? "none", url: ($0["url"] as? String).flatMap(URL.init(string:)), ghosty: $0["ghosty"] as? Bool ?? false)
+                // Las puertas de ghosty-dev (`ghosty-dev/evidencia`, `ghosty-dev/redisparo`) son de Ghosty aunque corran en Actions.
+                return Check(name: n, state: $0["state"] as? String ?? "none", url: ($0["url"] as? String).flatMap(URL.init(string:)), ghosty: ($0["ghosty"] as? Bool ?? false) || n.hasPrefix("ghosty-dev/"))
             }
         }
         d.deploy = j["deploy"] as? [String: Any]
@@ -278,7 +279,12 @@ struct DevDetail {
         // Un PR sin DevRun no trae ficha: sus cuatro estados salen de los checks, la revisión y la vista previa.
         if d.sheet == nil, (j["kind"] as? String) == "pr" {
             var sh = Sheet()
-            sh.ci = switch d.checksState { case "success": "ok"; case "failure", "error": "bad"; case "pending": "running"; default: "none" }
+            // El CI es el del repo: sin los checks de Ghosty ni sus puertas (`ghosty-dev/*`, que son la evidencia).
+            // `checks.state` de gs no sirve aquí: dice «success» con la puerta de evidencia en rojo (#101, 22-nov).
+            let repoCI = d.checks.filter { !$0.ghosty && $0.state != "neutral" && $0.state != "skipped" }
+            sh.ci = repoCI.isEmpty ? "none"
+                : repoCI.contains { $0.state == "failure" || $0.state == "error" } ? "bad"
+                : repoCI.allSatisfy { $0.state == "success" } ? "ok" : "running"
             if let r = j["review"] as? [String: Any] {
                 let n = (r["findings"] as? [Any])?.count ?? 0
                 d.findings = n
