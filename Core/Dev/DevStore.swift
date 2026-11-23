@@ -77,7 +77,7 @@ struct DevRun: Identifiable, Hashable {
     let issue: Int?
     let title: String
     let phase: String
-    let estado: String
+    var estado: String
     let pr: Int?
     let prURL: URL?
     let commit: String?
@@ -89,7 +89,12 @@ struct DevRun: Identifiable, Hashable {
     let updatedAt: Date
     var events: [DevEvent] = []
 
-    static func == (a: DevRun, b: DevRun) -> Bool { a.id == b.id && a.phase == b.phase && a.updatedAt == b.updatedAt && a.events.count == b.events.count }
+    // SwiftUI repinta una tarjeta sólo si su `==` cambia: tienen que entrar los datos que se corrigen con el detalle.
+    static func == (a: DevRun, b: DevRun) -> Bool {
+        a.id == b.id && a.phase == b.phase && a.updatedAt == b.updatedAt && a.events.count == b.events.count
+            && a.estado == b.estado && a.serverReady == b.serverReady && a.serverCanMerge == b.serverCanMerge
+            && a.serverStage == b.serverStage && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy
+    }
     func hash(into h: inout Hasher) { h.combine(id) }
 
     /// Bumps de bots y repos retirados del factory: no se muestran (bliss, 23-nov: ghosty-studio y easybits arrancan de cero).
@@ -486,6 +491,9 @@ final class DevStore {
             if !loaded { self.error = "No pude cargar tus pendientes." }
         }
         loaded = true
+        // La lista de gs no trae los checks y puede decir «listo» con el CI en rojo: se confirma en el detalle.
+        let ready = (runs + prs).filter { $0.isLive && $0.readyToMerge }.map(\.id)
+        for id in ready.prefix(8) { await loadDetail(id) }
     }
 
     /// Un pendiente de la lista, de cualquier tipo.
@@ -513,9 +521,20 @@ final class DevStore {
                 run.serverReady = false
                 run.serverCanMerge = false
                 if run.isPR, run.statusCategory == "ready" { run.statusCategory = "in_progress" }
+                // El texto y la etapa de gs también dicen «listo»: se bajan a «Esperando el CI» (etapa CI).
+                if run.estado.lowercased().contains("listo") { run.estado = "Esperando el CI" }
+                if (run.serverStage ?? 0) > DevStage.ci.rawValue { run.serverStage = DevStage.ci.rawValue }
             }
             full[id] = run
             if let i = runs.firstIndex(where: { $0.id == id }) { runs[i] = run }
+            else if let i = prs.firstIndex(where: { $0.id == id }) {
+                // La tarjeta de un PR conserva su «qué pasa ahora», pero toma la corrección de los checks.
+                prs[i].serverReady = run.serverReady
+                prs[i].serverCanMerge = run.serverCanMerge
+                prs[i].statusCategory = run.statusCategory
+                prs[i].estado = run.estado
+                prs[i].serverStage = run.serverStage
+            }
         }
         details[id] = d
     }
