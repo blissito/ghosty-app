@@ -183,6 +183,24 @@ struct DevHomeView: View {
     private var repos: [String] {
         Set((store.runs + store.prs).filter { !$0.isHiddenHistory }.map(\.repoName) + store.local.map(\.repoName).filter { !["ghosty-studio", "easybits"].contains($0) }).sorted()
     }
+    /// Las columnas de la web (`/c/desarrollo`) como secciones. Con «Todos» (cerrados incluidos) va plana, por fecha.
+    private var groups: [(String?, [DevRun])] {
+        if showClosed { return [(nil, visible)] }
+        let order: [(String, (DevRun) -> Bool)] = [
+            ("Te necesitan", { $0.tone == .needsYou }),
+            ("Listos para merge", { $0.readyToMerge }),
+            ("En revisión", { $0.pr != nil }),
+            ("Escribiendo", { _ in true }),
+        ]
+        var left = visible
+        var out: [(String?, [DevRun])] = []
+        for (title, test) in order {
+            let hit = left.filter(test)
+            left.removeAll { r in hit.contains { $0.id == r.id } }
+            if !hit.isEmpty { out.append((title, hit)) }
+        }
+        return out
+    }
     private var needsYouCount: Int { (store.runs + store.prs).count { $0.isLive && $0.tone == .needsYou } }
     private var liveCount: Int { visible.count(where: \.isLive) + localOnly.count }
 
@@ -265,10 +283,16 @@ struct DevHomeView: View {
                        detail: "Pídele a tu agente un cambio en tu repo y aquí verás cómo avanza: código, CI, revisión y merge.")
         } else {
             LazyVStack(spacing: 12) {
-                ForEach(visible) { run in
-                    Button { path.append(run.id) } label: { DevRunRow(run: run) }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("dev-run-\(run.id)")
+                ForEach(groups, id: \.0) { title, items in
+                    if let title {
+                        Text(title).gSectionTitle().foregroundStyle(Color.gInk2).padding(.top, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    ForEach(items) { run in
+                        Button { path.append(run.id) } label: { DevRunRow(run: run) }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("dev-run-\(run.id)")
+                    }
                 }
                 // Issues que alguien tomó en su terminal y todavía no tienen PR: gs sólo sabe su título,
                 // así que van al final y abren el issue. Con PR se abren dentro de la app.
