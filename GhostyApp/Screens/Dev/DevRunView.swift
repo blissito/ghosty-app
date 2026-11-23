@@ -490,6 +490,14 @@ struct DevRunView: View {
     private func send(_ text: String) async {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
+        // Con el chat montado, el pedido va por el MISMO envío que escribir a mano: tu mensaje sale en la
+        // conversación al instante (optimista) y gs lo pasa al escritor. Por `tell` directo no se veía nada
+        // hasta que el escritor lo recogía, y eso tarda (bliss, 22-nov).
+        if let f = devFocus {
+            tab = .chat
+            await chats.send(t, a: f.devAgentID)
+            return
+        }
         sending = true
         defer { sending = false }
         // `tell`: la entrada única de gs (decide qué hacer según la fase). Mientras no esté en prod, `resume`.
