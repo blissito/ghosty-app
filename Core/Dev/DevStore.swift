@@ -90,6 +90,12 @@ struct DevRun: Identifiable, Hashable {
     static func == (a: DevRun, b: DevRun) -> Bool { a.id == b.id && a.phase == b.phase && a.updatedAt == b.updatedAt && a.events.count == b.events.count }
     func hash(into h: inout Hasher) { h.combine(id) }
 
+    /// Bumps de bots y repos retirados del factory: no se muestran (bliss, 23-nov: ghosty-studio y easybits arrancan de cero).
+    var isHiddenHistory: Bool {
+        title.hasPrefix("Bump ") || ["ghosty-studio", "easybits"].contains(repo.split(separator: "/").last.map(String.init) ?? repo)
+    }
+    var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
+
     static let closedPhases: Set<String> = ["merged", "done", "stopped", "failed"]
     var isLive: Bool { !Self.closedPhases.contains(phase) }
 
@@ -315,6 +321,11 @@ struct DevDetail {
         return d
     }
 
+    /// Algún check del commit (de Ghosty o del repo) en rojo o corriendo; los neutrales y omitidos no cuentan.
+    var checksBlockMerge: Bool {
+        checks.contains { ["failure", "error", "pending"].contains($0.state) }
+    }
+
     /// El deploy tras el merge: «desplegando», «en producción» o «falló» (`deploy.ts` de gs).
     var deployLabel: (text: String, ok: Bool?)? {
         guard let s = deploy?["state"] as? String else { return nil }
@@ -371,6 +382,9 @@ struct DevLocalRun: Identifiable {
     let prURL: URL?
     let updatedAt: Date
 
+    var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
+    /// Un issue que nadie ha empezado: sale en «Pendientes», no en «En una terminal».
+    var notStarted: Bool { phase != "working" && phase != "waiting_ci" }
     /// Lo que se abre al tocarlo: el PR si ya existe, si no el issue.
     var openURL: URL? { prURL ?? url }
     var phaseLabel: String {
@@ -476,16 +490,23 @@ final class DevStore {
             path = "api/v2/me/dev-runs/\(id)"
         }
         guard let j = try? await request(path, query: [URLQueryItem(name: "detail", value: "1")]) as? [String: Any] else { return }
+        let d = DevDetail.from(json: j)
         if var run = DevRun.from(json: j) {
             // El detalle de un PR no trae el «qué pasa ahora» de la tarjeta: se conserva el de la lista.
             if run.isPR, let card = prs.first(where: { $0.id == id }) {
                 run.statusLabel = card.statusLabel
                 run.statusCategory = card.statusCategory
             }
+            // Los checks del commit mandan sobre la ficha: con uno en rojo o corriendo gs rechaza el merge
+            // («El CI sigue corriendo», #114 de formmy, 23-nov), así que no se pinta «Listo para merge».
+            if d.checksBlockMerge {
+                run.serverReady = false
+                run.serverCanMerge = false
+                if run.isPR, run.statusCategory == "ready" { run.statusCategory = "in_progress" }
+            }
             full[id] = run
             if let i = runs.firstIndex(where: { $0.id == id }) { runs[i] = run }
         }
-        let d = DevDetail.from(json: j)
         details[id] = d
     }
 

@@ -169,6 +169,11 @@ struct DevRunView: View {
     /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).
     private func mergeBlocker(_ run: DevRun) -> String? {
         guard run.isLive, run.pr != nil, !run.canMerge, !run.isPR else { return nil }
+        // Lo que de verdad frena el merge: un check del commit en rojo o corriendo (antes decía «te preguntó algo»).
+        if let blocking = detail?.checks.filter({ ["failure", "error", "pending"].contains($0.state) }), !blocking.isEmpty {
+            let names = blocking.prefix(2).map(\.name).joined(separator: ", ")
+            return "Merge espera a los checks: \(names)\(blocking.count > 2 ? " y \(blocking.count - 2) más" : "")."
+        }
         if writerBusy, run.tone == .working { return "El agente sigue trabajando; el CI corre mientras." }
         if run.tone == .needsYou { return tab == .chat ? "El agente te preguntó algo: contéstale aquí abajo." : "El agente te preguntó algo: contéstale en Conversación." }
         return "Merge se activa con CI y revisión en verde."
@@ -318,7 +323,10 @@ struct DevRunView: View {
     private func statusGrid(_ run: DevRun) -> some View {
         let sh = detail?.sheet ?? DevDetail.Sheet()
         let findings = detail?.findings ?? run.events.last(where: { $0.kind == "review_findings" }).flatMap { ($0.data["findings"] as? [Any])?.count }
-        let ci: (String, Bool?) = switch sh.ci {
+        let repoChecks = (detail?.checks ?? []).filter { !$0.ghosty && $0.state != "neutral" && $0.state != "skipped" }
+        let ciState = repoChecks.contains { $0.state == "failure" || $0.state == "error" } ? "bad"
+            : repoChecks.contains { $0.state == "pending" } ? "running" : sh.ci
+        let ci: (String, Bool?) = switch ciState {
         case "ok": ("En verde", true)
         case "bad": ("En rojo", false)
         case "running": ("Corriendo", nil)

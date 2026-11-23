@@ -167,16 +167,21 @@ struct DevHomeView: View {
     @State private var path: [String] = []
     @State private var showClosed = false
     @State private var onlyNeedsYou = false
+    /// Repo elegido (`nil` = todos), como el selector de la web.
+    @State private var repo: String?
     @Environment(\.openURL) private var openURL
 
     /// Los de la nube y los PRs (de terminal o de una persona) juntos, lo más reciente arriba, como la web.
     private var visible: [DevRun] {
-        (store.runs + store.prs).filter { (showClosed || $0.isLive) && (!onlyNeedsYou || $0.tone == .needsYou) }.sorted { $0.updatedAt > $1.updatedAt }
+        (store.runs + store.prs).filter { (showClosed || $0.isLive) && (!onlyNeedsYou || $0.tone == .needsYou) && !$0.isHiddenHistory && (repo == nil || $0.repoName == repo) }.sorted { $0.updatedAt > $1.updatedAt }
     }
     /// Los de terminal que ya tienen PR salen como su tarjeta de PR; aquí quedan sólo los que todavía no lo abren.
     private var localOnly: [DevLocalRun] {
         let shown = Set(store.prs.map(\.id))
-        return store.local.filter { $0.prID.map { !shown.contains($0) } ?? true }
+        return store.local.filter { ($0.prID.map { !shown.contains($0) } ?? true) && (repo == nil || $0.repoName == repo) && !["ghosty-studio", "easybits"].contains($0.repoName) }
+    }
+    private var repos: [String] {
+        Set((store.runs + store.prs).filter { !$0.isHiddenHistory }.map(\.repoName) + store.local.map(\.repoName).filter { !["ghosty-studio", "easybits"].contains($0) }).sorted()
     }
     private var needsYouCount: Int { (store.runs + store.prs).count { $0.isLive && $0.tone == .needsYou } }
     private var liveCount: Int { visible.count(where: \.isLive) + localOnly.count }
@@ -185,7 +190,7 @@ struct DevHomeView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Dev").gScreenTitle().padding(.top, 8)
+                    Text("Desarrollo").gScreenTitle().padding(.top, 8)
                     filters.padding(.top, 14)
                     content.padding(.top, 16)
                 }
@@ -216,16 +221,31 @@ struct DevHomeView: View {
     }
 
     private var filters: some View {
-        HStack(spacing: 8) {
+        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) {
             chip("Activos \(liveCount)", on: !showClosed && !onlyNeedsYou) { showClosed = false; onlyNeedsYou = false }
             if needsYouCount > 0 { chip("Te necesitan \(needsYouCount)", on: onlyNeedsYou) { showClosed = false; onlyNeedsYou = true } }
             chip("Todos", on: showClosed) { showClosed = true; onlyNeedsYou = false }
-        }
+            if repos.count > 1 {
+                Menu {
+                    Button { repo = nil } label: { if repo == nil { Label("Todos los repos", systemImage: "checkmark") } else { Text("Todos los repos") } }
+                    ForEach(repos, id: \.self) { r in
+                        Button { repo = r } label: { if repo == r { Label(r, systemImage: "checkmark") } else { Text(r) } }
+                    }
+                } label: {
+                    HStack(spacing: 5) { Text(repo ?? "Repo"); Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)) }
+                        .font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize().foregroundStyle(repo == nil ? Color.gInk2 : Color.gPrimaryPressed)
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(repo == nil ? Color.gCard : Color.gPrimaryTint, in: Capsule())
+                        .overlay(Capsule().stroke(Color.gSeparator, lineWidth: 1))
+                }
+                .accessibilityIdentifier("dev-repo")
+            }
+        } }
     }
 
     private func chip(_ text: String, on: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: { withAnimation(.snappy) { action() } }) {
-            Text(text).font(.system(size: 14, weight: .semibold))
+            Text(text).font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize()
                 .foregroundStyle(on ? Color.gPrimaryPressed : Color.gInk2)
                 .padding(.horizontal, 14).padding(.vertical, 7)
                 .background(on ? Color.gPrimaryTint : Color.gCard, in: Capsule())
@@ -252,15 +272,17 @@ struct DevHomeView: View {
                 }
                 // Issues que alguien tomó en su terminal y todavía no tienen PR: gs sólo sabe su título,
                 // así que van al final y abren el issue. Con PR se abren dentro de la app.
-                if !localOnly.isEmpty {
-                    Text("En una terminal").gSectionTitle().foregroundStyle(Color.gInk2).padding(.top, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ForEach(localOnly) { run in
-                        Button {
-                            if let id = run.prID { path.append(id) } else if let u = run.openURL { openURL(u) }
-                        } label: { DevLocalRunRow(run: run) }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("dev-local-\(run.id)")
+                ForEach([("Pendientes", localOnly.filter(\.notStarted)), ("En una terminal", localOnly.filter { !$0.notStarted })], id: \.0) { title, items in
+                    if !items.isEmpty {
+                        Text(title).gSectionTitle().foregroundStyle(Color.gInk2).padding(.top, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(items) { run in
+                            Button {
+                                if let id = run.prID { path.append(id) } else if let u = run.openURL { openURL(u) }
+                            } label: { DevLocalRunRow(run: run) }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("dev-local-\(run.id)")
+                        }
                     }
                 }
             }

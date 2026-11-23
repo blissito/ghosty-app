@@ -21,6 +21,61 @@ final class DevUITests: XCTestCase {
         add(a)
     }
 
+    /// Auditoría en el teléfono (23-nov): lista, y los primeros pendientes con sus cuatro pestañas. Sólo mira.
+    func testAuditoriaDev() {
+        app.launch()
+        let tab = app.buttons["tab-dev"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20), "no apareció la pestaña «Dev»")
+        tab.tap()
+        Thread.sleep(forTimeInterval: 4)
+        shot("a1-lista")
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-run-'"))
+        let n = min(rows.count, 3)
+        for k in 0..<n {
+            let r = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'dev-run-'")).element(boundBy: k)
+            guard r.waitForExistence(timeout: 5) else { break }
+            r.tap()
+            Thread.sleep(forTimeInterval: 3)
+            shot("b\(k)-encabezado")
+            for name in ["Verificación", "Cambios", "Actividad"] {
+                let seg = app.buttons[name]
+                if seg.exists { seg.tap(); Thread.sleep(forTimeInterval: 1.5); shot("b\(k)-\(name)") }
+            }
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            Thread.sleep(forTimeInterval: 1.5)
+        }
+    }
+
+    /// Foto de la pestaña Fábrica en el teléfono (23-nov). Sólo mira.
+    func testFotoFabrica() {
+        app.launchEnvironment["GHOSTY_TAB"] = "fabrica"
+        app.launch()
+        Thread.sleep(forTimeInterval: 6)
+        shot("f1-fabrica")
+        let all = app.buttons["Todos"]
+        if all.exists { all.tap(); Thread.sleep(forTimeInterval: 2); shot("f2-todos") }
+        app.swipeUp(); Thread.sleep(forTimeInterval: 1); shot("f3-abajo")
+    }
+
+    /// Pedido de bliss (23-nov): dar Merge al #114 de formmy para ver qué contesta gs con la evidencia en rojo.
+    func testMerge114() {
+        app.launch()
+        let tab = app.buttons["tab-dev"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 20))
+        tab.tap()
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS 'PR #114'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "no está el #114")
+        row.tap()
+        Thread.sleep(forTimeInterval: 3)
+        shot("m1-antes")
+        let merge = app.buttons["Merge"]
+        if !merge.exists { shot("m1b-sin-merge"); return }
+        XCTAssertTrue(merge.waitForExistence(timeout: 5), "no hay botón Merge")
+        merge.tap()
+        Thread.sleep(forTimeInterval: 6)
+        shot("m2-despues")
+    }
+
     func testDevLive() {
         app.launch()
         let tab = app.buttons["tab-dev"]

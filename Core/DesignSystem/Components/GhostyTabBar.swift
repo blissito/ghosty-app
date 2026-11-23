@@ -17,7 +17,7 @@ enum GhostyTab: String, CaseIterable, Identifiable {
         case .memorias:   return "Memorias"
         case .perfil:     return "Perfil"
         case .fabrica:    return "Fábrica"
-        case .dev:        return "Dev"
+        case .dev:        return "Desarrollo"
         }
     }
 

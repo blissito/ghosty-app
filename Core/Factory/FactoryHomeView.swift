@@ -274,7 +274,9 @@ struct FactoryHomeView: View {
             let mine = space.runs.filter(\.needsYou)
             // Detenido por el tope: está en «Te toca», no también en «Trabajando».
             let working = space.runs.filter { ($0.stage.working && !$0.needsYou) || $0.waitingOnPlatform }
-            let rest = space.runs.filter { !$0.needsYou && !$0.stage.working && !$0.waitingOnPlatform }
+            // «Recientes» sin los bumps de Dependabot ni el historial de repos que ya no se desarrollan aquí
+            // (bliss, 23-nov: ghosty-studio y easybits arrancan de cero). Lo vivo o que te toca sigue visible.
+            let rest = space.runs.filter { !$0.needsYou && !$0.stage.working && !$0.waitingOnPlatform && !$0.isHiddenHistory }
             let pending = store.pending(space.slug)
             let sprints = store.sprints[space.slug] ?? []
             if space.runs.isEmpty, pending.isEmpty, sprints.isEmpty {

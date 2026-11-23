@@ -352,6 +352,10 @@ struct FactoryRun: Identifiable, Decodable, Hashable {
 
     var stage: FactoryStage { FactoryStage(status) }
     var isDependabot: Bool { kind == "dependabot" }
+    /// Historial que ya no se quiere ver en «Recientes»: bumps de bots y los repos retirados del factory.
+    var isHiddenHistory: Bool {
+        isDependabot || title.hasPrefix("Bump ") || ["ghosty-studio", "easybits"].contains(repo?.split(separator: "/").last.map(String.init) ?? "")
+    }
 
     /// Le toca a una persona. gs viejo no lo manda: entonces es la etapa sola.
     var needsYou: Bool { serverNeedsYou ?? (stage.needsYou && escalation?.type != .platform) }
