@@ -118,8 +118,6 @@ struct DevRunRow: View {
 
     private var subtitle: String {
         var parts: [String] = []
-        // PR sin DevRun: lo que pasa ahora («CI falló: Prueba en vivo»), si dice más que la pastilla.
-        if run.isPR, let s = run.statusLabel, s != run.phaseLabel { parts.append(s) }
         if run.isLive, run.rounds > 0 { parts.append("vuelta \(run.rounds) de 3") }
         if run.phase == "merged" { parts.append("Merge \(DevDate.ago(run.updatedAt))") }
         else { parts.append(DevDate.ago(run.updatedAt)) }
@@ -174,7 +172,7 @@ struct DevHomeView: View {
 
     /// Los de la nube y los PRs (de terminal o de una persona) juntos, lo más reciente arriba, como la web.
     private var visible: [DevRun] {
-        (store.runs + store.prs).filter { (showClosed || $0.isLive) && (!onlyNeedsYou || $0.tone == .needsYou) && !$0.isHiddenHistory && (repo == nil || $0.repoName == repo) }.sorted { $0.updatedAt > $1.updatedAt }
+        (store.runs + store.prs).filter { (showClosed || $0.isOnBoard) && (!onlyNeedsYou || $0.tone == .needsYou) && !$0.isHiddenHistory && (repo == nil || $0.repoName == repo) }.sorted { $0.updatedAt > $1.updatedAt }
     }
     /// Los de terminal que ya tienen PR salen como su tarjeta de PR; aquí quedan sólo los que todavía no lo abren.
     private var localOnly: [DevLocalRun] {
@@ -184,26 +182,21 @@ struct DevHomeView: View {
     private var repos: [String] {
         Set((store.runs + store.prs).filter { !$0.isHiddenHistory }.map(\.repoName) + store.local.map(\.repoName).filter { !["ghosty-studio", "easybits"].contains($0) }).sorted()
     }
-    /// Las columnas de la web (`/c/desarrollo`) como secciones. Con «Todos» (cerrados incluidos) va plana, por fecha.
+    /// Las columnas del tablero que manda gs (`column`) como secciones, sin recalcular fases aquí. Con «Todos» entran Hecho y Detenidos.
+    /// Una columna que esta versión no conoce va al final como «Otros»: nunca se esconde una tarjeta.
     private var groups: [(String?, [DevRun])] {
-        if showClosed { return [(nil, visible)] }
-        let order: [(String, (DevRun) -> Bool)] = [
-            ("Te necesitan", { $0.tone == .needsYou }),
-            ("Listos para merge", { $0.readyToMerge }),
-            ("En revisión", { $0.pr != nil }),
-            ("Escribiendo", { _ in true }),
+        var order: [(String, String)] = [
+            ("ready", "Listo para revisar"), ("review", "En revisión"), ("writing", "Escribiendo"), ("todo", "Pendientes"),
         ]
-        var left = visible
-        var out: [(String?, [DevRun])] = []
-        for (title, test) in order {
-            let hit = left.filter(test)
-            left.removeAll { r in hit.contains { $0.id == r.id } }
-            if !hit.isEmpty { out.append((title, hit)) }
+        if showClosed { order += [("done", "Hecho"), ("halted", "Detenidos")] }
+        order.append(("other", "Otros"))
+        return order.compactMap { col, title in
+            let hit = visible.filter { $0.boardColumn == col }
+            return hit.isEmpty ? nil : (title, hit)
         }
-        return out
     }
-    private var needsYouCount: Int { (store.runs + store.prs).count { $0.isLive && $0.tone == .needsYou } }
-    private var liveCount: Int { visible.count(where: \.isLive) + localOnly.count }
+    private var needsYouCount: Int { (store.runs + store.prs).count { $0.isOnBoard && $0.tone == .needsYou } }
+    private var liveCount: Int { visible.count(where: \.isOnBoard) + localOnly.count }
 
     var body: some View {
         NavigationStack(path: $path) {

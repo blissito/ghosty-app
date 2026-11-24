@@ -220,7 +220,7 @@ struct DevRunView: View {
             return "Merge espera a los checks: \(names)\(blocking.count > 2 ? " y \(blocking.count - 2) más" : "")."
         }
         if writerBusy, run.tone == .working { return "El agente sigue trabajando; el CI corre mientras." }
-        if run.tone == .needsYou { return tab == .chat ? "El agente te preguntó algo: contéstale aquí abajo." : "El agente te preguntó algo: contéstale en Conversación." }
+        if run.asked != nil { return tab == .chat ? "El agente te preguntó algo: contéstale aquí abajo." : "El agente te preguntó algo: contéstale en Conversación." }
         return "Merge se activa con CI y revisión en verde."
     }
 

@@ -4,7 +4,8 @@ import Observation
 // «Dev»: los pendientes que un agente trabaja en la nube sobre tus repos (gs `/c/desarrollo`).
 // Reemplaza a la pestaña Fábrica (bliss, 22-nov). Una sola fuente: `GET/POST /api/v2/me/dev-runs`,
 // la misma de la web y del CLI (`ghosty dev ls|show|merge|resume`). Nada se recalcula distinto aquí:
-// las etapas, «listo para merge» y lo que se puede hacer en cada fase calcan `DevRunDetail.tsx`.
+// la columna (`column`) y la pastilla (`status.label` / `status.category`) las calcula gs en un solo sitio
+// (`board-status.ts`) y aquí sólo se pintan; `phase`/`stage` quedan de respaldo para servidores viejos.
 
 /// Las cuatro etapas de un pendiente, las mismas de la web.
 enum DevStage: Int, CaseIterable {
@@ -119,7 +120,7 @@ struct DevRun: Identifiable, Hashable {
     // SwiftUI repinta una tarjeta sólo si su `==` cambia: tienen que entrar los datos que se corrigen con el detalle.
     static func == (a: DevRun, b: DevRun) -> Bool {
         a.id == b.id && a.phase == b.phase && a.updatedAt == b.updatedAt && a.events.count == b.events.count
-            && a.estado == b.estado && a.serverReady == b.serverReady && a.serverCanMerge == b.serverCanMerge
+            && a.estado == b.estado && a.column == b.column && a.statusLabel == b.statusLabel && a.serverReady == b.serverReady && a.serverCanMerge == b.serverCanMerge
             && a.serverStage == b.serverStage && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy && a.asked == b.asked
     }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -138,20 +139,49 @@ struct DevRun: Identifiable, Hashable {
     var serverStage: Int?
     var serverCanMerge: Bool?
 
+    /// Columna del tablero que manda gs: todo | writing | review | ready | done | halted. Un valor nuevo no esconde la tarjeta.
+    var column: String?
+
     /// Un PR sin DevRun (escrito en una terminal o por una persona): tarjeta `prs` de gs, id `pr:<repo>#<n>`.
     /// No tiene chat ni Merge desde aquí: el merge se hace en GitHub.
     var isPR = false
-    /// Lo que gs dice que pasa ahora en ese PR (`status` de la tarjeta): «CI falló: Prueba en vivo».
+    /// Lo que gs dice que pasa ahora (`status.label` de la tarjeta, en todo pendiente y PR): «CI falló: Prueba en vivo».
     var statusLabel: String?
-    /// not_started | in_progress | needs_action | failed | ready | done
+    /// not_started | in_progress | needs_action | failed | ready | done (otro valor cae a un tono neutro).
     var statusCategory: String?
 
-    /// CI y revisión en verde y sólo falta tu merge.
+    /// Con `column` del servidor sólo `done` y `halted` salen del tablero; un valor desconocido sigue a la vista.
+    var isOnBoard: Bool {
+        if let c = column { return c != "done" && c != "halted" }
+        return isLive
+    }
+
+    /// CI y revisión en verde y sólo falta tu merge (habilita los botones; el texto lo dice `phaseLabel`).
     var readyToMerge: Bool { isPR ? isLive && (statusCategory == "ready" || serverReady == true) : (serverReady ?? false) }
     var canMerge: Bool { isPR ? false : (serverCanMerge ?? readyToMerge) }
 
-    /// En cuál de las cuatro etapas va. Sin dato de gs (la lista), una aproximación por fase.
+    static let knownColumns = ["ready", "review", "writing", "todo", "done", "halted"]
+
+    /// La columna de la tarjeta: la del servidor ("other" si es una nueva); sólo sin ella (gs viejo) se aproxima por fase.
+    var boardColumn: String {
+        if let c = column { return Self.knownColumns.contains(c) ? c : "other" }
+        switch phase {
+        case "stopped", "failed": return "halted"
+        case "merged", "done": return "done"
+        default: break
+        }
+        if readyToMerge { return "ready" }
+        if pr != nil { return "review" }
+        return ["queued", "blocked"].contains(phase) ? "todo" : "writing"
+    }
+
+    /// En cuál de las cuatro etapas va. Con `column` del servidor manda; `stage` (deprecado) sólo la afina en revisión.
     var stage: DevStage {
+        switch column {
+        case "todo", "writing", "halted": return .code
+        case "ready", "done": return .merge
+        default: break
+        }
         if let s = serverStage, let st = DevStage(rawValue: min(3, max(0, s))) { return st }
         switch phase {
         case "merged", "merging": return .merge
@@ -161,31 +191,27 @@ struct DevRun: Identifiable, Hashable {
         }
     }
 
-    /// El nombre de la fase para la pastilla (el `estado` de gs, salvo «listo»).
+    /// El texto de la pastilla: el `status.label` de gs, tal cual. Sin él (gs viejo) el `estado` de la lista.
     var phaseLabel: String {
-        if readyToMerge { return "Listo para merge" }
-        guard isPR else { return estado }
-        switch statusCategory {
-        case "failed": return "Falló"
-        case "needs_action": return "Te necesita"
-        case "done": return "Merge hecho"
-        case "not_started": return isLive ? "En espera" : "Cerrado"
-        default: return "En curso"
-        }
+        if let l = statusLabel, !l.isEmpty { return l }
+        if !estado.isEmpty { return estado }
+        return readyToMerge ? "Listo para merge" : phase.replacingOccurrences(of: "_", with: " ").capitalized
     }
 
     enum Tone { case working, needsYou, ready, merged, failed, closed }
+    /// El color sale de `status.category`; una categoría desconocida cae a gris neutro (`closed`) y conserva el `label` del servidor.
     var tone: Tone {
-        if readyToMerge { return .ready }
-        if isPR, let c = statusCategory {
+        if let c = statusCategory {
             switch c {
-            case "failed": return .failed
+            case "in_progress": return .working
             case "needs_action": return .needsYou
+            case "failed": return .failed
+            case "ready": return .ready
             case "done": return .merged
-            case "not_started": return isLive ? .working : .closed
-            default: return .working
+            default: return .closed
             }
         }
+        if readyToMerge { return .ready }
         switch phase {
         case "needs_person": return .needsYou
         case "merged": return .merged
@@ -210,7 +236,10 @@ struct DevRun: Identifiable, Hashable {
                       createdAt: DevDate.parse(j["createdAt"] as? String) ?? .now,
                       updatedAt: DevDate.parse(j["updatedAt"] as? String) ?? .now, events: events,
                       serverReady: j["ready"] as? Bool, serverStage: j["stage"] as? Int, serverCanMerge: j["canMerge"] as? Bool,
-                      isPR: (j["kind"] as? String) == "pr")
+                      column: j["column"] as? String,
+                      isPR: (j["kind"] as? String) == "pr",
+                      statusLabel: (j["status"] as? [String: Any])?["label"] as? String,
+                      statusCategory: (j["status"] as? [String: Any])?["category"] as? String)
         .withBlockedBy((j["blockedBy"] as? [String: Any])?["pr"] as? Int)
         .withAsked(DevAsk.from(json: j["asked"], note: (j["note"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
     }
@@ -235,7 +264,7 @@ struct DevRun: Identifiable, Hashable {
                       estado: status?["label"] as? String ?? "", pr: pr, prURL: (j["url"] as? String).flatMap(URL.init(string:)),
                       commit: (j["sha"] as? String).map { String($0.prefix(7)) }, rounds: 0, note: nil,
                       createdAt: updated, updatedAt: updated,
-                      serverStage: j["stage"] as? Int, isPR: true,
+                      serverStage: j["stage"] as? Int, column: j["column"] as? String, isPR: true,
                       statusLabel: status?["label"] as? String, statusCategory: status?["category"] as? String)
     }
 
@@ -426,17 +455,21 @@ struct DevLocalRun: Identifiable {
     let pr: Int?
     let prURL: URL?
     let updatedAt: Date
+    /// Lo que gs calcula para el pendiente de terminal (`column`, `status`); sin ellos se usa `phase`.
+    var column: String? = nil
+    var statusLabel: String? = nil
 
     var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
     /// Un issue que nadie ha empezado: sale en «Pendientes», no en «En una terminal».
-    var notStarted: Bool { phase != "working" && phase != "waiting_ci" }
+    var notStarted: Bool { column.map { $0 == "todo" } ?? (phase != "working" && phase != "waiting_ci") }
     /// Lo que se abre al tocarlo: el PR si ya existe, si no el issue.
     var openURL: URL? { prURL ?? url }
     var phaseLabel: String {
+        if let l = statusLabel, !l.isEmpty { return l }
         switch phase {
-        case "waiting_ci": "Esperando CI"
-        case "working": "Trabajando"
-        default: "En cola"
+        case "waiting_ci": return "Esperando CI"
+        case "working": return "Trabajando"
+        default: return "En cola"
         }
     }
     /// Con PR, se abre su detalle dentro de la app; sin PR sólo existe el issue en GitHub.
@@ -451,7 +484,9 @@ struct DevLocalRun: Identifiable {
                            phase: j["phase"] as? String ?? "working",
                            pr: j["pr"] as? Int,
                            prURL: (j["prUrl"] as? String).flatMap(URL.init(string:)),
-                           updatedAt: DevDate.parse(j["updatedAt"] as? String) ?? .distantPast)
+                           updatedAt: DevDate.parse(j["updatedAt"] as? String) ?? .distantPast,
+                           column: j["column"] as? String,
+                           statusLabel: (j["status"] as? [String: Any])?["label"] as? String)
     }
 }
 
@@ -487,7 +522,7 @@ final class DevStore {
     /// Abrir un pendiente desde fuera (push del escritor).
     var pendingRunID: String?
 
-    var needsYouCount: Int { runs.filter { $0.tone == .needsYou }.count }
+    var needsYouCount: Int { runs.filter { $0.isOnBoard && $0.tone == .needsYou }.count }
 
     /// ¿La GitHub App de gs llega a algún repo tuyo? `nil` = todavía no se sabe.
     private(set) var hasGitHub: Bool?
@@ -551,20 +586,16 @@ final class DevStore {
         guard let j = try? await request(path, query: [URLQueryItem(name: "detail", value: "1")]) as? [String: Any] else { return }
         let d = DevDetail.from(json: j)
         if var run = DevRun.from(json: j) {
-            // El detalle de un PR no trae el «qué pasa ahora» de la tarjeta: se conserva el de la lista.
-            if run.isPR, let card = prs.first(where: { $0.id == id }) {
-                run.statusLabel = card.statusLabel
-                run.statusCategory = card.statusCategory
+            // Si el detalle no trae `status`/`column` (gs viejo), se conservan los de la lista.
+            if let card = prs.first(where: { $0.id == id }) ?? runs.first(where: { $0.id == id }) {
+                if run.statusLabel == nil { run.statusLabel = card.statusLabel; run.statusCategory = card.statusCategory }
+                if run.column == nil { run.column = card.column }
             }
-            // Los checks del commit mandan sobre la ficha: con uno en rojo o corriendo gs rechaza el merge
-            // («El CI sigue corriendo», #114 de formmy, 23-nov), así que no se pinta «Listo para merge».
+            // Un check del commit en rojo o corriendo apaga el botón de merge (gs lo rechaza: «El CI sigue corriendo»,
+            // #114 de formmy). Sólo se deshabilita la acción; el texto y la columna son los del servidor.
             if d.checksBlockMerge {
                 run.serverReady = false
                 run.serverCanMerge = false
-                if run.isPR, run.statusCategory == "ready" { run.statusCategory = "in_progress" }
-                // El texto y la etapa de gs también dicen «listo»: se bajan a «Esperando el CI» (etapa CI).
-                if run.estado.lowercased().contains("listo") { run.estado = "Esperando el CI" }
-                if (run.serverStage ?? 0) > DevStage.ci.rawValue { run.serverStage = DevStage.ci.rawValue }
             }
             if id == demoAskID { run.asked = Self.demoAsk }
             full[id] = run
@@ -573,7 +604,9 @@ final class DevStore {
                 // La tarjeta de un PR conserva su «qué pasa ahora», pero toma la corrección de los checks.
                 prs[i].serverReady = run.serverReady
                 prs[i].serverCanMerge = run.serverCanMerge
+                prs[i].statusLabel = run.statusLabel
                 prs[i].statusCategory = run.statusCategory
+                prs[i].column = run.column
                 prs[i].estado = run.estado
                 prs[i].serverStage = run.serverStage
             }
