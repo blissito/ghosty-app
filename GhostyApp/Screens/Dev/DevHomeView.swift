@@ -42,20 +42,44 @@ struct DevPhaseChip: View {
     /// El turno del escritor sigue vivo. gs pasa a «Esperando el CI» al subir el commit aunque el agente
     /// siga trabajando (PR #139, 22-nov): mientras su turno no cierre, la pastilla dice «Trabajando».
     var writerBusy = false
+    /// Renglones que puede ocupar. El texto de gs puede ser largo («Bloqueado por #94 · gs: …»): se parte en dos
+    /// renglones antes que cortarlo con «…» (regla de bliss, 24-nov: no truncar de más).
+    var lines = 2
     var body: some View {
         let t = run.tone
         HStack(spacing: 2) {
             PulsingDot(color: t.accent, active: t == .working || t == .needsYou, size: 6).padding(.leading, -2)
-            // El texto viene de gs (`status.label`) y puede ser largo («Bloqueado por #94 · gs: …»):
-            // un renglón y tope de ancho, si no ensancha toda la tarjeta.
             Text(writerBusy && t == .working ? "Trabajando" : run.phaseLabel).gChip().foregroundStyle(t.ink)
-                .lineLimit(1).truncationMode(.tail)
+                .lineLimit(lines).truncationMode(.tail).multilineTextAlignment(.leading)
         }
         .padding(.trailing, 10).padding(.leading, 4).padding(.vertical, 3)
-        .background(t.tint, in: Capsule())
-        .frame(maxWidth: 250, alignment: .trailing)
+        .background(t.tint, in: RoundedRectangle(cornerRadius: 12))
         .fixedSize(horizontal: false, vertical: true)
-        .layoutPriority(1)
+    }
+}
+
+/// Arriba de una tarjeta: el repo completo y su pastilla en un renglón si caben enteros; si no, la pastilla
+/// baja a su propio renglón (hasta dos). Nunca se corta el repo ni se amontona la pastilla en una columna angosta.
+struct DevRowTop<Chip: View>: View {
+    let repo: String
+    /// `true` = variante de un renglón (la que va junto al repo).
+    @ViewBuilder let chip: (Bool) -> Chip
+    private var label: some View {
+        Label(repo, systemImage: "chevron.left.forwardslash.chevron.right")
+            .font(.system(size: 12, weight: .medium)).foregroundStyle(Color.gInk3).lineLimit(1)
+    }
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center) {
+                label.fixedSize()
+                Spacer(minLength: 8)
+                chip(true).fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                label
+                chip(false)
+            }
+        }
     }
 }
 
@@ -94,12 +118,7 @@ struct DevRunRow: View {
     let run: DevRun
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                Label(run.repo, systemImage: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Color.gInk3).lineLimit(1)
-                Spacer(minLength: 8)
-                DevPhaseChip(run: run)
-            }
+            DevRowTop(repo: run.repo) { one in DevPhaseChip(run: run, lines: one ? 1 : 2) }
             Text(run.title).gCardTitle().foregroundStyle(Color.gInk).multilineTextAlignment(.leading)
             HStack(spacing: 6) {
                 if let n = run.issue, n > 0 { refChip("Issue #\(n)", "exclamationmark.circle") }
@@ -107,7 +126,7 @@ struct DevRunRow: View {
                 Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(1).minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
-            if let q = run.asked?.question { Text(q).font(.system(size: 13)).foregroundStyle(Color.gAmberInk).lineLimit(1) }
+            if let q = run.asked?.question { Text(q).font(.system(size: 13)).foregroundStyle(Color.gAmberInk).lineLimit(3).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true) }
             DevStageBar(run: run).padding(.top, 2)
         }
         .padding(Theme.Space.cardH)
@@ -135,14 +154,12 @@ struct DevLocalRunRow: View {
     let run: DevLocalRun
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                Label(run.repo, systemImage: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Color.gInk3).lineLimit(1)
-                Spacer(minLength: 8)
+            DevRowTop(repo: run.repo) { one in
                 Label(run.phaseLabel, systemImage: "terminal")
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk2)
+                    .lineLimit(one ? 1 : 2).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(Color.gFill, in: Capsule())
+                    .background(Color.gFill, in: RoundedRectangle(cornerRadius: 12))
             }
             Text(run.title).gCardTitle().foregroundStyle(Color.gInk).multilineTextAlignment(.leading)
             HStack(spacing: 4) {
@@ -218,6 +235,11 @@ struct DevHomeView: View {
             .scrollIndicators(.hidden)
             .refreshable { await store.refresh() }
             .background(Color.gBg.ignoresSafeArea())
+            // La lista pasa por debajo del reloj al deslizar: una franja opaca tapa la barra de estado.
+            .overlay(alignment: .top) {
+                GeometryReader { g in Color.gBg.frame(height: g.safeAreaInsets.top).offset(y: -g.safeAreaInsets.top) }
+                    .allowsHitTesting(false)
+            }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { id in DevRunView(id: id) }
         }

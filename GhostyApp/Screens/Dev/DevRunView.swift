@@ -178,7 +178,7 @@ struct DevRunView: View {
         VStack(alignment: .leading, spacing: compact ? 8 : 10) {
             if !compact { Text(run.repo).font(.system(size: 13, weight: .medium)).foregroundStyle(Color.gInk3) }
             Text(run.title).font(.system(size: compact ? 17 : 20, weight: .bold)).foregroundStyle(Color.gInk)
-                .lineLimit(compact ? 1 : 2)
+                .lineLimit(compact ? 2 : 3).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 DevPhaseChip(run: run, writerBusy: writerBusy)
                 if run.isLive, run.rounds > 0 { Text("vuelta \(run.rounds) de 3").gMeta().foregroundStyle(Color.gInk3) }
@@ -193,7 +193,7 @@ struct DevRunView: View {
             linkChips(run)
             DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
             if let ask = run.asked { askCard(ask, run: run) }
-            if run.asked == nil, let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(1) }
+            if run.asked == nil, let why = mergeBlocker(run) { Text(why).gCaption().foregroundStyle(Color.gInk3).lineLimit(3).fixedSize(horizontal: false, vertical: true) }
             if !compact, let n = run.note, run.isLive { Text(n).gMeta().foregroundStyle(Color.gInk2).lineLimit(2) }
         }
         .padding(.top, 2)

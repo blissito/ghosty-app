@@ -14,17 +14,20 @@ struct DevActionButton: View {
             Text(action.label).font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
                 .frame(maxWidth: .infinity).padding(.vertical, 11)
                 .foregroundStyle(fg)
-                .background(action.primary && !action.isDisabled ? Color.gPrimary : Color.clear, in: Capsule())
-                .overlay(Capsule().stroke(action.primary && !action.isDisabled ? Color.clear : Color.gSeparator, lineWidth: 1))
+                .background(filled ? Color.gPrimary : Color.clear, in: Capsule())
+                .overlay(Capsule().stroke(filled ? Color.clear : Color.gSeparator, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(action.isDisabled || busy)
         .accessibilityIdentifier("dev-action-\(action.id)")
     }
 
+    /// Lo destructivo («Soltar») nunca se pinta como el botón recomendado, aunque gs lo marque `primary`.
+    private var filled: Bool { action.primary && !action.destructive && !action.isDisabled }
+
     private var fg: Color {
         if action.isDisabled { return .gInk4 }
-        if action.primary { return .white }
+        if filled { return .white }
         return action.destructive ? .gDangerInk : .gInk
     }
 }
@@ -141,6 +144,8 @@ struct DevLocalSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 4) {
                     Label(writerLine, systemImage: "terminal").font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk2)
+                    // El estado de gs entero («Bloqueado por #94 · …»): en la fila puede ir en dos renglones, aquí completo.
+                    if run.phaseLabel != writerLine { Text(run.phaseLabel).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.gInk2).fixedSize(horizontal: false, vertical: true) }
                     if let stale = run.claim?.staleLine {
                         Label(stale, systemImage: "clock.badge.exclamationmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gAmberInk)
                             .accessibilityIdentifier("dev-local-stale")
