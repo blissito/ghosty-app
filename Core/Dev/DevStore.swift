@@ -113,6 +113,11 @@ struct DevRun: Identifiable, Hashable {
     var blockedBy: Int? = nil
     /// La pregunta pendiente del escritor, con sus opciones.
     var asked: DevAsk? = nil
+    /// Lo que gs deja hacer con la tarjeta (`actions`); `nil` = servidor viejo, se usa el respaldo calculado aquí.
+    var actions: [DevAction]? = nil
+    /// Sólo filas `local` y PRs con pendiente local: a dónde irá un mensaje escrito aquí.
+    var compose: DevCompose? = nil
+    var claim: DevClaim? = nil
     let createdAt: Date
     let updatedAt: Date
     var events: [DevEvent] = []
@@ -122,6 +127,7 @@ struct DevRun: Identifiable, Hashable {
         a.id == b.id && a.phase == b.phase && a.updatedAt == b.updatedAt && a.events.count == b.events.count
             && a.estado == b.estado && a.column == b.column && a.statusLabel == b.statusLabel && a.serverReady == b.serverReady && a.serverCanMerge == b.serverCanMerge
             && a.serverStage == b.serverStage && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy && a.asked == b.asked
+            && a.actions == b.actions && a.compose == b.compose && a.claim == b.claim
     }
     func hash(into h: inout Hasher) { h.combine(id) }
 
@@ -157,8 +163,17 @@ struct DevRun: Identifiable, Hashable {
     }
 
     /// CI y revisión en verde y sólo falta tu merge (habilita los botones; el texto lo dice `phaseLabel`).
-    var readyToMerge: Bool { isPR ? isLive && (statusCategory == "ready" || serverReady == true) : (serverReady ?? false) }
-    var canMerge: Bool { isPR ? false : (serverCanMerge ?? readyToMerge) }
+    /// Con `actions` del servidor manda la acción `merge`; sin ellas (gs viejo) se usa lo de antes.
+    var readyToMerge: Bool {
+        if let a = action("merge") { return isLive && (!a.isDisabled || statusCategory == "ready") }
+        if actions != nil { return false }
+        return isPR ? isLive && (statusCategory == "ready" || serverReady == true) : (serverReady ?? false)
+    }
+    var canMerge: Bool {
+        if actions != nil { return action("merge").map { !$0.isDisabled } ?? false }
+        return isPR ? false : (serverCanMerge ?? readyToMerge)
+    }
+    func action(_ id: String) -> DevAction? { actions?.first { $0.id == id } }
 
     static let knownColumns = ["ready", "review", "writing", "todo", "done", "halted"]
 
@@ -241,7 +256,17 @@ struct DevRun: Identifiable, Hashable {
                       statusLabel: (j["status"] as? [String: Any])?["label"] as? String,
                       statusCategory: (j["status"] as? [String: Any])?["category"] as? String)
         .withBlockedBy((j["blockedBy"] as? [String: Any])?["pr"] as? Int)
+        .withServer(j)
         .withAsked(DevAsk.from(json: j["asked"], note: (j["note"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
+    }
+
+    /// `actions`, `compose` y `claim` tal como los manda gs.
+    fileprivate func withServer(_ j: [String: Any]) -> DevRun {
+        var r = self
+        r.actions = DevAction.list(from: j["actions"])
+        r.compose = DevCompose.from(json: j["compose"])
+        r.claim = DevClaim.from(json: j["claim"])
+        return r
     }
 
     fileprivate func withAsked(_ a: DevAsk?) -> DevRun { var r = self; r.asked = a; return r }
@@ -249,7 +274,7 @@ struct DevRun: Identifiable, Hashable {
     fileprivate func withBlockedBy(_ n: Int?) -> DevRun { var r = self; r.blockedBy = n; return r }
 
     /// Detenido con su PR todavía abierto: se puede retomar (`reopen`, misma rama, caja nueva).
-    var canReopen: Bool { phase == "stopped" && pr != nil && !isPR }
+    var canReopen: Bool { actions != nil ? action("reopen") != nil : phase == "stopped" && pr != nil && !isPR }
     /// Esperando a otro PR: se puede soltar la espera sin cerrarlo (`resume` sin nota).
     var isBlocked: Bool { phase == "blocked" }
 
@@ -266,6 +291,7 @@ struct DevRun: Identifiable, Hashable {
                       createdAt: updated, updatedAt: updated,
                       serverStage: j["stage"] as? Int, column: j["column"] as? String, isPR: true,
                       statusLabel: status?["label"] as? String, statusCategory: status?["category"] as? String)
+            .withServer(j)
     }
 
     /// El issue en GitHub (`repo` llega como `owner/nombre`).
@@ -458,6 +484,10 @@ struct DevLocalRun: Identifiable {
     /// Lo que gs calcula para el pendiente de terminal (`column`, `status`); sin ellos se usa `phase`.
     var column: String? = nil
     var statusLabel: String? = nil
+    /// Lo que gs deja hacer, a dónde irá un mensaje y la última señal de la terminal.
+    var actions: [DevAction]? = nil
+    var compose: DevCompose? = nil
+    var claim: DevClaim? = nil
 
     var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
     /// Un issue que nadie ha empezado: sale en «Pendientes», no en «En una terminal».
@@ -486,7 +516,9 @@ struct DevLocalRun: Identifiable {
                            prURL: (j["prUrl"] as? String).flatMap(URL.init(string:)),
                            updatedAt: DevDate.parse(j["updatedAt"] as? String) ?? .distantPast,
                            column: j["column"] as? String,
-                           statusLabel: (j["status"] as? [String: Any])?["label"] as? String)
+                           statusLabel: (j["status"] as? [String: Any])?["label"] as? String,
+                           actions: DevAction.list(from: j["actions"]), compose: DevCompose.from(json: j["compose"]),
+                           claim: DevClaim.from(json: j["claim"]))
     }
 }
 
@@ -590,10 +622,13 @@ final class DevStore {
             if let card = prs.first(where: { $0.id == id }) ?? runs.first(where: { $0.id == id }) {
                 if run.statusLabel == nil { run.statusLabel = card.statusLabel; run.statusCategory = card.statusCategory }
                 if run.column == nil { run.column = card.column }
+                if run.actions == nil { run.actions = card.actions }
+                if run.compose == nil { run.compose = card.compose }
+                if run.claim == nil { run.claim = card.claim }
             }
             // Un check del commit en rojo o corriendo apaga el botón de merge (gs lo rechaza: «El CI sigue corriendo»,
             // #114 de formmy). Sólo se deshabilita la acción; el texto y la columna son los del servidor.
-            if d.checksBlockMerge {
+            if run.actions == nil, d.checksBlockMerge {
                 run.serverReady = false
                 run.serverCanMerge = false
             }
@@ -609,6 +644,9 @@ final class DevStore {
                 prs[i].column = run.column
                 prs[i].estado = run.estado
                 prs[i].serverStage = run.serverStage
+                prs[i].actions = run.actions
+                prs[i].compose = run.compose
+                prs[i].claim = run.claim
             }
         }
         details[id] = d
@@ -628,9 +666,9 @@ final class DevStore {
         }
     }
 
-    struct DevError: Error { let message: String }
+    struct DevError: Error { let message: String; var code = 0; var body: [String: Any]? = nil }
 
-    private func request(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> Any {
+    func request(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> Any {
         var c = URLComponents(url: Session.base.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !query.isEmpty { c.queryItems = query }
         guard let url = c.url else { throw DevError(message: "URL inválida") }
@@ -648,7 +686,7 @@ final class DevStore {
         let json = try? JSONSerialization.jsonObject(with: data)
         guard (200..<300).contains(code) else {
             let msg = ((json as? [String: Any])?["message"] as? String) ?? ((json as? [String: Any])?["error"] as? String) ?? "Error \(code)"
-            throw DevError(message: msg)
+            throw DevError(message: msg, code: code, body: json as? [String: Any])
         }
         return json ?? [:]
     }

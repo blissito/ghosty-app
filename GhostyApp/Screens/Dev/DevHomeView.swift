@@ -143,7 +143,7 @@ struct DevLocalRunRow: View {
             HStack(spacing: 4) {
                 Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
                 Spacer(minLength: 0)
-                Image(systemName: run.pr == nil ? "arrow.up.right" : "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk3)
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk3)
             }
         }
         .padding(Theme.Space.cardH)
@@ -168,7 +168,8 @@ struct DevHomeView: View {
     @State private var onlyNeedsYou = false
     /// Repo elegido (`nil` = todos), como el selector de la web.
     @State private var repo: String?
-    @Environment(\.openURL) private var openURL
+    /// La ficha de un pendiente de terminal (ya no salta a GitHub).
+    @State private var localSheet: DevLocalRun?
 
     /// Los de la nube y los PRs (de terminal o de una persona) juntos, lo más reciente arriba, como la web.
     private var visible: [DevRun] {
@@ -216,6 +217,7 @@ struct DevHomeView: View {
             .navigationDestination(for: String.self) { id in DevRunView(id: id) }
         }
         .tint(.gInk)
+        .sheet(item: $localSheet) { DevLocalSheet(initial: $0) }
         .onChange(of: path) { _, p in
             withAnimation(.easeOut(duration: 0.2)) { inRun = !p.isEmpty }
             if p.isEmpty { Task { await store.refresh() } }
@@ -288,16 +290,14 @@ struct DevHomeView: View {
                             .accessibilityIdentifier("dev-run-\(run.id)")
                     }
                 }
-                // Issues que alguien tomó en su terminal y todavía no tienen PR: gs sólo sabe su título,
-                // así que van al final y abren el issue. Con PR se abren dentro de la app.
+                // Issues que alguien tomó en su terminal y todavía no tienen tarjeta de PR: van al final
+                // y abren su ficha (acciones y mensaje los manda gs). Con PR se abre la tarjeta del PR.
                 ForEach([("Pendientes", localOnly.filter(\.notStarted)), ("En una terminal", localOnly.filter { !$0.notStarted })], id: \.0) { title, items in
                     if !items.isEmpty {
                         Text(title).gSectionTitle().foregroundStyle(Color.gInk2).padding(.top, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         ForEach(items) { run in
-                            Button {
-                                if let id = run.prID { path.append(id) } else if let u = run.openURL { openURL(u) }
-                            } label: { DevLocalRunRow(run: run) }
+                            Button { localSheet = run } label: { DevLocalRunRow(run: run) }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier("dev-local-\(run.id)")
                         }

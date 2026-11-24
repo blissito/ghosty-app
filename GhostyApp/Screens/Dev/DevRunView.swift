@@ -10,6 +10,8 @@ struct DevRunView: View {
     @State private var sending = false
     @State private var notice: String?
     @State private var confirmStop = false
+    /// Una acción del servidor con `confirm`, esperando el sí de la persona.
+    @State private var pendingAction: DevAction?
     @State private var chats = LiveAgentStore.compartido
     /// El hilo `dev:<id>` enfocado en el store de chats; al salir se regresa a lo de antes.
     @State private var devFocus: LiveAgentStore.DevFocus?
@@ -37,6 +39,9 @@ struct DevRunView: View {
         .confirmationDialog("¿Detener este pendiente?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Detener", role: .destructive) { Task { await act("stop") } }
         } message: { Text("El agente deja de trabajar en él. El PR se queda como está.") }
+        .confirmationDialog(pendingAction?.confirm ?? "", isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
+            if let a = pendingAction { Button(a.label, role: a.destructive ? .destructive : nil) { Task { await runAction(a) } } }
+        }
         .alert(notice ?? "", isPresented: noticeShown) { Button("OK", role: .cancel) {} }
         .task(id: detail?.writerSessionID) { focusWriter() }
         .onDisappear { releaseWriter() }
@@ -61,9 +66,15 @@ struct DevRunView: View {
     @ViewBuilder private var moreMenu: some View {
         if let run {
             Menu {
-                if let u = run.prURL { Button(run.isPR && run.readyToMerge ? "Hacer merge en GitHub" : "Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
+                // Con `actions` de gs, el menú es lo que el servidor dejó (menos la principal, que va en el encabezado).
+                if let acts = run.actions {
+                    ForEach(acts.filter { $0.id != headerAction(run)?.id }) { a in
+                        Button(a.label, role: a.destructive ? .destructive : nil) { tap(a) }.disabled(a.isDisabled || sending)
+                    }
+                }
+                if run.actions == nil, let u = run.prURL { Button(run.isPR && run.readyToMerge ? "Hacer merge en GitHub" : "Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
                 if let sh = detail?.sheet, sh.previewState == "ready", let u = sh.previewURL { Button("Ver la vista previa", systemImage: "safari") { openURL(u) } }
-                if run.isLive, !run.isPR { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
+                if run.actions == nil, run.isLive, !run.isPR { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
             } label: { Image(systemName: "ellipsis.circle") }
         }
     }
@@ -134,7 +145,8 @@ struct DevRunView: View {
                 // El deploy existe sólo después del merge.
                 if run.phase == "merged", let d = detail?.deployLabel { deployPill(d) }
                 Spacer(minLength: 0)
-                if run.isBlocked { pillButton("Seguir sin esperar") { Task { await act("resume") } } }
+                if run.actions != nil { if let a = headerAction(run) { actionPill(a) } }
+                else if run.isBlocked { pillButton("Seguir sin esperar") { Task { await act("resume") } } }
                 else if run.canReopen { pillButton("Reabrir") { Task { await act("reopen") } } }
                 else if run.isLive, run.pr != nil { if run.isPR { githubMergeButton(run) } else { mergeButton(run) } }
             }
@@ -194,7 +206,7 @@ struct DevRunView: View {
                     Text("Decide tú").font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize().foregroundStyle(Color.gInk2)
                 }
                 .buttonStyle(.plain).disabled(sending).accessibilityIdentifier("dev-ask-decide")
-                if run.isLive, !run.isPR {
+                if run.isLive, !run.isPR, run.actions == nil || run.action("stop") != nil {
                     Button { confirmStop = true } label: {
                         Text("Cerrar").font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize().foregroundStyle(Color.gDangerInk)
                     }
@@ -212,6 +224,8 @@ struct DevRunView: View {
 
     /// Por qué Merge está apagado, dicho una vez bajo las etapas (`nil` = nada que explicar).
     private func mergeBlocker(_ run: DevRun) -> String? {
+        // Con acciones del servidor, el porqué de una acción apagada lo dice gs (`disabled.why`).
+        if run.actions != nil { return headerAction(run).flatMap { $0.isDisabled ? $0.disabledWhy : nil } }
         if run.isBlocked { return run.blockedBy.map { "Esperando el PR #\($0). «Seguir sin esperar» no lo cierra." } ?? "Esperando a otro PR." }
         guard run.isLive, run.pr != nil, !run.canMerge, !run.isPR else { return nil }
         // Lo que de verdad frena el merge: un check del commit en rojo o corriendo (antes decía «te preguntó algo»).
@@ -241,6 +255,15 @@ struct DevRunView: View {
             ScrollView { commentsTab.padding(.horizontal, Theme.Space.screenH).padding(.bottom, 24) }
                 .scrollIndicators(.hidden)
                 .refreshable { await store.loadDetail(id) }
+            // PR con pendiente de terminal: el campo lo manda gs (`compose`) y dice a dónde llega el mensaje.
+            if let c = run.compose {
+                DevComposeBar(compose: c, repo: run.repo) { text in
+                    let r = await store.sendMessage(repo: run.repo, issue: run.issue, pr: run.pr, content: text)
+                    await store.loadDetail(id)
+                    return r
+                }
+                .padding(.horizontal, Theme.Space.screenH).padding(.bottom, 8)
+            }
         } else if devFocus != nil {
             ConversationView(store: chats, onOpenSheet: {}, embedded: true, placeholder: "Dile al agente qué ajustar…",
                              readOnlyNote: run.isLive ? nil : "El pendiente ya cerró: aquí sólo se lee lo que habló el agente.")
@@ -572,6 +595,39 @@ struct DevRunView: View {
     }
 
     // MARK: Acciones
+
+    /// La acción que va en el encabezado: la `primary` de gs, o `merge` (apagado también se ve, con su porqué).
+    private func headerAction(_ run: DevRun) -> DevAction? {
+        run.actions?.first { $0.primary } ?? run.action("merge")
+    }
+
+    private func actionPill(_ a: DevAction) -> some View {
+        Button { tap(a) } label: {
+            Text(a.label).font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize()
+                .padding(.horizontal, 16).padding(.vertical, 7)
+                .foregroundStyle(a.isDisabled ? Color.gInk3 : a.primary ? Color.white : a.destructive ? Color.gDangerInk : Color.gInk)
+                .background(!a.isDisabled && a.primary ? Color.gPrimary : Color.clear, in: Capsule())
+                .overlay(Capsule().stroke(!a.isDisabled && a.primary ? Color.clear : Color.gSeparator, lineWidth: 1))
+        }
+        .buttonStyle(.plain).disabled(a.isDisabled || sending)
+        .accessibilityIdentifier("dev-action-\(a.id)")
+    }
+
+    private func tap(_ a: DevAction) {
+        if let c = a.confirm, !c.isEmpty { pendingAction = a } else { Task { await runAction(a) } }
+    }
+
+    /// Ejecuta lo que gs dejó hacer; una acción que no se conoce igual corre por su `op` o su `href`.
+    private func runAction(_ a: DevAction) async {
+        guard let run else { return }
+        sending = true
+        defer { sending = false }
+        switch await store.perform(a, repo: run.repo, issue: run.issue, runID: id) {
+        case .done: break
+        case .open(let u): openURL(u)
+        case .failed(let m): notice = m
+        }
+    }
 
     private func send(_ text: String) async {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
