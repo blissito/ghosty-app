@@ -126,7 +126,7 @@ struct DevRun: Identifiable, Hashable {
     static func == (a: DevRun, b: DevRun) -> Bool {
         a.id == b.id && a.phase == b.phase && a.updatedAt == b.updatedAt && a.events.count == b.events.count
             && a.estado == b.estado && a.column == b.column && a.statusLabel == b.statusLabel && a.serverReady == b.serverReady && a.serverCanMerge == b.serverCanMerge
-            && a.serverStage == b.serverStage && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy && a.asked == b.asked
+            && a.serverStage == b.serverStage && a.mergeBlock == b.mergeBlock && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy && a.asked == b.asked
             && a.actions == b.actions && a.compose == b.compose && a.claim == b.claim
     }
     func hash(into h: inout Hasher) { h.combine(id) }
@@ -144,12 +144,14 @@ struct DevRun: Identifiable, Hashable {
     var serverReady: Bool?
     var serverStage: Int?
     var serverCanMerge: Bool?
+    /// Por qué gs no deja hacer merge todavía («Falta: CI en verde (está corriendo)»); `nil` si se puede.
+    var mergeBlock: String?
 
     /// Columna del tablero que manda gs: todo | writing | review | ready | done | halted. Un valor nuevo no esconde la tarjeta.
     var column: String?
 
     /// Un PR sin DevRun (escrito en una terminal o por una persona): tarjeta `prs` de gs, id `pr:<repo>#<n>`.
-    /// No tiene chat ni Merge desde aquí: el merge se hace en GitHub.
+    /// Se opera por `POST …/dev-runs/pr/<owner>/<name>/<n>` (merge, preview, revisión, cerrar) y su hilo (`thread/messages`).
     var isPR = false
     /// Lo que gs dice que pasa ahora (`status.label` de la tarjeta, en todo pendiente y PR): «CI falló: Prueba en vivo».
     var statusLabel: String?
@@ -163,15 +165,16 @@ struct DevRun: Identifiable, Hashable {
     }
 
     /// CI y revisión en verde y sólo falta tu merge (habilita los botones; el texto lo dice `phaseLabel`).
-    /// Con `actions` del servidor manda la acción `merge`; sin ellas (gs viejo) se usa lo de antes.
+    /// Con `actions` del servidor manda la acción `merge`; sin ellas (gs viejo) se usa el respaldo:
+    /// un PR sin run se opera por `POST …/dev-runs/pr/…` y su `mergeBlock` dice por qué no.
     var readyToMerge: Bool {
         if let a = action("merge") { return isLive && (!a.isDisabled || statusCategory == "ready") }
         if actions != nil { return false }
-        return isPR ? isLive && (statusCategory == "ready" || serverReady == true) : (serverReady ?? false)
+        return isPR ? isLive && serverReady != false && (statusCategory == "ready" || serverReady == true) : (serverReady ?? false)
     }
     var canMerge: Bool {
         if actions != nil { return action("merge").map { !$0.isDisabled } ?? false }
-        return isPR ? false : (serverCanMerge ?? readyToMerge)
+        return isPR ? (readyToMerge && serverCanMerge != false && mergeBlock == nil) : (serverCanMerge ?? readyToMerge)
     }
     func action(_ id: String) -> DevAction? { actions?.first { $0.id == id } }
 
@@ -258,6 +261,7 @@ struct DevRun: Identifiable, Hashable {
         .withBlockedBy((j["blockedBy"] as? [String: Any])?["pr"] as? Int)
         .withServer(j)
         .withAsked(DevAsk.from(json: j["asked"], note: (j["note"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
+        .withMergeBlock((j["mergeBlock"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
     /// `actions`, `compose` y `claim` tal como los manda gs.
@@ -268,6 +272,8 @@ struct DevRun: Identifiable, Hashable {
         r.claim = DevClaim.from(json: j["claim"])
         return r
     }
+
+    fileprivate func withMergeBlock(_ m: String?) -> DevRun { var r = self; r.mergeBlock = m; return r }
 
     fileprivate func withAsked(_ a: DevAsk?) -> DevRun { var r = self; r.asked = a; return r }
 
@@ -326,6 +332,8 @@ struct DevDetail {
     var writerName: String?
     /// Comentarios del PR (sólo PRs sin DevRun: no hay chat con un agente).
     var thread: [Comment] = []
+    /// Variables que la vista previa del PR no tiene (nombres, nunca valores): las de código tocado primero.
+    var missingEnv: [String] = []
     /// Hallazgos de la revisión de Ghosty en el commit actual (PRs sin DevRun).
     var findings: Int?
     struct Comment: Identifiable { let id: Int; let by: String; let bot: Bool; let text: String; let at: Date? }
@@ -379,6 +387,13 @@ struct DevDetail {
             }
         }
         d.deploy = j["deploy"] as? [String: Any]
+        if let p = j["preview"] as? [String: Any] {
+            // Igual que la web: sólo las que lee código tocado por el PR (no las ~20 de producción que no hacen falta
+            // para probar) y nunca las `GHOSTY_*`, que gs resuelve solo con el token de la vista previa.
+            let all = p["missingEnv"] as? [String] ?? []
+            let need = (p["missingEnvPriority"] as? [String]) ?? (p["missingEnvTouched"] as? [String]) ?? []
+            d.missingEnv = need.filter { all.contains($0) && !$0.hasPrefix("GHOSTY_") }
+        }
         if let n = j["network"] as? [String: Any] {
             d.networkMode = n["mode"] as? String
             // El firewall anota por IP: el mismo host sale varias veces. Una pastilla por host.
@@ -407,11 +422,13 @@ struct DevDetail {
                 sh.previewError = p["note"] as? String
             }
             sh.previewURL = ((j["preview"] as? [String: Any])?["link"] as? String).flatMap(URL.init(string:))
-            d.sheet = sh
             d.thread = (j["thread"] as? [[String: Any]] ?? []).compactMap {
                 guard let id = $0["id"] as? Int, let t = $0["text"] as? String else { return nil }
                 return Comment(id: id, by: $0["by"] as? String ?? "", bot: $0["bot"] as? Bool ?? false, text: t, at: DevDate.parse($0["at"] as? String))
             }
+            // La evidencia de un PR es un comentario del bot («Evidencia del pendiente #n»): sin ficha no hay otro rastro.
+            sh.evidence = d.thread.contains { $0.bot && $0.text.contains("Evidencia del pendiente") }
+            d.sheet = sh
         }
         if let w = j["writer"] as? [String: Any] {
             d.writerAgentID = w["agentId"] as? String
@@ -448,6 +465,17 @@ struct DevSmoke {
     /// Problemas ya redactados para pintar: pasos fallidos y fallas de la página con su ruta.
     var problems: [String] { failedSteps + issues.map { i in i.whereText.map { "\(i.what) · \($0)" } ?? i.what } }
     let lighthouse: DevDetail.Lighthouse?
+    /// Cada ruta que probó (✓ ok · ⚠ aviso suave · ✗ falla).
+    var steps: [Step] = []
+    /// Imágenes rotas, desbordes y fallas de contraste de la página (`nil` = no se midió).
+    var brokenImages: Int?
+    var layoutIssues: Int?
+    var contrastFails: Int?
+
+    struct Step: Identifiable {
+        let method: String, path: String, status: Int?, ok: Bool, soft: Bool, why: String
+        var id: String { method + path + why }
+    }
 
     static func latest(in events: [DevEvent]) -> DevSmoke? {
         guard let e = events.last(where: { $0.kind == "smoke_green" || $0.kind == "smoke_red" }) else { return nil }
@@ -456,7 +484,7 @@ struct DevSmoke {
             guard let w = i["what"] as? String else { return nil }
             return .init(what: w, whereText: i["where"] as? String)
         }
-        let steps = (e.data["steps"] as? [[String: Any]] ?? []).filter { ($0["ok"] as? Bool) == false }.map {
+        let steps = (e.data["steps"] as? [[String: Any]] ?? []).filter { ($0["ok"] as? Bool) == false && ($0["soft"] as? Bool) != true }.map {
             "\($0["method"] as? String ?? "GET") \($0["path"] as? String ?? "/") · \($0["why"] as? String ?? "")"
         }
         var lh: DevDetail.Lighthouse?
@@ -464,7 +492,16 @@ struct DevSmoke {
             lh = .init(performance: l["performance"] as? Double, accessibility: l["accessibility"] as? Double,
                        bestPractices: l["bestPractices"] as? Double, seo: l["seo"] as? Double)
         }
-        return DevSmoke(green: e.kind == "smoke_green", issues: issues, failedSteps: steps, lighthouse: lh)
+        let all = (e.data["steps"] as? [[String: Any]] ?? []).map {
+            Step(method: $0["method"] as? String ?? "GET", path: $0["path"] as? String ?? "/", status: $0["status"] as? Int,
+                 ok: ($0["ok"] as? Bool) == true, soft: ($0["soft"] as? Bool) == true, why: $0["why"] as? String ?? "")
+        }
+        var smoke = DevSmoke(green: e.kind == "smoke_green", issues: issues, failedSteps: steps, lighthouse: lh)
+        smoke.steps = all
+        smoke.brokenImages = page?["brokenImages"] as? Int
+        smoke.layoutIssues = page?["layout"] as? Int
+        smoke.contrastFails = page?["contrastFails"] as? Int
+        return smoke
     }
 }
 
@@ -607,14 +644,14 @@ final class DevStore {
     /// Un pendiente de la lista, de cualquier tipo.
     func row(_ id: String) -> DevRun? { runs.first { $0.id == id } ?? prs.first { $0.id == id } }
 
+    /// `pr:<owner>/<name>#<n>` → `api/v2/me/dev-runs/pr/<owner>/<name>/<n>` (mismo detalle que la web `/c/dev/pr/...`).
+    static func prPath(_ id: String) -> String? {
+        guard id.hasPrefix("pr:"), let hash = id.lastIndex(of: "#") else { return nil }
+        return "api/v2/me/dev-runs/pr/\(id[id.index(id.startIndex, offsetBy: 3)..<hash])/\(id[id.index(after: hash)...])"
+    }
+
     func loadDetail(_ id: String) async {
-        let path: String
-        if id.hasPrefix("pr:"), let hash = id.lastIndex(of: "#") {
-            // `pr:<owner>/<name>#<n>` → `pr/<owner>/<name>/<n>` (mismo detalle que la web `/c/dev/pr/...`).
-            path = "api/v2/me/dev-runs/pr/\(id[id.index(id.startIndex, offsetBy: 3)..<hash])/\(id[id.index(after: hash)...])"
-        } else {
-            path = "api/v2/me/dev-runs/\(id)"
-        }
+        let path = Self.prPath(id) ?? "api/v2/me/dev-runs/\(id)"
         guard let j = try? await request(path, query: [URLQueryItem(name: "detail", value: "1")]) as? [String: Any] else { return }
         let d = DevDetail.from(json: j)
         if var run = DevRun.from(json: j) {
@@ -639,6 +676,7 @@ final class DevStore {
                 // La tarjeta de un PR conserva su «qué pasa ahora», pero toma la corrección de los checks.
                 prs[i].serverReady = run.serverReady
                 prs[i].serverCanMerge = run.serverCanMerge
+                prs[i].mergeBlock = run.mergeBlock
                 prs[i].statusLabel = run.statusLabel
                 prs[i].statusCategory = run.statusCategory
                 prs[i].column = run.column
@@ -654,6 +692,19 @@ final class DevStore {
 
     /// `merge` | `resume` (con nota) | `stop`. Devuelve el error para la UI, `nil` si salió.
     func act(_ id: String, op: String, note: String? = nil) async -> String? {
+        // Un PR sin DevRun se opera por su propia ruta (merge, close, review, preview…); `tell`/`resume` no existen ahí.
+        if let prPath = Self.prPath(id) {
+            var body: [String: Any] = ["op": op]
+            if let note, !note.isEmpty { body["note"] = note }
+            do {
+                _ = try await request(prPath, method: "POST", body: body)
+                await loadDetail(id)
+                await refresh()
+                return nil
+            } catch {
+                return (error as? DevError)?.message ?? "No se pudo. Intenta otra vez."
+            }
+        }
         var body: [String: Any] = ["op": op, "from": "ios"]
         if let note, !note.isEmpty { body["note"] = note }
         do {
@@ -663,6 +714,64 @@ final class DevStore {
             return nil
         } catch {
             return (error as? DevError)?.message ?? "No se pudo. Intenta otra vez."
+        }
+    }
+
+    /// Una operación de PR con su respuesta: el aviso de gs (`actionNote`) y, en `new-issue`, el issue creado.
+    struct PROpResult { var error: String?; var note: String?; var created: URL? }
+
+    func prOp(_ id: String, _ op: String, note: String? = nil, what: String? = nil) async -> PROpResult {
+        guard let path = Self.prPath(id) else { return PROpResult(error: "Este pendiente no es un PR.") }
+        var body: [String: Any] = ["op": op]
+        if let note, !note.isEmpty { body["note"] = note }
+        if let what, !what.isEmpty { body["what"] = what }
+        do {
+            let j = try await request(path, method: "POST", body: body) as? [String: Any]
+            await loadDetail(id)
+            let created = (j?["created"] as? [String: Any])?["url"] as? String
+            return PROpResult(error: nil, note: j?["actionNote"] as? String, created: created.flatMap(URL.init(string:)))
+        } catch {
+            return PROpResult(error: (error as? DevError)?.message ?? "No se pudo. Intenta otra vez.")
+        }
+    }
+
+    /// `owner/name` de un `pr:<owner>/<name>#<n>`.
+    private static func repoPath(_ id: String) -> (repo: String, pr: String)? {
+        guard id.hasPrefix("pr:"), let hash = id.lastIndex(of: "#") else { return nil }
+        return (String(id[id.index(id.startIndex, offsetBy: 3)..<hash]), String(id[id.index(after: hash)...]))
+    }
+
+    /// Guarda variables de la vista previa del repo (sólo el dueño del espacio; los valores nunca vuelven). `nil` = se guardó.
+    func saveEnv(repo: String, dotenv: String) async -> String? {
+        do {
+            _ = try await request("api/v2/me/repos/\(repo)/env", method: "POST", body: ["dotenv": dotenv])
+            return nil
+        } catch {
+            return (error as? DevError)?.message ?? "No se pudieron guardar."
+        }
+    }
+
+    /// La liga para compartir la vista previa de un PR. `create` crea la liga pública («cualquiera con la liga»); sin él sólo lee.
+    func shareState(_ id: String, create: Bool = false) async -> (url: URL?, shared: Bool, error: String?) {
+        guard let r = Self.repoPath(id) else { return (nil, false, "Este pendiente no es un PR.") }
+        do {
+            let j = try await request("api/v2/me/repos/\(r.repo)/prs/\(r.pr)/share", method: create ? "POST" : "GET") as? [String: Any]
+            return ((j?["url"] as? String).flatMap(URL.init(string:)), (j?["shared"] as? Bool) == true, nil)
+        } catch {
+            return (nil, false, (error as? DevError)?.message ?? "No se pudo.")
+        }
+    }
+
+    /// Le habla al agente de la terminal de un PR: publica el pedido como comentario del PR (`thread/messages`).
+    /// Los errores de gs vienen en texto plano y se enseñan tal cual.
+    func say(_ id: String, _ text: String) async -> String? {
+        guard let prPath = Self.prPath(id) else { return "Este pendiente no es un PR." }
+        do {
+            _ = try await request(prPath + "/thread/messages", method: "POST", body: ["content": text])
+            await loadDetail(id)
+            return nil
+        } catch {
+            return (error as? DevError)?.message ?? "No se pudo mandar. Intenta otra vez."
         }
     }
 
@@ -685,7 +794,9 @@ final class DevStore {
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         let json = try? JSONSerialization.jsonObject(with: data)
         guard (200..<300).contains(code) else {
-            let msg = ((json as? [String: Any])?["message"] as? String) ?? ((json as? [String: Any])?["error"] as? String) ?? "Error \(code)"
+            // `thread/messages` contesta los errores en texto plano: se enseñan tal cual.
+            let plain = json == nil ? String(data: data, encoding: .utf8).flatMap { $0.count < 240 && !$0.hasPrefix("<") ? $0 : nil } : nil
+            let msg = ((json as? [String: Any])?["message"] as? String) ?? ((json as? [String: Any])?["error"] as? String) ?? plain ?? "Error \(code)"
             throw DevError(message: msg, code: code, body: json as? [String: Any])
         }
         return json ?? [:]

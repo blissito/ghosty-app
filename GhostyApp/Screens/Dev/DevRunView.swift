@@ -12,6 +12,15 @@ struct DevRunView: View {
     @State private var confirmStop = false
     /// Una acción del servidor con `confirm`, esperando el sí de la persona.
     @State private var pendingAction: DevAction?
+    /// PR sin DevRun: el merge y el cierre son irreversibles, piden confirmación.
+    @State private var confirmMerge = false
+    @State private var confirmClose = false
+    /// Lo que se está escribiendo para el agente de la terminal (hilo del PR).
+    @State private var draft = ""
+    @State private var envOpen = false
+    @State private var shareOpen = false
+    @State private var busyOp: String?
+    @State private var confirmOp: String?
     @State private var chats = LiveAgentStore.compartido
     /// El hilo `dev:<id>` enfocado en el store de chats; al salir se regresa a lo de antes.
     @State private var devFocus: LiveAgentStore.DevFocus?
@@ -35,14 +44,39 @@ struct DevRunView: View {
     }
 
     var body: some View {
+        core.alert(notice ?? "", isPresented: noticeShown) { Button("OK", role: .cancel) {} }
+    }
+
+    /// Los modales de las operaciones de PR (variables, compartir, confirmar), aparte del cuerpo para no ahogar al compilador.
+    private var prModals: some View {
         framed
+        .confirmationDialog(opCopy(confirmOp).title, isPresented: Binding(get: { confirmOp != nil }, set: { if !$0 { confirmOp = nil } }), titleVisibility: .visible) {
+            Button(opCopy(confirmOp).button) { if let o = confirmOp { Task { await runPROp(o) } } }
+        }
+        .sheet(isPresented: $envOpen) {
+            FactoryEnvSheet(repo: run?.repo, names: detail?.missingEnv ?? []) { dotenv in
+                let err = await store.saveEnv(repo: run?.repo ?? "", dotenv: dotenv)
+                if err == nil { _ = await store.prOp(id, "preview"); notice = "Variables guardadas: rearmando la vista previa." }
+                return err
+            }
+        }
+        .sheet(isPresented: $shareOpen) { DevShareSheet(id: id, store: store) }
+    }
+
+    @ViewBuilder private var core: some View {
+        prModals
         .confirmationDialog("¿Detener este pendiente?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Detener", role: .destructive) { Task { await act("stop") } }
         } message: { Text("El agente deja de trabajar en él. El PR se queda como está.") }
         .confirmationDialog(pendingAction?.confirm ?? "", isPresented: Binding(get: { pendingAction != nil }, set: { if !$0 { pendingAction = nil } }), titleVisibility: .visible) {
             if let a = pendingAction { Button(a.label, role: a.destructive ? .destructive : nil) { Task { await runAction(a) } } }
         }
-        .alert(notice ?? "", isPresented: noticeShown) { Button("OK", role: .cancel) {} }
+        .confirmationDialog("¿Hacer merge de este PR?", isPresented: $confirmMerge, titleVisibility: .visible) {
+            Button("Merge") { Task { await act("merge") } }
+        } message: { Text("Entra a la rama base. No se puede deshacer desde la app.") }
+        .confirmationDialog("¿Cerrar el PR sin merge?", isPresented: $confirmClose, titleVisibility: .visible) {
+            Button("Cerrar sin merge", role: .destructive) { Task { await act("close") } }
+        } message: { Text("Se cierra el PR sin hacer merge.") }
         .task(id: detail?.writerSessionID) { focusWriter() }
         .onDisappear { releaseWriter() }
         .task(id: id) {
@@ -75,6 +109,12 @@ struct DevRunView: View {
                 if run.actions == nil, let u = run.prURL { Button(run.isPR && run.readyToMerge ? "Hacer merge en GitHub" : "Abrir el PR en GitHub", systemImage: "arrow.up.right.square") { openURL(u) } }
                 if let sh = detail?.sheet, sh.previewState == "ready", let u = sh.previewURL { Button("Ver la vista previa", systemImage: "safari") { openURL(u) } }
                 if run.actions == nil, run.isLive, !run.isPR { Button("Detener", systemImage: "stop.circle", role: .destructive) { confirmStop = true } }
+                // Respaldo (gs sin `actions`): un PR sin run se opera por su ruta de PR.
+                if run.actions == nil, run.isPR, run.isLive {
+                    Button("Rearmar la vista previa", systemImage: "arrow.clockwise") { Task { await act("preview") } }
+                    Button("Pedir revisión de Ghosty", systemImage: "checkmark.shield") { Task { await act("review") } }
+                    Button("Cerrar sin merge", systemImage: "xmark.circle", role: .destructive) { confirmClose = true }
+                }
             } label: { Image(systemName: "ellipsis.circle") }
         }
     }
@@ -148,7 +188,7 @@ struct DevRunView: View {
                 if run.actions != nil { if let a = headerAction(run) { actionPill(a) } }
                 else if run.isBlocked { pillButton("Seguir sin esperar") { Task { await act("resume") } } }
                 else if run.canReopen { pillButton("Reabrir") { Task { await act("reopen") } } }
-                else if run.isLive, run.pr != nil { if run.isPR { githubMergeButton(run) } else { mergeButton(run) } }
+                else if run.isLive, run.pr != nil { mergeButton(run) }
             }
             linkChips(run)
             DevStageBar(run: run, compact: compact).padding(.top, compact ? 0 : 4)
@@ -227,7 +267,9 @@ struct DevRunView: View {
         // Con acciones del servidor, el porqué de una acción apagada lo dice gs (`disabled.why`).
         if run.actions != nil { return headerAction(run).flatMap { $0.isDisabled ? $0.disabledWhy : nil } }
         if run.isBlocked { return run.blockedBy.map { "Esperando el PR #\($0). «Seguir sin esperar» no lo cierra." } ?? "Esperando a otro PR." }
-        guard run.isLive, run.pr != nil, !run.canMerge, !run.isPR else { return nil }
+        guard run.isLive, run.pr != nil, !run.canMerge else { return nil }
+        // gs ya dice por qué no (conflicto, borrador, CI, revisión o evidencia pendiente): se enseña tal cual.
+        if let why = run.mergeBlock { return why }
         // Lo que de verdad frena el merge: un check del commit en rojo o corriendo (antes decía «te preguntó algo»).
         if let blocking = detail?.checks.filter({ ["failure", "error", "pending"].contains($0.state) }), !blocking.isEmpty {
             let names = blocking.prefix(2).map(\.name).joined(separator: ", ")
@@ -252,17 +294,22 @@ struct DevRunView: View {
     /// es decirle algo al pendiente: gs lo pasa por `tell` (`onPersonMessage`).
     @ViewBuilder private func chatTab(_ run: DevRun) -> some View {
         if run.isPR {
-            ScrollView { commentsTab.padding(.horizontal, Theme.Space.screenH).padding(.bottom, 24) }
-                .scrollIndicators(.hidden)
-                .refreshable { await store.loadDetail(id) }
-            // PR con pendiente de terminal: el campo lo manda gs (`compose`) y dice a dónde llega el mensaje.
-            if let c = run.compose {
-                DevComposeBar(compose: c, repo: run.repo) { text in
-                    let r = await store.sendMessage(repo: run.repo, issue: run.issue, pr: run.pr, content: text)
-                    await store.loadDetail(id)
-                    return r
+            VStack(spacing: 0) {
+                ScrollView { commentsTab.padding(.horizontal, Theme.Space.screenH).padding(.bottom, 24) }
+                    .scrollIndicators(.hidden)
+                    .refreshable { await store.loadDetail(id) }
+                // PR con pendiente de terminal: el campo lo manda gs (`compose`) y dice a dónde llega el mensaje.
+                if let c = run.compose {
+                    DevComposeBar(compose: c, repo: run.repo) { text in
+                        let r = await store.sendMessage(repo: run.repo, issue: run.issue, pr: run.pr, content: text)
+                        await store.loadDetail(id)
+                        return r
+                    }
+                    .padding(.horizontal, Theme.Space.screenH).padding(.bottom, 8)
+                } else if run.actions == nil, run.isLive {
+                    // Respaldo con gs viejo: pedido como comentario del PR (`thread/messages`).
+                    prComposer
                 }
-                .padding(.horizontal, Theme.Space.screenH).padding(.bottom, 8)
             }
         } else if devFocus != nil {
             ConversationView(store: chats, onOpenSheet: {}, embedded: true, placeholder: "Dile al agente qué ajustar…",
@@ -274,7 +321,31 @@ struct DevRunView: View {
         }
     }
 
-    /// Un PR sin DevRun no tiene chat con un agente: aquí van sus comentarios (revisión de Ghosty, personas, bots).
+    /// Escribirle al agente de la terminal: gs lo publica como pedido en el PR (`thread/messages`).
+    private var prComposer: some View {
+        HStack(spacing: 8) {
+            TextField("Pídele un cambio al agente…", text: $draft, axis: .vertical)
+                .lineLimit(1...4).font(.system(size: 16))
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Color.gBg, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.gSeparator, lineWidth: 1.5))
+                .accessibilityIdentifier("pr-composer")
+            Button {
+                let t = draft
+                Task { await send(t); if notice == nil { draft = "" } }
+            } label: {
+                Image(systemName: "arrow.up.circle.fill").font(.system(size: 32))
+                    // Vacío se queda en lila suave (se lee como botón); gris se lee como «desactivado».
+                    .foregroundStyle(Color.gPrimary.opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending ? 0.4 : 1))
+            }
+            .buttonStyle(.plain).disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
+            .accessibilityIdentifier("pr-composer-send")
+        }
+        .padding(.horizontal, Theme.Space.screenH).padding(.vertical, 8)
+        .background(Color.gBg)
+    }
+
+    /// Un PR sin DevRun no tiene chat en vivo con un agente: aquí van sus comentarios (revisión de Ghosty, personas, bots).
     @ViewBuilder private var commentsTab: some View {
         if let d = detail, !d.thread.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
@@ -346,8 +417,24 @@ struct DevRunView: View {
     @ViewBuilder private func checksTab(_ run: DevRun) -> some View {
         let smoke = DevSmoke.latest(in: run.events)
         if let lh = smoke?.lighthouse { lighthouseCard(lh) }
+        if run.isPR, let names = detail?.missingEnv, !names.isEmpty { missingEnvCard(names) }
         statusGrid(run)
+        if run.isPR, run.isLive, let u = detail?.sheet?.previewURL {
+            HStack(spacing: 8) {
+                Button { openURL(u) } label: {
+                    Label("Abrir vista previa", systemImage: "arrow.up.right.square").font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity).padding(.vertical, 10).foregroundStyle(.white).background(Color.gInk, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                Button { shareOpen = true } label: {
+                    Label("Compartir", systemImage: "square.and.arrow.up").font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 10).foregroundStyle(Color.gInk).background(Color.gFill, in: Capsule())
+                }
+                .buttonStyle(.plain).accessibilityIdentifier("dev-share")
+            }
+        }
         if let smoke { smokeCard(smoke, run: run) }
+        if run.isPR, run.isLive { prOpsCard(smoke) }
         if let d = detail, !d.checks.isEmpty { checksCard(d) }
         if run.phase == "merged", let d = detail, let dep = d.deployLabel {
             card("Producción") {
@@ -359,6 +446,95 @@ struct DevRunView: View {
             }
         }
         if let d = detail, d.networkMode != nil { networkCard(d) }
+    }
+
+    private func missingEnvCard(_ names: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Falta\(names.count == 1 ? " 1 variable necesaria" : "n \(names.count) variables necesarias") para probar este PR: \(names.prefix(4).joined(separator: ", "))\(names.count > 4 ? "…" : "")")
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.gAmberInk)
+            Text("La vista previa no las tiene: lo que las use falla aunque las páginas abran. Agrégalas y se rearma sola.")
+                .gMeta().foregroundStyle(Color.gInk2)
+            Button { envOpen = true } label: {
+                Label("Agregar variables", systemImage: "key.fill").font(.system(size: 14, weight: .semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 9).foregroundStyle(.white).background(Color.gPrimary, in: Capsule())
+            }
+            .buttonStyle(.plain).accessibilityIdentifier("dev-add-env")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+        .background(Color.gAmberTint, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Lo que la web ofrece bajo la prueba en vivo: pedir arreglo, crear pendiente aparte, volver a correrla.
+    private func prOpsCard(_ smoke: DevSmoke?) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let st = smoke?.steps, !st.isEmpty {
+                ForEach(st) { step in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: step.ok ? "checkmark" : step.soft ? "exclamationmark.circle" : "xmark.circle")
+                            .foregroundStyle(step.ok ? Color.gGreen : step.soft ? Color.gAmber : Color.gDanger).frame(width: 16)
+                        Text(step.method).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(Color.gInk3)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(step.path).font(.system(size: 14, design: .monospaced)).foregroundStyle(Color.gInk)
+                            if !step.ok, !step.why.isEmpty { Text(step.why).gMeta().foregroundStyle(Color.gInk3) }
+                        }
+                        Spacer(minLength: 0)
+                        if let c = step.status { Text("\(c)").gMeta().foregroundStyle(Color.gInk3) }
+                    }
+                }
+            }
+            if smoke?.brokenImages != nil || smoke?.layoutIssues != nil || smoke?.contrastFails != nil {
+                HStack(spacing: 8) {
+                    counter(smoke?.brokenImages, "Imágenes rotas")
+                    counter(smoke?.layoutIssues, "Desbordes")
+                    counter(smoke?.contrastFails, "Contraste")
+                }
+            }
+            opButton("Pedir arreglo en este PR", "fix", prominent: true)
+            HStack(spacing: 8) {
+                opButton("Crear pendiente aparte", "new-issue")
+                opButton("Volver a correr la prueba", "smoke")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(14).ghostyCard()
+    }
+
+    private func counter(_ n: Int?, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(n.map(String.init) ?? "—").font(.system(size: 18, weight: .bold).monospacedDigit()).foregroundStyle(Color.gInk)
+            Text(label).font(.system(size: 11)).foregroundStyle(Color.gInk3).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 8).background(Color.gFill, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func opButton(_ label: String, _ op: String, prominent: Bool = false) -> some View {
+        Button { confirmOp = op } label: {
+            Text(busyOp == op ? "…" : label).font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity).padding(.vertical, 10)
+                .foregroundStyle(prominent ? Color.white : Color.gInk)
+                .background(prominent ? Color.gPrimary : Color.gFill, in: Capsule())
+        }
+        .buttonStyle(.plain).disabled(busyOp != nil).accessibilityIdentifier("dev-op-\(op)")
+    }
+
+    private func opCopy(_ op: String?) -> (title: String, button: String) {
+        switch op {
+        case "fix": ("¿Pedir el arreglo en este PR?", "Pedir arreglo")
+        case "new-issue": ("¿Crear un pendiente aparte con lo que encontró la prueba?", "Crear pendiente")
+        default: ("¿Volver a correr la prueba en vivo?", "Volver a correr")
+        }
+    }
+
+    private func runPROp(_ op: String) async {
+        busyOp = op; defer { busyOp = nil }
+        var note: String?
+        var what: String?
+        if op == "fix" || op == "new-issue" {
+            let probs = DevSmoke.latest(in: run?.events ?? [])?.problems ?? []
+            note = probs.isEmpty ? "Revisa la prueba en vivo de este PR." : "Arregla lo que encontró la prueba en vivo:\n" + probs.prefix(10).map { "- \($0)" }.joined(separator: "\n")
+            what = "Arreglo de la prueba en vivo"
+        }
+        let r = await store.prOp(id, op, note: note, what: op == "fix" ? what : nil)
+        if let e = r.error { notice = e } else if let u = r.created { openURL(u) } else { notice = r.note ?? "Listo." }
     }
 
     private func lighthouseCard(_ lh: DevDetail.Lighthouse) -> some View {
@@ -417,7 +593,8 @@ struct DevRunView: View {
         case .some: ("Falta la evidencia", nil)
         case nil: sh.evidence ? ("En el PR", true) : ("Aún no se publica", nil)
         }
-        let preview: (String, Bool?) = switch previewCheck == "neutral" || previewCheck == "skipped" ? "na" : sh.previewState {
+        // Una vista previa con liga existe aunque el check de Ghosty salga neutral (#139 de mailmask): ahí manda la liga.
+        let preview: (String, Bool?) = switch (previewCheck == "neutral" || previewCheck == "skipped") && sh.previewURL == nil ? "na" : sh.previewState {
         case "na": ("No aplica", nil)
         case "ready": ("Lista", true)
         case "failed": ("Falló", false)
@@ -458,7 +635,8 @@ struct DevRunView: View {
                             .labelStyle(.titleAndIcon).symbolRenderingMode(.multicolor)
                     }
                     if problems.count > 6 { Text("+\(problems.count - 6) más").gMeta().foregroundStyle(Color.gInk3) }
-                    if run.isLive {
+                    // Un PR sin DevRun no tiene escritor: la web tampoco ofrece el arreglo ahí (gs daba 404).
+                    if run.isLive, !run.isPR {
                         Button {
                             Task { await send("Arregla lo que encontró el smoke en la vista previa:\n" + problems.prefix(10).map { "- \($0)" }.joined(separator: "\n")) }
                         } label: {
@@ -560,7 +738,7 @@ struct DevRunView: View {
 
     /// Merge sólo con `canMerge` de gs; apagado dice por qué.
     private func mergeButton(_ run: DevRun) -> some View {
-        Button { Task { await act("merge") } } label: {
+        Button { if run.isPR { confirmMerge = true } else { Task { await act("merge") } } } label: {
             Text("Merge").font(.system(size: 14, weight: .semibold))
                 .padding(.horizontal, 16).padding(.vertical, 7)
                 .foregroundStyle(run.canMerge ? Color.white : Color.gInk3)
@@ -580,18 +758,6 @@ struct DevRunView: View {
                 .foregroundStyle(.white).background(Color.gPrimary, in: Capsule())
         }
         .buttonStyle(.plain).disabled(sending)
-    }
-
-    /// PR sin DevRun: gs no hace su merge; listo, el botón lleva a GitHub.
-    @ViewBuilder private func githubMergeButton(_ run: DevRun) -> some View {
-        if run.readyToMerge, let u = run.prURL {
-            Button { openURL(u) } label: {
-                Label("Merge en GitHub", systemImage: "arrow.up.right").font(.system(size: 14, weight: .semibold))
-                    .padding(.horizontal, 14).padding(.vertical, 7)
-                    .foregroundStyle(.white).background(Color.gPrimary, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     // MARK: Acciones
@@ -642,6 +808,11 @@ struct DevRunView: View {
         }
         sending = true
         defer { sending = false }
+        // Un PR sin DevRun: el pedido es un comentario del PR que lee el agente de la terminal.
+        if run?.isPR == true {
+            if let err = await store.say(id, t) { notice = err } else { tab = .chat }
+            return
+        }
         // `tell`: la entrada única de gs (decide qué hacer según la fase). Mientras no esté en prod, `resume`.
         var err = await store.act(id, op: "tell", note: t)
         if let e = err, e.contains("op:") || e.contains("bad_request") { err = await store.act(id, op: "resume", note: t) }
@@ -681,5 +852,42 @@ struct FlowChips: View {
                     .padding(.horizontal, 10).padding(.vertical, 5).background(Color.gFill, in: Capsule())
             }
         }
+    }
+}
+
+
+/// «Compartir» la vista previa de un PR: lee la liga y, sólo si la persona lo pide, crea la pública.
+struct DevShareSheet: View {
+    let id: String
+    let store: DevStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var url: URL?
+    @State private var shared = false
+    @State private var error: String?
+    @State private var loading = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Compartir la vista previa").font(.system(size: 20, weight: .bold)).foregroundStyle(Color.gInk)
+            if loading { ProgressView() }
+            else if let error { Text(error).foregroundStyle(Color.gDangerInk) }
+            else if shared, let url {
+                Text("Cualquiera con la liga la ve, sin cuenta.").gMeta()
+                ShareLink(item: url) { Label("Compartir liga", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity).padding(.vertical, 12).foregroundStyle(.white).background(Color.gPrimary, in: Capsule()) }
+            } else {
+                Text("Hoy sólo la ve quien tiene acceso al repo.").gMeta()
+                Button("Crear liga para cualquiera") { Task { await make() } }.buttonStyle(.borderedProminent).tint(Color.gPrimary)
+            }
+            Spacer()
+        }
+        .padding(20)
+        .presentationDetents([.height(260)]).presentationBackground(Color.gBg)
+        .task { let r = await store.shareState(id); url = r.url; shared = r.shared; error = r.error; loading = false }
+    }
+
+    private func make() async {
+        loading = true
+        let r = await store.shareState(id, create: true)
+        url = r.url; shared = r.shared; error = r.error; loading = false
     }
 }

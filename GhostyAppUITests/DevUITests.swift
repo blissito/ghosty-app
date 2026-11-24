@@ -236,7 +236,10 @@ final class DevUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Comentarios"].waitForExistence(timeout: 20), "el PR no se abrió dentro de la app")
         Thread.sleep(forTimeInterval: 3)
         shot("p2-comentarios")
-        XCTAssertFalse(app.buttons["Merge"].exists, "un PR sin DevRun no hace merge desde la app")
+        // Un PR sin DevRun también se opera desde la app (gs: `POST …/dev-runs/pr/…`): Merge nativo (apagado si gs lo bloquea),
+        // nunca el desvío a GitHub, y el compositor para escribirle al agente de la terminal.
+        XCTAssertFalse(app.buttons["Merge en GitHub"].exists, "el merge de un PR ya es nativo")
+        XCTAssertTrue(app.textFields["pr-composer"].exists || app.textViews["pr-composer"].exists, "falta el compositor del hilo del PR")
         for (label, n) in [("Cambios", 3), ("Verificación", 4)] {
             app.buttons[label].tap()
             Thread.sleep(forTimeInterval: 1.5)

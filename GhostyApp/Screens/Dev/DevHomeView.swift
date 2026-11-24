@@ -46,11 +46,16 @@ struct DevPhaseChip: View {
         let t = run.tone
         HStack(spacing: 2) {
             PulsingDot(color: t.accent, active: t == .working || t == .needsYou, size: 6).padding(.leading, -2)
+            // El texto viene de gs (`status.label`) y puede ser largo («Bloqueado por #94 · gs: …»):
+            // un renglón y tope de ancho, si no ensancha toda la tarjeta.
             Text(writerBusy && t == .working ? "Trabajando" : run.phaseLabel).gChip().foregroundStyle(t.ink)
+                .lineLimit(1).truncationMode(.tail)
         }
         .padding(.trailing, 10).padding(.leading, 4).padding(.vertical, 3)
         .background(t.tint, in: Capsule())
-        .fixedSize()
+        .frame(maxWidth: 250, alignment: .trailing)
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(1)
     }
 }
 
