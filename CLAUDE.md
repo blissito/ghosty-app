@@ -282,11 +282,13 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
-## 1.0.21 en revisión (25-nov)
+## 1.0.21 en revisión (25-nov, build 116)
 
-Build **115** (`main` al 300df86b; la 113/114 ya no existían) en TestFlight (Alpha) y enviada a revisión el 25-nov, salida
-AUTOMÁTICA. Lleva Dev como la web (verificación de PR, pregunta del escritor con botones y «Decide tú», sin truncar).
-Al salir: `ghosty app suggest 115`. ⚠️ Las pruebas de Fábrica (17) y `testActivity` quedaron viejas (Fábrica ya no es
+Build **116** (`main` al 7333e5de) en TestFlight (Alpha) y en revisión desde el 25-nov, salida AUTOMÁTICA. Reemplazó a la
+115 ese mismo día (retirada para meter el + que, con un agente filtrado en Chats, empieza directo con ese agente). Lleva
+Dev como la web (verificación de PR, pregunta del escritor con botones y «Decide tú», sin truncar).
+Al salir: `ghosty app suggest 116`. ⚠️ `asc.py retirar-revision` falla (409) si hay un borrador vacío `READY_FOR_REVIEW`:
+cancelar sólo la `WAITING_FOR_REVIEW`. ⚠️ Las pruebas de Fábrica (17) y `testActivity` quedaron viejas (Fábrica ya no es
 pestaña; la campanita dice «Avisos, N pendientes»); las de Dev piden `GHOSTY_TOKEN`. Apple avisa: desde abril 2027 hace
 falta el SDK de iOS 27 (Xcode 27).
 
