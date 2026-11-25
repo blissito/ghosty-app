@@ -282,6 +282,14 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
+## 1.0.21 en revisión (25-nov)
+
+Build **115** (`main` al 300df86b; la 113/114 ya no existían) en TestFlight (Alpha) y enviada a revisión el 25-nov, salida
+AUTOMÁTICA. Lleva Dev como la web (verificación de PR, pregunta del escritor con botones y «Decide tú», sin truncar).
+Al salir: `ghosty app suggest 115`. ⚠️ Las pruebas de Fábrica (17) y `testActivity` quedaron viejas (Fábrica ya no es
+pestaña; la campanita dice «Avisos, N pendientes»); las de Dev piden `GHOSTY_TOKEN`. Apple avisa: desde abril 2027 hace
+falta el SDK de iOS 27 (Xcode 27).
+
 ## 1.0.18 en revisión (9-nov)
 
 Build **106** (`main` al 231ee40b) en TestFlight (Alpha) y enviada a revisión el 9-nov, salida AUTOMÁTICA. Lleva el chat
@@ -340,6 +348,14 @@ como «Esperando preview» y no cuenta. `skip` de Dependabot ofrece «Cerrar e i
 «Reintentar preview» (`act retry_preview`). Prueba `testTeTocaConMotivoDemo`. Ya desplegado: Teams 1be7da0, gs 81dcc712.
 Origen: «Te toca 8» de easybits (20-oct), 5 eran un despliegue viejo `preview-157` que engañaba a `repoHasPreviews`.
 El 🔁 de «Llevaba 30 min sin avanzar» que salía como cuadro con «?» es del SIMULADOR, no de la app: ahí ningún emoji se pinta, ni en un `Text` plano (probado el 20-oct). En el teléfono no aplica.
+
+## 🖼️ Pendiente (20-nov-2026): barra/cuenta de imágenes visible
+
+La app debe mostrar cuántas imágenes le quedan a la persona (barra o contador) junto a su uso. Hoy no se ve
+y la gente se entera al toparse con el rechazo (caso Naomi, plan Gratis, iOS). El dato ya lo da el servidor:
+`GET /api/v2/me/usage` (`app/routes/api.v2.me.usage.ts` en ghosty-studio: bolsa de imágenes, `imagesLeft`,
+bocetos/finales, semana). Mostrar **cantidades y fecha de renovación, nunca pesos ni costos** (regla de bliss,
+20-nov: jamás decirle al cliente lo que nos cuesta). Reusa el patrón de la barra de uso de `/c/uso` en la web.
 
 ## Siguiente build (va en la próxima subida, NO la 91)
 

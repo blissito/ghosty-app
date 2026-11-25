@@ -1,1 +1,1 @@
-Nueva pestaña Desarrollo: sigue lo que tu agente hace en tus repos (issue, PR, CI, revisión y merge), filtra por repo y háblale desde ahí. Ya no dice «listo para merge» cuando el CI sigue corriendo. Avisos más claros: cada aviso dice de qué conversación viene.
+Desarrollo más completo: revisa cada PR como en la web (pruebas, variables que faltan, vista previa) y pídele a tu agente que lo arregle desde ahí. Cuando tu agente te pregunta algo, contestas con un toque o le dices «Decide tú». Títulos y textos completos, sin cortes.
