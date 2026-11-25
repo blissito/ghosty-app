@@ -517,6 +517,18 @@ final class RecorridoUITests: XCTestCase {
         foto("09-nueva-conversacion")
         volverAChats()
 
+        // 6-bis. Con un agente filtrado, el + empieza directo con ESE agente (sin hoja).
+        app.buttons["chip-demo-2"].firstMatch.tap()
+        nueva.tap()
+        XCTAssertFalse(app.buttons["nueva-con-demo-1"].waitForExistence(timeout: 1.5),
+                       "con filtro, el + abrió la hoja en vez de empezar con el agente filtrado")
+        XCTAssertTrue(app.buttons["volver-a-chats"].waitForExistence(timeout: 3)
+                        && app.buttons["adjuntar"].waitForExistence(timeout: 3),
+                      "con filtro, el + no llevó al chat")
+        foto("09b-nueva-con-filtro")
+        volverAChats()
+        app.buttons["chip-todos"].firstMatch.tap()
+
         // 6a. Deslizar una conversación a la izquierda: asoma «Archivar» y pide
         // confirmación. Se cancela, para que el archivado de verdad (6b) vaya por la
         // selección y queden cubiertos los dos caminos.

@@ -316,7 +316,15 @@ struct ChatsView: View {
             .accessibilityIdentifier("chats-favoritos")
             .padding(.trailing, 12)
 
-            Button { nueva = true } label: {
+            // Con un agente filtrado, el + empieza directo con ESE agente: el filtro ya dice
+            // con quién hablas. Para otro agente, «Todos» y sale la hoja.
+            Button {
+                if let filtro, store.agents.contains(where: { $0.id == filtro }) {
+                    empezar(con: filtro)
+                } else {
+                    nueva = true
+                }
+            } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 19, weight: .bold))
                     .foregroundStyle(.white)
