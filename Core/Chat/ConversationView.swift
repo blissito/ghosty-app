@@ -38,6 +38,7 @@ struct ConversationView: View {
     @State private var abrirCamara = false
     /// La hoja «Agregar» y el overlay de voz se pintan en la raíz (ver `CapaDeChat`).
     @Environment(CapaDeChat.self) private var capa: CapaDeChat?
+    @Environment(\.scenePhase) private var fasePresencia
     /// ¿La grabación en curso es la del overlay «Te escucho…» (un toque al micrófono)?
     @State private var vozConOverlay = false
     /// Cuándo empezó el toque al micrófono: menos de ~0.35 s sin arrastrar es un TOQUE.
@@ -772,6 +773,12 @@ struct ConversationView: View {
         // Las tareas del agente: la insignia de la cabecera se refresca mientras miras el hilo
         // (10 s si algo se mueve, 60 s si no). La hoja vive dentro, así que el bucle sigue.
         .task(id: store.selectedAgentID) { await agentTasks.poll(store.selectedAgentID) }
+        // «Estoy viendo esta conversación»: calla el push de su respuesta y, al abrirla o volver a
+        // la app, gs despierta la caja del agente antes de que escribas (`WatchingBeat`).
+        .task(id: "\(store.selectedAgentID)/\(store.hiloActivo?.sesionID ?? "")/\(fasePresencia == .active)") {
+            guard fasePresencia == .active, let sid = store.hiloActivo?.sesionID else { return }
+            await WatchingBeat.run(agentID: store.selectedAgentID, sessionID: sid)
+        }
         .sheet(isPresented: $showTasks) {
             if let agente = store.selectedAgent {
                 AgentTasksSheet(agentID: agente.id, agentName: agente.name) { session in

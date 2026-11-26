@@ -1,1 +1,1 @@
-Desarrollo más completo: revisa cada PR como en la web (pruebas, variables que faltan, vista previa) y pídele a tu agente que lo arregle desde ahí. Cuando tu agente te pregunta algo, contestas con un toque o le dices «Decide tú». Títulos y textos completos, sin cortes.
+Tu agente contesta más rápido: cuando abres una conversación, Ghosty se prepara mientras escribes, para que la respuesta llegue antes. Además, mientras estás viendo la conversación ya no te llega el aviso de que contestó.
