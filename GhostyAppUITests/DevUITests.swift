@@ -194,7 +194,7 @@ final class DevUITests: XCTestCase {
         shot("n1-aviso-abre-pendiente")
     }
 
-    /// Sin pendientes: el vacío explica qué es Dev, en «Activos» y en «Todos».
+    /// Sin pendientes: el vacío explica qué es Dev (ya no hay chip «Todos»: Hecho y Detenidos van plegados al final).
     func testDevEmpty() {
         app.launchEnvironment["GHOSTY_DEV_EMPTY"] = "1"
         app.launch()
@@ -202,10 +202,8 @@ final class DevUITests: XCTestCase {
         XCTAssertTrue(tab.waitForExistence(timeout: 20), "con GitHub conectado la pestaña sale aunque no haya pendientes")
         tab.tap()
         Thread.sleep(forTimeInterval: 2.5)
-        shot("e1-vacio-activos")
-        app.buttons["Todos"].tap()
-        Thread.sleep(forTimeInterval: 1)
-        shot("e2-vacio-todos")
+        shot("e1-vacio")
+        XCTAssertTrue(app.staticTexts["Todavía no hay pendientes"].exists, "el vacío no explica qué es Dev")
     }
 
     /// Uno que alguien trabaja en su terminal (issue con `ghosty-dev:en-curso`): sale arriba de la lista.

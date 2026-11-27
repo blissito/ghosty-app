@@ -118,6 +118,10 @@ struct DevRun: Identifiable, Hashable {
     /// Sólo filas `local` y PRs con pendiente local: a dónde irá un mensaje escrito aquí.
     var compose: DevCompose? = nil
     var claim: DevClaim? = nil
+    /// Qué sigue y a quién le toca (`next` de gs).
+    var next: DevNext? = nil
+    /// Intentos anteriores que gs juntó en esta tarjeta (DevRuns detenidos del mismo trabajo).
+    var attempts = 0
     let createdAt: Date
     let updatedAt: Date
     var events: [DevEvent] = []
@@ -128,12 +132,16 @@ struct DevRun: Identifiable, Hashable {
             && a.estado == b.estado && a.column == b.column && a.statusLabel == b.statusLabel && a.serverReady == b.serverReady && a.serverCanMerge == b.serverCanMerge
             && a.serverStage == b.serverStage && a.mergeBlock == b.mergeBlock && a.statusCategory == b.statusCategory && a.blockedBy == b.blockedBy && a.asked == b.asked
             && a.actions == b.actions && a.compose == b.compose && a.claim == b.claim
+            && a.next == b.next && a.attempts == b.attempts
     }
     func hash(into h: inout Hasher) { h.combine(id) }
 
-    /// Bumps de bots y repos retirados del factory: no se muestran (bliss, 23-nov: ghosty-studio y easybits arrancan de cero).
-    var isHiddenHistory: Bool {
-        title.hasPrefix("Bump ") || ["ghosty-studio", "easybits"].contains(repo.split(separator: "/").last.map(String.init) ?? repo)
+    /// Bumps de bots: no se muestran. Los repos se ven todos, igual que en la web (27-nov).
+    var isHiddenHistory: Bool { title.hasPrefix("Bump ") }
+    /// Cuenta en «N te necesitan» (la misma regla que la web).
+    var needsAttention: Bool {
+        guard let n = next else { return isOnBoard && tone == .needsYou }
+        return n.needsAttention(phase: phase, notStarted: false, blocked: blockedBy != nil)
     }
     var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
 
@@ -270,6 +278,8 @@ struct DevRun: Identifiable, Hashable {
         r.actions = DevAction.list(from: j["actions"])
         r.compose = DevCompose.from(json: j["compose"])
         r.claim = DevClaim.from(json: j["claim"])
+        r.next = DevNext.from(json: j["next"])
+        r.attempts = devAttemptsCount(j["attempts"])
         return r
     }
 
@@ -525,6 +535,10 @@ struct DevLocalRun: Identifiable {
     var actions: [DevAction]? = nil
     var compose: DevCompose? = nil
     var claim: DevClaim? = nil
+    var next: DevNext? = nil
+    var attempts = 0
+    /// El chip de gs (`status.category`): not_started · in_progress · needs_action…
+    var statusCategory: String? = nil
 
     var repoName: String { repo.split(separator: "/").last.map(String.init) ?? repo }
     /// Un issue que nadie ha empezado: sale en «Pendientes», no en «En una terminal».
@@ -555,8 +569,11 @@ struct DevLocalRun: Identifiable {
                            column: j["column"] as? String,
                            statusLabel: (j["status"] as? [String: Any])?["label"] as? String,
                            actions: DevAction.list(from: j["actions"]), compose: DevCompose.from(json: j["compose"]),
-                           claim: DevClaim.from(json: j["claim"]))
+                           claim: DevClaim.from(json: j["claim"]),
+                           next: DevNext.from(json: j["next"]), attempts: devAttemptsCount(j["attempts"]),
+                           statusCategory: (j["status"] as? [String: Any])?["category"] as? String)
     }
+    var needsAttention: Bool { next?.needsAttention(phase: phase, notStarted: notStarted, blocked: phase == "blocked") ?? false }
 }
 
 enum DevDate {
@@ -599,6 +616,8 @@ final class DevStore {
     var available: Bool { hasGitHub == true || !runs.isEmpty || !prs.isEmpty || !local.isEmpty }
     /// Los que se trabajan en la terminal de alguien (siempre vivos: gs sólo manda los abiertos).
     private(set) var local: [DevLocalRun] = []
+    /// Aviso corto tras una acción («Listo: mandar a la nube.»); lo pinta el tablero y se borra solo.
+    var flash: String?
 
     /// Lo que decide si la pestaña existe: repos de la GitHub App + la lista. Falla callado.
     func refreshAvailability() async {
@@ -699,7 +718,7 @@ final class DevStore {
             do {
                 _ = try await request(prPath, method: "POST", body: body)
                 await loadDetail(id)
-                await refresh()
+                Task { await refresh() }
                 return nil
             } catch {
                 return (error as? DevError)?.message ?? "No se pudo. Intenta otra vez."

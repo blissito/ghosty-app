@@ -127,6 +127,7 @@ struct DevRunRow: View {
                 Spacer(minLength: 0)
             }
             if let q = run.asked?.question { Text(q).font(.system(size: 13)).foregroundStyle(Color.gAmberInk).lineLimit(3).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true) }
+            DevNextLine(next: run.next, attempts: run.attempts)
             DevStageBar(run: run).padding(.top, 2)
         }
         .padding(Theme.Space.cardH)
@@ -149,6 +150,30 @@ struct DevRunRow: View {
     }
 }
 
+/// «Siguiente: … · a quién le toca» (de gs, como la web) y cuántos intentos anteriores lleva dentro.
+/// En ámbar cuando le toca a la persona o a nadie; si no, gris.
+struct DevNextLine: View {
+    let next: DevNext?
+    let attempts: Int
+    var body: some View {
+        if next != nil || attempts > 0 {
+            VStack(alignment: .leading, spacing: 6) {
+                if let n = next {
+                    (Text("Siguiente: ").fontWeight(.semibold) + Text("\(n.label) · \(n.ownerText)") + Text(n.wantsPerson ? n.why.map { " · \($0)" } ?? "" : ""))
+                        .font(.system(size: 13)).foregroundStyle(n.wantsPerson ? Color.gAmberInk : Color.gInk3)
+                        .lineLimit(3).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("dev-next")
+                }
+                if attempts > 0 {
+                    Label(attempts == 1 ? "1 intento anterior" : "\(attempts) intentos anteriores", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.gInk2)
+                        .padding(.horizontal, 9).padding(.vertical, 4).background(Color.gFill, in: Capsule())
+                }
+            }
+        }
+    }
+}
+
 /// Fila de un pendiente que alguien trabaja en su terminal: misma tarjeta, sin etapas (gs no las conoce).
 struct DevLocalRunRow: View {
     let run: DevLocalRun
@@ -162,6 +187,7 @@ struct DevLocalRunRow: View {
                     .background(Color.gFill, in: RoundedRectangle(cornerRadius: 12))
             }
             Text(run.title).gCardTitle().foregroundStyle(Color.gInk).multilineTextAlignment(.leading)
+            DevNextLine(next: run.next, attempts: run.attempts)
             HStack(spacing: 4) {
                 Text(subtitle).gMeta().foregroundStyle(Color.gInk3).lineLimit(1)
                 Spacer(minLength: 0)
@@ -181,45 +207,52 @@ struct DevLocalRunRow: View {
     }
 }
 
+/// Una tarjeta del tablero: de la nube / PR, o de terminal. Las dos van a la columna que manda gs.
+enum DevBoardItem: Identifiable {
+    case run(DevRun)
+    case local(DevLocalRun)
+    var id: String { switch self { case .run(let r): r.id; case .local(let l): l.id } }
+    var updatedAt: Date { switch self { case .run(let r): r.updatedAt; case .local(let l): l.updatedAt } }
+    var column: String {
+        switch self {
+        case .run(let r): return r.boardColumn
+        case .local(let l):
+            if let c = l.column { return DevRun.knownColumns.contains(c) ? c : "other" }
+            return l.notStarted ? "todo" : "writing"
+        }
+    }
+    var needsAttention: Bool { switch self { case .run(let r): r.needsAttention; case .local(let l): l.needsAttention } }
+}
+
 struct DevHomeView: View {
     /// Hay un pendiente abierto: `RootView` esconde la barra.
     @Binding var inRun: Bool
     @State private var store = DevStore.shared
     @State private var path: [String] = []
-    @State private var showClosed = false
     @State private var onlyNeedsYou = false
-    /// Repo elegido (`nil` = todos), como el selector de la web.
-    @State private var repo: String?
+    /// Repo elegido ("" = todos). Se recuerda entre aperturas, como la cookie de la web.
+    @AppStorage("dev.repo") private var repoPick = ""
+    private var repo: String? { repoPick.isEmpty || !repos.contains(repoPick) ? nil : repoPick }
+    /// Hecho y Detenidos van plegados con su conteo, como las columnas angostas de la web.
+    @State private var openClosed: Set<String> = []
     /// La ficha de un pendiente de terminal (ya no salta a GitHub).
     @State private var localSheet: DevLocalRun?
 
-    /// Los de la nube y los PRs (de terminal o de una persona) juntos, lo más reciente arriba, como la web.
-    private var visible: [DevRun] {
-        (store.runs + store.prs).filter { (showClosed || $0.isOnBoard) && (!onlyNeedsYou || $0.tone == .needsYou) && !$0.isHiddenHistory && (repo == nil || $0.repoName == repo) }.sorted { $0.updatedAt > $1.updatedAt }
-    }
-    /// Los de terminal que ya tienen PR salen como su tarjeta de PR; aquí quedan sólo los que todavía no lo abren.
-    private var localOnly: [DevLocalRun] {
+    /// Todo lo del repo elegido: nube, PRs y terminal (los de terminal con PR ya salen como su tarjeta de PR).
+    private var items: [DevBoardItem] {
         let shown = Set(store.prs.map(\.id))
-        return store.local.filter { ($0.prID.map { !shown.contains($0) } ?? true) && (repo == nil || $0.repoName == repo) && !["ghosty-studio", "easybits"].contains($0.repoName) }
+        let runs = (store.runs + store.prs).filter { !$0.isHiddenHistory && (repo == nil || $0.repoName == repo) }.map(DevBoardItem.run)
+        let locals = store.local.filter { ($0.prID.map { !shown.contains($0) } ?? true) && (repo == nil || $0.repoName == repo) }.map(DevBoardItem.local)
+        return (runs + locals).sorted { $0.updatedAt > $1.updatedAt }
     }
     private var repos: [String] {
-        Set((store.runs + store.prs).filter { !$0.isHiddenHistory }.map(\.repoName) + store.local.map(\.repoName).filter { !["ghosty-studio", "easybits"].contains($0) }).sorted()
+        Set((store.runs + store.prs).filter { !$0.isHiddenHistory }.map(\.repoName) + store.local.map(\.repoName)).sorted()
     }
-    /// Las columnas del tablero que manda gs (`column`) como secciones, sin recalcular fases aquí. Con «Todos» entran Hecho y Detenidos.
-    /// Una columna que esta versión no conoce va al final como «Otros»: nunca se esconde una tarjeta.
-    private var groups: [(String?, [DevRun])] {
-        var order: [(String, String)] = [
-            ("ready", "Listo para revisar"), ("review", "En revisión"), ("writing", "Escribiendo"), ("todo", "Pendientes"),
-        ]
-        if showClosed { order += [("done", "Hecho"), ("halted", "Detenidos")] }
-        order.append(("other", "Otros"))
-        return order.compactMap { col, title in
-            let hit = visible.filter { $0.boardColumn == col }
-            return hit.isEmpty ? nil : (title, hit)
-        }
-    }
-    private var needsYouCount: Int { (store.runs + store.prs).count { $0.isOnBoard && $0.tone == .needsYou } }
-    private var liveCount: Int { visible.count(where: \.isOnBoard) + localOnly.count }
+    private static let openColumns: [(String, String)] = [("ready", "Listo para revisar"), ("review", "En revisión"), ("writing", "Escribiendo"), ("todo", "Pendientes"), ("other", "Otros")]
+    private static let closedColumns: [(String, String)] = [("done", "Hecho"), ("halted", "Detenidos")]
+    private var onBoard: [DevBoardItem] { items.filter { $0.column != "done" && $0.column != "halted" } }
+    private var needsYouCount: Int { onBoard.count(where: \.needsAttention) }
+    private var liveCount: Int { onBoard.count }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -230,7 +263,8 @@ struct DevHomeView: View {
                     content.padding(.top, 16)
                 }
                 .padding(.horizontal, Theme.Space.screenH)
-                .padding(.bottom, 32)
+                // La barra flotante de abajo tapa ~110 pt: sin esto «Detenidos» quedaba debajo de ella.
+                .padding(.bottom, 120)
             }
             .scrollIndicators(.hidden)
             .refreshable { await store.refresh() }
@@ -245,6 +279,20 @@ struct DevHomeView: View {
         }
         .tint(.gInk)
         .sheet(item: $localSheet) { DevLocalSheet(initial: $0) }
+        // El aviso de la acción que se hizo desde la ficha (que se cierra al terminar): 3 s abajo, encima de la barra.
+        .overlay(alignment: .bottom) {
+            if let f = store.flash {
+                Label(f, systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.white)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Color.gInk, in: Capsule())
+                    .padding(.bottom, 120)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .task(id: f) { try? await Task.sleep(for: .seconds(3)); withAnimation { store.flash = nil } }
+                    .accessibilityIdentifier("dev-flash")
+            }
+        }
+        .animation(.snappy, value: store.flash)
         .onChange(of: path) { _, p in
             withAnimation(.easeOut(duration: 0.2)) { inRun = !p.isEmpty }
             if p.isEmpty { Task { await store.refresh() } }
@@ -263,17 +311,14 @@ struct DevHomeView: View {
 
     private var filters: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) {
-            chip("Activos \(liveCount)", on: !showClosed && !onlyNeedsYou) { showClosed = false; onlyNeedsYou = false }
-            if needsYouCount > 0 { chip("Te necesitan \(needsYouCount)", on: onlyNeedsYou) { showClosed = false; onlyNeedsYou = true } }
-            chip("Todos", on: showClosed) { showClosed = true; onlyNeedsYou = false }
             if repos.count > 1 {
                 Menu {
-                    Button { repo = nil } label: { if repo == nil { Label("Todos los repos", systemImage: "checkmark") } else { Text("Todos los repos") } }
+                    Button { repoPick = "" } label: { if repo == nil { Label("Todos los repos", systemImage: "checkmark") } else { Text("Todos los repos") } }
                     ForEach(repos, id: \.self) { r in
-                        Button { repo = r } label: { if repo == r { Label(r, systemImage: "checkmark") } else { Text(r) } }
+                        Button { repoPick = r } label: { if repo == r { Label(r, systemImage: "checkmark") } else { Text(r) } }
                     }
                 } label: {
-                    HStack(spacing: 5) { Text(repo ?? "Repo"); Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)) }
+                    HStack(spacing: 5) { Text(repo ?? "Todos los repos"); Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)) }
                         .font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize().foregroundStyle(repo == nil ? Color.gInk2 : Color.gPrimaryPressed)
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(repo == nil ? Color.gCard : Color.gPrimaryTint, in: Capsule())
@@ -281,6 +326,8 @@ struct DevHomeView: View {
                 }
                 .accessibilityIdentifier("dev-repo")
             }
+            chip("Activos \(liveCount)", on: !onlyNeedsYou) { onlyNeedsYou = false }
+            if needsYouCount > 0 { chip("Te necesitan \(needsYouCount)", on: onlyNeedsYou) { onlyNeedsYou = true } }
         } }
     }
 
@@ -300,37 +347,63 @@ struct DevHomeView: View {
             VStack(spacing: 12) { ForEach(0..<3, id: \.self) { _ in RoundedRectangle(cornerRadius: Theme.Radius.card).fill(Color.gFill).frame(height: 120) } }
         } else if let err = store.error {
             EmptyState(icon: "exclamationmark.triangle", title: err, detail: "Desliza hacia abajo para reintentar.")
-        } else if visible.isEmpty && localOnly.isEmpty {
-            EmptyState(icon: "chevron.left.forwardslash.chevron.right",
-                       title: showClosed ? "Todavía no hay pendientes" : "Nada en curso",
+        } else if items.isEmpty {
+            EmptyState(icon: "chevron.left.forwardslash.chevron.right", title: "Todavía no hay pendientes",
                        detail: "Pídele a tu agente un cambio en tu repo y aquí verás cómo avanza: código, CI, revisión y merge.")
         } else {
             LazyVStack(spacing: 12) {
-                ForEach(groups, id: \.0) { title, items in
-                    if let title {
-                        Text(title).gSectionTitle().foregroundStyle(Color.gInk2).padding(.top, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    ForEach(items) { run in
-                        Button { path.append(run.id) } label: { DevRunRow(run: run) }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("dev-run-\(run.id)")
+                // Las columnas de gs (`column`), con los de terminal adentro como en la web. Con «Te necesitan» sólo lo que te toca.
+                ForEach(Self.openColumns, id: \.0) { col, title in
+                    let hit = onBoard.filter { $0.column == col && (!onlyNeedsYou || $0.needsAttention) }
+                    if !hit.isEmpty {
+                        sectionTitle(title, count: hit.count)
+                        ForEach(hit) { card($0) }
                     }
                 }
-                // Issues que alguien tomó en su terminal y todavía no tienen tarjeta de PR: van al final
-                // y abren su ficha (acciones y mensaje los manda gs). Con PR se abre la tarjeta del PR.
-                ForEach([("Pendientes", localOnly.filter(\.notStarted)), ("En una terminal", localOnly.filter { !$0.notStarted })], id: \.0) { title, items in
-                    if !items.isEmpty {
-                        Text(title).gSectionTitle().foregroundStyle(Color.gInk2).padding(.top, 8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ForEach(items) { run in
-                            Button { localSheet = run } label: { DevLocalRunRow(run: run) }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("dev-local-\(run.id)")
+                if onBoard.isEmpty && !onlyNeedsYou {
+                    Text("Nada en curso").gMeta().foregroundStyle(Color.gInk3).frame(maxWidth: .infinity).padding(.vertical, 20)
+                }
+                if !onlyNeedsYou {
+                    ForEach(Self.closedColumns, id: \.0) { col, title in
+                        let hit = items.filter { $0.column == col }
+                        if !hit.isEmpty {
+                            Button { withAnimation(.snappy) { if openClosed.contains(col) { openClosed.remove(col) } else { openClosed.insert(col) } } } label: {
+                                HStack(spacing: 6) {
+                                    Text(title).gSectionTitle().foregroundStyle(Color.gInk2)
+                                    Text("\(hit.count)").gSectionTitle().foregroundStyle(Color.gInk3)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: openClosed.contains(col) ? "chevron.down" : "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.gInk3)
+                                }
+                                .contentShape(Rectangle()).padding(.top, 8)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("dev-col-\(col)")
+                            if openClosed.contains(col) { ForEach(hit) { card($0) } }
                         }
                     }
                 }
             }
+        }
+    }
+
+    private func sectionTitle(_ title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title).gSectionTitle().foregroundStyle(Color.gInk2)
+            Text("\(count)").gSectionTitle().foregroundStyle(Color.gInk3)
+        }
+        .padding(.top, 8).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private func card(_ item: DevBoardItem) -> some View {
+        switch item {
+        case .run(let run):
+            Button { path.append(run.id) } label: { DevRunRow(run: run) }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("dev-run-\(run.id)")
+        case .local(let run):
+            Button { localSheet = run } label: { DevLocalRunRow(run: run) }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("dev-local-\(run.id)")
         }
     }
 }

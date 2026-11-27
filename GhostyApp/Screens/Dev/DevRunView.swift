@@ -12,6 +12,9 @@ struct DevRunView: View {
     @State private var confirmStop = false
     /// Una acción del servidor con `confirm`, esperando el sí de la persona.
     @State private var pendingAction: DevAction?
+    @State private var formAction: DevAction?
+    @State private var readText: DevReadText?
+    @State private var runningID: String?
     /// PR sin DevRun: el merge y el cierre son irreversibles, piden confirmación.
     @State private var confirmMerge = false
     @State private var confirmClose = false
@@ -61,6 +64,16 @@ struct DevRunView: View {
             }
         }
         .sheet(isPresented: $shareOpen) { DevShareSheet(id: id, store: store) }
+        .sheet(item: $formAction) { a in
+            DevActionFormSheet(action: a) { v in
+                guard let run else { return "No encontré el pendiente." }
+                switch await store.perform(a, repo: run.repo, issue: run.issue, pr: run.pr, runID: id, values: v) {
+                case .failed(let m): return m
+                default: notice = "Listo: \(a.label.lowercased())."; return nil
+                }
+            }
+        }
+        .sheet(item: $readText) { DevReadSheet(item: $0) }
     }
 
     @ViewBuilder private var core: some View {
@@ -769,7 +782,11 @@ struct DevRunView: View {
 
     private func actionPill(_ a: DevAction) -> some View {
         Button { tap(a) } label: {
-            Text(a.label).font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize()
+            HStack(spacing: 6) {
+                if runningID == a.id { ProgressView().controlSize(.mini).tint(a.primary ? .white : .gInk2) }
+                Text(a.label)
+            }
+            .font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize()
                 .padding(.horizontal, 16).padding(.vertical, 7)
                 .foregroundStyle(a.isDisabled ? Color.gInk3 : a.primary ? Color.white : a.destructive ? Color.gDangerInk : Color.gInk)
                 .background(!a.isDisabled && a.primary ? Color.gPrimary : Color.clear, in: Capsule())
@@ -780,17 +797,23 @@ struct DevRunView: View {
     }
 
     private func tap(_ a: DevAction) {
-        if let c = a.confirm, !c.isEmpty { pendingAction = a } else { Task { await runAction(a) } }
+        if !a.fields.isEmpty { formAction = a }
+        else if let c = a.confirm, !c.isEmpty { pendingAction = a } else { Task { await runAction(a) } }
     }
 
     /// Ejecuta lo que gs dejó hacer; una acción que no se conoce igual corre por su `op` o su `href`.
     private func runAction(_ a: DevAction) async {
         guard let run else { return }
         sending = true
-        defer { sending = false }
-        switch await store.perform(a, repo: run.repo, issue: run.issue, runID: id) {
-        case .done: break
+        runningID = a.id
+        defer { sending = false; runningID = nil }
+        switch await store.perform(a, repo: run.repo, issue: run.issue, pr: run.pr, runID: id) {
+        case .done:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            notice = "Listo: \(a.label.lowercased())."
+
         case .open(let u): openURL(u)
+        case .text(let t): readText = DevReadText(title: a.label, text: t)
         case .failed(let m): notice = m
         }
     }

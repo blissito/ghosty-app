@@ -7,11 +7,16 @@ import SwiftUI
 struct DevActionButton: View {
     let action: DevAction
     var busy = false
+    /// Esta es la que está corriendo: lleva spinner en vez de quedarse quieta.
+    var running = false
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            Text(action.label).font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            HStack(spacing: 8) {
+                if running { ProgressView().tint(filled ? .white : .gInk2).controlSize(.small) }
+                Text(running ? "\(action.label)…" : action.label).font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            }
                 .frame(maxWidth: .infinity).padding(.vertical, 11)
                 .foregroundStyle(fg)
                 .background(filled ? Color.gPrimary : Color.clear, in: Capsule())
@@ -122,6 +127,96 @@ struct DevComposeBar: View {
     }
 }
 
+/// Lo que trajo una acción `read` (el log de la caja), para pintarlo en una hoja.
+struct DevReadText: Identifiable {
+    let id = UUID()
+    let title: String
+    let text: String
+}
+
+/// La hoja con el texto de una acción `read`: monoespaciado, seleccionable y desde el final (es una cola de log).
+struct DevReadSheet: View {
+    let item: DevReadText
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                ScrollView([.vertical]) {
+                    Text(item.text).font(.system(size: 12, design: .monospaced)).foregroundStyle(Color.gInk)
+                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(Theme.Space.screenH)
+                    Color.clear.frame(height: 1).id("end")
+                }
+                .onAppear { proxy.scrollTo("end", anchor: .bottom) }
+            }
+            .background(Color.gBg.ignoresSafeArea())
+            .navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Copiar") { UIPasteboard.general.string = item.text } }
+                ToolbarItem(placement: .topBarTrailing) { Button("Listo") { dismiss() } }
+            }
+        }
+        .presentationBackground(Color.gBg)
+        .accessibilityIdentifier("dev-read-sheet")
+    }
+}
+
+/// Los campos que gs pide antes de una acción (`fields`, p. ej. «Editar criterio»). Manda sólo con todo lleno.
+struct DevActionFormSheet: View {
+    let action: DevAction
+    /// Ejecuta con los valores; devuelve el error para mostrarlo (o `nil` si salió).
+    let submit: ([String: Any]) async -> String?
+    @State private var values: [String: String] = [:]
+    @State private var busy = false
+    @State private var problem: String?
+    @Environment(\.dismiss) private var dismiss
+
+    private var parsed: [String: Any]? {
+        var out: [String: Any] = [:]
+        for f in action.fields {
+            let v = (values[f.name] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if v.isEmpty { return nil }
+            if f.type == "number" { guard let n = Int(v) else { return nil }; out[f.name] = n } else { out[f.name] = v }
+        }
+        return out
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                ForEach(action.fields) { f in
+                    Section(f.label) {
+                        TextField(f.label, text: Binding(get: { values[f.name] ?? "" }, set: { values[f.name] = $0 }), axis: f.type == "number" ? .horizontal : .vertical)
+                            .keyboardType(f.type == "number" ? .numberPad : .default)
+                            .accessibilityIdentifier("dev-field-\(f.name)")
+                    }
+                }
+                if let problem { Text(problem).foregroundStyle(Color.gDangerInk) }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.gBg.ignoresSafeArea())
+            .navigationTitle(action.label).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("Cancelar") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(busy ? "Enviando…" : "Enviar") {
+                        guard let v = parsed else { return }
+                        Task {
+                            busy = true
+                            problem = await submit(v)
+                            busy = false
+                            if problem == nil { dismiss() }
+                        }
+                    }
+                    .disabled(parsed == nil || busy)
+                    .accessibilityIdentifier("dev-field-submit")
+                }
+            }
+        }
+        .presentationBackground(Color.gBg)
+        .presentationDetents([.medium, .large])
+    }
+}
+
 /// La ficha mínima de un pendiente de terminal: título, escritor, «Sin señal desde hace X» y las acciones del servidor.
 struct DevLocalSheet: View {
     let initial: DevLocalRun
@@ -129,6 +224,11 @@ struct DevLocalSheet: View {
     @State private var busy = false
     @State private var notice: String?
     @State private var pending: DevAction?
+    @State private var formAction: DevAction?
+    @State private var readText: DevReadText?
+    @State private var runningID: String?
+    /// Si cabe en la nube: se pregunta al abrir la ficha cuando hay «Mandar a la nube».
+    @State private var capacity: DevCapacity?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -154,6 +254,18 @@ struct DevLocalSheet: View {
                     }
                     Text(run.pr.map { "PR #\($0)" } ?? "Issue #\(run.issue)").gMeta().foregroundStyle(Color.gInk3)
                 }
+                if let cap = capacity {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: cap.fits ? "shippingbox" : "exclamationmark.triangle.fill")
+                        Text(cap.line)
+                    }
+                    .font(.system(size: 13, weight: .medium)).foregroundStyle(cap.fits ? Color.gInk3 : Color.gAmberInk)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("dev-capacity")
+                    if cap.blocked, let u = cap.buyURL {
+                        Button("Conseguir más cajas") { openURL(u) }.font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.gPrimaryPressed)
+                    }
+                }
                 actionsList
                 if let c = run.compose {
                     Divider().overlay(Color.gHairline)
@@ -171,6 +283,18 @@ struct DevLocalSheet: View {
         .confirmationDialog(pending?.confirm ?? "", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), titleVisibility: .visible) {
             if let a = pending { Button(a.label, role: a.destructive ? .destructive : nil) { Task { await perform(a) } } }
         }
+        .sheet(item: $formAction) { a in
+            DevActionFormSheet(action: a) { v in
+                switch await store.perform(a, repo: run.repo, issue: run.issue > 0 ? run.issue : nil, pr: run.pr, runID: run.prID, values: v) {
+                case .failed(let m): return m
+                default: notice = "Listo: \(a.label.lowercased())."; return nil
+                }
+            }
+        }
+        .sheet(item: $readText) { DevReadSheet(item: $0) }
+        .task {
+            if run.actions?.contains(where: { $0.kind == .start }) == true { capacity = await store.capacity(repo: run.repo) }
+        }
     }
 
     private var writerLine: String {
@@ -183,7 +307,7 @@ struct DevLocalSheet: View {
         VStack(spacing: 8) {
             if let acts = run.actions {
                 ForEach(acts) { a in
-                    DevActionButton(action: a, busy: busy) { tap(a) }
+                    DevActionButton(action: a, busy: busy, running: runningID == a.id) { tap(a) }
                     if a.isDisabled, let why = a.disabledWhy { Text(why).gCaption().foregroundStyle(Color.gInk3) }
                 }
             } else if let u = run.openURL {
@@ -193,16 +317,26 @@ struct DevLocalSheet: View {
     }
 
     private func tap(_ a: DevAction) {
-        if let c = a.confirm, !c.isEmpty { pending = a } else { Task { await perform(a) } }
+        // Sin lugar ni nada que apagar, gs tardaría en contestar «sin caja libre»: se dice ya.
+        if a.kind == .start, let cap = capacity, cap.blocked { notice = "Sin caja libre: \(cap.used) de \(cap.slots) ocupadas. Libera una o consigue más cajas."; return }
+        if !a.fields.isEmpty { formAction = a }
+        else if let c = a.confirm, !c.isEmpty { pending = a } else { Task { await perform(a) } }
     }
 
     private func perform(_ a: DevAction) async {
         busy = true
-        defer { busy = false }
-        switch await store.perform(a, repo: run.repo, issue: run.issue > 0 ? run.issue : nil, runID: run.prID) {
-        case .done: dismiss()
+        runningID = a.id
+        defer { busy = false; runningID = nil }
+        switch await store.perform(a, repo: run.repo, issue: run.issue > 0 ? run.issue : nil, pr: run.pr, runID: run.prID) {
+        case .done:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            store.flash = "Listo: \(a.label.lowercased())."
+            dismiss()
         case .open(let u): openURL(u)
-        case .failed(let m): notice = m
+        case .text(let t): readText = DevReadText(title: a.label, text: t)
+        case .failed(let m):
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            notice = m
         }
     }
 }
