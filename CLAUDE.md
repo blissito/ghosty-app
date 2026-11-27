@@ -282,6 +282,37 @@ baja su hilo y abre SSE. Pruebas de `Core/`: `xcodebuild test -scheme GhostyCore
 La suite de UI quedó al día con el rediseño de Chats el 12-oct (26/26): las pruebas entran al hilo
 desde la lista (`abrirChat`), no suponen que la app arranca en el chat.
 
+## 1.0.23 en TestFlight (27-nov, build 119) — a revisión EN LA NOCHE
+
+Build **119** (`main` al f941821e) repartida en TestFlight (Alpha) el 27-nov; **NO** se ha mandado a revisión: bliss la
+manda en la noche y antes se le agregan más cosas (al subir otra build, `MARKETING_VERSION` sigue en 1.0.23). La 1.0.22
+(build 118) ya está en la tienda; falta `ghosty app suggest 118`. «Qué hay de nuevo» ya escrito para lo de Desarrollo.
+
+**Qué lleva — Desarrollo igual que la web** (`/c/desarrollo`, comparado lado a lado con WDA en el cel):
+- Tablero: los pendientes de terminal (`local`) entran a su columna de gs (antes iban sueltos al final), renglón
+  «Siguiente: … · a quién le toca» (`next` de gs), «N intentos anteriores» (`attempts`), repo recordado (`@AppStorage
+  dev.repo`), Hecho y Detenidos plegados al final con su cuenta (se quitó el chip «Todos»), «Te necesitan» con la regla
+  `needsAttention` de gs. Ya no se esconden ghosty-studio ni easybits (sólo los «Bump …»).
+- Acciones (`Core/Dev/DevActions.swift` `perform`): mismo camino que `runServerAction` de la web y que ghosty-dev.
+  `start` manda el PR si lo hay (la nube adopta su rama) y `{repo, pr, writer: cloud}` sin issue; las `op` de tarjetas de
+  PR van por `act` (ruta `…/dev-runs/pr/…`, antes decía «Esta versión no sabe»); `edit_criterion` pide sus `fields`
+  (`DevActionFormSheet`); `read` (`box_logs`) enseña el texto (`DevReadSheet`); `handoff_to_terminal` enseña el comando.
+- Feedback: spinner en la acción tocada, háptico y aviso «Listo: …» (`store.flash`), la recarga ya no bloquea el botón;
+  la ficha local dice las cajas libres (`GET …/dev-runs/capacity`) antes de «Mandar a la nube» y corta en seco si no hay.
+
+⚠️ **Sin probar con efecto real** (no se tocaron en el cel): spinner/aviso al terminar, «Mandar a la nube» desde un PR,
+merge y demás acciones de PR, «Seguir en mi terminal». Probarlo con algo que no importe antes de mandar a revisión.
+Lo visto en el cel: tablero, «Editar criterio» (abre, no se envió), «Ver log de la vista previa», aviso de cajas.
+
+⚠️ **Pruebas**: 178 pasan. Fallan las 17 de Fábrica + `testActivity` (ya viejas) y las de `DevUITests`: en un simulador
+nuevo la app se queda en el login y el token del CLI (`~/.config/ghosty/config.json`) NO le sirve de sesión. Hace falta
+un `GHOSTY_TOKEN` de la app. El 27-nov se borró el runtime de iOS de Xcode (`xcodebuild -downloadPlatform iOS`, 8 GB) y
+hubo que crear el simulador «iPhone 17 Pro»: sin simuladores `capturas.sh` imprime la ayuda de xcodebuild y no corre.
+
+**Visto de paso**: la vista previa del PR #152 de formmy da 502 porque el servidor arranca en el puerto 3000 y la caja
+lo espera en el 4300 (se ve con «Ver log de la vista previa»). **Falta en la app** frente a la web: pausar/horario de
+la fábrica (`ghosty-dev factory`) y el automerge.
+
 ## 1.0.21 en revisión (25-nov, build 116)
 
 Build **116** (`main` al 7333e5de) en TestFlight (Alpha) y en revisión desde el 25-nov, salida AUTOMÁTICA. Reemplazó a la
